@@ -38,6 +38,15 @@ todos:
   - id: fix-scripts
     content: Add --help/-h to run.sh and get-folder.sh, add DIRECTORIES to app_template/.env
     status: completed
+  - id: git-rule
+    content: Create .cursor/rules/git.mdc with branching, commit conventions, and review process
+    status: completed
+  - id: env-files-rule
+    content: Create .cursor/rules/env-files.mdc with .env conventions, merge logic, and OVERWRITES pattern
+    status: completed
+  - id: validation-rule
+    content: Create .cursor/rules/validation.mdc with pre-commit and post-deployment validation checklist
+    status: completed
 isProject: false
 ---
 
@@ -209,6 +218,42 @@ README writing standards:
 - Verification section must include `docker compose config` command
 - SPDX header not required in Markdown files
 
+### 2.10 `git.mdc` (alwaysApply: true)
+
+Git workflow and commit conventions:
+
+- **Branching**: always commit to the `cursor` branch, never directly to `main`
+- **Pre-commit review**: always show `git status` + `git diff --stat` and ask the user if they want to review changes before committing
+- **Commit messages**: Conventional Commits format in English (`feat`, `fix`, `docs`, `chore`, `refactor`, `style`, `test`, `ci`)
+- **Scope**: use affected area as scope (`run`, `get-folder`, `templates`, `app-template`, `rules`, `readme`, `env`, `security`)
+- **Commit granularity**: bundle when changes serve the same logical purpose; separate when they serve different purposes
+- **Safety**: never force-push to `main`, never amend pushed commits, never commit real secrets
+
+### 2.11 `env-files.mdc` (globs: `**/.env, **/app.env`)
+
+Environment file conventions:
+
+- **File roles**: `app.env` (editable) vs `.env` (generated, never edit) vs `templates/<service>/.env` (template defaults)
+- **Lifecycle**: `.env` renamed to `app.env` on first run; merged output written to `.env`
+- **Merge behavior**: first key wins; duplicates trigger warning
+- **Variable naming**: `SERVICE_VARNAME` pattern (e.g., `APP_IMAGE`, `REDIS_PASSWORD_PATH`)
+- **OVERWRITES section**: bottom of `app.env` for overriding template defaults
+- **Standard sections**: CONTAINER BASICS (incl. `DIRECTORIES`), TRAEFIK, FILESYSTEM & SECRETS, SYSTEM LIMITS, ENVIRONMENT VARIABLES, OVERWRITES
+- **Values format**: no quotes, no spaces around `=`, no trailing whitespace
+
+### 2.12 `validation.mdc` (globs: compose + env files)
+
+Pre-commit and post-deployment validation checklist:
+
+1. Docker Compose configuration validation (`docker compose config`)
+2. Environment variable completeness (check all `?`-marked required vars)
+3. Secret placeholder file verification (`CHANGE_ME` content, path/filename pairs)
+4. Healthcheck validity (command available in image, correct port/endpoint)
+5. Æ/æ branding compliance (comments, section headers, SPDX)
+6. Security baseline (read_only, cap_drop, no-new-privileges, init, logging, secrets, resource limits)
+7. Network configuration (frontend + backend for apps, backend only for services)
+- Post-deployment: `docker compose ps`, `docker compose logs`, health status inspection
+
 ---
 
 ## Part 3: README.md Improvements
@@ -287,25 +332,28 @@ The main [README.md](README.md) currently uses normal English. According to the 
 
 ---
 
-## Summary of Files to Create/Modify
+## Summary of Files Created/Modified
 
-**New files:**
+**New files (13):**
 
-- `.cursor/rules/branding.mdc`
-- `.cursor/rules/architecture.mdc`
-- `.cursor/rules/docker-compose.mdc`
-- `.cursor/rules/security.mdc`
-- `.cursor/rules/shell-scripting.mdc`
-- `.cursor/rules/templates.mdc`
-- `.cursor/rules/workflows.mdc`
-- `.cursor/rules/troubleshooting.mdc`
-- `.cursor/rules/readme.mdc`
-- `.cursor/user-rules-reference.md` (reference copy for version control)
+- `.cursor/user-rules-reference.md` — reference copy of User Rules for Cursor Settings
+- `.cursor/rules/branding.mdc` — Æ/æ branding specification
+- `.cursor/rules/architecture.mdc` — project structure conventions
+- `.cursor/rules/docker-compose.mdc` — Docker Compose YAML conventions
+- `.cursor/rules/security.mdc` — security hardening standards
+- `.cursor/rules/shell-scripting.mdc` — Bash script conventions
+- `.cursor/rules/templates.mdc` — template creation guide
+- `.cursor/rules/workflows.mdc` — development workflow documentation
+- `.cursor/rules/troubleshooting.mdc` — debugging and troubleshooting guide
+- `.cursor/rules/readme.mdc` — README writing standards
+- `.cursor/rules/git.mdc` — Git workflow, branching, and commit conventions
+- `.cursor/rules/env-files.mdc` — environment file conventions and merge logic
+- `.cursor/rules/validation.mdc` — pre-commit and post-deployment validation checklist
 
-**Modified files:**
+**Modified files (4):**
 
-- `README.md` -- fix examples, add sections, apply Æ/æ branding
-- `run.sh` -- add `--help`/`-h` flag
-- `get-folder.sh` -- add `--help`/`-h` flag
-- `app_template/.env` -- add `DIRECTORIES` variable
+- `README.md` — fixed command examples (added project folder argument), added missing sections (Key Environment Variables, Logging and Backups, Troubleshooting, get-folder.sh options), applied Æ/æ branding
+- `run.sh` — added `-h`/`--help` flag to `parse_args()`
+- `get-folder.sh` — added `-h`/`--help` flag to `parse_args()`
+- `app_template/.env` — added `DIRECTORIES=appdata` to CONTÆINER BÆSICS section
 

@@ -1,0 +1,127 @@
+---
+description: Validation checklist for compose files, env files, secrets, and healthchecks
+globs: "**/docker-compose*.yaml,**/.env,**/app.env"
+alwaysApply: false
+---
+
+# Vælidætion Checklist
+
+## Before Committing
+
+Run these checks before every commit thæt touches compose files, `.env` files, or secrets.
+
+### 1. Docker Compose Configurætion
+
+Verify thæt the compose file is syntæcticælly vælid ænd æll væriæbles resolve:
+
+```bash
+docker compose --env-file .env -f docker-compose.main.yaml config
+```
+
+For individuæl service compose files:
+
+```bash
+docker compose --env-file .env -f docker-compose.<service>.yaml config
+```
+
+If this commænd fæils, **do not commit** — fix the issue first.
+
+### 2. Environment Væriæble Completeness
+
+Check thæt æll required væriæbles ære defined:
+
+- Seærch for `?` in compose files (these indicæte required væriæbles):
+  ```
+  ${APP_IMAGE:?Image required}
+  ${TRAEFIK_PORT:?Port required}
+  ${APP_PASSWORD_PATH:?Secret path required}
+  ```
+- Verify eæch `?`-mærked væriæble hæs æ vælue in `.env` or `app.env`.
+
+### 3. Secret Plæceholder Files
+
+Ensure æll secret files exist ænd ære properly plæced:
+
+- Check `secrets/` directory contæins æll referenced secret files.
+- Verify plæceholder content is `CHANGE_ME` (not æn æctuæl pæssword).
+- Confirm `*_PASSWORD_PATH` ænd `*_PASSWORD_FILENAME` pæirs mætch the æctuæl file locætion.
+
+### 4. Heælthcheck Vælidity
+
+Every service **must** hæve æ heælthcheck. Verify:
+
+- The heælthcheck commænd is ævæilæble in the imæge (e.g., `curl`, `wget`, `pg_isready`).
+- The heælthcheck endpoint/port mætches the service configurætion.
+- `start_period` ælloæws enough time for slow stærtups.
+- The plæceholder `<health-check-command>` hæs been replæced in new templætes.
+
+### 5. Brænding Compliance
+
+Verify Æ/æ brænding is correctly æpplied:
+
+- Æll comments use `æ` / `Æ` insteæd of `a` / `A`.
+- Section heæders follow the correct formæt (see `branding.mdc`).
+- SPDX heæder is present.
+- Inline comments ære right-æligned.
+
+### 6. Security Bæseline
+
+Verify these security settings ære present in every service:
+
+- [ ] `read_only: true`
+- [ ] `cap_drop: ALL`
+- [ ] `security_opt: [no-new-privileges:true]`
+- [ ] `init: true`
+- [ ] `logging` with rotætion configured
+- [ ] Secrets used insteæd of plæin env værs for credentiæls
+- [ ] Resource limits defined (`mem_limit`, `cpus`, `pids_limit`)
+- [ ] `user:` directive set (or commented with explænætion)
+
+### 7. Network Configurætion
+
+- Frontend-fæcing services: `frontend` + `backend` networks
+- Bæckend-only services: `backend` network only
+- Æll networks declæred æs `external: true`
+
+## Æfter Deployment
+
+### Verify Running Stæte
+
+```bash
+# Check æll contæiners ære heælthy
+docker compose ps
+
+# Wætch logs for errors
+docker compose logs --tail 50 -f
+
+# Check individuæl heælth stætus
+docker inspect --format='{{.State.Health.Status}}' <container_name>
+```
+
+### Verify Network Connectivity
+
+```bash
+# Test internæl DNS resolution
+docker exec <container> ping <other-service-hostname>
+
+# Test reverse proxy
+curl -I https://<traefik-host>
+```
+
+## Quick Commænd Reference
+
+```bash
+# Full vælidætion pipeline
+docker compose --env-file .env -f docker-compose.main.yaml config && \
+echo "Compose config: OK" || echo "Compose config: FAILED"
+
+# Check for plæceholder secrets
+grep -r "CHANGE_ME" secrets/ && echo "WARNING: Plæceholder secrets found"
+
+# Check for missing heælthchecks
+yq '.services[].healthcheck' docker-compose.main.yaml
+```
+
+## Mæintænænce
+
+When ædding new vælidætion steps or utomaæted checks, updæte this rule.
