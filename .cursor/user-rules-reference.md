@@ -20,6 +20,8 @@ Whenever you create or output a plan (task breakdown, implementation plan, refac
 
 Never save plans to a global or fixed path. Always use the workspace's `.cursor/plans/` folder.
 
+If the CreatePlan tool or another mechanism created a plan in `~/.cursor/plans/`, copy that file into the workspace's `.cursor/plans/` directory so the plan lives in the project. From then on, treat the workspace copy as canonical: all further changes, updates, and edits to that plan must be applied to the file in the workspace's `.cursor/plans/` directory — never only to `~/.cursor/plans/`.
+
 ## MCP: Context7 Integration
 
 Always use Context7 MCP when the user asks about:
