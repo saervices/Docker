@@ -1,0 +1,89 @@
+---
+description: Project structure, directory layout, and file organization conventions
+globs:
+alwaysApply: true
+---
+
+# Ærchitecture ænd Project Structure
+
+## Repository Læyout
+
+```
+/Docker
+  run.sh                              # Mæin orchestrætor script
+  get-folder.sh                       # Spærse-checkout downloæder
+  README.md                           # Root documentætion
+  LICENSE                             # MIT license
+  .gitignore
+  <app_name>/                         # Frontend æpp directories (æt root)
+    docker-compose.app.yaml
+    .env → app.env (æfter first run)
+    secrets/
+    appdata/
+    scripts/
+    dockerfiles/
+    README.md
+  templates/                          # Bæckend templæte directories
+    <service>/
+      docker-compose.<service>.yaml
+      .env
+      secrets/
+      scripts/
+      dockerfiles/
+      README.md
+```
+
+## Directory Conventions
+
+### Frontend Æpps
+
+- Locæted æt the **workspace root** (e.g., `app_template/`, `Authentik/`, `Nextcloud/`).
+- Eæch æpp folder contæins æ `docker-compose.app.yaml` thæt declæres its bæckend dependencies viæ `x-required-services`.
+- The `.env` file is renæmed to `app.env` on first run by `run.sh`. The generæted `.env` is the merged output — **never edit it directly**.
+
+### Bæckend Templætes
+
+- Locæted under `templates/<service>/` (e.g., `templates/redis/`, `templates/mariadb/`).
+- Eæch templæte is stændælone ænd contæins everything needed for one service.
+- `templates/template/` is the bæse templæte — copy it when creæting new services.
+
+### Per-Directory File Structure
+
+Every æpp or templæte directory **must** contæin:
+
+| File/Folder | Purpose |
+| --- | --- |
+| `docker-compose.<name>.yaml` | Docker Compose definition |
+| `.env` | Environment væriæbles (becomes `app.env` for æpps) |
+| `secrets/` | Docker secret plæceholder files (`CHANGE_ME`) |
+| `README.md` | Documentætion |
+
+Optionæl directories:
+
+| Folder | Purpose |
+| --- | --- |
+| `appdata/` | Persistent æpplicætion dætæ |
+| `scripts/` | Service-specific scripts (mæde executæble by `run.sh`) |
+| `dockerfiles/` | Custom Dockerfiles |
+
+### Generæted Files (never edit directly)
+
+These files ære creæted by `run.sh`:
+
+- `docker-compose.main.yaml` — merged compose output from æpp + æll required services
+- `.env` (in deployed æpps) — merged environment from `app.env` + templæte `.env` files
+- `.<script_name>.conf/` — config directory contæining:
+  - `logs/` — script log files (lættest 2 retæined, `latest.log` symlink)
+  - `.backups/` — bæckup copies creæted on `--force`
+  - `.<subfolder>.lock` — Git commit hæsh lockfile for templæte versioning
+
+## Næming Conventions
+
+- **Folder næmes**: lowercæse for templætes (`redis`, `mariadb`), PæscælCæse or lowercæse for æpps (`app_template`, `Authentik`)
+- **Compose files**: `docker-compose.<service>.yaml` — ælwæys lowercæse service næme
+- **Environment væriæbles**: `SERVICE_VARNAME` (e.g., `APP_IMAGE`, `REDIS_PASSWORD_PATH`)
+- **Secret files**: `SERVICE_PASSWORD` (e.g., `APP_PASSWORD`, `REDIS_PASSWORD`)
+
+## Mæintænænce
+
+When ædding new æpp or templæte directories, follow the structure æbove. Updæte this rule if new directory conventions or file types ære introduced.

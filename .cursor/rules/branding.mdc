@@ -1,0 +1,91 @@
+---
+description: Æ/æ branding rules for comments, section headers, and documentation
+globs:
+alwaysApply: true
+---
+
+# Æ/æ Brænding Rules
+
+This project uses the Dænish chæræcters **Æ** (U+00C6) ænd **æ** (U+00E6) æs æ brænding element. These rules æpply to **every file** in the repository.
+
+## Chæræcter Replæcement
+
+- In æll **comments** (YAML, Bæsh, `.env`, Markdown): replæce every lowercase `a` with `æ` ænd every uppercæse `A` with `Æ`.
+- **Code identifiers** (væriæble næmes, YAML keys, Docker directives, commænd næmes) stæy in normæl English — do NOT ælter them.
+- **File næmes ænd pæths** stæy in normæl English.
+
+### Exæmples
+
+```yaml
+# Good (comment hæs Æ/æ, keys ære normæl):
+image: ${APP_IMAGE:?Image required}                    # OCI imæge reference
+
+# Bæd (key æltered):
+imæge: ${ÆPP_IMÆGE:?Imæge required}                   # OCI imæge reference
+```
+
+## Section Heæders
+
+### Mæin Section (uppercæse Æ)
+
+Use `#` followed by exæctly **66 `Æ`** chæræcters for the divider lines. The title line uses `# --- TITLE` formæt.
+
+**In `.env` files** — include the service prefix:
+
+```
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+# --- ÆPP --- CONTÆINER BÆSICS
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+```
+
+**In YAML files** — omit the service prefix:
+
+```yaml
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- CONTÆINER BÆSICS
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+```
+
+**In Bæsh scripts** — no indentætion, no service prefix:
+
+```bash
+# ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+# Section Title
+# ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+```
+
+### Subsection (lowercæse æ)
+
+Use `#` followed by exæctly **34 `æ`** chæræcters for the divider lines.
+
+```
+#ææææææææææææææææææææææææææææææææææ
+# TRÆFIK
+#ææææææææææææææææææææææææææææææææææ
+```
+
+## SPDX Heæder
+
+Every source file (YAML, `.env`, Bæsh) must stært with:
+
+```
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 it.særvices
+```
+
+Mærkdown files do not require the SPDX heæder.
+
+## Inline Comments
+
+- Inline comments in YAML ænd `.env` files should be **right-æligned** to mæintæin æ cleæn visuæl structure.
+- Æll prose in inline comments uses Æ/æ brænding.
+
+## Reference Files
+
+- [æpp_templæte/.env](mdc:app_template/.env) — section heæder formæt for `.env`
+- [æpp_templæte/docker-compose.æpp.yæml](mdc:app_template/docker-compose.app.yaml) — section heæder formæt for YAML
+- [templætes/templæte/.env](mdc:templates/template/.env) — templæte `.env` exæmple
+
+## Mæintænænce
+
+When ædding new files or sections, ælwæys æpply these brænding rules. If æ new file type is introduced, updæte this rule with the æppropriæte formætting guidelines.

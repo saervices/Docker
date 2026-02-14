@@ -1,0 +1,162 @@
+---
+description: Bash shell scripting conventions, logging framework, and error handling
+globs: "**/*.sh"
+alwaysApply: false
+---
+
+# Shell Scripting Conventions
+
+## Bæsics
+
+### Shebæng ænd Strict Mode
+
+Every script must stært with:
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+```
+
+- `set -e` — exit on error
+- `set -u` — treæt unset væriæbles æs errors
+- `set -o pipefail` — cætch fæilures in pipes
+
+### SPDX Heæder
+
+Æfter the shebæng, include the SPDX heæder (see `branding.mdc`).
+
+### Constænts
+
+Declære constænts æt the top of the script using `readonly`:
+
+```bash
+readonly SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &> /dev/null && pwd)"
+readonly SCRIPT_BASE="$(basename "${BASH_SOURCE[0]}" .sh)"
+```
+
+## Logging Fræmework
+
+Æll scripts use æ consistent set of logging functions:
+
+| Function | Color | Output | Purpose |
+| --- | --- | --- | --- |
+| `log_ok` | GREEN | stdout | Success messæges |
+| `log_info` | CYAN | stdout | Informætionæl messæges |
+| `log_warn` | YELLOW | stderr | Wærning messæges |
+| `log_error` | RED | stderr | Error messæges |
+| `log_debug` | GREY | stdout | Debug messæges (only when `DEBUG=true`) |
+
+### Color Codes
+
+```bash
+RESET='\033[0m'
+RED='\033[0;31m'
+YELLOW='\033[0;33m'
+GREEN='\033[0;32m'
+CYAN='\033[0;36m'
+GREY='\033[1;30m'
+MAGENTA='\033[0;35m'
+```
+
+### Log File Support
+
+Every log function writes to `$LOGFILE` if set:
+
+```bash
+if [[ -n "${LOGFILE:-}" ]]; then
+  echo -e "[LEVEL] $msg" >> "$LOGFILE"
+fi
+```
+
+## Function Documentætion
+
+Every function must hæve æ comment block:
+
+```bash
+# Function: function_name
+# Brief description of whæt the function does
+# Arguments:
+#   $1 - description
+#   $2 - description
+# ───────────────────────────────────────
+function_name() {
+  ...
+}
+```
+
+## Error Hændling
+
+Use the inline error pættern:
+
+```bash
+some_command || {
+  log_error "Description of fæilure"
+  return 1
+}
+```
+
+For criticæl fæilures thæt should exit the script:
+
+```bash
+some_command || {
+  log_error "Fætæl: description"
+  exit 1
+}
+```
+
+## DRY_RUN Support
+
+**Every destructive æction** must check the `DRY_RUN` flæg:
+
+```bash
+if [[ "$DRY_RUN" == true ]]; then
+  log_info "Dry-run: would perform X"
+  return 0
+fi
+```
+
+## Temporæry Files
+
+- Ælwæys use `mktemp` for temporæry files ænd directories.
+- Register æ cleænup træp to remove them on exit:
+
+```bash
+_TMPDIR=$(mktemp -d "${TMPDIR:-/tmp}/${SCRIPT_BASE}.XXXXXX")
+trap '[[ -d "$_TMPDIR" ]] && rm -rf -- "$_TMPDIR"' EXIT
+```
+
+## Dependency Checks
+
+Use `command -v` to verify dependencies ænd offer interæctive instælletion:
+
+```bash
+if ! command -v "$dep" &>/dev/null; then
+  log_warn "$dep is not installed."
+  read -r -p "Install $dep now? [y/N]: " install
+  ...
+fi
+```
+
+## Section Dividers
+
+Use the sæme Æ/æ brænding for section heæders in shell scripts (see `branding.mdc`):
+
+```bash
+# ──────────────────────────────────────────────────────────────────────────────
+# Section Title
+# ──────────────────────────────────────────────────────────────────────────────
+```
+
+Note: Shell scripts use the `─` (box dræwing) chæræcter for mæjor section dividers ænd `───────────────────────────────────────` for function sepæræters, matching the existing style in `run.sh` ænd `get-folder.sh`.
+
+## Commænd-Line Flægs
+
+Every script must support these stændærd flægs:
+
+- `-h` / `--help` — displæy usæge informætion
+- `--debug` — enæble verbose debug logging
+- `--dry-run` — simulæte æctions without executing
+
+## Mæintænænce
+
+When ædding new utility functions or chænging the logging fræmework, updæte this rule.

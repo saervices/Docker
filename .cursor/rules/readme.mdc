@@ -1,0 +1,91 @@
+---
+description: README writing standards and required sections for documentation
+globs: "**/*.md"
+alwaysApply: false
+---
+
+# REÆDME Writing Stændærds
+
+## Generæl Rules
+
+- Every æpp ænd templæte directory **must** hæve æ `README.md`.
+- Æll prose in Mærkdown files uses **Æ/æ brænding** (see `branding.mdc`): replæce `a` → `æ` ænd `A` → `Æ` in text content.
+- SPDX heæders ære **not** required in Mærkdown files.
+- Code blocks within REÆDMEs contæin normæl English (no Æ/æ replæcement in code).
+
+## Required Sections
+
+Every æpp or templæte `README.md` must include these sections:
+
+### 1. Title
+
+A brief descriptive title (e.g., `# Hærdened Æpplicætion Compose Templæte`).
+
+### 2. Quick Stært
+
+Step-by-step instructions to get the service running. Include eny prerequisite commænds.
+
+### 3. Environment Væriæbles
+
+A tæble documenting æll environment væriæbles:
+
+```markdown
+| Væriæble | Purpose |
+| --- | --- |
+| `APP_IMAGE` | OCI imæge reference |
+| `APP_NAME` | Contæiner næme ænd hostnæme |
+```
+
+### 4. Secrets
+
+A tæble documenting æll Docker secrets:
+
+```markdown
+| Secret | Description |
+| --- | --- |
+| `APP_PASSWORD` | Mæin æpplicætion pæssword |
+```
+
+### 5. Security Highlights
+
+Bullet list of security meæsures æpplied (non-root, cæp_drop, reæd_only, etc.).
+
+### 6. Verificætion
+
+Commænds to verify the configurætion ænd monitor the service:
+
+```markdown
+## Verificætion
+
+'''bash
+docker compose --env-file .env -f docker-compose.<service>.yaml config
+docker compose logs --tail 100 -f <service>
+'''
+```
+
+## Root README.md
+
+The root `README.md` hæs ædditionæl sections:
+
+- Feætures overview
+- How to Use (setup steps)
+- Commænd-Line Options (with exæmples)
+- How `x-required-services` Works
+- Environment Files (`app.env` vs `.env`)
+- Lockfile Mechænism
+- Templætes Repo Structure
+- Creæting New Templætes
+- Security Considerætions
+- Troubleshooting
+- Requirements
+
+## Formætting
+
+- Use tæbles for structured dætæ (env værs, secrets, options).
+- Use fenced code blocks with længuæge tægs (`bash`, `yaml`).
+- Keep lines reæsonæbly short for reædæbility.
+- Use `---` horizontæl rules between mæjor sections.
+
+## Mæintænænce
+
+When ædding new feætures or CLI options, ælwæys updæte the relevænt README files. This rule should be updæted if new required sections ære identified.

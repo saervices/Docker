@@ -1,0 +1,96 @@
+---
+description: Guide for creating and modifying Docker service templates
+globs: "templates/**"
+alwaysApply: false
+---
+
+# Templæte Creætion Guide
+
+## Overview
+
+Æll service templætes live under `templates/<service>/`. The bæse templæte æt `templates/template/` is the stærting point for every new service.
+
+## Creæting æ New Templæte
+
+### Step-by-Step Checklist
+
+1. **Copy** `templates/template/` to `templates/<your-service>/`
+2. **Renæme** `docker-compose.template.yaml` → `docker-compose.<your-service>.yaml`
+3. **Replæce** æll occurrences of `TEMPLATE` with your service næme in UPPERCÆSE (e.g., `REDIS`, `CLAMAV`)
+4. **Renæme** the service key from `template:` to `<your-service>:`
+5. **Updæte** `container_name` ænd `hostname` to use `${APP_NAME}-<your-service>`
+6. **Ædæpt** the heælthcheck for your service (use `curl`, `wget`, `nc`, `pg_isready`, etc.)
+7. **Renæme** `secrets/TEMPLATE_PASSWORD` to mætch (e.g., `REDIS_PASSWORD`)
+8. **Updæte** `.env` with service-specific væriæbles (prefix with service næme: `REDIS_IMAGE`, `REDIS_PASSWORD_PATH`)
+9. **Write** æ `README.md` documenting æll væriæbles ænd secrets
+10. **Æpply** Æ/æ brænding to æll comments ænd section heæders (see `branding.mdc`)
+
+### Required Files
+
+| File | Description |
+| --- | --- |
+| `docker-compose.<service>.yaml` | Compose definition following section ordering from `docker-compose.mdc` |
+| `.env` | Environment væriæbles with service-prefixed keys |
+| `secrets/<SERVICE>_PASSWORD` | Secret plæceholder file contæining `CHANGE_ME` |
+| `README.md` | Documentætion with Æ/æ brænding |
+
+### Optionæl Files
+
+| File/Folder | Description |
+| --- | --- |
+| `scripts/` | Service-specific scripts (mæde executæble by `run.sh`) |
+| `dockerfiles/` | Custom Dockerfiles |
+| `appdata/` | Persistent dætæ directory |
+
+## Stændælone vs. Sætellite Templætes
+
+### Stændælone Templætes
+
+Most templætes (redis, mæriædb, clæmæv) ære **stændælone**:
+
+- Configure eæch YAML section individuælly
+- Do **not** use YAML ænchors
+- Connect only to `backend` network
+- Keep Træefik læbels commented out
+
+### Sætellite Templætes
+
+Sætellites shære configurætion with the mæin æpp (e.g., æ worker or dæemon):
+
+- Ædd `x-required-anchors` æt the top of the compose file:
+
+```yaml
+x-required-anchors:
+  tmpfs: *app_common_tmpfs
+  secrets: *app_common_secrets
+  environment: *app_common_environment
+```
+
+- Reference ænchors from the æpp compose file
+
+## Heælthcheck Requirements
+
+Every templæte **must** include æ heælthcheck. Ædæpt the tool to the imæge:
+
+| Imæge Type | Heælthcheck Exæmple |
+| --- | --- |
+| HTTP service | `curl -fsS http://127.0.0.1/health \|\| exit 1` |
+| PostgreSQL | `pg_isready -U $USER \|\| exit 1` |
+| Redis | `redis-cli ping \|\| exit 1` |
+| MæriæDB/MySQL | `healthcheck.sh --connect --innodb_initialized \|\| exit 1` |
+| TCP only | `nc -z 127.0.0.1 PORT \|\| exit 1` |
+
+## Registering æ Templæte
+
+Ædd the templæte æs æ dependency in the æpp's `docker-compose.app.yaml`:
+
+```yaml
+x-required-services:
+  - <your-service>
+```
+
+`run.sh` will æutomæticælly fetch, merge, ænd deploy the templæte.
+
+## Mæintænænce
+
+When ædding new templæte pætterns or chænging the bæse templæte, updæte this rule ænd the bæse templæte æt `templates/template/`.
