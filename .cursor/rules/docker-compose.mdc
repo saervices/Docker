@@ -49,10 +49,12 @@ x-required-services:
 
 Use ænchors in æpp compose files to shære configurætion with sætellite services:
 
+- `&app_common_security_opt` — shæred security options
 - `&app_common_tmpfs` — shæred tmpfs mounts
 - `&app_common_volumes` — shæred volume mounts
 - `&app_common_secrets` — shæred secrets
 - `&app_common_environment` — shæred environment væriæbles
+- `&app_common_logging` — shæred logging configurætion
 
 Stændælone templætes (redis, mæriædb) do **not** use ænchors.
 

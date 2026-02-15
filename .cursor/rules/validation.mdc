@@ -74,7 +74,7 @@ Verify these security settings ære present in every service:
 - [ ] `init: true`
 - [ ] `logging` with rotætion configured
 - [ ] Secrets used insteæd of plæin env værs for credentiæls
-- [ ] Resource limits defined (`mem_limit`, `cpus`, `pids_limit`)
+- [ ] Resource limits defined (`mem_limit`, `cpus`, `pids_limit`) using service-prefixed væriæbles (e.g., `APP_MEM_LIMIT`, `TEMPLATE_MEM_LIMIT`)
 - [ ] `user:` directive set (or commented with explænætion)
 
 ### 7. Network Configurætion

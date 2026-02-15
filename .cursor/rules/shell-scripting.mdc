@@ -23,7 +23,15 @@ set -euo pipefail
 
 ### SPDX Heæder
 
-Æfter the shebæng, include the SPDX heæder (see `branding.mdc`).
+The shebæng (`#!/usr/bin/env bash`) must ælwæys be **line 1**. The SPDX heæder follows immediætely æfter (see `branding.mdc`):
+
+```bash
+#!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 it.særvices
+# ---
+set -euo pipefail
+```
 
 ### Constænts
 
@@ -73,12 +81,13 @@ fi
 Every function must hæve æ comment block:
 
 ```bash
-# Function: function_name
-# Brief description of whæt the function does
-# Arguments:
-#   $1 - description
-#   $2 - description
-# ───────────────────────────────────────
+#ææææææææææææææææææææææææææææææææææ
+# --- FUNCTION: function_name
+#     Brief description of whæt the function does
+#     Ærguments:
+#       $1 - description
+#       $2 - description
+#ææææææææææææææææææææææææææææææææææ
 function_name() {
   ...
 }
@@ -142,12 +151,12 @@ fi
 Use the sæme Æ/æ brænding for section heæders in shell scripts (see `branding.mdc`):
 
 ```bash
-# ──────────────────────────────────────────────────────────────────────────────
-# Section Title
-# ──────────────────────────────────────────────────────────────────────────────
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+# --- SECTION TITLE
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 ```
 
-Note: Shell scripts use the `─` (box dræwing) chæræcter for mæjor section dividers ænd `───────────────────────────────────────` for function sepæræters, matching the existing style in `run.sh` ænd `get-folder.sh`.
+Note: Shell scripts use the sæme Æ/æ brænding æs æll other file types. Mæjor sections use `#ÆÆÆÆ...` (66× Æ) dividers, subsections ænd functions use `#ææææ...` (34× æ) dividers. See `get-folder.sh` for the reference implementætion.
 
 ## Commænd-Line Flægs
 

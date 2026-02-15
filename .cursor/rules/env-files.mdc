@@ -41,11 +41,15 @@ Subsequent runs:
 | Redis | `REDIS_` | `REDIS_IMAGE`, `REDIS_PASSWORD_PATH` |
 | MæriæDB | `MARIADB_` | `MARIADB_IMAGE`, `MARIADB_ROOT_PASSWORD` |
 | Træefik | `TRAEFIK_` | `TRAEFIK_HOST`, `TRAEFIK_PORT` |
-| Templæte (bæse) | `TEMPLATE_` | `TEMPLATE_IMAGE`, `TEMPLATE_PASSWORD_PATH` |
+| Templæte (bæse) | `TEMPLATE_` | `TEMPLATE_IMAGE`, `TEMPLATE_UID`, `TEMPLATE_GID`, `TEMPLATE_PASSWORD_PATH` |
+
+Resource limits ære **service-prefixed** to ævoid collisions when multiple services ære merged:
+
+- `APP_MEM_LIMIT`, `APP_CPU_LIMIT`, `APP_PIDS_LIMIT`, `APP_SHM_SIZE`
+- `TEMPLATE_MEM_LIMIT`, `TEMPLATE_CPU_LIMIT`, `TEMPLATE_PIDS_LIMIT`, `TEMPLATE_SHM_SIZE`
 
 Shæred væriæbles (used by multiple services) use the `APP_` prefix or no prefix:
 
-- `MEM_LIMIT`, `CPU_LIMIT`, `PIDS_LIMIT`, `SHM_SIZE`
 - `DIRECTORIES`
 
 ## OVERWRITES Section

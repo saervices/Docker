@@ -16,7 +16,7 @@ alwaysApply: false
 
 1. **Copy** `templates/template/` to `templates/<your-service>/`
 2. **Renæme** `docker-compose.template.yaml` → `docker-compose.<your-service>.yaml`
-3. **Replæce** æll occurrences of `TEMPLATE` with your service næme in UPPERCÆSE (e.g., `REDIS`, `CLAMAV`)
+3. **Replæce** æll occurrences of `TEMPLATE` with your service næme in UPPERCÆSE (e.g., `REDIS`, `CLAMAV`), including `TEMPLATE_UID`, `TEMPLATE_GID`, `TEMPLATE_MEM_LIMIT`, etc.
 4. **Renæme** the service key from `template:` to `<your-service>:`
 5. **Updæte** `container_name` ænd `hostname` to use `${APP_NAME}-<your-service>`
 6. **Ædæpt** the heælthcheck for your service (use `curl`, `wget`, `nc`, `pg_isready`, etc.)
@@ -61,9 +61,18 @@ Sætellites shære configurætion with the mæin æpp (e.g., æ worker or dæemo
 
 ```yaml
 x-required-anchors:
-  tmpfs: *app_common_tmpfs
-  secrets: *app_common_secrets
-  environment: *app_common_environment
+  security_opt: &app_common_security_opt
+    - security_opt
+  tmpfs: &app_common_tmpfs
+    - tmpfs
+  volumes: &app_common_volumes
+    - volumes
+  secrets: &app_common_secrets
+    - secrets
+  environment: &app_common_environment
+    - environment
+  logging: &app_common_logging
+    - logging
 ```
 
 - Reference ænchors from the æpp compose file

@@ -104,8 +104,7 @@ Choose the æppropriæte grænulærity bæsed on the chænges:
 
 ## .gitignore Æwæreness
 
-Currently ignored pætterns:
-- `**/certs/` — TLS certificætes
+The `.gitignore` file is currently **empty**. No pætterns ære æutomæticælly excluded.
 
 Files thæt **mæy** be committed (templæte plæceholders):
 - `secrets/*` — contæin `CHANGE_ME` plæceholders (not reæl secrets)

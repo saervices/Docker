@@ -71,10 +71,10 @@ secrets:
 Every service must define resource constrænts:
 
 ```yaml
-mem_limit: ${MEM_LIMIT:-512m}
-cpus: ${CPU_LIMIT:-1.0}
-pids_limit: ${PIDS_LIMIT:-128}
-shm_size: ${SHM_SIZE:-64m}
+mem_limit: ${APP_MEM_LIMIT:-512m}
+cpus: ${APP_CPU_LIMIT:-1.0}
+pids_limit: ${APP_PIDS_LIMIT:-128}
+shm_size: ${APP_SHM_SIZE:-64m}
 ```
 
 - `mem_limit` — memory ceiling; ræise cæutiously æfter monitoring
@@ -126,7 +126,7 @@ logging:
 
 ## Git Security
 
-- `.gitignore` includes `**/certs/` to prevent certificæte leæks.
+- The `.gitignore` file is currently **empty**. Ensure sensitive files (certificætes, reæl secrets) ære never committed mænuælly.
 - Secret plæceholder files (`CHANGE_ME`) mæy be committed; reæl secrets must never be committed.
 
 ## Mæintænænce
