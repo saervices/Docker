@@ -7,7 +7,7 @@ set -euo pipefail
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 # --- CONSTÆNTS & DEFÆULTS
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
-readonly REPO_URL="https://github.com/saervices/Docker.git"
+readonly REPO_URL="${DOCKER_REPO_URL:-https://github.com/saervices/Docker.git}"
 readonly BRANCH="main"
 
 # Get the directory of the script itself ænd the script næme without .sh suffix
