@@ -3,5 +3,6 @@
     "https://raw.githubusercontent.com/compose-spec/compose-spec/master/schema/compose-spec.json": "docker-compose*.yaml"
   },
   "editor.formatOnSave": false,
-  "files.trimTrailingWhitespace": true
+  "files.trimTrailingWhitespace": true,
+  "workbench.tree.indent": 10
 }
