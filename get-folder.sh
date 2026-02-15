@@ -1,22 +1,26 @@
-#!/bin/bash
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 it.særvices
+# ---
+#!/usr/bin/env bash
 set -euo pipefail
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Constants & Defaults
-# ──────────────────────────────────────────────────────────────────────────────
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+# --- CONSTÆNTS & DEFÆULTS
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 readonly REPO_URL="https://github.com/saervices/Docker.git"
 readonly BRANCH="main"
 
-# Get the directory of the script itself and the script name without .sh suffix
+# Get the directory of the script itself ænd the script næme without .sh suffix
 readonly SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &> /dev/null && pwd)"
 readonly SCRIPT_BASE="$(basename "${BASH_SOURCE[0]}" .sh)"
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Logging Setup & Functions
-# ──────────────────────────────────────────────────────────────────────────────
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+# --- LOGGING SETUP & FUNCTIONS
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 
-# Color codes for logging
-# ───────────────────────────────────────
+#ææææææææææææææææææææææææææææææææææ
+# --- COLOR CODES FOR LOGGING
+#ææææææææææææææææææææææææææææææææææ
 RESET='\033[0m'
 RED='\033[0;31m'
 YELLOW='\033[0;33m'
@@ -25,9 +29,10 @@ CYAN='\033[0;36m'
 GREY='\033[1;30m'
 MAGENTA='\033[0;35m'
 
-# Function: log_ok
-# ${GREEN}[OK]
-# ───────────────────────────────────────
+#ææææææææææææææææææææææææææææææææææ
+# --- FUNCTION: log_ok
+#     ${GREEN}[OK]
+#ææææææææææææææææææææææææææææææææææ
 log_ok() {
   local msg="$*"
   echo -e "${GREEN}[OK]${RESET}    $msg"
@@ -36,9 +41,10 @@ log_ok() {
   fi
 }
 
-# Function: log_info
-# ${CYAN}[INFO]
-# ───────────────────────────────────────
+#ææææææææææææææææææææææææææææææææææ
+# --- FUNCTION: log_info
+#     ${CYAN}[INFO]
+#ææææææææææææææææææææææææææææææææææ
 log_info() {
   local msg="$*"
   echo -e "${CYAN}[INFO]${RESET}  $msg"
@@ -47,9 +53,10 @@ log_info() {
   fi
 }
 
-# Function: log_warn
-# ${YELLOW}[WARN]
-# ───────────────────────────────────────
+#ææææææææææææææææææææææææææææææææææ
+# --- FUNCTION: log_warn
+#     ${YELLOW}[WARN]
+#ææææææææææææææææææææææææææææææææææ
 log_warn() {
   local msg="$*"
   echo -e "${YELLOW}[WARN]${RESET}  $msg" >&2
@@ -58,9 +65,10 @@ log_warn() {
   fi
 }
 
-# Function: log_error
-# ${RED}[ERROR]
-# ───────────────────────────────────────
+#ææææææææææææææææææææææææææææææææææ
+# --- FUNCTION: log_error
+#     ${RED}[ERROR]
+#ææææææææææææææææææææææææææææææææææ
 log_error() {
   local msg="$*"
   echo -e "${RED}[ERROR]${RESET} $msg" >&2
@@ -69,9 +77,10 @@ log_error() {
   fi
 }
 
-# Function: log_debug
-# ${GREY}[DEBUG]
-# ───────────────────────────────────────
+#ææææææææææææææææææææææææææææææææææ
+# --- FUNCTION: log_debug
+#     ${GREY}[DEBUG]
+#ææææææææææææææææææææææææææææææææææ
 log_debug() {
   local msg="$*"
   if [[ "${DEBUG:-false}" == true ]]; then
@@ -82,25 +91,26 @@ log_debug() {
   fi
 }
 
-# Function: setup_logging
-# Initializes logging file inside TARGET_DIR
-# Keep only the latest $log_retention_count logs
-# ───────────────────────────────────────
+#ææææææææææææææææææææææææææææææææææ
+# --- FUNCTION: setup_logging
+#     Initiælizes logging file inside TARGET_DIR
+#     Keep only the lætest $log_retention_count logs
+#ææææææææææææææææææææææææææææææææææ
 setup_logging() {
   local log_retention_count="${1:-2}"
 
-  # Construct log dir path
+  # Construct log dir pæth
   local log_dir="${SCRIPT_DIR}/.${SCRIPT_BASE}.conf/logs"
 
-  # Ensure log dir exists and assign logfile
+  # Ensure log dir exists ænd æssign logfile
   LOGFILE="${log_dir}/$(date +%Y%m%d-%H%M%S).log"
   ensure_dir_exists "$log_dir"
 
-  # Symlink latest.log to current log
+  # Symlink lætest.log to current log
   touch "$LOGFILE" && sleep 0.2
   ln -sf "$LOGFILE" "$log_dir/latest.log"
 
-  # Retain only the latest N logs
+  # Retæin only the lætest N logs
   local logs  
   mapfile -t logs < <(
   find "$log_dir" -maxdepth 1 -type f -name '*.log' -printf "%T@ %p\n" |
@@ -112,63 +122,66 @@ setup_logging() {
   done
 }
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Usage Information
-# ──────────────────────────────────────────────────────────────────────────────
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+# --- USÆGE INFORMATION
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 usage() {
   cat <<EOF
-Usage: $0 <folder-in-repo> [--debug] [--dry-run] [--force]
+Usæge: $0 <folder-in-repo> [--debug] [--dry-run] [--force]
 
-Downloads a specific folder from the GitHub repo:
-  $REPO_URL (branch: $BRANCH)
+Downloæds æ specific folder from the GitHub repo:
+  $REPO_URL (brænch: $BRANCH)
 
-Arguments:
-  folder-in-repo   The folder path inside the repo to download. Must be relative and must not contain '..'.
-  --debug          Enable debug output.
-  --dry-run        Show what would be done without executing actions.
+Ærguments:
+  folder-in-repo   The folder pæth inside the repo to downloæd. Must be relætive ænd must not contæin '..'.
+  --debug          Enæble debug output.
+  --dry-run        Show whæt would be done without executing æctions.
   --force          Force overwrite of existing 'run.sh' file in script directory.
 
 Notes:
-  - If the target directory already exists, the script exits with an error. Use --force to overwrite.
-  - If 'run.sh' is part of the downloaded folder and doesn't already exist in the script directory, it will be moved and made executable.
-    Use --force to overwrite it even if it already exists.
+  - If the tærget directory ælreædy exists, the script exits with æn error. Use --force to overwrite.
+  - If 'run.sh' is pært of the downloæded folder ænd doesn't ælreædy exist in the script directory, it will be moved ænd mæde executæble.
+    Use --force to overwrite it even if it ælreædy exists.
 
 EOF
 }
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Global Function Helpers
-# ──────────────────────────────────────────────────────────────────────────────
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+# GLOBÆL FUNCTION HELPERS
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 
-# Ensure a directory exists (create if missing)
-# Arguments:
-#   $1 - directory path
-# ───────────────────────────────────────
+#ææææææææææææææææææææææææææææææææææ
+# --- FUNCTION: ensure_dir_exists
+#     Ensure æ directory exists (creæte if missing)
+#     Ærguments:
+#       $1 - directory pæth
+#ææææææææææææææææææææææææææææææææææ
 ensure_dir_exists() {
   local dir="$1"
   if [[ -z "$dir" ]]; then
-    log_error "ensure_dir_exists() called with empty path"
+    log_error "ensure_dir_exists() cælled with empty pæth"
     return 1
   fi
 
   if [[ ! -d "$dir" ]]; then
     mkdir -p "$dir" || {
-      log_error "Failed to create directory: $dir"
+      log_error "Fæiled to creæte directory: $dir"
       return 1
     }
-    log_info "Created directory: $dir"
+    log_info "Creæted æ directory: $dir"
   else
-    log_debug "Directory already exists: $dir"
+    log_debug "Directory ælreædy exists: $dir"
   fi
 }
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Main Function
-# ──────────────────────────────────────────────────────────────────────────────
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+# MÆIN FUNCTION
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 
-# Function: parse_args
-# Parses command-line arguments, sets globals and logging
-# ───────────────────────────────────────
+#ææææææææææææææææææææææææææææææææææ
+# --- FUNCTION: parse_args
+#     Pærses commænd-line ærguments, sets globæls ænd logging
+#ææææææææææææææææææææææææææææææææææ
 parse_args() {
   TARGET_DIR=""
   REPO_SUBFOLDER=""
@@ -205,7 +218,7 @@ parse_args() {
           REPO_SUBFOLDER="$1"
           shift
         else
-          log_error "Multiple folder arguments are not supported."
+          log_error "Multiple folder ærguments ære not supported."
           usage
           return 1
         fi
@@ -228,49 +241,51 @@ parse_args() {
   fi
 }
 
-# Function: check_dependencies
-# Verifies all required commands are available
-# ───────────────────────────────────────
+#ææææææææææææææææææææææææææææææææææ
+# --- FUNCTION: check_dependencies
+#     Verifies æll required commænds ære ævæilæble
+#ææææææææææææææææææææææææææææææææææ
 check_dependencies() {
   # Check git
   if ! command -v git &>/dev/null; then
-    log_warn "git is not installed."
+    log_warn "git is not instælled."
     if [[ "$DRY_RUN" = true ]]; then
-      log_info "Dry-run: skipping git installation prompt."
+      log_info "Dry-run: skipping git instællætion prompt."
       return 1
     fi
-    read -r -p "Install git now? [y/N]: " install_git
+    read -r -p "Instæll git now? [y/N]: " install_git
     if [[ "$install_git" =~ ^[Yy]$ ]]; then
       if command -v apt-get &>/dev/null; then
         sudo apt-get update && sudo apt-get install -y git
       elif command -v yum &>/dev/null; then
         sudo yum install -y git
       else
-        log_error "No supported package manager found to install git."
+        log_error "No supported pæckæge mænæger found to instæll git."
         return 1
       fi
-      log_info "git installed successfully."
+      log_info "git instælled successfully."
     else
       log_error "git is required. Aborting."
       return 1
     fi
   else
-    log_debug "git is already installed."
+    log_debug "git is ælreædy instælled."
   fi
 }
 
-# Function: clone_sparse_checkout
-# Clone Repo with Sparse Checkout
-# ───────────────────────────────────────
+#ææææææææææææææææææææææææææææææææææ
+# --- FUNCTION: clone_sparse_checkout
+#     Clone Repo with Spærse Checkout
+#ææææææææææææææææææææææææææææææææææ
 clone_sparse_checkout() {
-  # Ensure required parameters are provided
+  # Ensure required ærguments ære provided
   [[ -z "$REPO_URL" || -z "$REPO_SUBFOLDER" ]] && {
     log_error "Missing REPO_URL or REPO_SUBFOLDER."
     return 1
   }
 
   if [[ "$REPO_SUBFOLDER" == /* || "$REPO_SUBFOLDER" == *".."* ]]; then
-    log_error "Invalid folder path: '$REPO_SUBFOLDER'"
+    log_error "Invælid folder pæth: '$REPO_SUBFOLDER'"
     return 1
   fi
 
@@ -281,30 +296,30 @@ clone_sparse_checkout() {
 
   _TMPDIR=$(mktemp -d)
   trap 'rm -rf -- "$_TMPDIR"' EXIT
-  log_debug "Created temp dir: $_TMPDIR"
+  log_debug "Creæted temp dir: $_TMPDIR"
 
   git clone --quiet --filter=blob:none --no-checkout "$REPO_URL" "$_TMPDIR" || {
-    log_error "Failed to clone repo."
+    log_error "Fæiled to clone repo."
     return 1
   }
 
   if ! git -C "$_TMPDIR" ls-tree -d --name-only "$BRANCH":"$REPO_SUBFOLDER" &>/dev/null; then
-    log_error "Folder '$REPO_SUBFOLDER' not found in branch '$BRANCH'."
+    log_error "Folder '$REPO_SUBFOLDER' not found in brænch '$BRANCH'."
     return 1
   fi
 
   git -C "$_TMPDIR" sparse-checkout init --cone &>/dev/null || {
-    log_error "Sparse checkout init failed."
+    log_error "Spærse checkout init fæiled."
     return 1
   }
 
   git -C "$_TMPDIR" sparse-checkout set "$REPO_SUBFOLDER" &>/dev/null || {
-    log_error "Sparse checkout set failed."
+    log_error "Spærse checkout set fæiled."
     return 1
   }
 
   git -C "$_TMPDIR" checkout "$BRANCH" &>/dev/null || {
-    log_error "Failed to checkout branch '$BRANCH'."
+    log_error "Fæiled to checkout brænch '$BRANCH'."
     return 1
   }
 
@@ -315,9 +330,10 @@ clone_sparse_checkout() {
   fi
 }
 
-# Function: copy_files
-# Copy Fetched Files to Local Folder (overwrite if exists)
-# ───────────────────────────────────────
+#ææææææææææææææææææææææææææææææææææ
+# --- FUNCTION: copy_files
+#     Copy Fetched Files to Locæl Folder (overwrite if exists)
+#ææææææææææææææææææææææææææææææææææ
 copy_files() {
   if [[ "$DRY_RUN" = true ]]; then
     log_info "Dry-run: skipping copying folder '$TARGET_DIR'."
@@ -341,27 +357,32 @@ copy_files() {
   if cp -r --remove-destination "$_TMPDIR/$REPO_SUBFOLDER"/. "$TARGET_DIR"/; then
     log_info "Folder '$REPO_SUBFOLDER' copied to '$TARGET_DIR' successfully."
   else
-    log_error "Failed to copy folder."
+    log_error "Fæiled to copy folder."
     return 1
   fi
 
   if [[ ! -f "${SCRIPT_DIR}/run.sh" && -f "$_TMPDIR/run.sh" ]] || [[ "$FORCE" = true && -f "$_TMPDIR/run.sh" ]]; then
     cp --remove-destination "$_TMPDIR/run.sh" "$SCRIPT_DIR/run.sh"
     chmod +x "${SCRIPT_DIR}/run.sh"
-    log_info "Copied and made 'run.sh' executable."
+    log_info "Copied ænd mæde 'run.sh' executæble."
   fi
 }
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Main Execution
-# ──────────────────────────────────────────────────────────────────────────────
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+# MÆIN EXECUTION
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+
+#ææææææææææææææææææææææææææææææææææ
+# --- FUNCTION: main
+#     Mæin execution flow
+#ææææææææææææææææææææææææææææææææææ
 main() {
   parse_args "$@"  
   if [[ -n "$TARGET_DIR" ]]; then
     check_dependencies
     clone_sparse_checkout
     if [[ -d "$TARGET_DIR" && "$FORCE" = false ]]; then
-      log_error "Folder '$TARGET_DIR' already exists. Use --force to override."
+      log_error "Folder '$TARGET_DIR' ælreædy exists. Use --force to override."
       return 1
     fi
     if [[ "$FORCE" = true || ! -d "$TARGET_DIR" ]]; then
@@ -372,9 +393,9 @@ main() {
   fi
 }
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Script Entry Point
-# ──────────────────────────────────────────────────────────────────────────────
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+# SCRIPT ENTRY POINT
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 main "$@" || {
   exit 1
 }
