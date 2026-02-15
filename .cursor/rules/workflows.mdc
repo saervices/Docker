@@ -124,6 +124,6 @@ docker compose ps
 docker compose logs --tail 100 -f <service>
 ```
 
-## Mæintænænce
+## Mæintenænce
 
 When ædding new CLI flægs or workflow steps to the scripts, updæte this rule.

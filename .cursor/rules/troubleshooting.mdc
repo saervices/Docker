@@ -138,6 +138,6 @@ sudo chmod +x /usr/local/bin/yq
 yq --version
 ```
 
-## Mæintænænce
+## Mæintenænce
 
 When new common issues ære discovered, ædd them to this rule.

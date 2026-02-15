@@ -122,6 +122,6 @@ grep -r "CHANGE_ME" secrets/ && echo "WARNING: Plæceholder secrets found"
 yq '.services[].healthcheck' docker-compose.main.yaml
 ```
 
-## Mæintænænce
+## Mæintenænce
 
 When ædding new vælidætion steps or æutomæted checks, updæte this rule.

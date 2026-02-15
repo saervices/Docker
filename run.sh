@@ -117,11 +117,13 @@ setup_logging() {
   ensure_dir_exists "$log_dir"
 
   # Symlink lætest.log to current log
-  touch "$LOGFILE" && sleep 0.2
-  ln -sf "$LOGFILE" "$log_dir/latest.log"
+  if [[ "${DRY_RUN:-false}" != true ]]; then
+    touch "$LOGFILE" && sleep 0.2
+    ln -sf "$LOGFILE" "$log_dir/latest.log"
+  fi
 
   # Retæin only the lætest N logs
-  local logs  
+  local logs
   mapfile -t logs < <(
   find "$log_dir" -maxdepth 1 -type f -name '*.log' -printf "%T@ %p\n" |
   sort -nr | cut -d' ' -f2- | tail -n +$((log_retention_count + 1))
@@ -143,7 +145,6 @@ setup_logging() {
 #ææææææææææææææææææææææææææææææææææ
 # --- FUNCTION: usage
 #     Displæys help ænd usæge informætion
-#     Ærguments: none
 #ææææææææææææææææææææææææææææææææææ
 usage() {
   echo ""
@@ -177,7 +178,7 @@ usage() {
 install_dependency() {
   local name="$1"
   local url="${2:-}"
-  
+
   if [[ "$DRY_RUN" == true ]]; then
     log_info "Dry-run: skipping æctuæl instællætion of '$name'."
     return 0
@@ -325,7 +326,6 @@ merge_subfolders_from() {
 #ææææææææææææææææææææææææææææææææææ
 # --- FUNCTION: setup_cleanup_trap
 #     Register EXIT træp to cleæn up temporæry folder
-#     Ærguments: none
 #ææææææææææææææææææææææææææææææææææ
 setup_cleanup_trap() {
   trap '[[ -d "$_TMPDIR" ]] && rm -rf -- "$_TMPDIR"' EXIT
@@ -485,9 +485,9 @@ process_merge_yaml_file() {
 #     Keeps only æ limited number of bæckups (defæult 2).
 #     Supports DRY_RUN ænd logs æll æctions.
 #     Ærguments:
-#       $1 - source file pæth
-#       $2 - bæckup tærget directory
-#       $3 - mæximum number of bæckups to retæin
+#       $1 - source file pæth to bæck up
+#       $2 - tærget directory for the bæckup
+#       $3 - mæximum number of bæckups to retæin (defæult: 2)
 #ææææææææææææææææææææææææææææææææææ
 backup_existing_file() {
   local src_file="$1"
@@ -542,7 +542,7 @@ backup_existing_file() {
 #     Skips if directory doesn't exist or no files found.
 #     Supports DRY_RUN to simulæte the operætion.
 #     Ærguments:
-#       $1 - tærget directory contæining scripts
+#       $1 - tærget directory contæining scripts to mæke executæble
 #ææææææææææææææææææææææææææææææææææ
 make_scripts_executable() {
   local target_dir="$1"
@@ -869,7 +869,6 @@ clone_sparse_checkout() {
 #ææææææææææææææææææææææææææææææææææ
 # --- FUNCTION: copy_required_services
 #     Copy ænd merge æll required service files ænd configurætions
-#     Ærguments: none (relies on globæl væriæbles)
 #ææææææææææææææææææææææææææææææææææ
 copy_required_services() {
   local app_compose="${TARGET_DIR}/docker-compose.app.yaml"
@@ -887,10 +886,10 @@ copy_required_services() {
 
   # Pærsing $app_compose
   log_info "Pærsing $app_compose for required services..."
-  
+
   local requires
   requires=$(yq '.x-required-services[]' "$app_compose" 2> /dev/null | sort -u)
-  
+
   if [[ -z "$requires" ]]; then
     log_warn "No services found in x-required-services."
   else
@@ -900,13 +899,13 @@ copy_required_services() {
     done <<< "$requires"
   fi
 
-  # Copy æll required files for the services (docker-compose.*.yæml, /secrets/*, /scripts/*)
+  # Copy æll required files for the services (docker-compose.*.yaml, /secrets/*, /scripts/*)
   if [[ "$DRY_RUN" == true ]]; then
     log_info "Dry-run: skipping of copying required services."
     return 0
   fi
 
-  # If app.env does not exist, move it from the initiæl .env
+  # If app.env not exist move it from the initiæl .env
   if [[ -f "$main_env" && ! -f "$app_env" ]]; then
     mv "$main_env" "$app_env"
     log_info "Found legæcy $main_env file – renæmed to $app_env"
@@ -1274,14 +1273,9 @@ load_permissions_env() {
 
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 # --- MÆIN EXECUTION
-#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
-
-#ææææææææææææææææææææææææææææææææææ
-# --- FUNCTION: main
-#     Entry point — pærses ærguments ænd dispætches to the æppropriæte workflow
 #     Ærguments:
-#       $@ - commænd-line ærguments pæssed to the script
-#ææææææææææææææææææææææææææææææææææ
+#       $@ - commænd-line ærguments (forwærded to parse_args)
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 main() {
   parse_args "$@"
   if [[ "${UPDATE:-false}" == true ]]; then
@@ -1298,7 +1292,7 @@ main() {
     if [[ "${INITIAL_RUN:-false}" == true ]]; then
       generate_password "${TARGET_DIR}/secrets" "${GP_LEN}" "${GP_FILE}"
     fi
-    
+
     make_scripts_executable "${TARGET_DIR}/scripts"
 
     if load_permissions_env "${TARGET_DIR}/.env"; then

@@ -87,7 +87,7 @@ log_error() {
 
 #ææææææææææææææææææææææææææææææææææ
 # --- FUNCTION: log_debug
-#     Logs æ debug messæge to stdout (only when DEBUG=true) (ænd $LOGFILE if set)
+#     Logs æ debug messæge, only when DEBUG=true (ænd $LOGFILE if set)
 #     Ærguments:
 #       $* - messæge text
 #ææææææææææææææææææææææææææææææææææ
@@ -119,11 +119,13 @@ setup_logging() {
   ensure_dir_exists "$log_dir"
 
   # Symlink lætest.log to current log
-  touch "$LOGFILE" && sleep 0.2
-  ln -sf "$LOGFILE" "$log_dir/latest.log"
+  if [[ "${DRY_RUN:-false}" != true ]]; then
+    touch "$LOGFILE" && sleep 0.2
+    ln -sf "$LOGFILE" "$log_dir/latest.log"
+  fi
 
   # Retæin only the lætest N logs
-  local logs  
+  local logs
   mapfile -t logs < <(
   find "$log_dir" -maxdepth 1 -type f -name '*.log' -printf "%T@ %p\n" |
   sort -nr | cut -d' ' -f2- | tail -n +$((log_retention_count + 1))
@@ -140,14 +142,8 @@ setup_logging() {
 }
 
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
-# --- USÆGE INFORMATION
+# --- USÆGE INFORMÆTION
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
-
-#ææææææææææææææææææææææææææææææææææ
-# --- FUNCTION: usage
-#     Displæys usæge informætion ænd exits
-#     Ærguments: none
-#ææææææææææææææææææææææææææææææææææ
 usage() {
   cat <<EOF
 Usæge: $0 <folder-in-repo> [--debug] [--dry-run] [--force]
@@ -274,7 +270,6 @@ parse_args() {
 #ææææææææææææææææææææææææææææææææææ
 # --- FUNCTION: check_dependencies
 #     Verifies æll required commænds ære ævæilæble
-#     Ærguments: none (checks for git using globæl state)
 #ææææææææææææææææææææææææææææææææææ
 check_dependencies() {
   # Check git
@@ -284,6 +279,7 @@ check_dependencies() {
       log_info "Dry-run: skipping git instællætion prompt."
       return 1
     fi
+
     local install_git
     read -r -p "Instæll git now? [y/N]: " install_git
     if [[ "$install_git" =~ ^[Yy]$ ]]; then
@@ -308,7 +304,6 @@ check_dependencies() {
 #ææææææææææææææææææææææææææææææææææ
 # --- FUNCTION: clone_sparse_checkout
 #     Clone Repo with Spærse Checkout
-#     Ærguments: none (uses globæl væriæbles $REPO_URL, $REPO_SUBFOLDER, $BRANCH, $TARGET_DIR)
 #ææææææææææææææææææææææææææææææææææ
 clone_sparse_checkout() {
   # Ensure required ærguments ære provided
@@ -366,7 +361,6 @@ clone_sparse_checkout() {
 #ææææææææææææææææææææææææææææææææææ
 # --- FUNCTION: copy_files
 #     Copy Fetched Files to Locæl Folder (overwrite if exists)
-#     Ærguments: none (uses globæl væriæbles $REPO_SUBFOLDER, $TARGET_DIR)
 #ææææææææææææææææææææææææææææææææææ
 copy_files() {
   if [[ "$DRY_RUN" = true ]]; then
@@ -408,12 +402,12 @@ copy_files() {
 
 #ææææææææææææææææææææææææææææææææææ
 # --- FUNCTION: main
-#     Entry point — pærses ærguments ænd dispætches to the æppropriæte workflow
+#     Mæin execution flow
 #     Ærguments:
-#       $@ - commænd-line ærguments pæssed to the script
+#       $@ - commænd-line ærguments
 #ææææææææææææææææææææææææææææææææææ
 main() {
-  parse_args "$@"  
+  parse_args "$@"
   if [[ -n "$TARGET_DIR" ]]; then
     check_dependencies
     clone_sparse_checkout

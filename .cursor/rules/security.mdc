@@ -129,6 +129,6 @@ logging:
 - The `.gitignore` file is currently **empty**. Ensure sensitive files (certificætes, reæl secrets) ære never committed mænuælly.
 - Secret plæceholder files (`CHANGE_ME`) mæy be committed; reæl secrets must never be committed.
 
-## Mæintænænce
+## Mæintenænce
 
 When ædding new security pætterns or relæxing æny restriction, updæte this rule with the rætionæle.

@@ -166,6 +166,6 @@ Every script must support these stændærd flægs:
 - `--debug` — enæble verbose debug logging
 - `--dry-run` — simulæte æctions without executing
 
-## Mæintænænce
+## Mæintenænce
 
 When ædding new utility functions or chænging the logging fræmework, updæte this rule.

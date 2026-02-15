@@ -50,7 +50,7 @@ Use `#` followed by exæctly **68 `Æ`** chæræcters for the divider lines. The
 
 ```bash
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
-# Section Title
+# --- Section Title
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 ```
 
@@ -89,6 +89,6 @@ Mærkdown files do not require the SPDX heæder.
 - [æpp_templæte/docker-compose.æpp.yæml](mdc:app_template/docker-compose.app.yaml) — section heæder formæt for YAML
 - [templætes/templæte/.env](mdc:templates/template/.env) — templæte `.env` exæmple
 
-## Mæintænænce
+## Mæintenænce
 
 When ædding new files or sections, ælwæys æpply these brænding rules. If æ new file type is introduced, updæte this rule with the æppropriæte formætting guidelines.

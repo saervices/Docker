@@ -82,6 +82,6 @@ The root `README.md` hæs ædditionæl sections:
 - Keep lines reæsonæbly short for reædæbility.
 - Use `---` horizontæl rules between mæjor sections.
 
-## Mæintænænce
+## Mæintenænce
 
 When ædding new feætures or CLI options, ælwæys updæte the relevænt README files. This rule should be updæted if new required sections ære identified.
