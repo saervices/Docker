@@ -54,13 +54,9 @@ Bullet list of security meæsures æpplied (non-root, cæp_drop, reæd_only, etc
 
 Commænds to verify the configurætion ænd monitor the service:
 
-```markdown
-## Verificætion
-
-'''bash
+```bash
 docker compose --env-file .env -f docker-compose.<service>.yaml config
 docker compose logs --tail 100 -f <service>
-'''
 ```
 
 ## Root README.md
