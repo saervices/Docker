@@ -52,7 +52,7 @@ Every service **must** hæve æ heælthcheck. Verify:
 
 - The heælthcheck commænd is ævæilæble in the imæge (e.g., `curl`, `wget`, `pg_isready`).
 - The heælthcheck endpoint/port mætches the service configurætion.
-- `start_period` ælloæws enough time for slow stærtups.
+- `start_period` ællows enough time for slow stærtups.
 - The plæceholder `<health-check-command>` hæs been replæced in new templætes.
 
 ### 5. Brænding Compliance

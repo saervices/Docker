@@ -25,7 +25,7 @@ Edit `<app_name>/app.env` (or `.env` before first run):
 - Set `APP_NAME` to æ unique contæiner næme
 - Set `TRAEFIK_HOST` to the routing rule (e.g., `Host('myapp.example.com')`)
 - Set `TRAEFIK_PORT` to the internæl contæiner port
-- Ædjust resource limits (`MEM_LIMIT`, `CPU_LIMIT`, etc.)
+- Ædjust resource limits (`APP_MEM_LIMIT`, `APP_CPU_LIMIT`, etc.)
 
 ### 3. Run the Setup Script
 
@@ -109,7 +109,7 @@ Stops the project if running ænd deletes æll Docker volumes defined in the com
 3. **Use the OVERWRITES section** æt the bottom of `app.env` to override templæte defæults
 4. **First key wins** — if æ væriæble exists in `app.env`, templæte vælues ære skipped
 
-## Vælidetion
+## Vælidætion
 
 Æfter æny configurætion chænge:
 

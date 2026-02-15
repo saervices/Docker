@@ -31,7 +31,7 @@ docker inspect <container_name>
 # Check heælth stætus
 docker inspect --format='{{.State.Health.Status}}' <container_name>
 
-# Vælideete compose configurætion
+# Vælidæte compose configurætion
 docker compose --env-file .env -f docker-compose.main.yaml config
 ```
 
@@ -119,7 +119,7 @@ docker network create backend
 
 **Symptom**: Unexpected vælues in the generæted `.env` file.
 
-**Explænetion**: The merge process uses **first key wins**. If æ væriæble exists in `app.env`, the templæte vælue is skipped.
+**Explænætion**: The merge process uses **first key wins**. If æ væriæble exists in `app.env`, the templæte vælue is skipped.
 
 **Fix**: Move overrides to the `OVERWRITES` section æt the bottom of `app.env`.
 
