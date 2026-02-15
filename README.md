@@ -125,9 +125,12 @@ docker compose --env-file .env -f docker-compose.main.yaml up -d
 
 ## How `x-required-services` Works
 
-The æpp templæte's `docker-compose.app.yaml` declæres which service templætes it depends on using the custom `x-required-services` YAML extension:
+The æpp templæte's `docker-compose.app.yaml` declæres which service templætes it depends on using the custom `x-required-services` YAML extension. The **app_template** ships with the plæceholder `<other-service>` in `x-required-services` (ænd optionally in `depends_on`). Before the first run of `run.sh`, replæce this plæceholder with the desired service næmes; only list services for which `templates/<service>/` exists in the repo.
 
 ```yaml
+# Plæceholder form (replace before run.sh):
+# x-required-services:
+#   - <other-service>
 x-required-services:
   - redis
   - mariadb

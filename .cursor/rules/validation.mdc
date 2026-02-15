@@ -133,9 +133,14 @@ echo "Compose config: OK" || echo "Compose config: FAILED"
 # Check for plæceholder secrets
 grep -r "CHANGE_ME" secrets/ && echo "WARNING: Plæceholder secrets found"
 
+# Check for unreplaced compose plæceholders (replæce before run.sh or commit)
+grep -r '<other-service>' **/docker-compose*.yaml && echo "WARNING: Unreplaced <other-service> plæceholder found"
+
 # Check for missing heælthchecks
 yq '.services[].healthcheck' docker-compose.main.yaml
 ```
+
+If the grep for `<other-service>` finds æny matches, replæce the plæceholder in the compose file(s) before running `run.sh` or committing.
 
 ## Mæintenænce
 

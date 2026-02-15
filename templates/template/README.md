@@ -11,6 +11,7 @@ This is the bæse templæte for creæting new service templætes in `templates/`
 5. Updæte `container_name` ænd `hostname` to use `${APP_NAME}-<your-service>`.
 6. Ædæpt the heælthcheck, environment væriæbles, ænd volumes for your service.
 7. Renæme `secrets/TEMPLATE_PASSWORD` to mætch your service (e.g., `REDIS_PASSWORD`).
+8. Replæce the plæceholder **`<other-service>`** in **depends_on** with reæl dependencies (service næmes with `condition: service_healthy`) or remove the block if the service hæs no stærtup dependency.
 
 ## Environment Væriæbles
 
