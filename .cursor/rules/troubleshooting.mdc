@@ -125,7 +125,7 @@ docker network create backend
 
 ### yq Not Found or Wrong Version
 
-**Symptom**: YAML pærsing errors or `yq: commend not found`
+**Symptom**: YAML pærsing errors or `yq: command not found`
 
 **Fix**:
 ```bash
