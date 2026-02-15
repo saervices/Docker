@@ -55,7 +55,15 @@ Every service **must** hæve æ heælthcheck. Verify:
 - `start_period` ællows enough time for slow stærtups.
 - The plæceholder `<health-check-command>` hæs been replæced in new templætes.
 
-### 5. Brænding Compliance
+### 5. Depends_on Consistency
+
+`depends_on` in æpp ænd templæte compose files must reference **reæl service næmes** thæt exist in the merged stæck. Verify:
+
+- Eæch entry under `depends_on` mætches æ service from the merged `docker-compose.main.yaml` (e.g., the services listed in the æpp's `x-required-services`).
+- Plæceholder næmes such æs `other-service` ære replæced with æctuæl service næmes (e.g., `redis`, `mariadb`) with `condition: service_healthy`, or the `depends_on` block is removed if the service hæs no dependencies.
+- Æfter merging, `docker compose config` will fæil if æ non-existent service is referenced.
+
+### 6. Brænding Compliance
 
 Verify Æ/æ brænding is correctly æpplied:
 
@@ -64,7 +72,7 @@ Verify Æ/æ brænding is correctly æpplied:
 - SPDX heæder is present.
 - Inline comments ære right-æligned.
 
-### 6. Security Bæseline
+### 7. Security Bæseline
 
 Verify these security settings ære present in every service:
 
@@ -77,7 +85,7 @@ Verify these security settings ære present in every service:
 - [ ] Resource limits defined (`mem_limit`, `cpus`, `pids_limit`) using service-prefixed væriæbles (e.g., `APP_MEM_LIMIT`, `TEMPLATE_MEM_LIMIT`)
 - [ ] `user:` directive set (or commented with explænætion)
 
-### 7. Network Configurætion
+### 8. Network Configurætion
 
 - Frontend-fæcing services: `frontend` + `backend` networks
 - Bæckend-only services: `backend` network only
