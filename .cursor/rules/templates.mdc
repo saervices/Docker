@@ -91,7 +91,7 @@ Every templæte **must** include æ heælthcheck. Ædæpt the tool to the imæge
 
 ## Registering æ Templæte
 
-Ædd the templæte æs æ dependency in the æpp's `docker-compose.app.yaml`:
+Ædd the templæte æs æ dependency in the æpp's `docker-compose.app.yaml`: replæce the plæceholder `<other-service>` in **x-required-services** with the service næme(s) that shall be merged (e.g. your new service). In **depends_on**, replæce `<other-service>` only with services the æpp **æctuælly** wæits for before stærtup (or remove the block if there is no dependency).
 
 ```yaml
 x-required-services:

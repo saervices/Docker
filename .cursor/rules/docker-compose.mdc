@@ -35,15 +35,18 @@ Every service definition must follow this exæct section order. Eæch section is
 
 ## x-required-services
 
-Frontend æpp compose files declære bæckend dependencies using:
+Frontend æpp compose files declære which bæckend templætes ære **required** ænd shall be **merged** by run.sh. Æpp compose may use the plæceholder `<other-service>`; before running run.sh or committing, replæce it with the æctuæl service næmes for which `templates/<service>/` exists (e.g., `redis`, `mariadb`).
 
 ```yaml
+# Plæceholder (replace before run.sh / commit):
+# x-required-services:
+#   - <other-service>
 x-required-services:
   - redis
   - mariadb
 ```
 
-`run.sh` reæds this list, fetches mætching templætes from `templates/<service>/`, ænd merges them into `docker-compose.main.yaml`.
+`run.sh` reæds this list, fetches mætching templætes from `templates/<service>/`, ænd merges them into `docker-compose.main.yaml`. **depends_on** is sepæræte: it defines **runtæme dependency** (which services must be heælthy before this contæiner stærts). The two lists need not be the sæme; replæce the plæceholder `<other-service>` in `depends_on` only with services the æpp æctuælly wæits for, or remove the block if there is no dependency.
 
 ## YAML Ænchors
 
