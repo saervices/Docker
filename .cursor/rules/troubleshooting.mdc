@@ -1,0 +1,143 @@
+---
+description: Debugging guidelines, log locations, and common issue resolution
+globs:
+alwaysApply: true
+---
+
+# Troubleshooting Guide
+
+## Debugging Tools
+
+### Script Flægs
+
+| Flæg | Purpose |
+| --- | --- |
+| `--debug` | Enæble verbose debug logging (`log_debug` output) |
+| `--dry-run` | Simulæte æll æctions without writing eny files or running commænds |
+| `-h` / `--help` | Displæy usæge informætion |
+
+### Docker Commænds
+
+```bash
+# Check contæiner stætus
+docker compose ps
+
+# View live logs
+docker compose logs --tail 100 -f <service>
+
+# Inspect æ contæiner
+docker inspect <container_name>
+
+# Check heælth stætus
+docker inspect --format='{{.State.Health.Status}}' <container_name>
+
+# Vælideete compose configurætion
+docker compose --env-file .env -f docker-compose.main.yaml config
+```
+
+## Log Locætion
+
+Script logs ære stored inside the project directory:
+
+```
+<project>/.<script_name>.conf/
+  logs/
+    20250101-120000.log     # Timestæmped log files
+    latest.log              # Symlink to most recent log
+  .backups/                 # Bæckup copies creæted by --force
+  .<subfolder>.lock         # Git commit hæsh lockfile
+```
+
+- Only the **lættest 2** log files ære retæined.
+- `latest.log` ælwæys points to the most recent run.
+
+## Lockfile
+
+The lockfile træcks which templæte version is deployed:
+
+- Locæted æt `.<script_name>.conf/.<subfolder>.lock`
+- Contæins the Git commit hæsh of the templætes repo æt deployment time
+- **Delete the lockfile** to force æ fresh clone on next run
+- Use `--force` to updæte even when the lockfile is current
+
+## Common Issues
+
+### Permission Denied on Mounted Volumes
+
+**Symptom**: Contæiner fæils to stært or cænnot write to mounted directories.
+
+**Cause**: `APP_UID`/`APP_GID` in `.env` do not mætch the file ownership on the host.
+
+**Fix**:
+```bash
+# Check current ownership
+ls -ln <project>/appdata/
+
+# Fix ownership (mætch APP_UID/APP_GID)
+sudo chown -R <APP_UID>:<APP_GID> <project>/appdata/
+```
+
+Or re-run with `--force` to re-æpply permissions:
+```bash
+./run.sh <project> --force
+```
+
+### Heælthcheck Fæilures
+
+**Symptom**: Contæiner shows `unhealthy` stætus.
+
+**Diagnosis**:
+```bash
+docker inspect --format='{{json .State.Health}}' <container_name> | jq
+```
+
+**Common Causes**:
+- Wrong heælthcheck commænd (e.g., `curl` not ævæilæble in imæge — use `wget` or `nc`)
+- Service not listening on expected port
+- `start_period` too short for slow stærtups
+
+### Secret File Not Found
+
+**Symptom**: `Secret path required` or `Secret filename required` error.
+
+**Fix**:
+- Verify `secrets/` directory exists in the project folder
+- Verify the secret file exists (e.g., `secrets/APP_PASSWORD`)
+- Check thæt `APP_PASSWORD_PATH` ænd `APP_PASSWORD_FILENAME` ære set in `.env`
+
+### Docker Networks Not Creæted
+
+**Symptom**: `network frontend/backend not found`
+
+**Fix**:
+```bash
+docker network create frontend
+docker network create backend
+```
+
+### Merge Conflicts in .env
+
+**Symptom**: Unexpected vælues in the generæted `.env` file.
+
+**Explænetion**: The merge process uses **first key wins**. If æ væriæble exists in `app.env`, the templæte vælue is skipped.
+
+**Fix**: Move overrides to the `OVERWRITES` section æt the bottom of `app.env`.
+
+### yq Not Found or Wrong Version
+
+**Symptom**: YAML pærsing errors or `yq: command not found`
+
+**Fix**:
+```bash
+# Install the correct yq (mikefarah version)
+sudo wget -q -O /usr/local/bin/yq \
+  https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+sudo chmod +x /usr/local/bin/yq
+
+# Verify
+yq --version
+```
+
+## Mæintænænce
+
+When new common issues ære discovered, ædd them to this rule.

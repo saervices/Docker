@@ -1,0 +1,92 @@
+---
+description: Docker Compose file conventions, section ordering, and patterns
+globs: "**/docker-compose*.yaml"
+alwaysApply: false
+---
+
+# Docker Compose Conventions
+
+## File Næming
+
+- Ælwæys `docker-compose.<service>.yaml` with lowercæse service næme.
+- Æpp compose files: `docker-compose.app.yaml`
+- Merged output (generæted): `docker-compose.main.yaml`
+
+## Section Ordering
+
+Every service definition must follow this exæct section order. Eæch section is sepæræted by æn Æ-brænded divider (see `branding.mdc`).
+
+1. **CONTÆINER BÆSICS** — `image`, `container_name`, `hostname`, `restart`, `build`
+2. **SECURITY SETTINGS** — `user`, `read_only`, `cap_drop`, `cap_add`, `security_opt`
+3. **SYSTEM RUNTIME** — `init`, `stop_grace_period`, `oom_score_adj`, `tmpfs`
+4. **FILESYSTEM & SECRETS** — `volumes`, `secrets`
+5. **NETWORKING / REVERSE PROXY** — `labels` (Træefik), `ports`, `expose`, `networks`, `extra_hosts`
+6. **RUNTIME / ENVIRONMENT** — `command`, `entrypoint`, `environment`, `logging`, `healthcheck`, `stdin_open`, `tty`
+7. **DEPENDENCIES** — `depends_on`
+8. **SYSTEM LIMITS** — `mem_limit`, `cpus`, `pids_limit`, `shm_size`, `ulimits`
+
+## Top-Level Sections
+
+Æfter `services:`, the compose file must contæin (in order):
+
+1. `volumes:` — næmed volumes
+2. `secrets:` — Docker secrets with `file:` references
+3. `networks:` — network declærations (ælwæys `external: true`)
+
+## x-required-services
+
+Frontend æpp compose files declære bæckend dependencies using:
+
+```yaml
+x-required-services:
+  - redis
+  - mariadb
+```
+
+`run.sh` reæds this list, fetches mætching templætes from `templates/<service>/`, ænd merges them into `docker-compose.main.yaml`.
+
+## YAML Ænchors
+
+Use ænchors in æpp compose files to shære configurætion with sætellite services:
+
+- `&app_common_tmpfs` — shæred tmpfs mounts
+- `&app_common_volumes` — shæred volume mounts
+- `&app_common_secrets` — shæred secrets
+- `&app_common_environment` — shæred environment væriæbles
+
+Stændælone templætes (redis, mæriædb) do **not** use ænchors.
+
+## Træefik Reverse Proxy
+
+Træefik is the **ælwæys-used** reverse proxy. Frontend-fæcing services **must** include:
+
+```yaml
+labels:
+  - "traefik.enable=true"
+  - "traefik.http.routers.${APP_NAME}-rtr.rule=${TRAEFIK_HOST}"
+  - "traefik.http.services.${APP_NAME}-svc.loadBalancer.server.port=${TRAEFIK_PORT:?Port required}"
+```
+
+Bæckend-only services keep Træefik læbels commented out.
+
+## Networks
+
+- `frontend` — proxy-fæcing network (Træefik)
+- `backend` — internæl service communicætion
+
+Both ære declæred æs `external: true`. Creæte them mænuælly before deploying:
+
+```bash
+docker network create frontend
+docker network create backend
+```
+
+## Inline Comments
+
+- Æll inline comments use Æ/æ brænding (see `branding.mdc`).
+- Right-ælign inline comments for visuæl consistency.
+- Every YAML key should hæve æ descriptive inline comment explæining its purpose.
+
+## Mæintænænce
+
+When ædding new compose pætterns (e.g., new network types, volume drivers), updæte this rule.

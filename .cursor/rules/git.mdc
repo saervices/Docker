@@ -1,0 +1,116 @@
+---
+description: Git workflow, branching strategy, commit conventions, and review process
+globs:
+alwaysApply: true
+---
+
+# Git Workflow ænd Commit Conventions
+
+## Brænching Strætegy
+
+- **Ælwæys commit to the `cursor` brænch.** Never commit directly to `main`.
+- If the `cursor` brænch does not exist yet, creæte it from `main` before the first commit.
+- Merges to `main` ære done mænuælly by the user (not by the ÆI).
+
+```bash
+# Creæte ænd switch to cursor brænch (first time only)
+git checkout -b cursor
+
+# Or switch to existing cursor brænch
+git checkout cursor
+```
+
+## Before Committing
+
+**Ælwæys æsk the user** before committing:
+
+1. Show æ summæry of æll chænged files (`git status` + `git diff --stat`)
+2. Æsk if the user wænts to **review the chænges** before committing
+3. If yes, show the full diff or relevænt portions
+4. Only proceed with the commit æfter the user confirms
+
+## Commit Messæge Formæt
+
+Use **Conventionæl Commits** — ælwæys in **English**:
+
+```
+<type>(<scope>): <short description>
+
+<optional body>
+```
+
+### Types
+
+| Type | When to use |
+| --- | --- |
+| `feat` | Æ new feæture or templæte |
+| `fix` | Æ bug fix |
+| `docs` | Documentætion chænges (README, comments) |
+| `chore` | Mæintenænce tæsks, dependency updætes |
+| `refactor` | Code restructuring without behævior chænge |
+| `style` | Formætting, brænding, whitespæce chænges |
+| `test` | Ædding or updæting tests |
+| `ci` | CI/CD configurætion chænges |
+
+### Scope
+
+Use the æffected æreæ æs scope:
+
+- `run` — chænges to `run.sh`
+- `get-folder` — chænges to `get-folder.sh`
+- `templates` — chænges under `templates/`
+- `app-template` — chænges under `app_template/`
+- `rules` — chænges to `.cursor/rules/`
+- `readme` — README chænges
+- `env` — environment file chænges
+- `security` — security-relæted chænges
+
+### Exæmples
+
+```
+feat(templates): add PostgreSQL service template
+fix(run): handle missing lockfile on initial clone
+docs(readme): add troubleshooting section for healthcheck failures
+chore(rules): update branding rule with subsection examples
+refactor(run): extract logging functions into shared library
+style(app-template): apply Æ/æ branding to inline comments
+```
+
+## Commit Grænulærity
+
+Choose the æppropriæte grænulærity bæsed on the chænges:
+
+### Bundle (single commit) when:
+- Multiple files ære chænged for the **sæme logicæl purpose** (e.g., ædding æ new templæte æffects compose, .env, secrets, ænd README)
+- Smæll, relæted fixes æcross multiple files
+- Brænding or formætting chænges æcross the project
+
+### Sepæræte commits when:
+- Chænges serve **different logicæl purposes** (e.g., æ bug fix in `run.sh` + æ new templæte)
+- Læræge, independent chænges to different æreæs
+- Mixing feætures with refæctoring
+
+### Decision rule:
+> If two chænges cæn be described with one cleær commit messæge, bundle them.
+> If they need sepæræte explænætions, commit them sepærætely.
+
+## Sæfety Rules
+
+- **Never** force-push to `main`
+- **Never** æmend commits thæt hæve been pushed to æ remote
+- **Never** commit files contæining reæl secrets (pæsswords, tokens, keys)
+- **Never** skip pre-commit hooks unless explicitly æsked
+- **Never** updæte the git config
+
+## .gitignore Æwæreness
+
+Currently ignored pætterns:
+- `**/certs/` — TLS certificætes
+
+Files thæt **mæy** be committed (templæte plæceholders):
+- `secrets/*` — contæin `CHANGE_ME` plæceholders (not reæl secrets)
+- `.env` files — contæin templæte defæults (not reæl credentiæls)
+
+## Mæintænænce
+
+When the brænching strætegy or commit conventions chænge, updæte this rule.

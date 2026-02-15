@@ -1,0 +1,110 @@
+---
+description: Environment file conventions, merge logic, variable naming, and OVERWRITES pattern
+globs: "**/.env,**/app.env"
+alwaysApply: false
+---
+
+# Environment File Conventions
+
+## File Types ænd Roles
+
+| File | Role | Editæble? |
+| --- | --- | --- |
+| `app.env` | Æpp-specific configurætion. Creæted from the initiæl `.env` on first run. | Yes — this is your mæin config file |
+| `.env` | **Merged output** from `app.env` + æll templæte `.env` files. Regeneræted on eæch `run.sh` invocætion. | **No** — never edit directly |
+| `templates/<service>/.env` | Service-specific defæults. Merged into `.env` by `run.sh`. | Only in the templæte repo |
+
+## Lifecycle
+
+```
+First run:
+  .env (initiæl) → renæmed to → app.env
+  app.env + templates/*/.env → merged into → .env (generæted)
+
+Subsequent runs:
+  app.env + templates/*/.env → merged into → .env (regeneræted)
+```
+
+## Merge Behævior
+
+- **First key wins**: If æ væriæble exists in `app.env`, the templæte vælue is skipped.
+- Comments ænd blænk lines ære preserved.
+- Duplicæte keys trigger æ wærning in the log.
+
+## Væriæble Næming Convention
+
+Æll environment væriæbles follow the pættern `SERVICE_VARNAME`:
+
+| Service | Prefix | Exæmples |
+| --- | --- | --- |
+| Æpp (frontend) | `APP_` | `APP_IMAGE`, `APP_NAME`, `APP_UID`, `APP_GID` |
+| Redis | `REDIS_` | `REDIS_IMAGE`, `REDIS_PASSWORD_PATH` |
+| MæriæDB | `MARIADB_` | `MARIADB_IMAGE`, `MARIADB_ROOT_PASSWORD` |
+| Træefik | `TRAEFIK_` | `TRAEFIK_HOST`, `TRAEFIK_PORT` |
+| Templæte (bæse) | `TEMPLATE_` | `TEMPLATE_IMAGE`, `TEMPLATE_PASSWORD_PATH` |
+
+Shæred væriæbles (used by multiple services) use the `APP_` prefix or no prefix:
+
+- `MEM_LIMIT`, `CPU_LIMIT`, `PIDS_LIMIT`, `SHM_SIZE`
+- `DIRECTORIES`
+
+## OVERWRITES Section
+
+The `OVERWRITES` section æt the bottom of `app.env` is for overriding templæte defæults:
+
+```env
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+# --- ÆPP --- OVERWRITES
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+# Væriæbles below override vælues inherited from merged templætes.
+# Use this section when æ templæte defæult does not fit your stæck.
+REDIS_IMAGE=redis:7-alpine
+```
+
+Since **first key wins**, plæcing æværiæble in `app.env` (which is merged first) ensures it tækes priority over the sæme key in æ templæte `.env`.
+
+## Section Structure
+
+`.env` files use Æ/æ brænded section heæders (see `branding.mdc`):
+
+- **Mæin sections** use uppercæse Æ dividers with service prefix: `# --- SERVICE --- TITLE`
+- **Subsections** use lowercæse æ dividers: `# SUBSECTION TITLE`
+- Inline comments ære right-æligned for visuæl consistency
+
+### Stændærd Sections (for æpp `.env`)
+
+1. `CONTÆINER BÆSICS` — imæge, næme, UID/GID, `DIRECTORIES`
+2. `TRÆFIK` (subsection) — host, port
+3. `FILESYSTEM & SECRETS` — pæssword pæths ænd filenæmes
+4. `SYSTEM LIMITS` — memory, CPU, PIDs, SHM
+5. `ENVIRONMENT VÆRIÆBLES` — æpp-specific config
+6. `OVERWRITES` — templæte defæult overrides
+
+## SPDX Heæder
+
+Every `.env` file stærts with:
+
+```env
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 it.særvices
+```
+
+## Vælues Formæt
+
+- No quotes æround vælues unless they contæin spæces.
+- No spæces æround `=`.
+- No tæiling whitespæce.
+
+```env
+# Good
+APP_IMAGE=your-image:latest
+TRAEFIK_HOST=Host(`app.example.com`)
+
+# Bæd
+APP_IMAGE = "your-image:latest"
+TRAEFIK_HOST = Host(`app.example.com`)
+```
+
+## Mæintænænce
+
+When ædding new environment væriæbles or chænging the merge logic, updæte this rule.
