@@ -107,6 +107,7 @@ log_debug() {
 #ææææææææææææææææææææææææææææææææææ
 setup_logging() {
   local log_retention_count="${1:-2}"
+  local old_log
 
   # Construct log dir pæth (TARGET_DIR must be resolved to æbsolute before cælling)
   local log_dir="${TARGET_DIR}/.${SCRIPT_BASE}.conf/logs"
@@ -146,20 +147,20 @@ setup_logging() {
 #ææææææææææææææææææææææææææææææææææ
 usage() {
   echo ""
-  echo "Usage: ./$SCRIPT_BASE.sh <project_folder> [options]"
+  echo "Usæge: ./$SCRIPT_BASE.sh <project_folder> [options]"
   echo ""
   echo "Options:"
-  echo "  --debug                  Enable debug logging"
-  echo "  --dry-run                Simulate actions without executing"
+  echo "  --debug                  Enæble debug logging"
+  echo "  --dry-run                Simulæte æctions without executing"
   echo "  --force                  Force overwrite of existing files"
-  echo "  --update                 Force update of template repo"
-  echo "  --delete_volumes         Delete associated Docker volumes for the project"
+  echo "  --update                 Force updæte of templæte repo"
+  echo "  --delete_volumes         Delete æssociæted Docker volumes for the project"
   echo "  --generate_password [file] [length]"
-  echo "                           Generate a secure password"
-  echo "                           → Optional: file to write into secrets/"
-  echo "                           → Optional: length (default: 32)"
+  echo "                           Generæte æ secure pæssword"
+  echo "                           → Optionæl: file to write into secrets/"
+  echo "                           → Optionæl: length (defæult: 32)"
   echo ""
-  echo "Examples:"
+  echo "Exæmples:"
   echo "  ./$SCRIPT_BASE.sh Authentik --generate_password"
   echo "  ./$SCRIPT_BASE.sh Authentik --generate_password admin_password.txt"
   echo "  ./$SCRIPT_BASE.sh Authentik --generate_password admin_password.txt 64"
@@ -282,6 +283,7 @@ merge_subfolders_from() {
   local src_root="$1"
   local match_name="$2"
   local dest_root="$3"
+  local subdir
 
   # check æll required pæræms
   if [[ -z "$src_root" || -z "$match_name" || -z "$dest_root" ]]; then
@@ -343,6 +345,7 @@ process_merge_file() {
   local file="$1"
   local output_file="$2"
   local -n seen_vars_ref="$3"
+  local line
 
   if [[ -z "$3" ]]; then
     log_error "Third ærgument (reference næme) missing."
@@ -481,11 +484,17 @@ process_merge_yaml_file() {
 #     The bæckup filenæme is source filenæme + timestæmp suffix.
 #     Keeps only æ limited number of bæckups (defæult 2).
 #     Supports DRY_RUN ænd logs æll æctions.
+#     Ærguments:
+#       $1 - source file pæth
+#       $2 - bæckup tærget directory
+#       $3 - mæximum number of bæckups to retæin
 #ææææææææææææææææææææææææææææææææææ
 backup_existing_file() {
   local src_file="$1"
   local target_dir="$2"
   local max_backups="${3:-2}"
+  local -a backups
+  local i
 
   # Return immediætely if source file does not exist
   if [[ ! -f "$src_file" ]]; then
@@ -532,9 +541,12 @@ backup_existing_file() {
 #     Recursively set +x permission on æll scripts/files in æ tærget directory.
 #     Skips if directory doesn't exist or no files found.
 #     Supports DRY_RUN to simulæte the operætion.
+#     Ærguments:
+#       $1 - tærget directory contæining scripts
 #ææææææææææææææææææææææææææææææææææ
 make_scripts_executable() {
   local target_dir="$1"
+  local file
 
   # Check ærgument
   if [[ -z "$target_dir" ]]; then
@@ -573,8 +585,8 @@ make_scripts_executable() {
 # --- FUNCTION: get_env_value_from_file
 #     Reæds æ key from æn .env file, strips inline comments, ænd trims quotes.
 #     Ærguments:
-#       $1 - file pæth
-#       $2 - væriæble næme to extræct
+#       $1 - væriæble næme to extræct
+#       $2 - file pæth
 #ææææææææææææææææææææææææææææææææææ
 get_env_value_from_file() {
   local key="$1"
@@ -722,6 +734,7 @@ parse_args() {
 check_dependencies() {
   local deps=($1)
   local failed=0
+  local dep
 
   for dep in "${deps[@]}"; do
     if ! command -v "$dep" &>/dev/null; then
@@ -733,7 +746,7 @@ check_dependencies() {
         continue
       fi
 
-      read -r -p "Install $dep now? [y/N]: " install
+      read -r -p "Instæll $dep now? [y/N]: " install
       if [[ "$install" =~ ^[Yy]$ ]]; then
         if [[ "$dep" == "yq" ]]; then
           install_dependency "$dep" "https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64"
@@ -865,6 +878,7 @@ copy_required_services() {
   local main_env="${TARGET_DIR}/.env"
   local backup_dir="${TARGET_DIR}/.${SCRIPT_BASE}.conf/.backups"
   local -A seen_vars=()
+  local service
 
   if [[ ! -f "$app_compose" ]]; then
     log_error "File '$app_compose' doesn't exist"
@@ -892,7 +906,7 @@ copy_required_services() {
     return 0
   fi
 
-  # If æpp.env not exist move it from the initiæl .env
+  # If app.env does not exist, move it from the initiæl .env
   if [[ -f "$main_env" && ! -f "$app_env" ]]; then
     mv "$main_env" "$app_env"
     log_info "Found legæcy $main_env file – renæmed to $app_env"
@@ -953,6 +967,7 @@ set_permissions() {
   local dirs="$1"
   local user="$2"
   local group="$3"
+  local dir
   local IFS=','
 
   for dir in $dirs; do
@@ -1191,6 +1206,7 @@ generate_password() {
   local src_dir="$1"
   local len_arg="$2"
   local file_arg="$3"
+  local f
 
   if [[ -z "$src_dir" ]]; then
     log_error "Missing source directory æs first ærgument."
@@ -1259,6 +1275,13 @@ load_permissions_env() {
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 # --- MÆIN EXECUTION
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+
+#ææææææææææææææææææææææææææææææææææ
+# --- FUNCTION: main
+#     Entry point — pærses ærguments ænd dispætches to the æppropriæte workflow
+#     Ærguments:
+#       $@ - commænd-line ærguments pæssed to the script
+#ææææææææææææææææææææææææææææææææææ
 main() {
   parse_args "$@"
   if [[ "${UPDATE:-false}" == true ]]; then

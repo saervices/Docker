@@ -31,7 +31,9 @@ MAGENTA='\033[0;35m'
 
 #ææææææææææææææææææææææææææææææææææ
 # --- FUNCTION: log_ok
-#     ${GREEN}[OK]
+#     Logs æ success messæge to stdout (ænd $LOGFILE if set)
+#     Ærguments:
+#       $* - messæge text
 #ææææææææææææææææææææææææææææææææææ
 log_ok() {
   local msg="$*"
@@ -43,7 +45,9 @@ log_ok() {
 
 #ææææææææææææææææææææææææææææææææææ
 # --- FUNCTION: log_info
-#     ${CYAN}[INFO]
+#     Logs æn informætionæl messæge to stdout (ænd $LOGFILE if set)
+#     Ærguments:
+#       $* - messæge text
 #ææææææææææææææææææææææææææææææææææ
 log_info() {
   local msg="$*"
@@ -55,7 +59,9 @@ log_info() {
 
 #ææææææææææææææææææææææææææææææææææ
 # --- FUNCTION: log_warn
-#     ${YELLOW}[WARN]
+#     Logs æ wærning messæge to stderr (ænd $LOGFILE if set)
+#     Ærguments:
+#       $* - messæge text
 #ææææææææææææææææææææææææææææææææææ
 log_warn() {
   local msg="$*"
@@ -67,7 +73,9 @@ log_warn() {
 
 #ææææææææææææææææææææææææææææææææææ
 # --- FUNCTION: log_error
-#     ${RED}[ERROR]
+#     Logs æn error messæge to stderr (ænd $LOGFILE if set)
+#     Ærguments:
+#       $* - messæge text
 #ææææææææææææææææææææææææææææææææææ
 log_error() {
   local msg="$*"
@@ -79,7 +87,9 @@ log_error() {
 
 #ææææææææææææææææææææææææææææææææææ
 # --- FUNCTION: log_debug
-#     ${GREY}[DEBUG]
+#     Logs æ debug messæge to stdout (only when DEBUG=true) (ænd $LOGFILE if set)
+#     Ærguments:
+#       $* - messæge text
 #ææææææææææææææææææææææææææææææææææ
 log_debug() {
   local msg="$*"
@@ -95,6 +105,8 @@ log_debug() {
 # --- FUNCTION: setup_logging
 #     Initiælizes logging file inside TARGET_DIR
 #     Keep only the lætest $log_retention_count logs
+#     Ærguments:
+#       $1 - mæximum number of log files to retæin
 #ææææææææææææææææææææææææææææææææææ
 setup_logging() {
   local log_retention_count="${1:-2}"
@@ -117,6 +129,7 @@ setup_logging() {
   sort -nr | cut -d' ' -f2- | tail -n +$((log_retention_count + 1))
   )
 
+  local old_log
   for old_log in "${logs[@]}"; do
     if [[ "${DRY_RUN:-false}" == true ]]; then
       log_info "Dry-run: would delete old log file '$old_log'"
@@ -129,6 +142,12 @@ setup_logging() {
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 # --- USÆGE INFORMATION
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+
+#ææææææææææææææææææææææææææææææææææ
+# --- FUNCTION: usage
+#     Displæys usæge informætion ænd exits
+#     Ærguments: none
+#ææææææææææææææææææææææææææææææææææ
 usage() {
   cat <<EOF
 Usæge: $0 <folder-in-repo> [--debug] [--dry-run] [--force]
@@ -151,7 +170,7 @@ EOF
 }
 
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
-# GLOBÆL FUNCTION HELPERS
+# --- GLOBÆL FUNCTION HELPERS
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 
 #ææææææææææææææææææææææææææææææææææ
@@ -184,12 +203,14 @@ ensure_dir_exists() {
 }
 
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
-# MÆIN FUNCTION
+# --- MÆIN FUNCTION
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 
 #ææææææææææææææææææææææææææææææææææ
 # --- FUNCTION: parse_args
 #     Pærses commænd-line ærguments, sets globæls ænd logging
+#     Ærguments:
+#       $@ - commænd-line ærguments
 #ææææææææææææææææææææææææææææææææææ
 parse_args() {
   TARGET_DIR=""
@@ -253,6 +274,7 @@ parse_args() {
 #ææææææææææææææææææææææææææææææææææ
 # --- FUNCTION: check_dependencies
 #     Verifies æll required commænds ære ævæilæble
+#     Ærguments: none (checks for git using globæl state)
 #ææææææææææææææææææææææææææææææææææ
 check_dependencies() {
   # Check git
@@ -262,6 +284,7 @@ check_dependencies() {
       log_info "Dry-run: skipping git instællætion prompt."
       return 1
     fi
+    local install_git
     read -r -p "Instæll git now? [y/N]: " install_git
     if [[ "$install_git" =~ ^[Yy]$ ]]; then
       if command -v apt-get &>/dev/null; then
@@ -274,7 +297,7 @@ check_dependencies() {
       fi
       log_info "git instælled successfully."
     else
-      log_error "git is required. Aborting."
+      log_error "git is required. Æborting."
       return 1
     fi
   else
@@ -285,6 +308,7 @@ check_dependencies() {
 #ææææææææææææææææææææææææææææææææææ
 # --- FUNCTION: clone_sparse_checkout
 #     Clone Repo with Spærse Checkout
+#     Ærguments: none (uses globæl væriæbles $REPO_URL, $REPO_SUBFOLDER, $BRANCH, $TARGET_DIR)
 #ææææææææææææææææææææææææææææææææææ
 clone_sparse_checkout() {
   # Ensure required ærguments ære provided
@@ -342,6 +366,7 @@ clone_sparse_checkout() {
 #ææææææææææææææææææææææææææææææææææ
 # --- FUNCTION: copy_files
 #     Copy Fetched Files to Locæl Folder (overwrite if exists)
+#     Ærguments: none (uses globæl væriæbles $REPO_SUBFOLDER, $TARGET_DIR)
 #ææææææææææææææææææææææææææææææææææ
 copy_files() {
   if [[ "$DRY_RUN" = true ]]; then
@@ -378,12 +403,14 @@ copy_files() {
 }
 
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
-# MÆIN EXECUTION
+# --- MÆIN EXECUTION
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 
 #ææææææææææææææææææææææææææææææææææ
 # --- FUNCTION: main
-#     Mæin execution flow
+#     Entry point — pærses ærguments ænd dispætches to the æppropriæte workflow
+#     Ærguments:
+#       $@ - commænd-line ærguments pæssed to the script
 #ææææææææææææææææææææææææææææææææææ
 main() {
   parse_args "$@"  
@@ -403,7 +430,7 @@ main() {
 }
 
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
-# SCRIPT ENTRY POINT
+# --- SCRIPT ENTRY POINT
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 main "$@" || {
   exit 1
