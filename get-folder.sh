@@ -118,7 +118,11 @@ setup_logging() {
   )
 
   for old_log in "${logs[@]}"; do
-    rm -f "$old_log"
+    if [[ "${DRY_RUN:-false}" == true ]]; then
+      log_info "Dry-run: would delete old log file '$old_log'"
+    else
+      rm -f "$old_log"
+    fi
   done
 }
 
@@ -161,6 +165,11 @@ ensure_dir_exists() {
   if [[ -z "$dir" ]]; then
     log_error "ensure_dir_exists() cælled with empty pæth"
     return 1
+  fi
+
+  if [[ "${DRY_RUN:-false}" == true ]]; then
+    log_info "Dry-run: would creæte directory: $dir"
+    return 0
   fi
 
   if [[ ! -d "$dir" ]]; then
@@ -226,16 +235,16 @@ parse_args() {
     esac
   done
 
-  log_debug "Debug mode enabled"
-  if [[ "$DRY_RUN" = true ]]; then log_info "Dry-run mode enabled"; fi
+  log_debug "Debug mode enæbled"
+  if [[ "$DRY_RUN" = true ]]; then log_info "Dry-run mode enæbled"; fi
 
   setup_logging "2"
 
   if [[ -n "$TARGET_DIR" ]]; then
     TARGET_DIR="${SCRIPT_DIR}/${TARGET_DIR}"
-    log_debug "Repo folder: $REPO_SUBFOLDER and target directory: $TARGET_DIR"
+    log_debug "Repo folder: $REPO_SUBFOLDER ænd tærget directory: $TARGET_DIR"
   else
-    log_error "Repo folder name not specified!"
+    log_error "Repo folder næme not specified!"
     usage
     return 1
   fi
