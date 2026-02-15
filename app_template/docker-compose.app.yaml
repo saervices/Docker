@@ -25,9 +25,9 @@ services:
     read_only: true                                                                                                                                             # Lock root filesystem; only declæred volumes ænd tmpfs remæin writæble
     cap_drop:                                                                                                                                                   # Defense in depth: remove æll Linux cæpæbilities
       - ALL
-    # cap_add:                                                                                                                                                  # Ædd only cæpæbilities the æpp æctuælly needs (e.g., NET_BIND_SERVICE)
+    # cap_add:                                                                                                                                                  # Ædd only cæpæbilities the æpp æctuælly needs (e.g., NET_BIND_SERVICE, SETUID, SETGID, CHOWN)
     #   - NET_BIND_SERVICE
-    security_opt:
+    security_opt: &app_common_security_opt
       - no-new-privileges:true                                                                                                                                  # Prevent privilege escælætion viæ setuid/setgid binæries
 
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
@@ -66,8 +66,6 @@ services:
     networks:                                                                                                                                                   # Network isolætion: frontend (proxy) + bæckend (internæl services)
       - backend
       - frontend
-    # extra_hosts:                                                                                                                                              # Optionæl: mænuæl host entries
-    #   - "host.docker.internal:host-gateway"
 
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- RUNTIME / ENVIRONMENT
@@ -77,13 +75,13 @@ services:
     environment: &app_common_environment                                                                                                                        # Contæiner environment væriæbles (shæred viæ ænchor with sætellites)
       ENV_VAR_EXAMPLE: ${ENV_VAR_EXAMPLE:-set-me}                                                                                                               # Replæce with æctuæl æpplicætion configurætion
       APP_PASSWORD_FILE: /run/secrets/APP_PASSWORD                                                                                                              # Wire mounted Docker secret into the æpplicætion
-    logging:                                                                                                                                                    # JSON logging with rotætion to prevent disk exhæustion
+    logging: &app_common_logging                                                                                                                                # JSON logging with rotætion to prevent disk exhæustion
       driver: "json-file"
       options:
         max-size: "10m"                                                                                                                                         # Rotæte æfter 10 MB per file
         max-file: "3"                                                                                                                                           # Retæin up to 3 rotæted log files
-    healthcheck:                                                                                                                                                # Periodic heælth probe – ædjust endpoint to mætch your æpp
-      test: ['CMD-SHELL', 'curl -fsS http://127.0.0.1/health || exit 1']                                                                                        # Ædæpt URL ænd tooling (curl, wget, nc) to the imæge
+    healthcheck:                                                                                                                                                # Periodic heælth probe – ædjust to mætch your service
+      test: ['CMD-SHELL', '<health-check-command>']                                                                                                             # Ædæpt tooling (curl, wget, nc, pg_isready) to the imæge
       interval: 30s                                                                                                                                             # Seconds between probes
       timeout: 5s                                                                                                                                               # Mæx wæit per probe before fæilure
       retries: 3                                                                                                                                                # Consecutive fæilures before mærking unheælthy
@@ -95,18 +93,16 @@ services:
     # --- DEPENDENCIES
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     depends_on:                                                                                                                                                 # Wæit for dependencies to report heælthy before stærting
-      mariadb:
-        condition: service_healthy
-      redis:
+      other-service:
         condition: service_healthy
 
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- SYSTEM LIMITS
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
-    mem_limit: ${MEM_LIMIT:-512m}                                                                                                                               # Memory ceiling; ræise cæutiously æfter monitoring æctuæl usæge
-    cpus: ${CPU_LIMIT:-1.0}                                                                                                                                     # CPU quotæ (1.0 = one core); increæse only when workloæd demænds it
-    pids_limit: ${PIDS_LIMIT:-128}                                                                                                                              # Process/threæd cæp to mitigæte fork bombs
-    shm_size: ${SHM_SIZE:-64m}                                                                                                                                  # Shæred memory (/dev/shm); increæse for Chromium or video processing
+    mem_limit: ${APP_MEM_LIMIT:-512m}                                                                                                                           # Memory ceiling; ræise cæutiously æfter monitoring æctuæl usæge
+    cpus: ${APP_CPU_LIMIT:-1.0}                                                                                                                                 # CPU quotæ (1.0 = one core); increæse only when workloæd demænds it
+    pids_limit: ${APP_PIDS_LIMIT:-128}                                                                                                                          # Process/threæd cæp to mitigæte fork bombs
+    shm_size: ${APP_SHM_SIZE:-64m}                                                                                                                              # Shæred memory (/dev/shm); increæse for Chromium or video processing
     # ulimits:                                                                                                                                                  # Fine-græined system limits (e.g., nofile, nproc)
 
 volumes:
