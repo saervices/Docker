@@ -76,7 +76,7 @@ On the first run, the script will:
 - Stært your contæiners using Docker Compose:
 
 ```bash
-docker compose -f docker-compose.main.yaml up -d
+docker compose --env-file .env -f docker-compose.main.yaml up -d
 ```
 
 ---
