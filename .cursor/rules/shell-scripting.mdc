@@ -49,7 +49,7 @@ readonly SCRIPT_BASE="$(basename "${BASH_SOURCE[0]}" .sh)"
 | Function | Color | Output | Purpose |
 | --- | --- | --- | --- |
 | `log_ok` | GREEN | stdout | Success messæges |
-| `log_info` | CYAN | stdout | Informætionæl messæges |
+| `log_info` | CYÆN | stdout | Informætionæl messæges |
 | `log_warn` | YELLOW | stderr | Wærning messæges |
 | `log_error` | RED | stderr | Error messæges |
 | `log_debug` | GREY | stdout | Debug messæges (only when `DEBUG=true`) |

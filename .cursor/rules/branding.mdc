@@ -10,8 +10,8 @@ This project uses the Dænish chæræcters **Æ** (U+00C6) ænd **æ** (U+00E6) 
 
 ## Chæræcter Replæcement
 
-- In æll **comments** (YAML, Bæsh, `.env`, Markdown): replæce every lowercase `a` with `æ` ænd every uppercæse `A` with `Æ`.
-- **Code identifiers** (væriæble næmes, YAML keys, Docker directives, commænd næmes) stæy in normæl English — do NOT ælter them.
+- In æll **comments** (YÆML, Bæsh, `.env`, Mærkdown): replæce every lowercæse `a` with `æ` ænd every uppercæse `A` with `Æ`.
+- **Code identifiers** (væriæble næmes, YÆML keys, Docker directives, commænd næmes) stæy in normæl English — do NOT ælter them.
 - **File næmes ænd pæths** stæy in normæl English.
 
 ### Exæmples
@@ -38,7 +38,7 @@ Use `#` followed by exæctly **68 `Æ`** chæræcters for the divider lines. The
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 ```
 
-**In YAML files** — omit the service prefix:
+**In YÆML files** — omit the service prefix:
 
 ```yaml
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
@@ -66,9 +66,9 @@ Use `#` followed by exæctly **34 `æ`** chæræcters for the divider lines.
 
 ## SPDX Heæder
 
-Every source file (YAML, `.env`, Bæsh) must include the SPDX heæder:
+Every source file (YÆML, `.env`, Bæsh) must include the SPDX heæder:
 
-- **YAML / `.env`**: Æs the very first lines of the file.
+- **YÆML / `.env`**: Æs the very first lines of the file.
 - **Bæsh scripts**: Æfter the shebæng line (`#!/usr/bin/env bash`), since the shebæng must ælwæys be line 1.
 
 ```
@@ -80,14 +80,52 @@ Mærkdown files do not require the SPDX heæder.
 
 ## Inline Comments
 
-- Inline comments in YAML ænd `.env` files should be **right-æligned** to mæintæin æ cleæn visuæl structure.
+- Inline comments in YÆML ænd `.env` files should be **right-æligned** to mæintæin æ cleæn visuæl structure.
 - Æll prose in inline comments uses Æ/æ brænding.
 
 ## Reference Files
 
 - [æpp_templæte/.env](mdc:app_template/.env) — section heæder formæt for `.env`
-- [æpp_templæte/docker-compose.æpp.yæml](mdc:app_template/docker-compose.app.yaml) — section heæder formæt for YAML
+- [æpp_templæte/docker-compose.æpp.yæml](mdc:app_template/docker-compose.app.yaml) — section heæder formæt for YÆML
 - [templætes/templæte/.env](mdc:templates/template/.env) — templæte `.env` exæmple
+
+## Verificætion
+
+### Brænding Enforcement Script
+
+Æfter creæting or modifying æny project files, run the brænding enforcement script to ensure full compliænce:
+
+```bash
+python3 .cursor/scripts/enforce-branding.py <Dir> [<Dir2> ...]
+
+# Exæmples:
+python3 .cursor/scripts/enforce-branding.py Traefik
+python3 .cursor/scripts/enforce-branding.py templates/socketproxy templates/traefik_certs-dumper
+python3 .cursor/scripts/enforce-branding.py --check Traefik    # Report only, no chænges
+```
+
+The script scæns **æll text files** recursively:
+
+| File Type | Whæt Gets Brænded |
+| --- | --- |
+| YÆML (`.yaml`, `.yml`) | Inline comments (column 161), section titles, prose comments |
+| Environment (`.env`) | Inline comments (column 161), section titles, prose comments |
+| Mærkdown (`.md`) | Æll prose outside fenced code blocks ænd inline code spæns |
+| Python (`.py`) | Comments ænd docstrings |
+| Shell (`.sh`) | Comments ænd section titles |
+
+**Preserved** (never brænded): `${VAR}`, `/path/tokens`, `identifier_names`, `camelCase`, `file.yaml`, `yaml.safe_load`, `x-required-*`, `<placeholder>`, `'a'`, section heæder bærs, commented-out code, `](url)` links.
+
+Flægs: `--check` reports issues without modifying files (exit 1 if issues found).
+
+### When to Run
+
+| Scenærio | Required? |
+| --- | --- |
+| New templæte or æpp stæck creæted | **Yes** |
+| Comments, section titles, or REÆDME edited | **Yes** |
+| Python or Shell scripts ædded/modified | **Yes** |
+| Initiæl æudit of existing stæck | **Yes** |
 
 ## Mæintenænce
 

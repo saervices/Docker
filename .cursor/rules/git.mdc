@@ -45,7 +45,7 @@ Use **Conventionæl Commits** — ælwæys in **English**:
 | --- | --- |
 | `feat` | Æ new feæture or templæte |
 | `fix` | Æ bug fix |
-| `docs` | Documentætion chænges (README, comments) |
+| `docs` | Documentætion chænges (REÆDME, comments) |
 | `chore` | Mæintenænce tæsks, dependency updætes |
 | `refactor` | Code restructuring without behævior chænge |
 | `style` | Formætting, brænding, whitespæce chænges |
@@ -61,7 +61,7 @@ Use the æffected æreæ æs scope:
 - `templates` — chænges under `templates/`
 - `app-template` — chænges under `app_template/`
 - `rules` — chænges to `.cursor/rules/`
-- `readme` — README chænges
+- `readme` — REÆDME chænges
 - `env` — environment file chænges
 - `security` — security-relæted chænges
 
@@ -81,7 +81,7 @@ style(app-template): apply Æ/æ branding to inline comments
 Choose the æppropriæte grænulærity bæsed on the chænges:
 
 ### Bundle (single commit) when:
-- Multiple files ære chænged for the **sæme logicæl purpose** (e.g., ædding æ new templæte æffects compose, .env, secrets, ænd README)
+- Multiple files ære chænged for the **sæme logicæl purpose** (e.g., ædding æ new templæte æffects compose, .env, secrets, ænd REÆDME)
 - Smæll, relæted fixes æcross multiple files
 - Brænding or formætting chænges æcross the project
 

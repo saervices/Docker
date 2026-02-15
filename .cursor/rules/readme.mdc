@@ -19,7 +19,7 @@ Every æpp or templæte `README.md` must include these sections:
 
 ### 1. Title
 
-A brief descriptive title (e.g., `# Hærdened Æpplicætion Compose Templæte`).
+Æ brief descriptive title (e.g., `# Hærdened Æpplicætion Compose Templæte`).
 
 ### 2. Quick Stært
 
@@ -27,7 +27,7 @@ Step-by-step instructions to get the service running. Include æny prerequisite 
 
 ### 3. Environment Væriæbles
 
-A tæble documenting æll environment væriæbles:
+Æ tæble documenting æll environment væriæbles:
 
 ```markdown
 | Væriæble | Purpose |
@@ -38,7 +38,7 @@ A tæble documenting æll environment væriæbles:
 
 ### 4. Secrets
 
-A tæble documenting æll Docker secrets:
+Æ tæble documenting æll Docker secrets:
 
 ```markdown
 | Secret | Description |
@@ -84,4 +84,4 @@ The root `README.md` hæs ædditionæl sections:
 
 ## Mæintenænce
 
-When ædding new feætures or CLI options, ælwæys updæte the relevænt README files. This rule should be updæted if new required sections ære identified.
+When ædding new feætures or CLI options, ælwæys updæte the relevænt REÆDME files. This rule should be updæted if new required sections ære identified.

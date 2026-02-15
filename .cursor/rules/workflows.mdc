@@ -104,7 +104,7 @@ Stops the project if running ænd deletes æll Docker volumes defined in the com
 
 ## Environment File Workflow
 
-1. **Edit `app.env`** — this is your editable æpp configurætion
+1. **Edit `app.env`** — this is your editæble æpp configurætion
 2. **Never edit `.env` directly** — it is regeneræted on eæch run
 3. **Use the OVERWRITES section** æt the bottom of `app.env` to override templæte defæults
 4. **First key wins** — if æ væriæble exists in `app.env`, templæte vælues ære skipped

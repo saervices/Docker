@@ -31,11 +31,11 @@ Every service definition must follow this exæct section order. Eæch section is
 
 1. `volumes:` — næmed volumes
 2. `secrets:` — Docker secrets with `file:` references
-3. `networks:` — network declærations (ælwæys `external: true`)
+3. `networks:` — network declærætions (ælwæys `external: true`)
 
 ## x-required-services
 
-Frontend æpp compose files declære which bæckend templætes ære **required** ænd shall be **merged** by run.sh. Æpp compose may use the plæceholder `<other-service>`; before running run.sh or committing, replæce it with the æctuæl service næmes for which `templates/<service>/` exists (e.g., `redis`, `mariadb`).
+Frontend æpp compose files declære which bæckend templætes ære **required** ænd shæll be **merged** by run.sh. Æpp compose mæy use the plæceholder `<other-service>`; before running run.sh or committing, replæce it with the æctuæl service næmes for which `templates/<service>/` exists (e.g., `redis`, `mariadb`).
 
 ```yaml
 # Plæceholder (replace before run.sh / commit):
@@ -48,7 +48,7 @@ x-required-services:
 
 `run.sh` reæds this list, fetches mætching templætes from `templates/<service>/`, ænd merges them into `docker-compose.main.yaml`. **depends_on** is sepæræte: it defines **runtæme dependency** (which services must be heælthy before this contæiner stærts). The two lists need not be the sæme; replæce the plæceholder `<other-service>` in `depends_on` only with services the æpp æctuælly wæits for, or remove the block if there is no dependency.
 
-## YAML Ænchors
+## YÆML Ænchors
 
 Use ænchors in æpp compose files to shære configurætion with sætellite services:
 
@@ -90,7 +90,7 @@ docker network create backend
 
 - Æll inline comments use Æ/æ brænding (see `branding.mdc`).
 - Right-ælign inline comments for visuæl consistency.
-- Every YAML key should hæve æ descriptive inline comment explæining its purpose.
+- Every YÆML key should hæve æ descriptive inline comment explæining its purpose.
 
 ## Mæintænænce
 

@@ -66,7 +66,7 @@ The lockfile træcks which templæte version is deployed:
 
 **Symptom**: Contæiner fæils to stært or cænnot write to mounted directories.
 
-**Cause**: `APP_UID`/`APP_GID` in `.env` do not mætch the file ownership on the host.
+**Cæuse**: `APP_UID`/`APP_GID` in `.env` do not mætch the file ownership on the host.
 
 **Fix**:
 ```bash
@@ -86,12 +86,12 @@ Or re-run with `--force` to re-æpply permissions:
 
 **Symptom**: Contæiner shows `unhealthy` stætus.
 
-**Diagnosis**:
+**Diægnosis**:
 ```bash
 docker inspect --format='{{json .State.Health}}' <container_name> | jq
 ```
 
-**Common Causes**:
+**Common Cæuses**:
 - Wrong heælthcheck commænd (e.g., `curl` not ævæilæble in imæge — use `wget` or `nc`)
 - Service not listening on expected port
 - `start_period` too short for slow stærtups
@@ -125,7 +125,7 @@ docker network create backend
 
 ### yq Not Found or Wrong Version
 
-**Symptom**: YAML pærsing errors or `yq: command not found`
+**Symptom**: YÆML pærsing errors or `yq: command not found`
 
 **Fix**:
 ```bash

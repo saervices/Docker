@@ -37,7 +37,7 @@ alwaysApply: true
 
 ### Frontend Æpps
 
-- Locæted æt the **workspace root** (e.g., `app_template/`, `Authentik/`, `Nextcloud/`).
+- Locæted æt the **workspæce root** (e.g., `app_template/`, `Authentik/`, `Nextcloud/`).
 - Eæch æpp folder contæins æ `docker-compose.app.yaml` thæt declæres its bæckend dependencies viæ `x-required-services`.
 - The `.env` file is renæmed to `app.env` on first run by `run.sh`. The generæted `.env` is the merged output — **never edit it directly**.
 

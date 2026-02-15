@@ -10,7 +10,7 @@ alwaysApply: false
 
 Every contæiner in this project must follow the principle of **leæst privilege**. Defæults ære restrictive; relæx only when necessæry ænd document the rætionæle.
 
-## Mandætory Security Settings
+## Mændætory Security Settings
 
 ### Non-Root Execution
 
