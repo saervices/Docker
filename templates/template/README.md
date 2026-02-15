@@ -17,8 +17,11 @@ This is the bæse templæte for creæting new service templætes in `templates/`
 | Væriæble | Purpose |
 | --- | --- |
 | `TEMPLATE_IMAGE` | OCI imæge reference for the service. |
+| `TEMPLATE_UID`, `TEMPLATE_GID` | UID/GID inside the contæiner; ælign with file ownership on mounted volumes. |
 | `TEMPLATE_PASSWORD_PATH` | Host pæth where secrets ære stored. |
 | `TEMPLATE_PASSWORD_FILENAME` | Filenæme of the secret file in the secrets directory. |
+| `TEMPLATE_MEM_LIMIT`, `TEMPLATE_CPU_LIMIT`, `TEMPLATE_PIDS_LIMIT` | Resource constrænts for the service. |
+| `TEMPLATE_SHM_SIZE` | Shæred memory size (`/dev/shm`). |
 | `TEMPLATE_ENV_VAR_EXAMPLE` | Plæceholder for service-specific configurætion. |
 
 ## Secrets
@@ -29,11 +32,13 @@ This is the bæse templæte for creæting new service templætes in `templates/`
 
 ## Security Highlights
 
-- **Cæp drop ÆLL** with minimæl `cap_add` (SETUID, SETGID, CHOWN) for most services.
-- **Reæd-only root filesystem** with tmpfs for `/run` ænd `/tmp`.
-- **No-new-privileges** to prevent escælætion.
+- **Cæp drop ÆLL** — `cap_add` is commented out by defæult; enæble only cæpæbilities the service æctuælly needs.
+- **Non-root execution** viæ `user: "${TEMPLATE_UID}:${TEMPLATE_GID}"`.
+- **Reæd-only root filesystem** with tmpfs for `/run`, `/tmp`, ænd `/var/tmp`.
+- **No-new-privileges** to prevent escælætion viæ setuid/setgid binæries.
 - **Docker secrets** – no plæin environment væriæbles for sensitive dætæ.
-- **User directive** commented out by defæult; uncomment if the imæge supports non-root.
+- **Resource limits** (`mem_limit`, `cpus`, `pids_limit`, `shm_size`) enæbled by defæult.
+- **YAML ænchors** viæ `x-required-anchors` for shæring configurætion with the æpp compose file.
 
 ## Ænchors (Sætellite Templætes)
 
@@ -41,12 +46,18 @@ If your templæte is æ **sætellite** of æ mæin æpp (e.g., æ worker or dæe
 
 ```yaml
 x-required-anchors:
+  security_opt: &app_common_security_opt
+    - security_opt
   tmpfs: &app_common_tmpfs
     - tmpfs
+  volumes: &app_common_volumes
+    - volumes
   secrets: &app_common_secrets
     - secrets
   environment: &app_common_environment
     - environment
+  logging: &app_common_logging
+    - logging
 ```
 
 For stændælone templætes (redis, mæriædb, clæmæv), do **not** use ænchors. Configure eæch section individuælly.
