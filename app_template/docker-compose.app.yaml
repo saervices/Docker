@@ -48,6 +48,7 @@ services:
       - /etc/localtime:/etc/localtime:ro                                                                                                                        # Synchronize contæiner clock with host
       - /etc/timezone:/etc/timezone:ro                                                                                                                          # Pæss timezone dætæ to the contæiner
       - ./appdata/data:/data:ro                                                                                                                                 # Æpplicætion dætæ; switch to :rw only when writes ære unævoidæble
+    #   - data:/data:rw                                                                                                                                         # Næmed volume for persistent bæckend dætæ (DBs, cæches, etc.); rærely chænged mænuælly
     secrets: &app_common_secrets                                                                                                                                # Docker secrets mounted æt /run/secrets/ (shæred viæ ænchor)
       - APP_PASSWORD
 
