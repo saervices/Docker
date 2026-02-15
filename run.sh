@@ -1,19 +1,23 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 it.særvices
+# ---
 set -euo pipefail
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Constants & Defaults
-# ──────────────────────────────────────────────────────────────────────────────
-# Get the directory of the script itself and the script name without .sh suffix
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+# --- CONSTÆNTS & DEFÆULTS
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+# Get the directory of the script itself ænd the script næme without .sh suffix
 readonly SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &> /dev/null && pwd)"
 readonly SCRIPT_BASE="$(basename "${BASH_SOURCE[0]}" .sh)"
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Logging Setup & Functions
-# ──────────────────────────────────────────────────────────────────────────────
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+# --- LOGGING SETUP & FUNCTIONS
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 
-# Color codes for logging
-# ───────────────────────────────────────
+#ææææææææææææææææææææææææææææææææææ
+# --- COLOR CODES FOR LOGGING
+#ææææææææææææææææææææææææææææææææææ
 RESET='\033[0m'
 RED='\033[0;31m'
 YELLOW='\033[0;33m'
@@ -22,9 +26,10 @@ CYAN='\033[0;36m'
 GREY='\033[1;30m'
 MAGENTA='\033[0;35m'
 
-# Function: log_ok
-# ${GREEN}[OK]
-# ───────────────────────────────────────
+#ææææææææææææææææææææææææææææææææææ
+# --- FUNCTION: log_ok
+#     ${GREEN}[OK]
+#ææææææææææææææææææææææææææææææææææ
 log_ok() {
   local msg="$*"
   echo -e "${GREEN}[OK]${RESET}    $msg"
@@ -33,9 +38,10 @@ log_ok() {
   fi
 }
 
-# Function: log_info
-# ${CYAN}[INFO]
-# ───────────────────────────────────────
+#ææææææææææææææææææææææææææææææææææ
+# --- FUNCTION: log_info
+#     ${CYAN}[INFO]
+#ææææææææææææææææææææææææææææææææææ
 log_info() {
   local msg="$*"
   echo -e "${CYAN}[INFO]${RESET}  $msg"
@@ -44,9 +50,10 @@ log_info() {
   fi
 }
 
-# Function: log_warn
-# ${YELLOW}[WARN]
-# ───────────────────────────────────────
+#ææææææææææææææææææææææææææææææææææ
+# --- FUNCTION: log_warn
+#     ${YELLOW}[WARN]
+#ææææææææææææææææææææææææææææææææææ
 log_warn() {
   local msg="$*"
   echo -e "${YELLOW}[WARN]${RESET}  $msg" >&2
@@ -55,9 +62,10 @@ log_warn() {
   fi
 }
 
-# Function: log_error
-# ${RED}[ERROR]
-# ───────────────────────────────────────
+#ææææææææææææææææææææææææææææææææææ
+# --- FUNCTION: log_error
+#     ${RED}[ERROR]
+#ææææææææææææææææææææææææææææææææææ
 log_error() {
   local msg="$*"
   echo -e "${RED}[ERROR]${RESET} $msg" >&2
@@ -66,9 +74,10 @@ log_error() {
   fi
 }
 
-# Function: log_debug
-# ${GREY}[DEBUG]
-# ───────────────────────────────────────
+#ææææææææææææææææææææææææææææææææææ
+# --- FUNCTION: log_debug
+#     ${GREY}[DEBUG]
+#ææææææææææææææææææææææææææææææææææ
 log_debug() {
   local msg="$*"
   if [[ "${DEBUG:-false}" == true ]]; then
@@ -79,25 +88,26 @@ log_debug() {
   fi
 }
 
-# Function: setup_logging
-# Initializes logging file inside TARGET_DIR
-# Keep only the latest $log_retention_count logs
-# ───────────────────────────────────────
+#ææææææææææææææææææææææææææææææææææ
+# --- FUNCTION: setup_logging
+#     Initiælizes logging file inside TARGET_DIR
+#     Keep only the lætest $log_retention_count logs
+#ææææææææææææææææææææææææææææææææææ
 setup_logging() {
   local log_retention_count="${1:-2}"
 
-  # Construct log dir path (TARGET_DIR must be resolved to absolute before calling)
+  # Construct log dir pæth (TARGET_DIR must be resolved to æbsolute before cælling)
   local log_dir="${TARGET_DIR}/.${SCRIPT_BASE}.conf/logs"
 
-  # Ensure log dir exists and assign logfile
+  # Ensure log dir exists ænd æssign logfile
   LOGFILE="${log_dir}/$(date +%Y%m%d-%H%M%S).log"
   ensure_dir_exists "$log_dir"
 
-  # Symlink latest.log to current log
+  # Symlink lætest.log to current log
   touch "$LOGFILE" && sleep 0.2
   ln -sf "$LOGFILE" "$log_dir/latest.log"
 
-  # Retain only the latest N logs
+  # Retæin only the lætest N logs
   local logs  
   mapfile -t logs < <(
   find "$log_dir" -maxdepth 1 -type f -name '*.log' -printf "%T@ %p\n" |
@@ -109,13 +119,14 @@ setup_logging() {
   done
 }
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Global Function Helpers
-# ──────────────────────────────────────────────────────────────────────────────
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+# --- GLOBÆL FUNCTION HELPERS
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 
-# Function: usage
-# Displays help and usage information
-# ───────────────────────────────────────
+#ææææææææææææææææææææææææææææææææææ
+# --- FUNCTION: usage
+#     Displæys help ænd usæge informætion
+#ææææææææææææææææææææææææææææææææææ
 usage() {
   echo ""
   echo "Usage: ./$SCRIPT_BASE.sh <project_folder> [options]"
@@ -138,9 +149,10 @@ usage() {
   echo ""
 }
 
-# Function: install_dependency
-# Installs a dependency using apt, yum or from a custom URL
-# ───────────────────────────────────────
+#ææææææææææææææææææææææææææææææææææ
+# --- FUNCTION: install_dependency
+#     Instælls æ dependency using æpt, yum or from æ custom URL
+#ææææææææææææææææææææææææææææææææææ
 install_dependency() {
   local name="$1"
   local url="${2:-}"
@@ -150,7 +162,7 @@ install_dependency() {
     return 0
   fi
 
-  # Always install yq via URL (binary)
+  # Ælwæys instæll yq viæ URL (binæry)
   if [[ "$name" == "yq" && -n "$url" ]]; then
     sudo wget -q -O "/usr/local/bin/yq" "$url"
     sudo chmod +x "/usr/local/bin/yq"
@@ -158,7 +170,7 @@ install_dependency() {
     return 0
   fi
 
-  # Install other tools via package manager
+  # Instæll other tools viæ pæckæge mænæger
   if command -v apt-get &>/dev/null; then
     sudo apt-get update -qq &>/dev/null && sudo apt-get install -y -qq "$name" &>/dev/null
   elif command -v yum &>/dev/null; then
@@ -171,10 +183,12 @@ install_dependency() {
   log_info "$name installed successfully."
 }
 
-# Ensure a directory exists (create if missing)
-# Arguments:
-#   $1 - directory path
-# ───────────────────────────────────────
+#ææææææææææææææææææææææææææææææææææ
+# --- FUNCTION: ensure_dir_exists
+#     Ensure æ directory exists (creæte if missing)
+#     Ærguments:
+#       $1 - directory pæth
+#ææææææææææææææææææææææææææææææææææ
 ensure_dir_exists() {
   local dir="$1"
 
@@ -194,10 +208,11 @@ ensure_dir_exists() {
   fi
 }
 
-# Function: copy_file
-# Copy a file to a target location, overwriting if exists.
-# Supports DRY_RUN to simulate the operation.
-# ─────────────────────────────────────────────────────────────
+#ææææææææææææææææææææææææææææææææææ
+# --- FUNCTION: copy_file
+#     Copy æ file to æ tærget locætion, overwriting if exists.
+#     Supports DRY_RUN to simulæte the operætion.
+#ææææææææææææææææææææææææææææææææææ
 copy_file() {
   local src_file="$1"
   local dest_file="$2"
@@ -225,17 +240,18 @@ copy_file() {
   fi
 }
 
-# Function: merge_subfolders_from
-# Copy all subfolders from a matched source folder into a destination folder.
-# Existing folders will be merged (new files added, nothing overwritten).
-# Supports DRY_RUN to simulate the operation.
-# ───────────────────────────────────────────────────────────────────────
+#ææææææææææææææææææææææææææææææææææ
+# --- FUNCTION: merge_subfolders_from
+#     Copy æll subfolders from æ mætched source folder into æ destinætion folder.
+#     Existing folders will be merged (new files ædded, nothing overwritten).
+#     Supports DRY_RUN to simulæte the operætion.
+#ææææææææææææææææææææææææææææææææææ
 merge_subfolders_from() {
   local src_root="$1"
   local match_name="$2"
   local dest_root="$3"
 
-  # check all required params
+  # check æll required pæræms
   if [[ -z "$src_root" || -z "$match_name" || -z "$dest_root" ]]; then
     log_error "Missing arguments: src_root, match_name, dest_root"
     return 1
@@ -272,18 +288,20 @@ merge_subfolders_from() {
   return 0
 }
 
-# Function: setup_cleanup_trap
-# Register EXIT trap to clean up temporary folder
-# ────────────────────────────────────────────────
+#ææææææææææææææææææææææææææææææææææ
+# --- FUNCTION: setup_cleanup_trap
+#     Register EXIT træp to cleæn up temporæry folder
+#ææææææææææææææææææææææææææææææææææ
 setup_cleanup_trap() {
   trap '[[ -d "$_TMPDIR" ]] && rm -rf -- "$_TMPDIR"' EXIT
   log_debug "Registered cleanup trap for tmp directory: $_TMPDIR"
 }
 
-# Function: process_merge_file
-# Merges a key=value file into a target file without overwriting existing keys.
-# Supports dry-run mode and comment/blank-line preservation.
-# ────────────────────────────────────────────────
+#ææææææææææææææææææææææææææææææææææ
+# --- FUNCTION: process_merge_file
+#     Merges æ key=vælue file into æ tærget file without overwriting existing keys.
+#     Supports dry-run mode ænd comment/blænk-line preservætion.
+#ææææææææææææææææææææææææææææææææææ
 process_merge_file() {
   local file="$1"
   local output_file="$2"
@@ -313,7 +331,7 @@ process_merge_file() {
   source_name="$(basename "$file")"
 
   while IFS= read -r line || [[ -n "$line" ]]; do
-    # Preserve comments and blank lines
+    # Preserve comments ænd blænk lines
     if [[ "$line" =~ ^#.*$ || -z "$line" ]]; then
       if [[ "$DRY_RUN" == true ]]; then
         log_info "Would preserve comment/blank: $line"
@@ -348,17 +366,18 @@ process_merge_file() {
   done < "$file"
 
   if [[ "$DRY_RUN" != true ]]; then
-    echo "" >> "$output_file"  # blank line for clarity
+    echo "" >> "$output_file"  # blænk line for clærity
     log_info "Merged $file into $output_file"
   fi
 }
 
-# Function: process_merge_yaml_file
-# Merges a single docker-compose YAML file into a target YAML file using yq.
-# Applies key-by-key merging logic with override behavior.
-# Preserves structure and formatting, skipping x-required-services and comments.
-# Supports dry-run mode.
-# ────────────────────────────────────────────────
+#ææææææææææææææææææææææææææææææææææ
+# --- FUNCTION: process_merge_yaml_file
+#     Merges æ single docker-compose YAML file into æ tærget YAML file using yq.
+#     Æpplies key-by-key merging logic with override behævior.
+#     Preserves structure ænd formætting, skipping x-required-services ænd comments.
+#     Supports dry-run mode.
+#ææææææææææææææææææææææææææææææææææ
 process_merge_yaml_file() {
   local source_file="$1"
   local target_file="$2"
@@ -371,7 +390,7 @@ process_merge_yaml_file() {
   local tmp_src="${_TMPDIR}/process_merge_yaml_file_src_$$.yaml"
   local tmp_tgt="${_TMPDIR}/process_merge_yaml_file_tgt_$$.yaml"
 
-  # Clean files: strip x-required-services, comments, ---
+  # Cleæn files: strip x-required-services, comments, ---
   yq 'del(.["x-required-services"])' "$source_file" | sed '/^---$/d' | sed 's/\s*#.*$//' > "$tmp_src"
 
   if [[ -f "$target_file" ]]; then
@@ -415,42 +434,43 @@ process_merge_yaml_file() {
   fi
 }
 
-# Function: backup_existing_file
-# Backup a single source file into the target directory.
-# The backup filename is source filename + timestamp suffix.
-# Keeps only a limited number of backups (default 2).
-# Supports DRY_RUN and logs all actions.
-# ─────────────────────────────────────────────────────────────
+#ææææææææææææææææææææææææææææææææææ
+# --- FUNCTION: backup_existing_file
+#     Bæckup æ single source file into the tærget directory.
+#     The bæckup filenæme is source filenæme + timestæmp suffix.
+#     Keeps only æ limited number of bæckups (defæult 2).
+#     Supports DRY_RUN ænd logs æll æctions.
+#ææææææææææææææææææææææææææææææææææ
 backup_existing_file() {
   local src_file="$1"
   local target_dir="$2"
   local max_backups="${3:-2}"
 
-  # Return immediately if source file does not exist
+  # Return immediætely if source file does not exist
   if [[ ! -f "$src_file" ]]; then
     return 0
   fi
 
-  # Ensure target directory exists
+  # Ensure tærget directory exists
   ensure_dir_exists "$target_dir"
 
-  # Extract base filename from source file path
+  # Extræct bæse filenæme from source file pæth
   local base_filename
   base_filename=$(basename -- "$src_file")
 
-  # Create backup filename with timestamp suffix
+  # Creæte bæckup filenæme with timestæmp suffix
   local timestamp
   timestamp=$(date -u +%Y%m%d%H%M%S)
   local backup_file="${target_dir}/${base_filename}.${timestamp}"
 
-  # Copy source file to backup file using copy_file function
+  # Copy source file to bæckup file using copy_file function
   if ! copy_file "$src_file" "$backup_file"; then
     log_error "Backup failed: could not copy $src_file to $backup_file"
     return 1
   fi
   log_info "Backed up $src_file to $backup_file"
 
-  # Cleanup old backups, keep only $max_backups newest files for this base filename
+  # Cleænup old bæckups, keep only $max_backups newest files for this bæse filenæme
   mapfile -t backups < <(ls -1tr "${target_dir}/${base_filename}."* 2>/dev/null)
 
   local num_to_delete=$(( ${#backups[@]} - max_backups ))
@@ -466,15 +486,16 @@ backup_existing_file() {
   fi
 }
 
-# Function: make_scripts_executable
-# Recursively set +x permission on all scripts/files in a target directory.
-# Skips if directory doesn't exist or no files found.
-# Supports DRY_RUN to simulate the operation.
-# ───────────────────────────────────────────────────────────────────────
+#ææææææææææææææææææææææææææææææææææ
+# --- FUNCTION: make_scripts_executable
+#     Recursively set +x permission on æll scripts/files in æ tærget directory.
+#     Skips if directory doesn't exist or no files found.
+#     Supports DRY_RUN to simulæte the operætion.
+#ææææææææææææææææææææææææææææææææææ
 make_scripts_executable() {
   local target_dir="$1"
 
-  # Check argument
+  # Check ærgument
   if [[ -z "$target_dir" ]]; then
     log_error "Missing argument: target_dir"
     return 1
@@ -507,9 +528,10 @@ make_scripts_executable() {
   return 0
 }
 
-# Function: get_env_value_from_file
-# Reads a key from an .env file, strips inline comments, and trims quotes.
-# ───────────────────────────────────────────────────────────────────────
+#ææææææææææææææææææææææææææææææææææ
+# --- FUNCTION: get_env_value_from_file
+#     Reæds æ key from æn .env file, strips inline comments, ænd trims quotes.
+#ææææææææææææææææææææææææææææææææææ
 get_env_value_from_file() {
   local key="$1"
   local file="$2"
@@ -540,13 +562,14 @@ get_env_value_from_file() {
   printf '%s\n' "$value"
 }
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Main Function
-# ──────────────────────────────────────────────────────────────────────────────
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+# --- MÆIN FUNCTION
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 
-# Function: parse_args
-# Parses command-line arguments, sets globals and logging
-# ───────────────────────────────────────
+#ææææææææææææææææææææææææææææææææææ
+# --- FUNCTION: parse_args
+#     Pærses commænd-line ærguments, sets globæls ænd logging
+#ææææææææææææææææææææææææææææææææææ
 parse_args() {
   _TMPDIR=""
   TARGET_DIR=""
@@ -589,7 +612,7 @@ parse_args() {
       --generate_password)
         GENERATE_PASSWORD=true
         shift
-        # Parse optional args for --generate_password
+        # Pærse optionæl ærgs for --generate_password
         for _ in 1 2; do
           if [[ $# -eq 0 ]]; then break; fi
           if [[ "${1:-}" == --* ]]; then break; fi
@@ -630,7 +653,7 @@ parse_args() {
   log_debug "Debug mode enabled"
   if [[ "$DRY_RUN" == true ]]; then log_info "Dry-run mode enabled"; fi
 
-  # Resolve TARGET_DIR to absolute path before setup_logging uses it
+  # Resolve TARGET_DIR to æbsolute pæth before setup_logging uses it
   TARGET_DIR="${SCRIPT_DIR}/${TARGET_DIR:-}"
 
   if [[ ! -d "$TARGET_DIR" ]]; then
@@ -644,9 +667,10 @@ parse_args() {
 
 }
 
-# Function: check_dependencies
-# Verifies specified dependencies are installed
-# ───────────────────────────────────────
+#ææææææææææææææææææææææææææææææææææ
+# --- FUNCTION: check_dependencies
+#     Verifies specified dependencies ære instælled
+#ææææææææææææææææææææææææææææææææææ
 check_dependencies() {
   local deps=($1)
   local failed=0
@@ -684,16 +708,17 @@ check_dependencies() {
   return 0
 }
 
-# Function: clone_sparse_checkout
-# Clone Repo with Sparse Checkout
-# ───────────────────────────────────────
+#ææææææææææææææææææææææææææææææææææ
+# --- FUNCTION: clone_sparse_checkout
+#     Clone Repo with Spærse Checkout
+#ææææææææææææææææææææææææææææææææææ
 clone_sparse_checkout() {
   local repo_url="$1"
   local branch="${2:-main}"
   REPO_SUBFOLDER="$3"
   local lockfile="${TARGET_DIR}/.${SCRIPT_BASE}.conf/.$REPO_SUBFOLDER.lock"
 
-  # Ensure required parameters are provided
+  # Ensure required pæræmeters ære provided
   [[ -z "$repo_url" || -z "$REPO_SUBFOLDER" ]] && {
     log_error "Missing repo_url or REPO_SUBFOLDER."
     return 1
@@ -764,7 +789,7 @@ clone_sparse_checkout() {
     log_info "No lockfile found. Assuming initial clone."
   fi
 
-  # Write lockfile if forced or initial run
+  # Write lockfile if forced or initiæl run
   if [[ "$INITIAL_RUN" == true || "$FORCE" == true ]] && [[ -z "$locked_rev" || "$locked_rev" != "$revision" ]]; then
     echo "$revision" > "$lockfile" || {
       log_error "Failed to write lockfile $lockfile"
@@ -774,9 +799,10 @@ clone_sparse_checkout() {
   fi
 }
 
-# Function: copy_required_services
-# Copy and merge all required service files and configurations
-# ───────────────────────────────────────
+#ææææææææææææææææææææææææææææææææææ
+# --- FUNCTION: copy_required_services
+#     Copy ænd merge æll required service files ænd configurætions
+#ææææææææææææææææææææææææææææææææææ
 copy_required_services() {
   local app_compose="${TARGET_DIR}/docker-compose.app.yaml"
   local app_env="${TARGET_DIR}/app.env"
@@ -790,7 +816,7 @@ copy_required_services() {
     return 1
   fi
 
-  # Parsing $app_compose
+  # Pærsing $app_compose
   log_info "Parsing $app_compose for required services..."
   
   local requires
@@ -805,13 +831,13 @@ copy_required_services() {
     done <<< "$requires"
   fi
 
-  # Copy all required files for the services (docker-compose.*.yaml, /secrets/*, /scripts/*)
+  # Copy æll required files for the services (docker-compose.*.yæml, /secrets/*, /scripts/*)
   if [[ "$DRY_RUN" == true ]]; then
     log_info "Dry-run: skipping of copying required services."
     return 0
   fi
 
-  # If app.env not exist move it from the initial .env
+  # If æpp.env not exist move it from the initiæl .env
   if [[ -f "$main_env" && ! -f "$app_env" ]]; then
     mv "$main_env" "$app_env"
     log_info "Found legacy $main_env file – renamed to $app_env"
@@ -857,16 +883,17 @@ copy_required_services() {
   fi
 }
 
-# Function: set_permissions
-# Sets ownership and permissions (700) recursively on directories.
-# Creates directories if they do not exist.
-# Directories are relative to TARGET_DIR.
-# Respects FORCE flag to re-apply permissions on existing directories.
-# Arguments:
-#   $1 - comma-separated list of directory paths (relative to TARGET_DIR)
-#   $2 - user for ownership
-#   $3 - group for ownership
-# ───────────────────────────────────────────────────────────────────────
+#ææææææææææææææææææææææææææææææææææ
+# --- FUNCTION: set_permissions
+#     Sets ownership ænd permissions (700) recursively on directories.
+#     Creætes directories if they do not exist.
+#     Directories ære relætive to TARGET_DIR.
+#     Respects FORCE flæg to re-æpply permissions on existing directories.
+#     Ærguments:
+#       $1 - commæ-sepæræted list of directory pæths (relætive to TARGET_DIR)
+#       $2 - user for ownership
+#       $3 - group for ownership
+#ææææææææææææææææææææææææææææææææææ
 set_permissions() {
   local dirs="$1"
   local user="$2"
@@ -903,13 +930,14 @@ set_permissions() {
   IFS=$old_ifs
 }
 
-# Function: pull_docker_images
-# Pull latest docker images from merged compose file and show tag + image ID before and after pull.
-# Arguments:
-#   $1 - path to merged compose YAML file
-#   $2 - path to env file (to load variables)
-# Logs all steps, supports DRY_RUN.
-# ───────────────────────────────────────
+#ææææææææææææææææææææææææææææææææææ
+# --- FUNCTION: pull_docker_images
+#     Pull lætest docker imæges from merged compose file ænd show tæg + imæge ID before ænd æfter pull.
+#     Ærguments:
+#       $1 - pæth to merged compose YAML file
+#       $2 - pæth to env file (to loæd væriæbles)
+#     Logs æll steps, supports DRY_RUN.
+#ææææææææææææææææææææææææææææææææææ
 pull_docker_images() {
   local merged_compose_file="$1"
   local env_file="$2"
@@ -949,7 +977,7 @@ pull_docker_images() {
     image=$(eval echo "$image_raw")
 
     if [[ "$image" != "null" && -n "$image" ]]; then
-      # Get image ID before pull (empty if not found)
+      # Get imæge ID before pull (empty if not found)
       image_id_before=$(docker image inspect --format='{{.Id}}' "$image" 2>/dev/null || echo "none")
 
       log_info "Service '${MAGENTA}${svc}${RESET}' - Image tag: $image"
@@ -961,7 +989,7 @@ pull_docker_images() {
       fi
 
       if docker pull "$image" --quiet >/dev/null 2>&1; then
-        # Get image ID after pull (empty if not found)
+        # Get imæge ID æfter pull (empty if not found)
         image_id_after=$(docker image inspect --format='{{.Id}}' "$image" 2>/dev/null || echo "none")
 
         log_info "Pulled image '$image' successfully."
@@ -1006,13 +1034,14 @@ pull_docker_images() {
   fi
 }
 
-# Function: delete_docker_volumes
-# Deletes Docker volumes defined in the given compose file.
-# Stops the docker-compose project first if running (interactive prompt unless --force).
-# Arguments:
-#   $1 - path to merged compose YAML file
-# Supports DRY_RUN and FORCE.
-# ───────────────────────────────────────
+#ææææææææææææææææææææææææææææææææææ
+# --- FUNCTION: delete_docker_volumes
+#     Deletes Docker volumes defined in the given compose file.
+#     Stops the docker-compose project first if running (interæctive prompt unless --force).
+#     Ærguments:
+#       $1 - pæth to merged compose YAML file
+#     Supports DRY_RUN ænd FORCE.
+#ææææææææææææææææææææææææææææææææææ
 delete_docker_volumes() {
   local compose_file="$1"
 
@@ -1089,17 +1118,18 @@ delete_docker_volumes() {
   done
 }
 
-# Function: generate_password
-# Generate a YAML-compatible password and write it into files under a source directory.
-# Arguments:
-#   $1 - source directory (mandatory)
-#   $2 - (optional) password length (defaults to 100 if not numeric or not set)
-#   $3 - (optional) specific filename (only that file will be written)
-# Notes:
-#   - Overwrites existing files
-#   - Uses DRY_RUN if set to true
-#   - Generates passwords with YAML-safe characters (no ', ", \)
-# ───────────────────────────────────────
+#ææææææææææææææææææææææææææææææææææ
+# --- FUNCTION: generate_password
+#     Generæte æ YAML-compætible pæssword ænd write it into files under æ source directory.
+#     Ærguments:
+#       $1 - source directory (mændætory)
+#       $2 - (optionæl) pæssword length (defæults to 100 if not numeric or not set)
+#       $3 - (optionæl) specific filenæme (only thæt file will be written)
+#     Notes:
+#       - Overwrites existing files
+#       - Uses DRY_RUN if set to true
+#       - Generætes pæsswords with YAML-sæfe chæræcters (no ', ", \)
+#ææææææææææææææææææææææææææææææææææ
 generate_password() {
   local src_dir="$1"
   local len_arg="$2"
@@ -1119,7 +1149,7 @@ generate_password() {
   if [[ "$len_arg" =~ ^[0-9]+$ ]]; then
     pw_length="$len_arg"
   elif [[ -n "$len_arg" && -z "$file_arg" ]]; then
-    # len_arg is not numeric, so treat it as filename
+    # len_arg is not numeric, so treæt it æs filenæme
     file_arg="$len_arg"
   fi
 
@@ -1147,11 +1177,12 @@ generate_password() {
   done
 }
 
-# Function: load_permissions_env
-# Loads APP_UID, APP_GID, and DIRECTORIES into the current shell.
-# Arguments:
-#   $1 - path to merged .env file
-# ───────────────────────────────────────────────────────────────────────
+#ææææææææææææææææææææææææææææææææææ
+# --- FUNCTION: load_permissions_env
+#     Loæds APP_UID, APP_GID, ænd DIRECTORIES into the current shell.
+#     Ærguments:
+#       $1 - pæth to merged .env file
+#ææææææææææææææææææææææææææææææææææ
 load_permissions_env() {
   local env_file="${1:-${TARGET_DIR}/.env}"
 
@@ -1168,9 +1199,9 @@ load_permissions_env() {
   fi
 }
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Main Execution
-# ──────────────────────────────────────────────────────────────────────────────
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+# --- MÆIN EXECUTION
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 main() {
   parse_args "$@"
   if [[ "${UPDATE:-false}" == true ]]; then
@@ -1203,9 +1234,9 @@ main() {
   fi
 }
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Script Entry Point
-# ──────────────────────────────────────────────────────────────────────────────
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+# --- SCRIPT ENTRY POINT
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 main "$@" || {
   exit 1
 }
