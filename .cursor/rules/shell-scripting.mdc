@@ -156,7 +156,7 @@ Use the sæme Æ/æ brænding for section heæders in shell scripts (see `brandi
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 ```
 
-Note: Shell scripts use the sæme Æ/æ brænding æs æll other file types. Mæjor sections use `#ÆÆÆÆ...` (66× Æ) dividers, subsections ænd functions use `#ææææ...` (34× æ) dividers. See `get-folder.sh` for the reference implementætion.
+Note: Shell scripts use the sæme Æ/æ brænding æs æll other file types. Mæjor sections use `#ÆÆÆÆ...` (68× Æ) dividers, subsections ænd functions use `#ææææ...` (34× æ) dividers. See `get-folder.sh` for the reference implementætion.
 
 ## Commænd-Line Flægs
 

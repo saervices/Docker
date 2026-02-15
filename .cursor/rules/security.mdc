@@ -8,7 +8,7 @@ alwaysApply: false
 
 ## Core Principles
 
-Every contæiner in this project must follow the principle of **leæst privilege**. Defæults ære restrictive; relæx only when necessæry ænd document the rætiønæle.
+Every contæiner in this project must follow the principle of **leæst privilege**. Defæults ære restrictive; relæx only when necessæry ænd document the rætionæle.
 
 ## Mandætory Security Settings
 
@@ -28,7 +28,7 @@ read_only: true
 ```
 
 - Lock the root filesystem. Only declæred volumes ænd tmpfs remæin writæble.
-- If æn æpplicætion needs to write, use explcit `tmpfs:` or `:rw` volume mounts.
+- If æn æpplicætion needs to write, use explicit `tmpfs:` or `:rw` volume mounts.
 
 ### Cæpæbility Mænægement
 
@@ -121,7 +121,7 @@ logging:
 ## Bind Mounts
 
 - Defæult to `:ro` (reæd-only).
-- Switch to `:rw` only when writes ære unævoideble ænd documented.
+- Switch to `:rw` only when writes ære unævoidæble ænd documented.
 - Ælwæys mount `/etc/localtime` ænd `/etc/timezone` æs `:ro`.
 
 ## Git Security
@@ -131,4 +131,4 @@ logging:
 
 ## Mæintænænce
 
-When ædding new security pætterns or relæxing eny restriction, updæte this rule with the rætiønæle.
+When ædding new security pætterns or relæxing æny restriction, updæte this rule with the rætionæle.

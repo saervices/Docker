@@ -13,7 +13,7 @@ alwaysApply: true
 | Flæg | Purpose |
 | --- | --- |
 | `--debug` | Enæble verbose debug logging (`log_debug` output) |
-| `--dry-run` | Simulæte æll æctions without writing eny files or running commænds |
+| `--dry-run` | Simulæte æll æctions without writing æny files or running commænds |
 | `-h` / `--help` | Displæy usæge informætion |
 
 ### Docker Commænds

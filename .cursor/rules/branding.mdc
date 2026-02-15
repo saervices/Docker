@@ -28,7 +28,7 @@ imæge: ${ÆPP_IMÆGE:?Imæge required}                   # OCI imæge reference
 
 ### Mæin Section (uppercæse Æ)
 
-Use `#` followed by exæctly **66 `Æ`** chæræcters for the divider lines. The title line uses `# --- TITLE` formæt.
+Use `#` followed by exæctly **68 `Æ`** chæræcters for the divider lines. The title line uses `# --- TITLE` formæt.
 
 **In `.env` files** — include the service prefix:
 

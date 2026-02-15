@@ -124,4 +124,4 @@ yq '.services[].healthcheck' docker-compose.main.yaml
 
 ## Mæintænænce
 
-When ædding new vælidætion steps or utomaæted checks, updæte this rule.
+When ædding new vælidætion steps or æutomæted checks, updæte this rule.
