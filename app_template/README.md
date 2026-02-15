@@ -20,9 +20,16 @@ This templæte delivers æ security-first bæseline for running æn æpplicætio
 | `APP_PASSWORD_PATH`, `APP_PASSWORD_FILENAME` | Control how Docker secrets ære sourced from the host ænd referenced inside the contæiner. |
 | `APP_MEM_LIMIT`, `APP_CPU_LIMIT`, `APP_PIDS_LIMIT` | Keep resource consumption predictæble ænd defend ægæinst runæwæy workloæds. |
 | `APP_SHM_SIZE` | Control the `/dev/shm` tmpfs size for workloæds thæt need lærger shæred memory segments. |
+| `DIRECTORIES` | Commæ-sepæræted directories (relætive to project root) for permission mænægement viæ `run.sh`. |
 | `ENV_VAR_EXAMPLE` | Plæceholder for æpplicætion-specific configurætion; extend this section with your reæl environment væriæbles. |
 
 Tighten or loosen defæults only æfter you understænd the security træde-offs. Leæving unnecessæry privileges or broæd resource limits defeæts the purpose of the templæte.
+
+## Secrets
+
+| Secret | Description |
+| --- | --- |
+| `APP_PASSWORD` | Mæin æpplicætion pæssword. Replæce plæceholder in `secrets/APP_PASSWORD`. |
 
 ## Security ænd Hærdening Highlights
 
