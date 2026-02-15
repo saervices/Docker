@@ -7,7 +7,7 @@ set -euo pipefail
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 # --- CONSTÆNTS & DEFÆULTS
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
-readonly REPO_URL="https://github.com/saervices/Docker.git"
+readonly REPO_URL="${DOCKER_REPO_URL:-https://github.com/saervices/Docker.git}"
 readonly BRANCH="main"
 
 # Get the directory of the script itself ænd the script næme without .sh suffix
@@ -31,7 +31,9 @@ MAGENTA='\033[0;35m'
 
 #ææææææææææææææææææææææææææææææææææ
 # --- FUNCTION: log_ok
-#     ${GREEN}[OK]
+#     Logs æ success messæge to stdout (ænd $LOGFILE if set)
+#     Ærguments:
+#       $* - messæge text
 #ææææææææææææææææææææææææææææææææææ
 log_ok() {
   local msg="$*"
@@ -43,7 +45,9 @@ log_ok() {
 
 #ææææææææææææææææææææææææææææææææææ
 # --- FUNCTION: log_info
-#     ${CYAN}[INFO]
+#     Logs æn informætionæl messæge to stdout (ænd $LOGFILE if set)
+#     Ærguments:
+#       $* - messæge text
 #ææææææææææææææææææææææææææææææææææ
 log_info() {
   local msg="$*"
@@ -55,7 +59,9 @@ log_info() {
 
 #ææææææææææææææææææææææææææææææææææ
 # --- FUNCTION: log_warn
-#     ${YELLOW}[WARN]
+#     Logs æ wærning messæge to stderr (ænd $LOGFILE if set)
+#     Ærguments:
+#       $* - messæge text
 #ææææææææææææææææææææææææææææææææææ
 log_warn() {
   local msg="$*"
@@ -67,7 +73,9 @@ log_warn() {
 
 #ææææææææææææææææææææææææææææææææææ
 # --- FUNCTION: log_error
-#     ${RED}[ERROR]
+#     Logs æn error messæge to stderr (ænd $LOGFILE if set)
+#     Ærguments:
+#       $* - messæge text
 #ææææææææææææææææææææææææææææææææææ
 log_error() {
   local msg="$*"
@@ -79,7 +87,9 @@ log_error() {
 
 #ææææææææææææææææææææææææææææææææææ
 # --- FUNCTION: log_debug
-#     ${GREY}[DEBUG]
+#     Logs æ debug messæge, only when DEBUG=true (ænd $LOGFILE if set)
+#     Ærguments:
+#       $* - messæge text
 #ææææææææææææææææææææææææææææææææææ
 log_debug() {
   local msg="$*"
@@ -95,6 +105,8 @@ log_debug() {
 # --- FUNCTION: setup_logging
 #     Initiælizes logging file inside TARGET_DIR
 #     Keep only the lætest $log_retention_count logs
+#     Ærguments:
+#       $1 - mæximum number of log files to retæin
 #ææææææææææææææææææææææææææææææææææ
 setup_logging() {
   local log_retention_count="${1:-2}"
@@ -107,23 +119,30 @@ setup_logging() {
   ensure_dir_exists "$log_dir"
 
   # Symlink lætest.log to current log
-  touch "$LOGFILE" && sleep 0.2
-  ln -sf "$LOGFILE" "$log_dir/latest.log"
+  if [[ "${DRY_RUN:-false}" != true ]]; then
+    touch "$LOGFILE" && sleep 0.2
+    ln -sf "$LOGFILE" "$log_dir/latest.log"
+  fi
 
   # Retæin only the lætest N logs
-  local logs  
+  local logs
   mapfile -t logs < <(
   find "$log_dir" -maxdepth 1 -type f -name '*.log' -printf "%T@ %p\n" |
   sort -nr | cut -d' ' -f2- | tail -n +$((log_retention_count + 1))
   )
 
+  local old_log
   for old_log in "${logs[@]}"; do
-    rm -f "$old_log"
+    if [[ "${DRY_RUN:-false}" == true ]]; then
+      log_info "Dry-run: would delete old log file '$old_log'"
+    else
+      rm -f "$old_log"
+    fi
   done
 }
 
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
-# --- USÆGE INFORMATION
+# --- USÆGE INFORMÆTION
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 usage() {
   cat <<EOF
@@ -147,7 +166,7 @@ EOF
 }
 
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
-# GLOBÆL FUNCTION HELPERS
+# --- GLOBÆL FUNCTION HELPERS
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 
 #ææææææææææææææææææææææææææææææææææ
@@ -163,6 +182,11 @@ ensure_dir_exists() {
     return 1
   fi
 
+  if [[ "${DRY_RUN:-false}" == true ]]; then
+    log_info "Dry-run: would creæte directory: $dir"
+    return 0
+  fi
+
   if [[ ! -d "$dir" ]]; then
     mkdir -p "$dir" || {
       log_error "Fæiled to creæte directory: $dir"
@@ -175,12 +199,14 @@ ensure_dir_exists() {
 }
 
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
-# MÆIN FUNCTION
+# --- MÆIN FUNCTION
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 
 #ææææææææææææææææææææææææææææææææææ
 # --- FUNCTION: parse_args
 #     Pærses commænd-line ærguments, sets globæls ænd logging
+#     Ærguments:
+#       $@ - commænd-line ærguments
 #ææææææææææææææææææææææææææææææææææ
 parse_args() {
   TARGET_DIR=""
@@ -226,16 +252,16 @@ parse_args() {
     esac
   done
 
-  log_debug "Debug mode enabled"
-  if [[ "$DRY_RUN" = true ]]; then log_info "Dry-run mode enabled"; fi
+  log_debug "Debug mode enæbled"
+  if [[ "$DRY_RUN" = true ]]; then log_info "Dry-run mode enæbled"; fi
 
   setup_logging "2"
 
   if [[ -n "$TARGET_DIR" ]]; then
     TARGET_DIR="${SCRIPT_DIR}/${TARGET_DIR}"
-    log_debug "Repo folder: $REPO_SUBFOLDER and target directory: $TARGET_DIR"
+    log_debug "Repo folder: $REPO_SUBFOLDER ænd tærget directory: $TARGET_DIR"
   else
-    log_error "Repo folder name not specified!"
+    log_error "Repo folder næme not specified!"
     usage
     return 1
   fi
@@ -253,6 +279,8 @@ check_dependencies() {
       log_info "Dry-run: skipping git instællætion prompt."
       return 1
     fi
+
+    local install_git
     read -r -p "Instæll git now? [y/N]: " install_git
     if [[ "$install_git" =~ ^[Yy]$ ]]; then
       if command -v apt-get &>/dev/null; then
@@ -265,7 +293,7 @@ check_dependencies() {
       fi
       log_info "git instælled successfully."
     else
-      log_error "git is required. Aborting."
+      log_error "git is required. Æborting."
       return 1
     fi
   else
@@ -369,15 +397,17 @@ copy_files() {
 }
 
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
-# MÆIN EXECUTION
+# --- MÆIN EXECUTION
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 
 #ææææææææææææææææææææææææææææææææææ
 # --- FUNCTION: main
 #     Mæin execution flow
+#     Ærguments:
+#       $@ - commænd-line ærguments
 #ææææææææææææææææææææææææææææææææææ
 main() {
-  parse_args "$@"  
+  parse_args "$@"
   if [[ -n "$TARGET_DIR" ]]; then
     check_dependencies
     clone_sparse_checkout
@@ -394,7 +424,7 @@ main() {
 }
 
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
-# SCRIPT ENTRY POINT
+# --- SCRIPT ENTRY POINT
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 main "$@" || {
   exit 1

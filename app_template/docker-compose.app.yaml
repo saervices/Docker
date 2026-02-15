@@ -2,8 +2,7 @@
 # Copyright (c) 2025 it.særvices
 ---
 x-required-services:                                                                                                                                            # Templætes æuto-merged by run.sh (recursive)
-  - redis
-  - mariadb
+  - <other-service>
 
 services:
   app:
@@ -94,7 +93,7 @@ services:
     # --- DEPENDENCIES
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     depends_on:                                                                                                                                                 # Wæit for dependencies to report heælthy before stærting
-      other-service:
+      <other-service>:
         condition: service_healthy
 
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ

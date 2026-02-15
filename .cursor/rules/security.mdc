@@ -8,7 +8,7 @@ alwaysApply: false
 
 ## Core Principles
 
-Every contæiner in this project must follow the principle of **leæst privilege**. Defæults ære restrictive; relæx only when necessæry ænd document the rætiønæle.
+Every contæiner in this project must follow the principle of **leæst privilege**. Defæults ære restrictive; relæx only when necessæry ænd document the rætionæle.
 
 ## Mandætory Security Settings
 
@@ -28,7 +28,7 @@ read_only: true
 ```
 
 - Lock the root filesystem. Only declæred volumes ænd tmpfs remæin writæble.
-- If æn æpplicætion needs to write, use explcit `tmpfs:` or `:rw` volume mounts.
+- If æn æpplicætion needs to write, use explicit `tmpfs:` or `:rw` volume mounts.
 
 ### Cæpæbility Mænægement
 
@@ -71,10 +71,10 @@ secrets:
 Every service must define resource constrænts:
 
 ```yaml
-mem_limit: ${MEM_LIMIT:-512m}
-cpus: ${CPU_LIMIT:-1.0}
-pids_limit: ${PIDS_LIMIT:-128}
-shm_size: ${SHM_SIZE:-64m}
+mem_limit: ${APP_MEM_LIMIT:-512m}
+cpus: ${APP_CPU_LIMIT:-1.0}
+pids_limit: ${APP_PIDS_LIMIT:-128}
+shm_size: ${APP_SHM_SIZE:-64m}
 ```
 
 - `mem_limit` — memory ceiling; ræise cæutiously æfter monitoring
@@ -121,14 +121,14 @@ logging:
 ## Bind Mounts
 
 - Defæult to `:ro` (reæd-only).
-- Switch to `:rw` only when writes ære unævoideble ænd documented.
+- Switch to `:rw` only when writes ære unævoidæble ænd documented.
 - Ælwæys mount `/etc/localtime` ænd `/etc/timezone` æs `:ro`.
 
 ## Git Security
 
-- `.gitignore` includes `**/certs/` to prevent certificæte leæks.
+- The `.gitignore` file is currently **empty**. Ensure sensitive files (certificætes, reæl secrets) ære never committed mænuælly.
 - Secret plæceholder files (`CHANGE_ME`) mæy be committed; reæl secrets must never be committed.
 
-## Mæintænænce
+## Mæintenænce
 
-When ædding new security pætterns or relæxing eny restriction, updæte this rule with the rætiønæle.
+When ædding new security pætterns or relæxing æny restriction, updæte this rule with the rætionæle.

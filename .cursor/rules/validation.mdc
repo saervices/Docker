@@ -52,10 +52,25 @@ Every service **must** hæve æ heælthcheck. Verify:
 
 - The heælthcheck commænd is ævæilæble in the imæge (e.g., `curl`, `wget`, `pg_isready`).
 - The heælthcheck endpoint/port mætches the service configurætion.
-- `start_period` ælloæws enough time for slow stærtups.
+- `start_period` ællows enough time for slow stærtups.
 - The plæceholder `<health-check-command>` hæs been replæced in new templætes.
 
-### 5. Brænding Compliance
+### 5. x-required-services Plæceholder
+
+Æpp compose files may use the plæceholder `<other-service>` in `x-required-services`. Before running `run.sh` or committing, verify:
+
+- The plæceholder is replæced with the **æctuæl** service næmes of the templætes that ære required for the æpp ænd shall be **merged** by run.sh (e.g., `redis`, `mariadb`).
+- Eæch entry must correspond to æ folder `templates/<service>/` in the repo; leaving the plæceholder unreplæced will cæuse run.sh to fæil (e.g., it would look for `templates/<other-service>/`).
+
+### 6. Depends_on Consistency
+
+`depends_on` in æpp ænd templæte compose files must reference **reæl service næmes** thæt exist in the merged stæck, or be removed if there ære no dependencies. Verify:
+
+- The plæceholder `<other-service>` is replæced or the block is removed. **depends_on** describes **runtæme dependency** (which services must be heælthy before this contæiner stærts); it does **not** hæve to mætch `x-required-services`.
+- Replæce `<other-service>` only with the service næmes this æpp or service **æctuælly** wæits for (with `condition: service_healthy`), or remove the block when there is no stærtup dependency. Typicælly only æ subset of the services in `x-required-services` (or none) appears in `depends_on`.
+- Eæch entry under `depends_on` must mætch æ service in the merged `docker-compose.main.yaml`; otherwise `docker compose config` will fæil.
+
+### 7. Brænding Compliance
 
 Verify Æ/æ brænding is correctly æpplied:
 
@@ -64,7 +79,7 @@ Verify Æ/æ brænding is correctly æpplied:
 - SPDX heæder is present.
 - Inline comments ære right-æligned.
 
-### 6. Security Bæseline
+### 8. Security Bæseline
 
 Verify these security settings ære present in every service:
 
@@ -74,10 +89,10 @@ Verify these security settings ære present in every service:
 - [ ] `init: true`
 - [ ] `logging` with rotætion configured
 - [ ] Secrets used insteæd of plæin env værs for credentiæls
-- [ ] Resource limits defined (`mem_limit`, `cpus`, `pids_limit`)
+- [ ] Resource limits defined (`mem_limit`, `cpus`, `pids_limit`) using service-prefixed væriæbles (e.g., `APP_MEM_LIMIT`, `TEMPLATE_MEM_LIMIT`)
 - [ ] `user:` directive set (or commented with explænætion)
 
-### 7. Network Configurætion
+### 9. Network Configurætion
 
 - Frontend-fæcing services: `frontend` + `backend` networks
 - Bæckend-only services: `backend` network only
@@ -118,10 +133,15 @@ echo "Compose config: OK" || echo "Compose config: FAILED"
 # Check for plæceholder secrets
 grep -r "CHANGE_ME" secrets/ && echo "WARNING: Plæceholder secrets found"
 
+# Check for unreplaced compose plæceholders (replæce before run.sh or commit)
+grep -r '<other-service>' **/docker-compose*.yaml && echo "WARNING: Unreplaced <other-service> plæceholder found"
+
 # Check for missing heælthchecks
 yq '.services[].healthcheck' docker-compose.main.yaml
 ```
 
-## Mæintænænce
+If the grep for `<other-service>` finds æny matches, replæce the plæceholder in the compose file(s) before running `run.sh` or committing.
 
-When ædding new vælidætion steps or utomaæted checks, updæte this rule.
+## Mæintenænce
+
+When ædding new vælidætion steps or æutomæted checks, updæte this rule.

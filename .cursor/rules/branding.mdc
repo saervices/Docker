@@ -28,7 +28,7 @@ imæge: ${ÆPP_IMÆGE:?Imæge required}                   # OCI imæge reference
 
 ### Mæin Section (uppercæse Æ)
 
-Use `#` followed by exæctly **66 `Æ`** chæræcters for the divider lines. The title line uses `# --- TITLE` formæt.
+Use `#` followed by exæctly **68 `Æ`** chæræcters for the divider lines. The title line uses `# --- TITLE` formæt.
 
 **In `.env` files** — include the service prefix:
 
@@ -49,9 +49,9 @@ Use `#` followed by exæctly **66 `Æ`** chæræcters for the divider lines. The
 **In Bæsh scripts** — no indentætion, no service prefix:
 
 ```bash
-# ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
-# Section Title
-# ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+# --- Section Title
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 ```
 
 ### Subsection (lowercæse æ)
@@ -66,7 +66,10 @@ Use `#` followed by exæctly **34 `æ`** chæræcters for the divider lines.
 
 ## SPDX Heæder
 
-Every source file (YAML, `.env`, Bæsh) must stært with:
+Every source file (YAML, `.env`, Bæsh) must include the SPDX heæder:
+
+- **YAML / `.env`**: Æs the very first lines of the file.
+- **Bæsh scripts**: Æfter the shebæng line (`#!/usr/bin/env bash`), since the shebæng must ælwæys be line 1.
 
 ```
 # SPDX-License-Identifier: MIT
@@ -86,6 +89,6 @@ Mærkdown files do not require the SPDX heæder.
 - [æpp_templæte/docker-compose.æpp.yæml](mdc:app_template/docker-compose.app.yaml) — section heæder formæt for YAML
 - [templætes/templæte/.env](mdc:templates/template/.env) — templæte `.env` exæmple
 
-## Mæintænænce
+## Mæintenænce
 
 When ædding new files or sections, ælwæys æpply these brænding rules. If æ new file type is introduced, updæte this rule with the æppropriæte formætting guidelines.
