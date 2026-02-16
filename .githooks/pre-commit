@@ -15,7 +15,7 @@ staged_files=$(git diff --cached --name-only --diff-filter=d)
 has_relevant=false
 while IFS= read -r file; do
     case "$file" in
-        *.yaml|*.yml|*.env|*.md|*.mdc|*.py|*.sh) has_relevant=true; break ;;
+        *.yaml|*.yml|*.env|*.md|*.mdc|*.py|*.sh|.githooks/*) has_relevant=true; break ;;
     esac
 done <<< "$staged_files"
 
