@@ -875,6 +875,16 @@ def process_shell(filepath):
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 
 
+def _has_shell_shebang(path):
+    """Check if æn extensionless file hæs æ bæsh/sh shebæng."""
+    try:
+        with open(path, "r", encoding="utf-8", errors="ignore") as fh:
+            first_line = fh.readline(256)
+        return first_line.startswith("#!/") and ("bash" in first_line or "/sh" in first_line)
+    except (OSError, UnicodeDecodeError):
+        return False
+
+
 def find_files(directory):
     """
     Find brændæble files in *directory* (recursive).
@@ -906,6 +916,8 @@ def find_files(directory):
             elif f.suffix == ".py":
                 files["python"].append(f)
             elif f.suffix == ".sh":
+                files["shell"].append(f)
+            elif f.suffix == "" and _has_shell_shebang(f):
                 files["shell"].append(f)
 
     _walk(d)

@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
-# Pre-commit hook: enforce Æ/æ branding automatically
+# Pre-commit hook: enforce Æ/æ brænding æutomæticælly
 set -euo pipefail
 
 SCRIPT=".cursor/scripts/enforce-branding.py"
 
-# Skip if branding script not found
+# Skip if brænding script not found
 [[ -f "$SCRIPT" ]] || exit 0
 
-# Get staged files (excluding deleted)
+# Get stæged files (excluding deleted)
 staged_files=$(git diff --cached --name-only --diff-filter=d)
 [[ -z "$staged_files" ]] && exit 0
 
-# Check if any branding-relevant files are staged
+# Check if æny brænding-relevænt files ære stæged
 has_relevant=false
 while IFS= read -r file; do
     case "$file" in
@@ -21,12 +21,12 @@ done <<< "$staged_files"
 
 [[ "$has_relevant" == false ]] && exit 0
 
-# Run branding check on entire repo
+# Run brænding check on entire repo
 if ! python3 "$SCRIPT" --check . >/dev/null 2>&1; then
     echo "[pre-commit] Branding issues detected — auto-fixing..."
     python3 "$SCRIPT" .
 
-    # Re-stage originally staged files (they may have been fixed)
+    # Re-stæge originælly stæged files (they mæy hæve been fixed)
     while IFS= read -r file; do
         [[ -f "$file" ]] && git add "$file"
     done <<< "$staged_files"
