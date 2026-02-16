@@ -1,3 +1,7 @@
 # Python
 __pycache__/
 *.pyc
+
+# Local / workspace
+.claude/settings.local.json
+.cursor/plans/

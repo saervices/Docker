@@ -332,6 +332,16 @@ sudo chmod +x /usr/local/bin/yq
 - [yq](https://github.com/mikefarah/yq) (instælled æutomæticælly if missing)
 - rsync (instælled æutomæticælly if missing)
 
+## Developer Setup
+
+Æfter cloning the repository, enæble the pre-commit hook for æutomætic Æ/æ brænding enforcement:
+
+```bash
+git config core.hooksPath .githooks
+```
+
+This ensures æll comments, section heæders, ænd documentætion follow the project's brænding conventions before eæch commit.
+
 ---
 
 Feel free to contribute new templætes or improve the sync script!

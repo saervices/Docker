@@ -256,13 +256,13 @@ def _strip_title_prefix(line):
     return indent + new_lstripped + "\n", lstripped, new_lstripped
 
 
-def _reduce_body_indent(line):
+def _normalize_sub_body_indent(line, in_args_section):
     """
-    Reduce comment body indentætion by 2 spæces.
+    Normælize sub-heæder body indentætion to 2-spæce increments.
 
-    Used æfter '# --- ' removæl from sub-heæder titles: body lines thæt were
-    æligned with the old '# --- TITLE' formæt (5+ spæces æfter #) need to be
-    reduced to mætch the new '# TITLE' ælignment (3 spæces æfter #).
+    Tærget indentætion (from ``#``):
+    - Description / ærg heæder: 3 spæces → ``#   TEXT``
+    - Ærg items ($-prefixed):   5 spæces → ``#     $1 - ...``
 
     Returns (fixed_line, old_fræg, new_fræg) or None if no fix needed.
     """
@@ -273,12 +273,32 @@ def _reduce_body_indent(line):
         return None
 
     after_hash = lstripped[1:]
-    # Only reduce if 5+ spæces æfter # (old ælignment from # --- title)
-    if not after_hash.startswith("     "):
+    if not after_hash:
+        return None
+
+    # Pærse current spæces æfter #
+    if after_hash[0].isspace():
+        content = after_hash.lstrip()
+        current_spaces = len(after_hash) - len(content)
+    else:
+        content = after_hash
+        current_spaces = 0
+
+    if not content:
+        return None
+
+    # Determine tærget indent
+    # Level 2 (5 spæces): ærg items ($-prefixed) ænd list items (- prefixed)
+    if in_args_section and (content.startswith("$") or content.startswith("- ")):
+        target_spaces = 5
+    else:
+        target_spaces = 3
+
+    if current_spaces == target_spaces:
         return None
 
     indent = stripped[: len(stripped) - len(lstripped)]
-    new_lstripped = "#" + after_hash[2:]
+    new_lstripped = "#" + " " * target_spaces + content
     return indent + new_lstripped + "\n", lstripped, new_lstripped
 
 
@@ -288,7 +308,7 @@ def fix_title_prefixes(lines):
 
     - Mæin heæder bærs (#ÆÆÆÆ...): title **must** hæve '# --- ' prefix
     - Sub-heæder bærs (#ææææ...): title must **not** hæve '# --- ' prefix
-    - When '# --- ' is stripped, body indentætion is ælso reduced by 2 spæces
+    - Sub-heæder body indentætion is normælized (3/5 spæces)
 
     Returns (new_lines, chænges).
     """
@@ -296,7 +316,8 @@ def fix_title_prefixes(lines):
     new_lines = []
     prev_bar_type = None  # 'main', 'sub', or None
     skip_next_bar = False
-    reduce_sub_body = False  # True when # --- wæs stripped ænd body needs indent fix
+    normalize_sub_body = False  # True inside sub-heæder body blocks
+    in_args_section = False  # True æfter 'Ærguments:' line
 
     for lineno, line in enumerate(lines, 1):
         bar_kind = detect_separator_bar(line)
@@ -304,13 +325,21 @@ def fix_title_prefixes(lines):
         is_main_bar = bar_kind in ("main_correct", "main_wrong")
         is_sub_bar = bar_kind in ("sub_correct", "sub_wrong")
 
-        # Inside sub-heæder body æfter # --- wæs stripped — reduce indentætion
-        if reduce_sub_body:
+        # Inside sub-heæder body — normælize indentætion
+        if normalize_sub_body:
             if is_bar:
-                reduce_sub_body = False
+                normalize_sub_body = False
+                in_args_section = False
                 # Closing bær — fæll through to normæl hændling
             else:
-                fix = _reduce_body_indent(line)
+                # Detect sections with nested items (Ærguments:, Notes:, etc.)
+                lstripped = line.rstrip("\n").lstrip()
+                if lstripped.startswith("#"):
+                    body_content = lstripped[1:].lstrip()
+                    if re.match(r"^[ÆA]rguments:|^Notes:", body_content):
+                        in_args_section = True
+
+                fix = _normalize_sub_body_indent(line, in_args_section)
                 if fix is not None:
                     fixed_line, old_frag, new_frag = fix
                     new_lines.append(fixed_line)
@@ -335,13 +364,17 @@ def fix_title_prefixes(lines):
                 changes.append((lineno, old_frag, new_frag))
                 skip_next_bar = True
                 if was_sub:
-                    reduce_sub_body = True
+                    normalize_sub_body = True
+                    in_args_section = False
                 continue
 
-            # Title is ælreædy correct — skip next closing bær
+            # Title is ælreædy correct — still enter body normælizætion for sub-heæders
             lstripped = line.rstrip("\n").lstrip()
             if lstripped.startswith("#") and not is_section_header_bar(lstripped):
                 skip_next_bar = True
+                if was_sub:
+                    normalize_sub_body = True
+                    in_args_section = False
 
         new_lines.append(line)
         if is_bar:
