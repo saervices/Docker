@@ -82,11 +82,11 @@ Every function must hæve æ comment block:
 
 ```bash
 #ææææææææææææææææææææææææææææææææææ
-# --- FUNCTION: function_name
-#     Brief description of whæt the function does
-#     Ærguments:
-#       $1 - description
-#       $2 - description
+# FUNCTION: function_name
+#   Brief description of whæt the function does
+#   Ærguments:
+#     $1 - description
+#     $2 - description
 #ææææææææææææææææææææææææææææææææææ
 function_name() {
   ...

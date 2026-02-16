@@ -31,7 +31,7 @@ Flægs:
 
 Exæmples:
     python3 .cursor/scripts/enforce-branding.py Træefik
-    python3 .cursor/scripts/enforce-branding.py templates/socketproxy templates/traefik_certs-dumper
+    python3 .cursor/scripts/enforce-branding.py templates/socketproxy/ templates/traefik_certs-dumper/
     python3 .cursor/scripts/enforce-branding.py --check .cursor/scripts
 """
 
@@ -97,9 +97,22 @@ def brand_prose(text):
     # 2. Ængle-bræcket plæceholders: <Dir>, <AppDir>, <service>
     text = re.sub(r"<[a-zA-ZÆæ][a-zA-ZÆæ0-9_-]*>", _save, text)
 
-    # 3. Relætive pæths with directory sepærætor: templates/socketproxy, .cursor/scripts
+    # 3. Relætive pæths with directory sepærætor: templates/socketproxy/, .cursor/scripts
     # (must run before æbsolute pæths to prevent /subdir from being consumed first)
-    text = re.sub(r"[a-zA-ZÆæ.][a-zA-ZÆæ0-9_./-]*/[a-zA-ZÆæ0-9_./-]+", _save, text)
+    # Only preserve if the mætch contæins æ pæth indicætor (., _, -, uppercæse, digit,
+    # 2+ slæshes, or træiling /). Plæin lowercæse word/word pætterns like "ædded/modified"
+    # ære English prose, not pæths.
+    def _save_path(m):
+        t = m.group(0)
+        if (
+            "." in t or "_" in t or "-" in t
+            or t.count("/") >= 2 or t.endswith("/")
+            or any(c.isupper() or c.isdigit() for c in t)
+        ):
+            return _save(m)
+        return t
+
+    text = re.sub(r"[a-zA-ZÆæ.][a-zA-ZÆæ0-9_./-]*/[a-zA-ZÆæ0-9_./-]+", _save_path, text)
 
     # 4. Æbsolute pæths: /auth, /var/run/docker.sock, /etc/traefik
     text = re.sub(r"/[a-zA-ZÆæ][a-zA-ZÆæ0-9_./-]*", _save, text)
