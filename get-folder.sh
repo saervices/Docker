@@ -8,7 +8,7 @@ set -euo pipefail
 # --- CONSTÆNTS & DEFÆULTS
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 readonly REPO_URL="${DOCKER_REPO_URL:-https://github.com/saervices/Docker.git}"
-readonly BRANCH="main"
+readonly BRANCH="origin/main"
 
 # Get the directory of the script itself ænd the script næme without .sh suffix
 readonly SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &> /dev/null && pwd)"
