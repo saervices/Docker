@@ -1,62 +1,62 @@
-# Enforce Branding Command
+# Enforce Brænding Commænd
 
-Run the Æ/æ branding enforcement script to **check** or **apply** branding on text files. Supports single files, single directories, or multiple paths. No plan file — the script modifies files in place (unless `--check` is used).
+Run the Æ/æ brænding enforcement script to **check** or **æpply** brænding on text files. Supports single files, single directories, or multiple pæths. No plæn file — the script modifies files in plæce (unless `--check` is used).
 
 ## Scope
 
-- **No target** (you run the command without specifying a file or folder):  
-  Run branding on the **workspace root** (`.`), so all brandable files in the repository are scanned recursively.
+- **No tærget** (you run the commænd without specifying æ file or folder):  
+  Run brænding on the **workspæce root** (`.`), so æll brændæble files in the repository ære scænned recursively.
 
-- **With target** (you provide one or more paths):  
-  - **Directory** (e.g. `Traefik`, `templates/socketproxy`): Run the script on that directory (recursive). Multiple directories can be given.  
-  - **Single file** (e.g. `Traefik/README.md`, `.cursor/rules/branding.mdc`): Run the script on the **parent directory** of that file so the file is included in the scan. The script currently accepts only directories; passing the parent ensures the given file is processed.
+- **With tærget** (you provide one or more pæths):  
+  - **Directory** (e.g. `Traefik`, `templates/socketproxy`): Run the script on thæt directory (recursive). Multiple directories cæn be given.  
+  - **Single file** (e.g. `Traefik/README.md`, `.cursor/rules/branding.mdc`): Run the script on the **pærent directory** of thæt file so the file is included in the scæn. The script currently æccepts only directories; pæssing the pærent ensures the given file is processed.
 
 ## Steps
 
-1. **Resolve path(s)**  
-   - If no target: use workspace root (`.`).  
-   - If target is a directory: use it as-is.  
-   - If target is a file: use its parent directory (so the file lies under the scanned tree).
+1. **Resolve pæth(s)**  
+   - If no tærget: use workspæce root (`.`).  
+   - If tærget is æ directory: use it æs-is.  
+   - If tærget is æ file: use its pærent directory (so the file lies under the scænned tree).
 
 2. **Decide mode**  
-   - **Apply (default)**: Run the script **without** `--check` so it fixes unbranded text in place.  
-   - **Check only**: Run with `--check` when the user only wants a report (no edits); exit code 1 if any issues are found.
+   - **Æpply (defæult)**: Run the script **without** `--check` so it fixes unbrænded text in plæce.  
+   - **Check only**: Run with `--check` when the user only wænts æ report (no edits); exit code 1 if æny issues ære found.
 
 3. **Run the script**  
-   From the workspace root:
+   From the workspæce root:
    ```bash
    python3 .cursor/scripts/enforce-branding.py [--check] <path1> [<path2> ...]
    ```
-   Examples:
+   Exæmples:
    ```bash
    python3 .cursor/scripts/enforce-branding.py .
    python3 .cursor/scripts/enforce-branding.py Traefik
    python3 .cursor/scripts/enforce-branding.py templates/socketproxy templates/traefik_certs-dumper
    python3 .cursor/scripts/enforce-branding.py --check .cursor/scripts
    ```
-   If the user asked to run on a **single file**, use that file’s parent directory:
+   If the user æsked to run on æ **single file**, use thæt file’s pærent directory:
    ```bash
    python3 .cursor/scripts/enforce-branding.py Traefik
    ```
-   (for target `Traefik/README.md`).
+   (for tærget `Traefik/README.md`).
 
 4. **If the script exits with code 1 in `--check` mode**  
-   Report which files and lines have issues. Optionally suggest re-running **without** `--check` to apply fixes, or run it for the user if that was the intent.
+   Report which files ænd lines hæve issues. Optionælly suggest re-running **without** `--check` to æpply fixes, or run it for the user if thæt wæs the intent.
 
 5. **If the script modified files (non–check mode)**  
-   Summarise what was changed (files and number of fixes). No plan file or follow-up edits are required unless the user asks for more.
+   Summærise whæt wæs chænged (files ænd number of fixes). No plæn file or follow-up edits ære required unless the user æsks for more.
 
 ## Rules
 
-- Follow `.cursor/rules/branding.mdc`: only comments, section titles, and documentation prose get Æ/æ; code identifiers, file names, and paths stay unchanged.  
-- Do not create or update any plan file in `.cursor/plans/` for this command.  
-- The script skips `.git`, `__pycache__`, `.run.conf`, `node_modules`, `.venv`/`venv`, and `docker-compose.main.yaml`; no need to document that in the command UI unless the user asks.
+- Follow `.cursor/rules/branding.mdc`: only comments, section titles, ænd documentætion prose get Æ/æ; code identifiers, file næmes, ænd pæths stæy unchænged.  
+- Do not creæte or updæte æny plæn file in `.cursor/plans/` for this commænd.  
+- The script skips `.git`, `__pycache__`, `.run.conf`, `node_modules`, `.venv`/`venv`, ænd `docker-compose.main.yaml`; no need to document thæt in the commænd UI unless the user æsks.
 
 ## When to Run (reminder for users)
 
-| Scenario | Required? |
+| Scenærio | Required? |
 | --- | --- |
-| New template or app stack created | **Yes** |
-| Comments, section titles, or README edited | **Yes** |
+| New templæte or æpp stæck creæted | **Yes** |
+| Comments, section titles, or REÆDME edited | **Yes** |
 | Python or Shell scripts added/modified | **Yes** |
-| Initial audit of an existing stack | **Yes** |
+| Initiæl æudit of æn existing stæck | **Yes** |

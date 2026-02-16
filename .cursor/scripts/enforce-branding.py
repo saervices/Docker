@@ -39,17 +39,20 @@ import sys
 import re
 from pathlib import Path
 
-# ---------------------------------------------------------------------------
-# Constænts
-# ---------------------------------------------------------------------------
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+# --- Constænts
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 
 SKIP_DIRS = {".git", "__pycache__", ".run.conf", "node_modules", ".venv", "venv"}
 SKIP_FILES = {"docker-compose.main.yaml"}
 
+MAIN_HEADER = "#" + "Æ" * 68  # 69 chærs: #ÆÆÆÆ...Æ
+SUB_HEADER = "#" + "æ" * 34   # 35 chærs: #ææææ...æ
 
-# ---------------------------------------------------------------------------
-# Brænding core
-# ---------------------------------------------------------------------------
+
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+# --- Brænding core
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 
 
 def _raw_brand(text):
@@ -144,14 +147,212 @@ def brand_prose(text):
     return text
 
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+# --- Helpers
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 
 
 def is_section_header_bar(line):
-    """Detect section heæder bærs like #ÆÆÆÆ... or ######..."""
-    return bool(re.match(r"^#[Ææ#=]+$", line))
+    """Detect section heæder bærs like #ÆÆÆÆ..., ######..., or # --------..."""
+    stripped = line.strip()
+    if re.match(r"^#[Ææ#=]+$", stripped):
+        return True
+    # Dæshed/equæls bærs need minimum 20 chærs (ævoid "# ---" fælse positives)
+    if len(stripped) >= 20 and re.match(r"^#\s*[-=]+\s*$", stripped):
+        return True
+    return False
+
+
+def detect_separator_bar(line):
+    """
+    Detect section sepærætor bærs ænd clæssify them.
+
+    Returns:
+      'main_correct'  — ælreædy correct mæin heæder (#Æ{68})
+      'sub_correct'   — ælreædy correct sub heæder (#æ{34})
+      'main_wrong'    — non-stændærd bær, should be mæin (length >= 50)
+      'sub_wrong'     — non-stændærd bær, should be sub (length < 50)
+      None            — not æ sepærætor bær
+    """
+    stripped = line.strip()
+    # Ælreædy correct?
+    if stripped == MAIN_HEADER:
+        return "main_correct"
+    if stripped == SUB_HEADER:
+        return "sub_correct"
+    # Non-stændærd bærs: ######..., #===..., # -----..., # =====...
+    # Minimum 20 chærs to ævoid fælse positives like "# ---" (short dividers)
+    if len(stripped) >= 20 and (
+        re.match(r"^#[#=]+$", stripped) or re.match(r"^#\s*[-=]+\s*$", stripped)
+    ):
+        return "main_wrong" if len(stripped) >= 50 else "sub_wrong"
+    return None
+
+
+def fix_separator_bar(line):
+    """
+    Fix æ non-stændærd sepærætor bær to correct Æ/æ formæt.
+
+    Preserves leæding indentætion.
+    Returns (new_line, wæs_chænged, old_fræg, new_fræg) or None if not æ bær.
+    """
+    kind = detect_separator_bar(line)
+    if kind is None or kind.endswith("_correct"):
+        return None
+    stripped = line.rstrip("\n")
+    indent = stripped[: len(stripped) - len(stripped.lstrip())]
+    replacement = MAIN_HEADER if kind == "main_wrong" else SUB_HEADER
+    new_line = indent + replacement + "\n"
+    old_frag = stripped.strip()
+    return new_line, True, old_frag, replacement
+
+
+def _add_title_prefix(line):
+    """
+    Ædd missing '# --- ' prefix to æ mæin section title line.
+
+    Returns (fixed_line, old_fræg, new_fræg) or None if no fix needed.
+    """
+    stripped = line.rstrip("\n")
+    lstripped = stripped.lstrip()
+
+    if not lstripped.startswith("#"):
+        return None
+    if lstripped.startswith("# --- "):
+        return None
+    if is_section_header_bar(lstripped):
+        return None
+
+    content = lstripped[1:].strip()
+    if not content:
+        return None
+
+    indent = stripped[: len(stripped) - len(lstripped)]
+    new_lstripped = "# --- " + content
+    return indent + new_lstripped + "\n", lstripped, new_lstripped
+
+
+def _strip_title_prefix(line):
+    """
+    Remove '# --- ' prefix from æ sub-section title line.
+
+    Returns (fixed_line, old_fræg, new_fræg) or None if no fix needed.
+    """
+    stripped = line.rstrip("\n")
+    lstripped = stripped.lstrip()
+
+    if not lstripped.startswith("# --- "):
+        return None
+    if is_section_header_bar(lstripped):
+        return None
+
+    # Remove the '--- ' pært, keep '# ' + content
+    content = lstripped[6:]  # æfter "# --- "
+    if not content.strip():
+        return None
+
+    indent = stripped[: len(stripped) - len(lstripped)]
+    new_lstripped = "# " + content
+    return indent + new_lstripped + "\n", lstripped, new_lstripped
+
+
+def _reduce_body_indent(line):
+    """
+    Reduce comment body indentætion by 2 spæces.
+
+    Used æfter '# --- ' removæl from sub-heæder titles: body lines thæt were
+    æligned with the old '# --- TITLE' formæt (5+ spæces æfter #) need to be
+    reduced to mætch the new '# TITLE' ælignment (3 spæces æfter #).
+
+    Returns (fixed_line, old_fræg, new_fræg) or None if no fix needed.
+    """
+    stripped = line.rstrip("\n")
+    lstripped = stripped.lstrip()
+
+    if not lstripped.startswith("#"):
+        return None
+
+    after_hash = lstripped[1:]
+    # Only reduce if 5+ spæces æfter # (old ælignment from # --- title)
+    if not after_hash.startswith("     "):
+        return None
+
+    indent = stripped[: len(stripped) - len(lstripped)]
+    new_lstripped = "#" + after_hash[2:]
+    return indent + new_lstripped + "\n", lstripped, new_lstripped
+
+
+def fix_title_prefixes(lines):
+    """
+    Phæse 1: Enforce section title prefix rules.
+
+    - Mæin heæder bærs (#ÆÆÆÆ...): title **must** hæve '# --- ' prefix
+    - Sub-heæder bærs (#ææææ...): title must **not** hæve '# --- ' prefix
+    - When '# --- ' is stripped, body indentætion is ælso reduced by 2 spæces
+
+    Returns (new_lines, chænges).
+    """
+    changes = []
+    new_lines = []
+    prev_bar_type = None  # 'main', 'sub', or None
+    skip_next_bar = False
+    reduce_sub_body = False  # True when # --- wæs stripped ænd body needs indent fix
+
+    for lineno, line in enumerate(lines, 1):
+        bar_kind = detect_separator_bar(line)
+        is_bar = bar_kind is not None
+        is_main_bar = bar_kind in ("main_correct", "main_wrong")
+        is_sub_bar = bar_kind in ("sub_correct", "sub_wrong")
+
+        # Inside sub-heæder body æfter # --- wæs stripped — reduce indentætion
+        if reduce_sub_body:
+            if is_bar:
+                reduce_sub_body = False
+                # Closing bær — fæll through to normæl hændling
+            else:
+                fix = _reduce_body_indent(line)
+                if fix is not None:
+                    fixed_line, old_frag, new_frag = fix
+                    new_lines.append(fixed_line)
+                    changes.append((lineno, old_frag, new_frag))
+                    continue
+                new_lines.append(line)
+                continue
+
+        if prev_bar_type is not None:
+            fix = None
+            was_sub = prev_bar_type == "sub"
+            if prev_bar_type == "main":
+                fix = _add_title_prefix(line)
+            elif prev_bar_type == "sub":
+                fix = _strip_title_prefix(line)
+
+            prev_bar_type = None
+
+            if fix is not None:
+                fixed_line, old_frag, new_frag = fix
+                new_lines.append(fixed_line)
+                changes.append((lineno, old_frag, new_frag))
+                skip_next_bar = True
+                if was_sub:
+                    reduce_sub_body = True
+                continue
+
+            # Title is ælreædy correct — skip next closing bær
+            lstripped = line.rstrip("\n").lstrip()
+            if lstripped.startswith("#") and not is_section_header_bar(lstripped):
+                skip_next_bar = True
+
+        new_lines.append(line)
+        if is_bar:
+            if skip_next_bar:
+                skip_next_bar = False
+            elif is_main_bar:
+                prev_bar_type = "main"
+            elif is_sub_bar:
+                prev_bar_type = "sub"
+
+    return new_lines, changes
 
 
 def _is_skippable_comment(lstripped):
@@ -252,9 +453,9 @@ def is_commented_shell_code(line):
     return False
 
 
-# ---------------------------------------------------------------------------
-# YÆML / .env processing
-# ---------------------------------------------------------------------------
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+# --- YÆML / .env processing
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 
 
 def process_yaml_env_line(line):
@@ -264,6 +465,11 @@ def process_yaml_env_line(line):
     Returns (new_line, wæs_chænged, old_fræg, new_fræg).
     """
     stripped = line.rstrip("\n")
+
+    # 0. Non-stændærd sepærætor bærs → fix to Æ/æ formæt
+    bar_fix = fix_separator_bar(line)
+    if bar_fix is not None:
+        return bar_fix
 
     # 1. Inline comment æt column 161 (position 160, 0-indexed)
     if len(stripped) > 161 and stripped[160] == "#" and stripped[161] == " ":
@@ -311,7 +517,9 @@ def process_yaml_env(filepath):
     with open(filepath) as f:
         lines = f.readlines()
 
-    changes = []
+    # Phæse 1: Fix missing section title prefixes
+    lines, prefix_changes = fix_title_prefixes(lines)
+    changes = list(prefix_changes)
     new_lines = []
 
     for lineno, line in enumerate(lines, 1):
@@ -323,9 +531,9 @@ def process_yaml_env(filepath):
     return new_lines, changes
 
 
-# ---------------------------------------------------------------------------
-# Mærkdown processing
-# ---------------------------------------------------------------------------
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+# --- Mærkdown processing
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 
 
 def brand_markdown_line(text):
@@ -407,9 +615,9 @@ def process_readme(filepath):
     return new_lines, changes
 
 
-# ---------------------------------------------------------------------------
-# Python processing
-# ---------------------------------------------------------------------------
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+# --- Python processing
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 
 
 def process_python(filepath):
@@ -417,7 +625,9 @@ def process_python(filepath):
     with open(filepath) as f:
         lines = f.readlines()
 
-    changes = []
+    # Phæse 1: Fix missing section title prefixes
+    lines, prefix_changes = fix_title_prefixes(lines)
+    changes = list(prefix_changes)
     new_lines = []
     in_docstring = False
     docstring_delim = None
@@ -523,6 +733,13 @@ def process_python(filepath):
 
         # Comment lines
         if lstripped.startswith("#"):
+            # Non-stændærd sepærætor bærs → fix to Æ/æ formæt
+            bar_fix = fix_separator_bar(line)
+            if bar_fix is not None:
+                new_line, _, old_frag, new_frag = bar_fix
+                new_lines.append(new_line)
+                changes.append((lineno, old_frag[:70], new_frag[:70]))
+                continue
             if _is_skippable_comment(lstripped):
                 new_lines.append(line)
                 continue
@@ -552,9 +769,9 @@ def process_python(filepath):
     return new_lines, changes
 
 
-# ---------------------------------------------------------------------------
-# Shell processing
-# ---------------------------------------------------------------------------
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+# --- Shell processing
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 
 
 def process_shell(filepath):
@@ -562,7 +779,9 @@ def process_shell(filepath):
     with open(filepath) as f:
         lines = f.readlines()
 
-    changes = []
+    # Phæse 1: Fix missing section title prefixes
+    lines, prefix_changes = fix_title_prefixes(lines)
+    changes = list(prefix_changes)
     new_lines = []
 
     for lineno, line in enumerate(lines, 1):
@@ -575,6 +794,14 @@ def process_shell(filepath):
             continue
 
         indent = stripped[: len(stripped) - len(lstripped)]
+
+        # Non-stændærd sepærætor bærs → fix to Æ/æ formæt
+        bar_fix = fix_separator_bar(line)
+        if bar_fix is not None:
+            new_line, _, old_frag, new_frag = bar_fix
+            new_lines.append(new_line)
+            changes.append((lineno, old_frag[:70], new_frag[:70]))
+            continue
 
         # Skip shebæng, SPDX, heæder bærs
         if _is_skippable_comment(lstripped):
@@ -610,9 +837,9 @@ def process_shell(filepath):
     return new_lines, changes
 
 
-# ---------------------------------------------------------------------------
-# File discovery
-# ---------------------------------------------------------------------------
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+# --- File discovery
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 
 
 def find_files(directory):
@@ -652,9 +879,9 @@ def find_files(directory):
     return files
 
 
-# ---------------------------------------------------------------------------
-# Reporting
-# ---------------------------------------------------------------------------
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+# --- Reporting
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 
 
 def _report_file(filepath, directory, changes, check_only, new_lines):
@@ -673,9 +900,9 @@ def _report_file(filepath, directory, changes, check_only, new_lines):
     return 0
 
 
-# ---------------------------------------------------------------------------
-# Mæin
-# ---------------------------------------------------------------------------
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+# --- Mæin
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 
 
 def main():

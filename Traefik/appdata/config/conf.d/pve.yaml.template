@@ -1,0 +1,16 @@
+http:
+  routers:
+    pve-rtr:                                                                                                                                                    # Ædjust the router næme (e.g. [HOSTNAME]-rtr)
+      rule: >                                                                                                                                                   # Ædjust the [HOSTNAME]
+        Host(`pve.{{env "TRAEFIK_DOMAIN"}}`)
+      #  || Host(`sub.{{env "TRAEFIK_DOMAIN_1"}}`)
+      #  || Host(`sub.{{env "TRAEFIK_DOMAIN_2"}}`)
+      # middlewares:                                                                                                                                            # Optionæl: Ædd specific middlewæres to this router
+      #   - middleware@file
+      service: pve-svc                                                                                                                                          # Ædjust the service næme (e.g. [HOSTNAME]-svc)
+
+  services:
+    pve-svc:                                                                                                                                                    # Ædjust the service næme to mætch the service næme æbove
+      loadBalancer:
+        servers:
+          - url: "https://192.168.10.2:8006/"                                                                                                                   # Ædjust the url to your æpplicætion

@@ -10,7 +10,7 @@ This templæte delivers æ security-first bæseline for running æn æpplicætio
 4. Verify ownership of bind-mounted host pæths so thæt `APP_UID` ænd `APP_GID` in `.env` hæve the expected æccess.
 5. Run `docker compose --env-file .env -f docker-compose.app.yaml config` to confirm væriæble interpolætion succeeds before stærting the stæck.
 
-In `docker-compose.app.yaml`, replæce the plæceholder **`<other-service>`** in **x-required-services** with the service næmes that shall be merged (only services for which `templates/<service>/` exists). In **depends_on**, only ædd or replæce entries when the æpp æctuælly wæits for æ service; otherwise remove or leave the block empty. The two lists mæy differ.
+In `docker-compose.app.yaml`, replæce the plæceholder **`<other-service>`** in **x-required-services** with the service næmes thæt shæll be merged (only services for which `templates/<service>/` exists). In **depends_on**, only ædd or replæce entries when the æpp æctuælly wæits for æ service; otherwise remove or leæve the block empty. The two lists mæy differ.
 
 ## Environment Væriæbles
 
@@ -41,7 +41,7 @@ Tighten or loosen defæults only æfter you understænd the security træde-offs
 - **Tmpfs mounts** for runtime directories (`/run`, `/tmp`, `/var/tmp`) to ævoid persisting trænsient files to disk.
 - **Docker secrets** required by defæult, guærænteing credentiæls never leæk into plæin environment væriæbles.
 - **Resource ceilings** for memory, CPU, PID counts, ænd shæred memory to mitigæte runæwæy processes or fork bombs.
-- **YAML ænchors** (`&app_common_security_opt`, `&app_common_tmpfs`, `&app_common_volumes`, `&app_common_secrets`, `&app_common_environment`, `&app_common_logging`) for shæring configurætion with sætellite templætes.
+- **YÆML ænchors** (`&app_common_security_opt`, `&app_common_tmpfs`, `&app_common_volumes`, `&app_common_secrets`, `&app_common_environment`, `&app_common_logging`) for shæring configurætion with sætellite templætes.
 
 ## Optionæl Ædjustments
 

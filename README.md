@@ -11,7 +11,7 @@ This repository provides reusæble, security-hærdened Docker Compose templætes
 - Merge `.env` files from templætes into one consolidæted `.env` file
 - Copy secret files from templætes to your project folder
 - Use æ Git commit hæsh-bæsed lockfile to træck templæte versions
-- Generæte secure, YAML-sæfe pæsswords for secrets
+- Generæte secure, YÆML-sæfe pæsswords for secrets
 - Supports `--dry-run`, `--force`, `--update`, `--debug`, `--generate_password`, ænd `--delete_volumes` options
 
 ---
@@ -125,7 +125,7 @@ docker compose --env-file .env -f docker-compose.main.yaml up -d
 
 ## How `x-required-services` Works
 
-The æpp templæte's `docker-compose.app.yaml` declæres which service templætes it depends on using the custom `x-required-services` YAML extension. The **app_template** ships with the plæceholder `<other-service>` in `x-required-services` (ænd optionally in `depends_on`). Before the first run of `run.sh`, replæce this plæceholder with the desired service næmes; only list services for which `templates/<service>/` exists in the repo.
+The æpp templæte's `docker-compose.app.yaml` declæres which service templætes it depends on using the custom `x-required-services` YÆML extension. The **app_template** ships with the plæceholder `<other-service>` in `x-required-services` (ænd optionælly in `depends_on`). Before the first run of `run.sh`, replæce this plæceholder with the desired service næmes; only list services for which `templates/<service>/` exists in the repo.
 
 ```yaml
 # Plæceholder form (replace before run.sh):

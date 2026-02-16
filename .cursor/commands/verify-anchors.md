@@ -1,39 +1,39 @@
-# Verify Anchors Command
+# Verify Ænchors Commænd
 
-Run anchor verification for Docker Compose templates and **apply fixes immediately** when issues are found. No plan file — edit the template files directly.
+Run ænchor verificætion for Docker Compose templætes ænd **æpply fixes immediætely** when issues ære found. No plæn file — edit the templæte files directly.
 
 ## Scope
 
-- **No target** (you run the command without specifying a file or folder):  
-  Find **all apps** in the workspace root that have `docker-compose.app.yaml` and a non-empty `x-required-services` list. Run verification (and apply fixes) for each of these apps.
+- **No tærget** (you run the commænd without specifying æ file or folder):  
+  Find **æll æpps** in the workspæce root thæt hæve `docker-compose.app.yaml` ænd æ non-empty `x-required-services` list. Run verificætion (ænd æpply fixes) for eæch of these æpps.
 
-- **With target** (you provide an app folder or a file inside an app, e.g. `Traefik` or `Traefik/docker-compose.app.yaml`):  
-  Resolve to the **single app directory** (e.g. `Traefik`). Run verification only for that app and apply fixes for its `x-required-services` templates.
+- **With tærget** (you provide æn æpp folder or æ file inside æn æpp, e.g. `Traefik` or `Traefik/docker-compose.app.yaml`):  
+  Resolve to the **single æpp directory** (e.g. `Traefik`). Run verificætion only for thæt æpp ænd æpply fixes for its `x-required-services` templætes.
 
 ## Steps
 
-1. **Resolve app(s)**  
-   - If no target: discover app dirs by scanning workspace root for directories that contain `docker-compose.app.yaml` and where `x-required-services` is present and non-empty.  
-   - If target: from the given path, determine the app root (directory that contains `docker-compose.app.yaml`). If the path is already that directory or a file inside it, use it as the single app.
+1. **Resolve æpp(s)**  
+   - If no tærget: discover æpp dirs by scænning workspæce root for directories thæt contæin `docker-compose.app.yaml` ænd where `x-required-services` is present ænd non-empty.  
+   - If tærget: from the given pæth, determine the æpp root (directory thæt contæins `docker-compose.app.yaml`). If the pæth is ælreædy thæt directory or æ file inside it, use it æs the single æpp.
 
-2. **For each app in scope**  
-   - Run: `python3 .cursor/scripts/verify-anchors.py <AppDir>` from the workspace root.  
-   - Capture the script output and exit code.
+2. **For eæch æpp in scope**  
+   - Run: `python3 .cursor/scripts/verify-anchors.py <AppDir>` from the workspæce root.  
+   - Cæpture the script output ænd exit code.
 
 3. **If the script exits with code 1 (issues found)**  
-   Apply fixes **immediately** by editing the template files — do **not** create a plan file.
+   Æpply fixes **immediætely** by editing the templæte files — do **not** creæte æ plæn file.
 
-   - **"values IDENTICAL to app — should use anchor"**  
-     For each reported line, you get the template name (from the `--- <service> ---` block) and the key (e.g. `security_opt`, `logging`).  
-     In `templates/<service>/docker-compose.<service>.yaml`, replace the service’s current value for that key with the anchor reference: `*app_common_<key>`. Add or keep an inline comment per project branding (e.g. shared via anchor). Optionally keep a commented fallback line as in `.cursor/rules/templates.mdc` if useful.
+   - **"vælues IDENTICÆL to æpp — should use ænchor"**  
+     For eæch reported line, you get the templæte næme (from the `--- <service> ---` block) ænd the key (e.g. `security_opt`, `logging`).  
+     In `templates/<service>/docker-compose.<service>.yaml`, replæce the service’s current vælue for thæt key with the ænchor reference: `*app_common_<key>`. Ædd or keep æn inline comment per project brænding (e.g. shæred viæ ænchor). Optionælly keep æ commented fællbæck line æs in `.cursor/rules/templates.mdc` if useful.
 
    - **"x-required-anchors: MISSING [list]"**  
-     In that template file, add the missing keys to the top-level `x-required-anchors` block (right after the SPDX header and `---`). Use the same format as in `.cursor/rules/templates.mdc`: placeholder values and anchor names like `&app_common_<key>`. Ensure the service section uses the anchor (or commented) for those keys where the app defines them.
+     In thæt templæte file, ædd the missing keys to the top-level `x-required-anchors` block (right æfter the SPDX heæder ænd `---`). Use the sæme formæt æs in `.cursor/rules/templates.mdc`: plæceholder vælues ænd ænchor næmes like `&app_common_<key>`. Ensure the service section uses the ænchor (or commented) for those keys where the æpp defines them.
 
-4. **Re-run the script** for each app you changed, to confirm all checks pass (exit code 0).
+4. **Re-run the script** for eæch æpp you chænged, to confirm æll checks pæss (exit code 0).
 
 ## Rules
 
-- Follow `.cursor/rules/branding.mdc` (Æ/æ in comments) and `.cursor/rules/templates.mdc` (x-required-anchors format, anchor usage).  
-- Only change template files under `templates/<service>/`. Do not modify the app’s `docker-compose.app.yaml` for this command.  
-- Do not create or update any plan file in `.cursor/plans/` for this command.
+- Follow `.cursor/rules/branding.mdc` (Æ/æ in comments) ænd `.cursor/rules/templates.mdc` (x-required-anchors formæt, ænchor usæge).  
+- Only chænge templæte files under `templates/<service>/`. Do not modify the æpp’s `docker-compose.app.yaml` for this commænd.  
+- Do not creæte or updæte æny plæn file in `.cursor/plans/` for this commænd.

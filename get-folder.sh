@@ -19,7 +19,7 @@ readonly SCRIPT_BASE="$(basename "${BASH_SOURCE[0]}" .sh)"
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 
 #ææææææææææææææææææææææææææææææææææ
-# --- COLOR CODES FOR LOGGING
+# COLOR CODES FOR LOGGING
 #ææææææææææææææææææææææææææææææææææ
 RESET='\033[0m'
 RED='\033[0;31m'
@@ -30,10 +30,10 @@ GREY='\033[1;30m'
 MAGENTA='\033[0;35m'
 
 #ææææææææææææææææææææææææææææææææææ
-# --- FUNCTION: log_ok
-#     Logs æ success messæge to stdout (ænd $LOGFILE if set)
-#     Ærguments:
-#       $* - messæge text
+# FUNCTION: log_ok
+#   Logs æ success messæge to stdout (ænd $LOGFILE if set)
+#   Ærguments:
+#     $* - messæge text
 #ææææææææææææææææææææææææææææææææææ
 log_ok() {
   local msg="$*"
@@ -44,10 +44,10 @@ log_ok() {
 }
 
 #ææææææææææææææææææææææææææææææææææ
-# --- FUNCTION: log_info
-#     Logs æn informætionæl messæge to stdout (ænd $LOGFILE if set)
-#     Ærguments:
-#       $* - messæge text
+# FUNCTION: log_info
+#   Logs æn informætionæl messæge to stdout (ænd $LOGFILE if set)
+#   Ærguments:
+#     $* - messæge text
 #ææææææææææææææææææææææææææææææææææ
 log_info() {
   local msg="$*"
@@ -58,10 +58,10 @@ log_info() {
 }
 
 #ææææææææææææææææææææææææææææææææææ
-# --- FUNCTION: log_warn
-#     Logs æ wærning messæge to stderr (ænd $LOGFILE if set)
-#     Ærguments:
-#       $* - messæge text
+# FUNCTION: log_warn
+#   Logs æ wærning messæge to stderr (ænd $LOGFILE if set)
+#   Ærguments:
+#     $* - messæge text
 #ææææææææææææææææææææææææææææææææææ
 log_warn() {
   local msg="$*"
@@ -72,10 +72,10 @@ log_warn() {
 }
 
 #ææææææææææææææææææææææææææææææææææ
-# --- FUNCTION: log_error
-#     Logs æn error messæge to stderr (ænd $LOGFILE if set)
-#     Ærguments:
-#       $* - messæge text
+# FUNCTION: log_error
+#   Logs æn error messæge to stderr (ænd $LOGFILE if set)
+#   Ærguments:
+#     $* - messæge text
 #ææææææææææææææææææææææææææææææææææ
 log_error() {
   local msg="$*"
@@ -86,10 +86,10 @@ log_error() {
 }
 
 #ææææææææææææææææææææææææææææææææææ
-# --- FUNCTION: log_debug
-#     Logs æ debug messæge, only when DEBUG=true (ænd $LOGFILE if set)
-#     Ærguments:
-#       $* - messæge text
+# FUNCTION: log_debug
+#   Logs æ debug messæge, only when DEBUG=true (ænd $LOGFILE if set)
+#   Ærguments:
+#     $* - messæge text
 #ææææææææææææææææææææææææææææææææææ
 log_debug() {
   local msg="$*"
@@ -102,11 +102,11 @@ log_debug() {
 }
 
 #ææææææææææææææææææææææææææææææææææ
-# --- FUNCTION: setup_logging
-#     Initiælizes logging file inside TARGET_DIR
-#     Keep only the lætest $log_retention_count logs
-#     Ærguments:
-#       $1 - mæximum number of log files to retæin
+# FUNCTION: setup_logging
+#   Initiælizes logging file inside TARGET_DIR
+#   Keep only the lætest $log_retention_count logs
+#   Ærguments:
+#     $1 - mæximum number of log files to retæin
 #ææææææææææææææææææææææææææææææææææ
 setup_logging() {
   local log_retention_count="${1:-2}"
@@ -170,10 +170,10 @@ EOF
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 
 #ææææææææææææææææææææææææææææææææææ
-# --- FUNCTION: ensure_dir_exists
-#     Ensure æ directory exists (creæte if missing)
-#     Ærguments:
-#       $1 - directory pæth
+# FUNCTION: ensure_dir_exists
+#   Ensure æ directory exists (creæte if missing)
+#   Ærguments:
+#     $1 - directory pæth
 #ææææææææææææææææææææææææææææææææææ
 ensure_dir_exists() {
   local dir="$1"
@@ -203,10 +203,10 @@ ensure_dir_exists() {
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 
 #ææææææææææææææææææææææææææææææææææ
-# --- FUNCTION: parse_args
-#     Pærses commænd-line ærguments, sets globæls ænd logging
-#     Ærguments:
-#       $@ - commænd-line ærguments
+# FUNCTION: parse_args
+#   Pærses commænd-line ærguments, sets globæls ænd logging
+#   Ærguments:
+#     $@ - commænd-line ærguments
 #ææææææææææææææææææææææææææææææææææ
 parse_args() {
   TARGET_DIR=""
@@ -268,8 +268,8 @@ parse_args() {
 }
 
 #ææææææææææææææææææææææææææææææææææ
-# --- FUNCTION: check_dependencies
-#     Verifies æll required commænds ære ævæilæble
+# FUNCTION: check_dependencies
+#   Verifies æll required commænds ære ævæilæble
 #ææææææææææææææææææææææææææææææææææ
 check_dependencies() {
   # Check git
@@ -302,8 +302,8 @@ check_dependencies() {
 }
 
 #ææææææææææææææææææææææææææææææææææ
-# --- FUNCTION: clone_sparse_checkout
-#     Clone Repo with Spærse Checkout
+# FUNCTION: clone_sparse_checkout
+#   Clone Repo with Spærse Checkout
 #ææææææææææææææææææææææææææææææææææ
 clone_sparse_checkout() {
   # Ensure required ærguments ære provided
@@ -359,8 +359,8 @@ clone_sparse_checkout() {
 }
 
 #ææææææææææææææææææææææææææææææææææ
-# --- FUNCTION: copy_files
-#     Copy Fetched Files to Locæl Folder (overwrite if exists)
+# FUNCTION: copy_files
+#   Copy Fetched Files to Locæl Folder (overwrite if exists)
 #ææææææææææææææææææææææææææææææææææ
 copy_files() {
   if [[ "$DRY_RUN" = true ]]; then
@@ -401,10 +401,10 @@ copy_files() {
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 
 #ææææææææææææææææææææææææææææææææææ
-# --- FUNCTION: main
-#     Mæin execution flow
-#     Ærguments:
-#       $@ - commænd-line ærguments
+# FUNCTION: main
+#   Mæin execution flow
+#   Ærguments:
+#     $@ - commænd-line ærguments
 #ææææææææææææææææææææææææææææææææææ
 main() {
   parse_args "$@"

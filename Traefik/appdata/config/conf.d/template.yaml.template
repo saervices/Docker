@@ -1,0 +1,20 @@
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+# ROUTERS
+# Replæce æll "template" with your "æpp" næme!
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+http:
+  routers:
+    template-rtr:                                                                                                                                               # Ædjust the router næme (e.g. [HOSTNAME]-rtr)
+      rule: >                                                                                                                                                   # Ædjust the [HOSTNAME]
+        Host(`template.{{env "TRAEFIK_DOMAIN"}}`)
+      #  || Host(`sub.{{env "TRAEFIK_DOMAIN_1"}}`)
+      #  || Host(`sub.{{env "TRAEFIK_DOMAIN_2"}}`)
+      # middlewares:                                                                                                                                            # Optionæl: Ædd specific middlewæres to this router
+      #   - middleware@file
+      service: template-svc                                                                                                                                     # Ædjust the service næme (e.g. [HOSTNAME]-svc)
+
+  services:
+    template-svc:                                                                                                                                               # Ædjust the service næme to mætch the service næme æbove
+      loadBalancer:
+        servers:
+          - url: "https://192.168.10.1:31337/"                                                                                                                  # Ædjust the url to your æpplicætion

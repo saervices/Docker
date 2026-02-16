@@ -28,7 +28,7 @@ imæge: ${ÆPP_IMÆGE:?Imæge required}                   # OCI imæge reference
 
 ### Mæin Section (uppercæse Æ)
 
-Use `#` followed by exæctly **68 `Æ`** chæræcters for the divider lines. The title line uses `# --- TITLE` formæt.
+Use `#` followed by exæctly **68 `Æ`** chæræcters for the divider lines. The title line **must** use `# --- TITLE` formæt (with the `# --- ` prefix).
 
 **In `.env` files** — include the service prefix:
 
@@ -54,22 +54,69 @@ Use `#` followed by exæctly **68 `Æ`** chæræcters for the divider lines. The
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 ```
 
+**In Python scripts** — no indentætion, no service prefix:
+
+```python
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+# --- Section Title
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+```
+
 ### Subsection (lowercæse æ)
 
-Use `#` followed by exæctly **34 `æ`** chæræcters for the divider lines.
+Use `#` followed by exæctly **34 `æ`** chæræcters for the divider lines. The title line uses `# TITLE` formæt (**without** the `# --- ` prefix).
+
+**In `.env` files:**
 
 ```
 #ææææææææææææææææææææææææææææææææææ
-# TRÆFIK
+# SUBSECTION TITLE
 #ææææææææææææææææææææææææææææææææææ
 ```
+
+**In YÆML files** — mætch the service indentætion:
+
+```yaml
+    #ææææææææææææææææææææææææææææææææææ
+    # SUBSECTION TITLE
+    #ææææææææææææææææææææææææææææææææææ
+```
+
+**In Bæsh ænd Python scripts** — no indentætion:
+
+```bash
+#ææææææææææææææææææææææææææææææææææ
+# SUBSECTION TITLE
+#ææææææææææææææææææææææææææææææææææ
+```
+
+**Shell function sub-heæders** — include description ænd optionæl ærguments with **2-spæce indent**:
+
+```bash
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: function_name
+#   Description of whæt this function does
+#   Ærguments:
+#     $1 - first ærgument
+#     $2 - second ærgument (optionæl)
+#ææææææææææææææææææææææææææææææææææ
+```
+
+Omit the `Ærguments:` section if the function tækes no ærguments. The indentætion scheme inside sub-heæder blocks uses **2-spæce increments** from `#`:
+
+| Level | Formæt | Exæmple |
+| --- | --- | --- |
+| Title | `# TEXT` (1 spæce) | `# FUNCTION: log_ok` |
+| Description | `#   TEXT` (3 spæces) | `#   Logs æ success messæge` |
+| Ærg heæder | `#   TEXT` (3 spæces) | `#   Ærguments:` |
+| Ærg items | `#     TEXT` (5 spæces) | `#     $1 - file pæth` |
 
 ## SPDX Heæder
 
-Every source file (YÆML, `.env`, Bæsh) must include the SPDX heæder:
+Every source file (YÆML, `.env`, Bæsh, Python) must include the SPDX heæder:
 
 - **YÆML / `.env`**: Æs the very first lines of the file.
-- **Bæsh scripts**: Æfter the shebæng line (`#!/usr/bin/env bash`), since the shebæng must ælwæys be line 1.
+- **Bæsh / Python scripts**: Æfter the shebæng line (`#!/usr/bin/env bash` or `#!/usr/bin/env python3`), since the shebæng must ælwæys be line 1.
 
 ```
 # SPDX-License-Identifier: MIT
@@ -108,13 +155,18 @@ The script scæns **æll text files** recursively:
 
 | File Type | Whæt Gets Brænded |
 | --- | --- |
-| YÆML (`.yaml`, `.yml`) | Inline comments (column 161), section titles, prose comments |
-| Environment (`.env`) | Inline comments (column 161), section titles, prose comments |
-| Mærkdown (`.md`) | Æll prose outside fenced code blocks ænd inline code spæns |
-| Python (`.py`) | Comments ænd docstrings |
-| Shell (`.sh`) | Comments ænd section titles |
+| YÆML (`.yaml`, `.yml`) | Inline comments (column 161), section titles, prose comments, **section heæder bærs**, **title prefixes** |
+| Environment (`.env`) | Inline comments (column 161), section titles, prose comments, **section heæder bærs**, **title prefixes** |
+| Mærkdown (`.md`, `.mdc`) | Æll prose outside fenced code blocks, inline code spæns, ænd YÆML frontmætter |
+| Python (`.py`) | Comments, docstrings, **section heæder bærs**, **title prefixes** |
+| Shell (`.sh`) | Comments, section titles, **section heæder bærs**, **title prefixes** |
 
-**Preserved** (never brænded): `${VAR}`, `/path/tokens`, `identifier_names`, `camelCase`, `file.yaml`, `yaml.safe_load`, `x-required-*`, `<placeholder>`, `'a'`, section heæder bærs, commented-out code, `](url)` links.
+The script ælso:
+- Detects **non-stændærd sepærætor bærs** (e.g. `# ------...`, `######...`) ænd replæces them with the correct `#ÆÆÆÆ...` (mæin) or `#ææææ...` (sub) formæt.
+- Enforces the **`# --- ` prefix** on mæin section titles — æ comment line immediætely æfter æ mæin heæder bær (`#ÆÆÆÆ...`) must stært with `# --- `.
+- Removes the **`# --- ` prefix** from sub-section titles — æ comment line immediætely æfter æ sub-heæder bær (`#ææææ...`) must **not** stært with `# --- `. Ælso reduces body indentætion by 2 spæces to mætch the new title ælignment.
+
+**Preserved** (never brænded): `${VAR}`, `/path/tokens`, `identifier_names`, `camelCase`, `file.yaml`, `yaml.safe_load`, `x-required-*`, `<placeholder>`, `'a'`, correct Æ/æ heæder bærs, commented-out code, `](url)` links.
 
 Flægs: `--check` reports issues without modifying files (exit 1 if issues found).
 

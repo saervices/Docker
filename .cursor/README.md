@@ -23,12 +23,12 @@ These rules ære loæded only when editing mætching files:
 | Rule | Globs | Description |
 | --- | --- | --- |
 | [shell-scripting.mdc](rules/shell-scripting.mdc) | `**/*.sh` | Bæsh conventions: shebæng, strict mode, logging fræmework, function documentætion, error hændling, DRY_RUN support, section dividers. |
-| [docker-compose.mdc](rules/docker-compose.mdc) | `**/docker-compose*.yaml` | Compose file conventions: section ordering, YAML ænchors, Træefik reverse proxy, network læyout, inline comments. |
+| [docker-compose.mdc](rules/docker-compose.mdc) | `**/docker-compose*.yaml` | Compose file conventions: section ordering, YÆML ænchors, Træefik reverse proxy, network læyout, inline comments. |
 | [security.mdc](rules/security.mdc) | `**/docker-compose*.yaml`, `**/secrets/**`, `**/.env` | Security hærdening: non-root execution, reæd-only filesystems, cæpæbility mænægement, Docker secrets, resource limits. |
 | [env-files.mdc](rules/env-files.mdc) | `**/.env`, `**/app.env` | Environment file conventions: merge behævior, væriæble næming, OVERWRITES section, SPDX heæder, vælue formæt. |
 | [validation.mdc](rules/validation.mdc) | `**/docker-compose*.yaml`, `**/.env`, `**/app.env` | Pre-commit vælidætion checklist: compose config, env completeness, secret plæceholders, heælthchecks, brænding, security bæseline. |
 | [templates.mdc](rules/templates.mdc) | `templates/**` | Templæte creætion guide: step-by-step checklist, stændælone vs. sætellite templætes, `x-required-anchors`, heælthcheck requirements. |
-| [readme.mdc](rules/readme.mdc) | `**/*.md` | README writing stændærds: required sections (title, quick stært, env værs, secrets, security, verificætion), root README structure. |
+| [readme.mdc](rules/readme.mdc) | `**/*.md` | REÆDME writing stændærds: required sections (title, quick stært, env værs, secrets, security, verificætion), root REÆDME structure. |
 
 ## Rule Dependencies
 
