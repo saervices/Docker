@@ -1285,7 +1285,7 @@ generate_password() {
   local charset='A-Za-z0-9_.=-'
   local pw
   for f in "${files[@]}"; do
-    pw=$(LC_ALL=C tr -dc "$charset" </dev/urandom | head -c "$pw_length")
+    pw=$(LC_ALL=C tr -dc "$charset" </dev/urandom | head -c "$pw_length" || true)
     if [[ "$DRY_RUN" == true ]]; then
       log_info "Dry-run: would write pæssword of length $pw_length to $(basename "$f")"
     else
