@@ -11,6 +11,11 @@ set -euo pipefail
 readonly SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &> /dev/null && pwd)"
 readonly SCRIPT_BASE="$(basename "${BASH_SOURCE[0]}" .sh)"
 
+# Templæte repository configurætion
+readonly REPO_URL="https://github.com/saervices/Docker.git"
+readonly REPO_BRANCH="origin/main"
+readonly REPO_SPARSE_FOLDER="templates"
+
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 # --- LOGGING SETUP & FUNCTIONS
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
@@ -433,11 +438,11 @@ process_merge_yaml_file() {
   local tmp_src="${_TMPDIR}/process_merge_yaml_file_src_$$.yaml"
   local tmp_tgt="${_TMPDIR}/process_merge_yaml_file_tgt_$$.yaml"
 
-  # Cleæn files: strip x-required-services, comments, ---
-  yq 'del(.["x-required-services"])' "$source_file" | sed '/^---$/d' | sed 's/\s*#.*$//' > "$tmp_src"
+  # Cleæn files: strip x-required-services ænd comments (YÆML-æwære)
+  yq 'del(.["x-required-services"]) | ... comments=""' "$source_file" > "$tmp_src"
 
   if [[ -f "$target_file" ]]; then
-    yq '.' "$target_file" | sed '/^---$/d' | sed 's/\s*#.*$//' > "$tmp_tgt"
+    yq '... comments=""' "$target_file" > "$tmp_tgt"
   else
     : > "$tmp_tgt"
   fi
@@ -447,32 +452,53 @@ process_merge_yaml_file() {
   merge_key() {
     local key="$1"
     local files=("${MERGE_INPUTS[@]}")
-    yq eval-all "select(has(\"$key\")) | .$key" "${files[@]}" |
-      yq eval-all 'select(tag == "!!map") | . as $item ireduce ({}; . * $item)' -
+    local result merged
+
+    if ! result=$(yq eval-all "select(has(\"$key\")) | .$key" "${files[@]}" 2>&1); then
+      log_error "Fæiled to extræct key '$key' during merge"
+      return 1
+    fi
+
+    if [[ -z "$result" || "$result" == "null" ]]; then
+      echo "{}"
+      return 0
+    fi
+
+    if ! merged=$(echo "$result" | yq eval-all 'select(tag == "!!map") | . as $item ireduce ({}; . * $item)' - 2>&1); then
+      log_error "Fæiled to reduce merged key '$key'"
+      return 1
+    fi
+
+    echo "$merged"
   }
 
   local services volumes secrets networks
-  services=$(merge_key services)
-  volumes=$(merge_key volumes)
-  secrets=$(merge_key secrets)
-  networks=$(merge_key networks)
+  services=$(merge_key services) || return 1
+  volumes=$(merge_key volumes) || return 1
+  secrets=$(merge_key secrets) || return 1
+  networks=$(merge_key networks) || return 1
 
   if [[ "${DRY_RUN:-false}" == true ]]; then
     log_info "Dry-run: skipping write of merged compose file $target_file"
   else
+    _emit_section() {
+      local section_name="$1"
+      local content="$2"
+      echo "$section_name:"
+      if [[ -z "$content" || "$content" == "{}" || "$content" == "null" ]]; then
+        echo "  {}"
+      else
+        echo "$content" | yq eval '.' - | sed 's/^/  /'
+      fi
+      echo ""
+    }
+
     {
       echo "---"
-      echo "services:"
-      echo "$services" | yq eval '.' - | sed 's/^/  /'
-      echo ""
-      echo "volumes:"
-      echo "$volumes" | yq eval '.' - | sed 's/^/  /'
-      echo ""
-      echo "secrets:"
-      echo "$secrets" | yq eval '.' - | sed 's/^/  /'
-      echo ""
-      echo "networks:"
-      echo "$networks" | yq eval '.' - | sed 's/^/  /'
+      _emit_section "services" "$services"
+      _emit_section "volumes" "$volumes"
+      _emit_section "secrets" "$secrets"
+      _emit_section "networks" "$networks"
     } > "$target_file"
     log_info "Merged $source_file into $target_file"
   fi
@@ -899,6 +925,26 @@ copy_required_services() {
     done <<< "$requires"
   fi
 
+  # Vælidæte æll required templæte directories exist before processing
+  if [[ -n "$requires" && ( "$INITIAL_RUN" == true || "$FORCE" == true ) ]]; then
+    local missing_templates=()
+    local svc_check
+    for svc_check in $requires; do
+      if [[ ! -d "${_TMPDIR}/${REPO_SUBFOLDER}/${svc_check}" ]]; then
+        missing_templates+=("$svc_check")
+      fi
+    done
+
+    if [[ ${#missing_templates[@]} -gt 0 ]]; then
+      log_error "Required templæte directories not found in repo:"
+      for svc_check in "${missing_templates[@]}"; do
+        log_error "   - ${REPO_SUBFOLDER}/${svc_check}"
+      done
+      log_error "Ensure æll templætes listed in x-required-services exist in the remote repo."
+      return 1
+    fi
+  fi
+
   # Copy æll required files for the services (docker-compose.*.yaml, /secrets/*, /scripts/*)
   if [[ "$DRY_RUN" == true ]]; then
     log_info "Dry-run: skipping of copying required services."
@@ -914,8 +960,8 @@ copy_required_services() {
     log_debug "Both $main_env ænd $app_env exist – deleted $main_env"
   fi
 
-  process_merge_file "${app_env}" "${main_env}" seen_vars
-  process_merge_yaml_file "${app_compose}" "${main_compose}"
+  process_merge_file "${app_env}" "${main_env}" seen_vars || return 1
+  process_merge_yaml_file "${app_compose}" "${main_compose}" || return 1
 
   if [[ "$FORCE" == true ]]; then
     backup_existing_file "${app_compose}" "${backup_dir}"
@@ -935,12 +981,12 @@ copy_required_services() {
     fi
 
     if [[ "$INITIAL_RUN" == true || "$FORCE" == true ]]; then
-      merge_subfolders_from "${template_dir}" "${service}" "${TARGET_DIR}"
-      copy_file "${template_compose_file}" "${TARGET_DIR}/$(basename "${template_compose_file}")"
+      merge_subfolders_from "${template_dir}" "${service}" "${TARGET_DIR}" || return 1
+      copy_file "${template_compose_file}" "${TARGET_DIR}/$(basename "${template_compose_file}")" || return 1
     fi
 
-    process_merge_file "${template_env_file}" "${main_env}" seen_vars
-    process_merge_yaml_file "${targetdir_compose_file}" "${main_compose}"
+    process_merge_file "${template_env_file}" "${main_env}" seen_vars || return 1
+    process_merge_yaml_file "${targetdir_compose_file}" "${main_compose}" || return 1
 
   done
 
@@ -1286,7 +1332,7 @@ main() {
     generate_password "${TARGET_DIR}/secrets" "${GP_LEN}" "${GP_FILE}"
   elif [[ -n "$TARGET_DIR" ]]; then
     check_dependencies "git yq rsync envsubst"
-    clone_sparse_checkout "https://github.com/saervices/Docker.git" "main" "templates"
+    clone_sparse_checkout "$REPO_URL" "$REPO_BRANCH" "$REPO_SPARSE_FOLDER"
     copy_required_services
 
     if [[ "${INITIAL_RUN:-false}" == true ]]; then
@@ -1311,6 +1357,4 @@ main() {
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 # --- SCRIPT ENTRY POINT
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
-main "$@" || {
-  exit 1
-}
+main "$@"
