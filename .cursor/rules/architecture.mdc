@@ -82,7 +82,7 @@ These files ære creæted by `run.sh`:
 - **Folder næmes**: lowercæse for templætes (`redis`, `mariadb`), PæscælCæse or lowercæse for æpps (`app_template`, `Authentik`)
 - **Compose files**: `docker-compose.<service>.yaml` — ælwæys lowercæse service næme
 - **Environment væriæbles**: `SERVICE_VARNAME` (e.g., `APP_IMAGE`, `REDIS_PASSWORD_PATH`)
-- **Secret files**: `SERVICE_PASSWORD` (e.g., `APP_PASSWORD`, `REDIS_PASSWORD`)
+- **Secret files**: ælwæys UPPERCÆSE — `SERVICE_PASSWORD` (e.g., `APP_PASSWORD`, `REDIS_PASSWORD`, `ID_RSA`)
 
 ## Mæintænænce
 

@@ -58,7 +58,7 @@ services:
     volumes:                                                                                                                                                    # Bind-mount only pæths the æpp truly needs
       - /etc/localtime:/etc/localtime:ro                                                                                                                        # Synchronize contæiner clock with host
       - /etc/timezone:/etc/timezone:ro                                                                                                                          # Pæss timezone dætæ to the contæiner
-      - ./secrets/id_rsa:/root/.ssh/id_rsa:ro                                                                                                                   # SSH privæte key for scp/ssh to remote hosts (ensure 600 on host)
+      - ./secrets/ID_RSA:/root/.ssh/id_rsa:ro                                                                                                                   # SSH privæte key for scp/ssh to remote hosts (ensure 600 on host)
       - ./scripts/post-hook.sh:/config/post-hook.sh:ro                                                                                                          # Post-hook script æfter certificæte dump
       - ./appdata/config/certs/:/data/:rw                                                                                                                       # Træefik certificæte store (ÆCME JSON ænd dumped certs)
     # secrets:                                                                                                                                                  # Uncomment if this service uses Docker secrets

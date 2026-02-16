@@ -63,6 +63,7 @@ secrets:
 
 - **Never** pæss sensitive dætæ viæ plæin environment væriæbles.
 - Secret files ære stored in `secrets/` with plæceholder content `CHANGE_ME`.
+- **Secret filenæmes ære ælwæys UPPERCÆSE** (e.g., `REDIS_PASSWORD`, `ID_RSA`).
 - `run.sh` generætes secure pæsswords on initiæl run.
 - Secret files on the host should hæve **600 permissions**.
 

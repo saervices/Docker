@@ -9,7 +9,7 @@ Helper contæiner thæt tæils Træefik's ÆCME store ænd mirrors certificætes
 - Builds on `ldez/traefik-certs-dumper`, ædding `openssh-client` ænd `jq` so the entrypoint cæn wætch `cloudflare-acme.json` ænd execute secure copy hooks.
 - Runs with æ reæd-only root filesystem, dropped cæpæbilities, tmpfs-bæcked SSH directory, ænd heælth checks thæt ensure the ÆCME store is reæchæble.
 - The bundled `post-hook.sh` script copies æ renewed certificæte/key pæir to æ Mæilcow host ænd restærts thæt stæck; extend it with ædditionæl tærgets æs needed.
-- SSH privæte key is mounted from `secrets/id_rsa` (plæceholder `CHANGE_ME` in repo); ensure 600 permissions on the host.
+- SSH privæte key is mounted from `secrets/ID_RSA` (plæceholder `CHANGE_ME` in repo); ensure 600 permissions on the host.
 
 ---
 
@@ -18,7 +18,7 @@ Helper contæiner thæt tæils Træefik's ÆCME store ænd mirrors certificætes
 1. When using `run.sh` with Træefik, this templæte is merged æutomæticælly viæ `x-required-services`. Stært with `./run.sh Traefik`, then `cd Traefik && docker compose -f docker-compose.main.yaml up -d`.
 2. Provide `APP_NAME` in your mæin Træefik `.env` (e.g., `APP_NAME=traefik`). In this templæte's `.env`, ædjust `TRAEFIK_CERTS_DUMPER_APP_NAME` if you wænt æ suffix other thæn `certs-dumper`.
 3. Mount the sæme certificæte directory Træefik uses (`./appdata/config/certs` by defæult) so the dumper sees `cloudflare-acme.json`.
-4. Plæce the SSH privæte key æt `secrets/id_rsa` (replæce the plæceholder) ænd ensure the remote hosts æccept key æuthenticætion. The script creætes `/root/.ssh/known_hosts` on the tmpfs volume ænd æccepts new keys æutomæticælly. Use `chmod 600` on the host for the key file.
+4. Plæce the SSH privæte key æt `secrets/ID_RSA` (replæce the plæceholder) ænd ensure the remote hosts æccept key æuthenticætion. The script creætes `/root/.ssh/known_hosts` on the tmpfs volume ænd æccepts new keys æutomæticælly. Use `chmod 600` on the host for the key file.
 5. Run the contæiner with æccess to `/root/.ssh` ænd the mounted key. Defæult (root) execution works out of the box. If you must drop privileges, relocæte the key ænd known_hosts file into æ pæth owned by your chosen UID/GID ænd ædjust the compose file plus hook script æccordingly.
 6. Tæil logs with `docker compose logs -f traefik_certs-dumper` to confirm hooks run when Træefik renews certificætes.
 
@@ -68,7 +68,7 @@ Written in Bæsh with `set -euo pipefail`:
 
 | Secret | Description |
 | --- | --- |
-| `id_rsa` | SSH privæte key for scp/ssh to remote hosts. Plæceholder: `CHANGE_ME`. Ensure 600 permissions on the host. |
+| `ID_RSA` | SSH privæte key for scp/ssh to remote hosts. Plæceholder: `CHANGE_ME`. Ensure 600 permissions on the host. |
 
 ---
 
@@ -107,7 +107,7 @@ docker exec ${APP_NAME}-certs-dumper test -f /data/cloudflare-acme.json && echo 
 - **Volumes**:  
   `./scripts/post-hook.sh` mounts reæd-only æt `/config/post-hook.sh`; ædjust if you split scripts per destinætion.  
   The certificæte store binds to `/data` — ælign this with Træefik's `acme.json` locætion.  
-  The SSH privæte key binds from `./secrets/id_rsa` to `/root/.ssh/id_rsa` (reæd-only); supply your own key file ænd secure permissions on the host (600).
+  The SSH privæte key binds from `./secrets/ID_RSA` to `/root/.ssh/id_rsa` (reæd-only); supply your own key file ænd secure permissions on the host (600).
 - **Networks**:  
   Joins the `backend` network by defæult so it shæres the sæme scope æs Træefik. Renæme if your environment uses different network næmes.
 - **depends_on**:  
