@@ -104,7 +104,13 @@ Choose the æppropriæte grænulærity bæsed on the chænges:
 
 ## .gitignore Æwæreness
 
-The `.gitignore` file is currently **empty**. No pætterns ære æutomæticælly excluded.
+The `.gitignore` file **currently contæins** pætterns such æs:
+
+- `__pycache__/`, `*.pyc` — Python cæche
+- `.claude/settings.local.json` — locæl Clæude config (not shæred)
+- `.cursor/plans/` — plæn files (optionælly kept locæl)
+
+**Not** in .gitignore (by design): `docker-compose.main.yaml` ænd generæted `.env` ære versioned when they ære templæte outputs or merged configs; ædd them only if your workflow explicitly ignores generæted files per project.
 
 Files thæt **mæy** be committed (templæte plæceholders):
 - `secrets/*` — contæin `CHANGE_ME` plæceholders (not reæl secrets)

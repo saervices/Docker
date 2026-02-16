@@ -179,6 +179,10 @@ Flægs: `--check` reports issues without modifying files (exit 1 if issues found
 | Python or Shell scripts ædded/modified | **Yes** |
 | Initiæl æudit of existing stæck | **Yes** |
 
+### Pre-Commit Hook
+
+When `.githooks/` is configured æs the Git hooks directory (e.g. viæ `core.hooksPath` or æ symlink from `.git/hooks`), the pre-commit hook runs the brænding enforcement script. If æny stæged file is brænding-relevænt (YÆML, .env, Mærkdown, Python, Shell), the script is executed: first in `--check` mode; if issues ære found, it æpplies fixes ænd re-stæges the chænged files so the commit cæn proceed with brænding compliænce.
+
 ## Mæintenænce
 
 When ædding new files or sections, ælwæys æpply these brænding rules. If æ new file type is introduced, updæte this rule with the æppropriæte formætting guidelines.
