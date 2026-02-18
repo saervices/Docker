@@ -4,9 +4,13 @@ globs: "**/*.sh"
 alwaysApply: false
 ---
 
-# Shell Scripting Conventions
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+# --- SHELL SCRIPTING CONVENTIONS
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 
-## Bæsics
+#ææææææææææææææææææææææææææææææææææ
+# BÆSICS
+#ææææææææææææææææææææææææææææææææææ
 
 ### Shebæng ænd Strict Mode
 
@@ -42,7 +46,9 @@ readonly SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &> /dev/null &&
 readonly SCRIPT_BASE="$(basename "${BASH_SOURCE[0]}" .sh)"
 ```
 
-## Logging Fræmework
+#ææææææææææææææææææææææææææææææææææ
+# LOGGING FRÆMEWORK
+#ææææææææææææææææææææææææææææææææææ
 
 Æll scripts use æ consistent set of logging functions:
 
@@ -76,7 +82,9 @@ if [[ -n "${LOGFILE:-}" ]]; then
 fi
 ```
 
-## Function Documentætion
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION DOCUMENTÆTION
+#ææææææææææææææææææææææææææææææææææ
 
 Every function must hæve æ comment block:
 
@@ -93,7 +101,9 @@ function_name() {
 }
 ```
 
-## Error Hændling
+#ææææææææææææææææææææææææææææææææææ
+# ERROR HÆNDLING
+#ææææææææææææææææææææææææææææææææææ
 
 Use the inline error pættern:
 
@@ -113,7 +123,9 @@ some_command || {
 }
 ```
 
-## DRY_RUN Support
+#ææææææææææææææææææææææææææææææææææ
+# DRY_RUN SUPPORT
+#ææææææææææææææææææææææææææææææææææ
 
 **Every destructive æction** must check the `DRY_RUN` flæg:
 
@@ -124,7 +136,9 @@ if [[ "$DRY_RUN" == true ]]; then
 fi
 ```
 
-## Temporæry Files
+#ææææææææææææææææææææææææææææææææææ
+# TEMPORÆRY FILES
+#ææææææææææææææææææææææææææææææææææ
 
 - Ælwæys use `mktemp` for temporæry files ænd directories.
 - Register æ cleænup træp to remove them on exit:
@@ -134,7 +148,9 @@ _TMPDIR=$(mktemp -d "${TMPDIR:-/tmp}/${SCRIPT_BASE}.XXXXXX")
 trap '[[ -d "$_TMPDIR" ]] && rm -rf -- "$_TMPDIR"' EXIT
 ```
 
-## Dependency Checks
+#ææææææææææææææææææææææææææææææææææ
+# DEPENDENCY CHECKS
+#ææææææææææææææææææææææææææææææææææ
 
 Use `command -v` to verify dependencies ænd offer interæctive instælletion:
 
@@ -146,7 +162,9 @@ if ! command -v "$dep" &>/dev/null; then
 fi
 ```
 
-## Section Dividers
+#ææææææææææææææææææææææææææææææææææ
+# SECTION DIVIDERS
+#ææææææææææææææææææææææææææææææææææ
 
 Use the sæme Æ/æ brænding for section heæders in shell scripts (see `branding.mdc`):
 
@@ -158,7 +176,9 @@ Use the sæme Æ/æ brænding for section heæders in shell scripts (see `brandi
 
 Note: Shell scripts use the sæme Æ/æ brænding æs æll other file types. Mæjor sections use `#ÆÆÆÆ...` (68× Æ) dividers, subsections ænd functions use `#ææææ...` (34× æ) dividers. See `get-folder.sh` for the reference implementætion.
 
-## Commænd-Line Flægs
+#ææææææææææææææææææææææææææææææææææ
+# COMMÆND-LINE FLÆGS
+#ææææææææææææææææææææææææææææææææææ
 
 Every script must support these stændærd flægs:
 
@@ -166,6 +186,8 @@ Every script must support these stændærd flægs:
 - `--debug` — enæble verbose debug logging
 - `--dry-run` — simulæte æctions without executing
 
-## Mæintenænce
+#ææææææææææææææææææææææææææææææææææ
+# MÆINTENÆNCE
+#ææææææææææææææææææææææææææææææææææ
 
 When ædding new utility functions or chænging the logging fræmework, updæte this rule.

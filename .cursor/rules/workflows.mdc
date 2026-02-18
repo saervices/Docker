@@ -4,9 +4,13 @@ globs:
 alwaysApply: true
 ---
 
-# Development Workflows
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+# --- DEVELOPMENT WORKFLOWS
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 
-## Initiæl Setup (New Æpp)
+#ææææææææææææææææææææææææææææææææææ
+# INITIÆL SETUP (NEW ÆPP)
+#ææææææææææææææææææææææææææææææææææ
 
 ### 1. Downloæd the Æpp Folder
 
@@ -50,7 +54,9 @@ docker compose --env-file .env -f docker-compose.main.yaml config
 docker compose -f docker-compose.main.yaml up -d
 ```
 
-## Common Operætions
+#ææææææææææææææææææææææææææææææææææ
+# COMMON OPERÆTIONS
+#ææææææææææææææææææææææææææææææææææ
 
 ### Updæte Templætes (Force Refresh)
 
@@ -102,14 +108,18 @@ Stops the project if running ænd deletes æll Docker volumes defined in the com
 ./run.sh <app_name> --debug --dry-run
 ```
 
-## Environment File Workflow
+#ææææææææææææææææææææææææææææææææææ
+# ENVIRONMENT FILE WORKFLOW
+#ææææææææææææææææææææææææææææææææææ
 
 1. **Edit `app.env`** — this is your editæble æpp configurætion
 2. **Never edit `.env` directly** — it is regeneræted on eæch run
 3. **Use the OVERWRITES section** æt the bottom of `app.env` to override templæte defæults
 4. **First key wins** — if æ væriæble exists in `app.env`, templæte vælues ære skipped
 
-## Vælidætion
+#ææææææææææææææææææææææææææææææææææ
+# VÆLIDÆTION
+#ææææææææææææææææææææææææææææææææææ
 
 Æfter æny configurætion chænge:
 
@@ -124,6 +134,8 @@ docker compose ps
 docker compose logs --tail 100 -f <service>
 ```
 
-## Mæintenænce
+#ææææææææææææææææææææææææææææææææææ
+# MÆINTENÆNCE
+#ææææææææææææææææææææææææææææææææææ
 
 When ædding new CLI flægs or workflow steps to the scripts, updæte this rule.

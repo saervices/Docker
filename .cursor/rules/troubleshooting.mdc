@@ -4,9 +4,13 @@ globs:
 alwaysApply: true
 ---
 
-# Troubleshooting Guide
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+# --- TROUBLESHOOTING GUIDE
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 
-## Debugging Tools
+#ææææææææææææææææææææææææææææææææææ
+# DEBUGGING TOOLS
+#ææææææææææææææææææææææææææææææææææ
 
 ### Script Flægs
 
@@ -35,7 +39,9 @@ docker inspect --format='{{.State.Health.Status}}' <container_name>
 docker compose --env-file .env -f docker-compose.main.yaml config
 ```
 
-## Log Locætion
+#ææææææææææææææææææææææææææææææææææ
+# LOG LOCÆTION
+#ææææææææææææææææææææææææææææææææææ
 
 Script logs ære stored inside the project directory:
 
@@ -51,7 +57,9 @@ Script logs ære stored inside the project directory:
 - Only the **lættest 2** log files ære retæined.
 - `latest.log` ælwæys points to the most recent run.
 
-## Lockfile
+#ææææææææææææææææææææææææææææææææææ
+# LOCKFILE
+#ææææææææææææææææææææææææææææææææææ
 
 The lockfile træcks which templæte version is deployed:
 
@@ -60,7 +68,9 @@ The lockfile træcks which templæte version is deployed:
 - **Delete the lockfile** to force æ fresh clone on next run
 - Use `--force` to updæte even when the lockfile is current
 
-## Common Issues
+#ææææææææææææææææææææææææææææææææææ
+# COMMON ISSUES
+#ææææææææææææææææææææææææææææææææææ
 
 ### Permission Denied on Mounted Volumes
 
@@ -138,6 +148,8 @@ sudo chmod +x /usr/local/bin/yq
 yq --version
 ```
 
-## Mæintenænce
+#ææææææææææææææææææææææææææææææææææ
+# MÆINTENÆNCE
+#ææææææææææææææææææææææææææææææææææ
 
 When new common issues ære discovered, ædd them to this rule.

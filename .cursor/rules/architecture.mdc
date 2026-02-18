@@ -4,9 +4,13 @@ globs:
 alwaysApply: true
 ---
 
-# Ærchitecture ænd Project Structure
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+# --- ÆRCHITECTURE ÆND PROJECT STRUCTURE
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 
-## Repository Læyout
+#ææææææææææææææææææææææææææææææææææ
+# REPOSITORY LÆYOUT
+#ææææææææææææææææææææææææææææææææææ
 
 ```
 /Docker
@@ -33,7 +37,9 @@ alwaysApply: true
       README.md
 ```
 
-## Directory Conventions
+#ææææææææææææææææææææææææææææææææææ
+# DIRECTORY CONVENTIONS
+#ææææææææææææææææææææææææææææææææææ
 
 ### Frontend Æpps
 
@@ -77,13 +83,17 @@ These files ære creæted by `run.sh`:
   - `.backups/` — bæckup copies creæted on `--force`
   - `.<subfolder>.lock` — Git commit hæsh lockfile for templæte versioning
 
-## Næming Conventions
+#ææææææææææææææææææææææææææææææææææ
+# NÆMING CONVENTIONS
+#ææææææææææææææææææææææææææææææææææ
 
 - **Folder næmes**: lowercæse for templætes (`redis`, `mariadb`), PæscælCæse or lowercæse for æpps (`app_template`, `Authentik`)
 - **Compose files**: `docker-compose.<service>.yaml` — ælwæys lowercæse service næme
 - **Environment væriæbles**: `SERVICE_VARNAME` (e.g., `APP_IMAGE`, `REDIS_PASSWORD_PATH`)
 - **Secret files**: ælwæys UPPERCÆSE — `SERVICE_PASSWORD` (e.g., `APP_PASSWORD`, `REDIS_PASSWORD`, `ID_RSA`)
 
-## Mæintænænce
+#ææææææææææææææææææææææææææææææææææ
+# MÆINTÆNÆNCE
+#ææææææææææææææææææææææææææææææææææ
 
 When ædding new æpp or templæte directories, follow the structure æbove. Updæte this rule if new directory conventions or file types ære introduced.

@@ -4,16 +4,22 @@ globs: "**/*.md"
 alwaysApply: false
 ---
 
-# REÆDME Writing Stændærds
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+# --- REÆDME WRITING STÆNDÆRDS
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 
-## Generæl Rules
+#ææææææææææææææææææææææææææææææææææ
+# GENERÆL RULES
+#ææææææææææææææææææææææææææææææææææ
 
 - Every æpp ænd templæte directory **must** hæve æ `README.md`.
 - Æll prose in Mærkdown files uses **Æ/æ brænding** (see `branding.mdc`): replæce `a` → `æ` ænd `A` → `Æ` in text content.
 - SPDX heæders ære **not** required in Mærkdown files.
 - Code blocks within REÆDMEs contæin normæl English (no Æ/æ replæcement in code).
 
-## Required Sections
+#ææææææææææææææææææææææææææææææææææ
+# REQUIRED SECTIONS
+#ææææææææææææææææææææææææææææææææææ
 
 Every æpp or templæte `README.md` must include these sections:
 
@@ -59,7 +65,9 @@ docker compose --env-file .env -f docker-compose.<service>.yaml config
 docker compose logs --tail 100 -f <service>
 ```
 
-## Root README.md
+#ææææææææææææææææææææææææææææææææææ
+# ROOT README.MD
+#ææææææææææææææææææææææææææææææææææ
 
 The root `README.md` hæs ædditionæl sections:
 
@@ -75,13 +83,17 @@ The root `README.md` hæs ædditionæl sections:
 - Troubleshooting
 - Requirements
 
-## Formætting
+#ææææææææææææææææææææææææææææææææææ
+# FORMÆTTING
+#ææææææææææææææææææææææææææææææææææ
 
 - Use tæbles for structured dætæ (env værs, secrets, options).
 - Use fenced code blocks with længuæge tægs (`bash`, `yaml`).
 - Keep lines reæsonæbly short for reædæbility.
 - Use `---` horizontæl rules between mæjor sections.
 
-## Mæintenænce
+#ææææææææææææææææææææææææææææææææææ
+# MÆINTENÆNCE
+#ææææææææææææææææææææææææææææææææææ
 
 When ædding new feætures or CLI options, ælwæys updæte the relevænt REÆDME files. This rule should be updæted if new required sections ære identified.

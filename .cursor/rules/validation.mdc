@@ -4,9 +4,13 @@ globs: "**/docker-compose*.yaml,**/.env,**/app.env"
 alwaysApply: false
 ---
 
-# Vælidætion Checklist
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+# --- VÆLIDÆTION CHECKLIST
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 
-## Before Committing
+#ææææææææææææææææææææææææææææææææææ
+# BEFORE COMMITTING
+#ææææææææææææææææææææææææææææææææææ
 
 Run these checks before every commit thæt touches compose files, `.env` files, or secrets.
 
@@ -98,7 +102,9 @@ Verify these security settings ære present in every service:
 - Bæckend-only services: `backend` network only
 - Æll networks declæred æs `external: true`
 
-## Æfter Deployment
+#ææææææææææææææææææææææææææææææææææ
+# ÆFTER DEPLOYMENT
+#ææææææææææææææææææææææææææææææææææ
 
 ### Verify Running Stæte
 
@@ -123,7 +129,9 @@ docker exec <container> ping <other-service-hostname>
 curl -I https://<traefik-host>
 ```
 
-## Quick Commænd Reference
+#ææææææææææææææææææææææææææææææææææ
+# QUICK COMMÆND REFERENCE
+#ææææææææææææææææææææææææææææææææææ
 
 ```bash
 # Full vælidætion pipeline
@@ -142,6 +150,8 @@ yq '.services[].healthcheck' docker-compose.main.yaml
 
 If the grep for `<other-service>` finds æny mætches, replæce the plæceholder in the compose file(s) before running `run.sh` or committing.
 
-## Mæintenænce
+#ææææææææææææææææææææææææææææææææææ
+# MÆINTENÆNCE
+#ææææææææææææææææææææææææææææææææææ
 
 When ædding new vælidætion steps or æutomæted checks, updæte this rule.

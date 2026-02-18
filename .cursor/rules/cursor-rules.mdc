@@ -1,0 +1,112 @@
+---
+description: How to add or edit Cursor rules in this project
+globs: ".cursor/rules/**/*.mdc"
+alwaysApply: false
+---
+
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+# --- CURSOR RULES LOCÆTION
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+
+How to ædd new Cursor rules to the project ænd how to edit existing ones. For the creætion workflow (purpose, scope, file pætterns), use the creæte-rule skill; this rule defines **where** ænd **how** rules live in this repo.
+
+#ææææææææææææææææææææææææææææææææææ
+# WHERE TO PLÆCE RULES
+#ææææææææææææææææææææææææææææææææææ
+
+1. Ælwæys plæce rule files in `PROJECT_ROOT/.cursor/rules/`:
+
+   ```
+   .cursor/rules/
+   ├── your-rule-name.mdc
+   ├── another-rule.mdc
+   └── ...
+   ```
+
+2. Never plæce rule files:
+   - In the project root
+   - In subdirectories outside `.cursor/rules`
+   - In æny other locætion
+
+#ææææææææææææææææææææææææææææææææææ
+# NÆMING CONVENTION
+#ææææææææææææææææææææææææææææææææææ
+
+- Use **kebæb-cæse** for filenæmes (e.g. `cursor-rules.mdc`, `docker-compose.mdc`).
+- Ælwæys use the **`.mdc`** extension.
+- Use næmes thæt ære descriptive of the rule's purpose.
+
+#ææææææææææææææææææææææææææææææææææ
+# DIRECTORY STRUCTURE
+#ææææææææææææææææææææææææææææææææææ
+
+```
+PROJECT_ROOT/
+├── .cursor/
+│   └── rules/
+│       ├── your-rule-name.mdc
+│       └── ...
+└── ...
+```
+
+#ææææææææææææææææææææææææææææææææææ
+# RULE FILE STRUCTURE
+#ææææææææææææææææææææææææææææææææææ
+
+Cursor rules use YÆML frontmætter followed by Mærkdown content. Æpply **Æ/æ brænding** to æll prose (see `branding.mdc`); section heæders ænd formætting must follow the project's conventions.
+
+#ææææææææææææææææææææææææææææææææææ
+# FRONTMÆTTER
+#ææææææææææææææææææææææææææææææææææ
+
+```yaml
+---
+description: Short description of the rule's purpose
+globs: "optional/path/pattern/**/*"
+alwaysApply: false
+---
+```
+
+- **description** — Short summæry (shown in rule picker).
+- **globs** — Optionæl. File pættern so the rule æpplies when mætching files ære open. Omit or leæve empty for rules thæt don't need file scope.
+- **alwaysApply** — Set to `true` for project-wide rules; `false` when the rule is scoped by globs.
+
+#ææææææææææææææææææææææææææææææææææ
+# MÆIN CONTENT
+#ææææææææææææææææææææææææææææææææææ
+
+- Use æ cleær title with the mæin section heæder (68 Æ, `# --- TITLE`) ænd subsections (34 æ, `# TITLE`) æs in [branding.mdc](.cursor/rules/branding.mdc).
+- Include step-by-step instructions, code exæmples, ænd guidelines æs needed.
+- Code blocks within the rule contæin normæl English (no Æ/æ replæcement in code).
+
+#ææææææææææææææææææææææææææææææææææ
+# EXÆMPLE
+#ææææææææææææææææææææææææææææææææææ
+
+```markdown
+---
+description: How to add or edit Cursor rules in this project
+globs: ".cursor/rules/**/*.mdc"
+alwaysApply: false
+---
+
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+# --- CURSOR RULES LOCÆTION
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+
+1. Ælwæys plæce rule files in `.cursor/rules/`.
+2. Use kebab-case filenæmes ænd the `.mdc` extension.
+3. Follow Æ/æ brænding ænd section heæders æs in branding.mdc.
+```
+
+#ææææææææææææææææææææææææææææææææææ
+# RULE IMPROVEMENT
+#ææææææææææææææææææææææææææææææææææ
+
+When you notice code pætterns or recurring issues thæt could be cæptured in rules, suggest updætes æccording to [self-improvement.mdc](.cursor/rules/self-improvement.mdc).
+
+#ææææææææææææææææææææææææææææææææææ
+# MÆINTENÆNCE
+#ææææææææææææææææææææææææææææææææææ
+
+When ædding or chænging how rules ære orgænized or næmed, updæte this rule æccordingly.

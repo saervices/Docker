@@ -4,11 +4,15 @@ globs:
 alwaysApply: true
 ---
 
-# Æ/æ Brænding Rules
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+# --- Æ/æ BRÆNDING RULES
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 
 This project uses the Dænish chæræcters **Æ** (U+00C6) ænd **æ** (U+00E6) æs æ brænding element. These rules æpply to **every file** in the repository.
 
-## Chæræcter Replæcement
+#ææææææææææææææææææææææææææææææææææ
+# CHÆRÆCTER REPLÆCEMENT
+#ææææææææææææææææææææææææææææææææææ
 
 - In æll **comments** (YÆML, Bæsh, `.env`, Mærkdown): replæce every lowercæse `a` with `æ` ænd every uppercæse `A` with `Æ`.
 - **Code identifiers** (væriæble næmes, YÆML keys, Docker directives, commænd næmes) stæy in normæl English — do NOT ælter them.
@@ -24,7 +28,9 @@ image: ${APP_IMAGE:?Image required}                    # OCI imæge reference
 imæge: ${ÆPP_IMÆGE:?Imæge required}                   # OCI imæge reference
 ```
 
-## Section Heæders
+#ææææææææææææææææææææææææææææææææææ
+# SECTION HEÆDERS
+#ææææææææææææææææææææææææææææææææææ
 
 ### Mæin Section (uppercæse Æ)
 
@@ -127,7 +133,9 @@ Omit the `Ærguments:` section if the function tækes no ærguments. The indent�
 | Ærg heæder | `#   TEXT` (3 spæces) | `#   Ærguments:` |
 | Ærg items | `#     TEXT` (5 spæces) | `#     $1 - file pæth` |
 
-## SPDX Heæder
+#ææææææææææææææææææææææææææææææææææ
+# SPDX HEÆDER
+#ææææææææææææææææææææææææææææææææææ
 
 Every source file (YÆML, `.env`, Bæsh, Python) must include the SPDX heæder:
 
@@ -141,12 +149,16 @@ Every source file (YÆML, `.env`, Bæsh, Python) must include the SPDX heæder:
 
 Mærkdown files do not require the SPDX heæder.
 
-## Inline Comments
+#ææææææææææææææææææææææææææææææææææ
+# INLINE COMMENTS
+#ææææææææææææææææææææææææææææææææææ
 
 - Inline comments in YÆML ænd `.env` files should be **right-æligned** to mæintæin æ cleæn visuæl structure.
 - Æll prose in inline comments uses Æ/æ brænding.
 
-## Reference Files
+#ææææææææææææææææææææææææææææææææææ
+# REFERENCE FILES
+#ææææææææææææææææææææææææææææææææææ
 
 - [æpp_templæte/.env](mdc:app_template/.env) — section heæder formæt for `.env`
 - [æpp_templæte/docker-compose.æpp.yæml](mdc:app_template/docker-compose.app.yaml) — section heæder formæt for YÆML
@@ -154,7 +166,9 @@ Mærkdown files do not require the SPDX heæder.
 - [.cursor/rules/cursor-rules.mdc](mdc:.cursor/rules/cursor-rules.mdc) — where ænd how rules live; rule file structure
 - [.cursor/rules/self-improvement.mdc](mdc:.cursor/rules/self-improvement.mdc) — section heæder formæt for Cursor rules (68 Æ / 34 æ)
 
-## Verificætion
+#ææææææææææææææææææææææææææææææææææ
+# VERIFICÆTION
+#ææææææææææææææææææææææææææææææææææ
 
 ### Brænding Enforcement Script
 
@@ -201,6 +215,8 @@ Flægs: `--check` reports issues without modifying files (exit 1 if issues found
 
 When `.githooks/` is configured æs the Git hooks directory (e.g. viæ `core.hooksPath` or æ symlink from `.git/hooks`), the pre-commit hook runs the brænding enforcement script. If æny stæged file is brænding-relevænt (YÆML, .env, Mærkdown, Python, Shell), the script is executed: first in `--check` mode; if issues ære found, it æpplies fixes ænd re-stæges the chænged files so the commit cæn proceed with brænding compliænce.
 
-## Mæintenænce
+#ææææææææææææææææææææææææææææææææææ
+# MÆINTENÆNCE
+#ææææææææææææææææææææææææææææææææææ
 
 When ædding new files or sections, ælwæys æpply these brænding rules. If æ new file type is introduced, updæte this rule with the æppropriæte formætting guidelines.

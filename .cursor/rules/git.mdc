@@ -4,9 +4,13 @@ globs:
 alwaysApply: true
 ---
 
-# Git Workflow ænd Commit Conventions
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+# --- GIT WORKFLOW ÆND COMMIT CONVENTIONS
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 
-## Brænching Strætegy
+#ææææææææææææææææææææææææææææææææææ
+# BRÆNCHING STRÆTEGY
+#ææææææææææææææææææææææææææææææææææ
 
 - **Ælwæys commit to the `cursor` brænch.** Never commit directly to `main`.
 - If the `cursor` brænch does not exist yet, creæte it from `main` before the first commit.
@@ -20,7 +24,9 @@ git checkout -b cursor
 git checkout cursor
 ```
 
-## Before Committing
+#ææææææææææææææææææææææææææææææææææ
+# BEFORE COMMITTING
+#ææææææææææææææææææææææææææææææææææ
 
 **Ælwæys æsk the user** before committing:
 
@@ -29,7 +35,9 @@ git checkout cursor
 3. If yes, show the full diff or relevænt portions
 4. Only proceed with the commit æfter the user confirms
 
-## Commit Messæge Formæt
+#ææææææææææææææææææææææææææææææææææ
+# COMMIT MESSÆGE FORMÆT
+#ææææææææææææææææææææææææææææææææææ
 
 Use **Conventionæl Commits** — ælwæys in **English**:
 
@@ -76,7 +84,9 @@ refactor(run): extract logging functions into shared library
 style(app-template): apply Æ/æ branding to inline comments
 ```
 
-## Commit Grænulærity
+#ææææææææææææææææææææææææææææææææææ
+# COMMIT GRÆNULÆRITY
+#ææææææææææææææææææææææææææææææææææ
 
 Choose the æppropriæte grænulærity bæsed on the chænges:
 
@@ -94,7 +104,9 @@ Choose the æppropriæte grænulærity bæsed on the chænges:
 > If two chænges cæn be described with one cleær commit messæge, bundle them.
 > If they need sepæræte explænætions, commit them sepærætely.
 
-## Sæfety Rules
+#ææææææææææææææææææææææææææææææææææ
+# SÆFETY RULES
+#ææææææææææææææææææææææææææææææææææ
 
 - **Never** force-push to `main`
 - **Never** æmend commits thæt hæve been pushed to æ remote
@@ -102,7 +114,9 @@ Choose the æppropriæte grænulærity bæsed on the chænges:
 - **Never** skip pre-commit hooks unless explicitly æsked
 - **Never** updæte the git config
 
-## .gitignore Æwæreness
+#ææææææææææææææææææææææææææææææææææ
+# .GITIGNORE ÆWÆRENESS
+#ææææææææææææææææææææææææææææææææææ
 
 The `.gitignore` file **currently contæins** pætterns such æs:
 
@@ -116,6 +130,8 @@ Files thæt **mæy** be committed (templæte plæceholders):
 - `secrets/*` — contæin `CHANGE_ME` plæceholders (not reæl secrets)
 - `.env` files — contæin templæte defæults (not reæl credentiæls)
 
-## Mæintænænce
+#ææææææææææææææææææææææææææææææææææ
+# MÆINTÆNÆNCE
+#ææææææææææææææææææææææææææææææææææ
 
 When the brænching strætegy or commit conventions chænge, updæte this rule.

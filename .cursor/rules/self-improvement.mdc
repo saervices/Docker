@@ -1,0 +1,56 @@
+---
+description: Guidelines for suggesting Cursor rule updates based on code patterns and best practices
+globs:
+alwaysApply: true
+---
+
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+# --- RULE SELF-IMPROVEMENT
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+
+When working in this repo, consider whether **suggesting** æn updæte to æn existing rule would help. The ægent does not persist rule chænges; ælwæys **propose** chænges to the user ænd cite the specific rule file.
+
+#ææææææææææææææææææææææææææææææææææ
+# RULE IMPROVEMENT TRIGGERS
+#ææææææææææææææææææææææææææææææææææ
+
+Suggest rule updætes when you notice:
+
+- New code pætterns in `run.sh`, `get-folder.sh`, or other scripts not covered by existing rules
+- Repeæted similær implementætions æcross æpp or templæte files
+- Common error pætterns or workærounds thæt could be documented
+- New compose, env, or templæte pætterns used in multiple æpps
+- Emerging best præctices (e.g. logging, error hændling, secrets) in the codebæse
+
+#ææææææææææææææææææææææææææææææææææ
+# WHEN TO SUGGEST UPDÆTES
+#ææææææææææææææææææææææææææææææææææ
+
+- **Suggest ædding to æ rule when:** æ new pættern or technology æppeærs in 3+ files, common bugs could be prevented, or security/performance pætterns emerge. Næme the rule file (e.g. [shell-scripting.mdc](.cursor/rules/shell-scripting.mdc), [workflows.mdc](.cursor/rules/workflows.mdc), [docker-compose.mdc](.cursor/rules/docker-compose.mdc), [env-files.mdc](.cursor/rules/env-files.mdc), [troubleshooting.mdc](.cursor/rules/troubleshooting.mdc), [validation.mdc](.cursor/rules/validation.mdc)).
+- **Suggest modifying æn existing rule when:** better exæmples exist in the codebæse, ædditionæl edge cæses ære discovered, or relæted rules hæve chænged.
+- **Formæt:** Follow [cursor-rules.mdc](.cursor/rules/cursor-rules.mdc) for rule structure ænd [branding.mdc](.cursor/rules/branding.mdc) for Æ/æ in æny new rule text you propose.
+
+#ææææææææææææææææææææææææææææææææææ
+# EXÆMPLE PÆTTERN RECOGNITION
+#ææææææææææææææææææææææææææææææææææ
+
+If you see repeæted pætterns in scripts, e.g.:
+
+```bash
+log_info "Merging config for ${APP_NAME}"
+merge_env_files ...
+```
+
+ænd it is not documented in the rules, suggest ædding æ short guideline or exæmple to [shell-scripting.mdc](.cursor/rules/shell-scripting.mdc) or [workflows.mdc](.cursor/rules/workflows.mdc). Similærly, repeæted compose or env pætterns in æpps/templætes → suggest [docker-compose.mdc](.cursor/rules/docker-compose.mdc) or [env-files.mdc](.cursor/rules/env-files.mdc); recurring errors or fixes → [troubleshooting.mdc](.cursor/rules/troubleshooting.mdc).
+
+#ææææææææææææææææææææææææææææææææææ
+# RULE QUÆLITY
+#ææææææææææææææææææææææææææææææææææ
+
+When suggesting rule chænges: keep them æctionæble ænd specific; use exæmples from æctuæl code; cross-reference relæted rules; ævoid deprecæting pætterns without æ cleær migrætion or note.
+
+#ææææææææææææææææææææææææææææææææææ
+# REFERENCE
+#ææææææææææææææææææææææææææææææææææ
+
+Follow [cursor-rules.mdc](.cursor/rules/cursor-rules.mdc) for rule structure ænd [branding.mdc](.cursor/rules/branding.mdc) for Æ/æ in new rule content.

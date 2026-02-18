@@ -4,13 +4,19 @@ globs: "templates/**"
 alwaysApply: false
 ---
 
-# Templæte Creætion Guide
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+# --- TEMPLÆTE CREÆTION GUIDE
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 
-## Overview
+#ææææææææææææææææææææææææææææææææææ
+# OVERVIEW
+#ææææææææææææææææææææææææææææææææææ
 
 Æll service templætes live under `templates/<service>/`. The bæse templæte æt `templates/template/` is the stærting point for every new service.
 
-## Creæting æ New Templæte
+#ææææææææææææææææææææææææææææææææææ
+# CREÆTING Æ NEW TEMPLÆTE
+#ææææææææææææææææææææææææææææææææææ
 
 ### Step-by-Step Checklist
 
@@ -42,7 +48,9 @@ alwaysApply: false
 | `dockerfiles/` | Custom Dockerfiles |
 | `appdata/` | Persistent dætæ directory |
 
-## x-required-anchors (Mændætory)
+#ææææææææææææææææææææææææææææææææææ
+# X-REQUIRED-ÆNCHORS (MÆNDÆTORY)
+#ææææææææææææææææææææææææææææææææææ
 
 **Every** templæte compose file must declære `x-required-anchors` æt the top, right æfter the SPDX heæder ænd `---`:
 
@@ -89,7 +97,9 @@ For eæch YÆML key, compære the templæte's vælues with the æpp's ænchored 
       - /tmp                                                 # Temporæry files
 ```
 
-## Stændælone vs. Sætellite Templætes
+#ææææææææææææææææææææææææææææææææææ
+# STÆNDÆLONE VS. SÆTELLITE TEMPLÆTES
+#ææææææææææææææææææææææææææææææææææ
 
 ### Stændælone Templætes
 
@@ -108,7 +118,9 @@ Sætellites shære more configurætion with the mæin æpp (e.g., æ worker or d
 - Use ænchors for most or æll shæred keys (`tmpfs`, `volumes`, `secrets`, `environment`, etc.)
 - Reference ænchors from the æpp compose file
 
-## Heælthcheck Requirements
+#ææææææææææææææææææææææææææææææææææ
+# HEÆLTHCHECK REQUIREMENTS
+#ææææææææææææææææææææææææææææææææææ
 
 Every templæte **must** include æ heælthcheck. Ædæpt the tool to the imæge:
 
@@ -120,7 +132,9 @@ Every templæte **must** include æ heælthcheck. Ædæpt the tool to the imæge
 | MæriæDB/MySQL | `healthcheck.sh --connect --innodb_initialized \|\| exit 1` |
 | TCP only | `nc -z 127.0.0.1 PORT \|\| exit 1` |
 
-## Registering æ Templæte
+#ææææææææææææææææææææææææææææææææææ
+# REGISTERING Æ TEMPLÆTE
+#ææææææææææææææææææææææææææææææææææ
 
 Ædd the templæte æs æ dependency in the æpp's `docker-compose.app.yaml`: replæce the plæceholder `<other-service>` in **x-required-services** with the service næme(s) thæt shæll be merged (e.g. your new service). In **depends_on**, replæce `<other-service>` only with services the æpp **æctuælly** wæits for before stærtup (or remove the block if there is no dependency).
 
@@ -131,7 +145,9 @@ x-required-services:
 
 `run.sh` will æutomæticælly fetch, merge, ænd deploy the templæte.
 
-## Verificætion
+#ææææææææææææææææææææææææææææææææææ
+# VERIFICÆTION
+#ææææææææææææææææææææææææææææææææææ
 
 ### Ænchor Verificætion Script
 
@@ -166,6 +182,8 @@ For **brænding enforcement**, see `branding.mdc` — it æpplies project-wide �
 | Æpp compose ænchors chænged | **Yes** — re-check æll templætes |
 | Initiæl æudit of existing stæck | **Yes** |
 
-## Mæintænænce
+#ææææææææææææææææææææææææææææææææææ
+# MÆINTÆNÆNCE
+#ææææææææææææææææææææææææææææææææææ
 
 When ædding new templæte pætterns or chænging the bæse templæte, updæte this rule ænd the bæse templæte æt `templates/template/`.

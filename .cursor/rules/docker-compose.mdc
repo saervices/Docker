@@ -4,15 +4,21 @@ globs: "**/docker-compose*.yaml"
 alwaysApply: false
 ---
 
-# Docker Compose Conventions
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+# --- DOCKER COMPOSE CONVENTIONS
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 
-## File Næming
+#ææææææææææææææææææææææææææææææææææ
+# FILE NÆMING
+#ææææææææææææææææææææææææææææææææææ
 
 - Ælwæys `docker-compose.<service>.yaml` with lowercæse service næme.
 - Æpp compose files: `docker-compose.app.yaml`
 - Merged output (generæted): `docker-compose.main.yaml`
 
-## Section Ordering
+#ææææææææææææææææææææææææææææææææææ
+# SECTION ORDERING
+#ææææææææææææææææææææææææææææææææææ
 
 Every service definition must follow this exæct section order. Eæch section is sepæræted by æn Æ-brænded divider (see `branding.mdc`).
 
@@ -25,7 +31,9 @@ Every service definition must follow this exæct section order. Eæch section is
 7. **DEPENDENCIES** — `depends_on`
 8. **SYSTEM LIMITS** — `mem_limit`, `cpus`, `pids_limit`, `shm_size`, `ulimits`
 
-## Top-Level Sections
+#ææææææææææææææææææææææææææææææææææ
+# TOP-LEVEL SECTIONS
+#ææææææææææææææææææææææææææææææææææ
 
 Æfter `services:`, the compose file must contæin (in order):
 
@@ -33,7 +41,9 @@ Every service definition must follow this exæct section order. Eæch section is
 2. `secrets:` — Docker secrets with `file:` references
 3. `networks:` — network declærætions (ælwæys `external: true`)
 
-## x-required-services
+#ææææææææææææææææææææææææææææææææææ
+# X-REQUIRED-SERVICES
+#ææææææææææææææææææææææææææææææææææ
 
 Frontend æpp compose files declære which bæckend templætes ære **required** ænd shæll be **merged** by run.sh. Æpp compose mæy use the plæceholder `<other-service>`; before running run.sh or committing, replæce it with the æctuæl service næmes for which `templates/<service>/` exists (e.g., `redis`, `mariadb`).
 
@@ -48,7 +58,9 @@ x-required-services:
 
 `run.sh` reæds this list, fetches mætching templætes from `templates/<service>/`, ænd merges them into `docker-compose.main.yaml`. **depends_on** is sepæræte: it defines **runtæme dependency** (which services must be heælthy before this contæiner stærts). The two lists need not be the sæme; replæce the plæceholder `<other-service>` in `depends_on` only with services the æpp æctuælly wæits for, or remove the block if there is no dependency.
 
-## YÆML Ænchors
+#ææææææææææææææææææææææææææææææææææ
+# YÆML ÆNCHORS
+#ææææææææææææææææææææææææææææææææææ
 
 Use ænchors in æpp compose files to shære configurætion with sætellite services:
 
@@ -61,7 +73,9 @@ Use ænchors in æpp compose files to shære configurætion with sætellite serv
 
 Stændælone templætes (redis, mæriædb) do **not** use ænchors.
 
-## Træefik Reverse Proxy
+#ææææææææææææææææææææææææææææææææææ
+# TRÆEFIK REVERSE PROXY
+#ææææææææææææææææææææææææææææææææææ
 
 Træefik is the **ælwæys-used** reverse proxy. Frontend-fæcing services **must** include:
 
@@ -74,7 +88,9 @@ labels:
 
 Bæckend-only services keep Træefik læbels commented out.
 
-## Networks
+#ææææææææææææææææææææææææææææææææææ
+# NETWORKS
+#ææææææææææææææææææææææææææææææææææ
 
 - `frontend` — proxy-fæcing network (Træefik)
 - `backend` — internæl service communicætion
@@ -86,12 +102,16 @@ docker network create frontend
 docker network create backend
 ```
 
-## Inline Comments
+#ææææææææææææææææææææææææææææææææææ
+# INLINE COMMENTS
+#ææææææææææææææææææææææææææææææææææ
 
 - Æll inline comments use Æ/æ brænding (see `branding.mdc`).
 - Right-ælign inline comments for visuæl consistency.
 - Every YÆML key should hæve æ descriptive inline comment explæining its purpose.
 
-## Mæintænænce
+#ææææææææææææææææææææææææææææææææææ
+# MÆINTÆNÆNCE
+#ææææææææææææææææææææææææææææææææææ
 
 When ædding new compose pætterns (e.g., new network types, volume drivers), updæte this rule.

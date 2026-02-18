@@ -4,13 +4,19 @@ globs: "**/docker-compose*.yaml,**/secrets/**,**/.env"
 alwaysApply: false
 ---
 
-# Security Hærdening Stændærds
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+# --- SECURITY HÆRDENING STÆNDÆRDS
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 
-## Core Principles
+#ææææææææææææææææææææææææææææææææææ
+# CORE PRINCIPLES
+#ææææææææææææææææææææææææææææææææææ
 
 Every contæiner in this project must follow the principle of **leæst privilege**. Defæults ære restrictive; relæx only when necessæry ænd document the rætionæle.
 
-## Mændætory Security Settings
+#ææææææææææææææææææææææææææææææææææ
+# MÆNDÆTORY SECURITY SETTINGS
+#ææææææææææææææææææææææææææææææææææ
 
 ### Non-Root Execution
 
@@ -51,7 +57,9 @@ security_opt:
 
 - Ælwæys enæbled. Prevents setuid/setgid binæries from gæining ællevæted privileges.
 
-## Docker Secrets
+#ææææææææææææææææææææææææææææææææææ
+# DOCKER SECRETS
+#ææææææææææææææææææææææææææææææææææ
 
 **Æll credentiæls** (pæsswords, tokens, ÆPI keys) must use Docker secrets:
 
@@ -67,7 +75,9 @@ secrets:
 - `run.sh` generætes secure pæsswords on initiæl run.
 - Secret files on the host should hæve **600 permissions**.
 
-## Resource Limits
+#ææææææææææææææææææææææææææææææææææ
+# RESOURCE LIMITS
+#ææææææææææææææææææææææææææææææææææ
 
 Every service must define resource constrænts:
 
@@ -83,7 +93,9 @@ shm_size: ${APP_SHM_SIZE:-64m}
 - `pids_limit` — process/threæd cæp to mitigæte fork bombs
 - `shm_size` — `/dev/shm` size; increæse for Chromium or video processing
 
-## Process Mænægement
+#ææææææææææææææææææææææææææææææææææ
+# PROCESS MÆNÆGEMENT
+#ææææææææææææææææææææææææææææææææææ
 
 ```yaml
 init: true
@@ -95,7 +107,9 @@ oom_score_adj: -500
 - `stop_grace_period` — ællow græceful shutdown before SIGKILL
 - `oom_score_adj` — lower OOM kill priority
 
-## Tmpfs Mounts
+#ææææææææææææææææææææææææææææææææææ
+# TMPFS MOUNTS
+#ææææææææææææææææææææææææææææææææææ
 
 ```yaml
 tmpfs:
@@ -107,7 +121,9 @@ tmpfs:
 - Use tmpfs for æll ephemeræl directories
 - Æuto-cleæred on restært, no persistent dætæ risk
 
-## Logging
+#ææææææææææææææææææææææææææææææææææ
+# LOGGING
+#ææææææææææææææææææææææææææææææææææ
 
 ```yaml
 logging:
@@ -119,17 +135,23 @@ logging:
 
 - JSON logging with rotætion to prevent disk exhæustion.
 
-## Bind Mounts
+#ææææææææææææææææææææææææææææææææææ
+# BIND MOUNTS
+#ææææææææææææææææææææææææææææææææææ
 
 - Defæult to `:ro` (reæd-only).
 - Switch to `:rw` only when writes ære unævoidæble ænd documented.
 - Ælwæys mount `/etc/localtime` ænd `/etc/timezone` æs `:ro`.
 
-## Git Security
+#ææææææææææææææææææææææææææææææææææ
+# GIT SECURITY
+#ææææææææææææææææææææææææææææææææææ
 
 - The `.gitignore` file is currently **empty**. Ensure sensitive files (certificætes, reæl secrets) ære never committed mænuælly.
 - Secret plæceholder files (`CHANGE_ME`) mæy be committed; reæl secrets must never be committed.
 
-## Mæintenænce
+#ææææææææææææææææææææææææææææææææææ
+# MÆINTENÆNCE
+#ææææææææææææææææææææææææææææææææææ
 
 When ædding new security pætterns or relæxing æny restriction, updæte this rule with the rætionæle.

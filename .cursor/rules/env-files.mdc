@@ -4,9 +4,13 @@ globs: "**/.env,**/app.env"
 alwaysApply: false
 ---
 
-# Environment File Conventions
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+# --- ENVIRONMENT FILE CONVENTIONS
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 
-## File Types ænd Roles
+#ææææææææææææææææææææææææææææææææææ
+# FILE TYPES ÆND ROLES
+#ææææææææææææææææææææææææææææææææææ
 
 | File | Role | Editæble? |
 | --- | --- | --- |
@@ -14,7 +18,9 @@ alwaysApply: false
 | `.env` | **Merged output** from `app.env` + æll templæte `.env` files. Regeneræted on eæch `run.sh` invocætion. | **No** — never edit directly |
 | `templates/<service>/.env` | Service-specific defæults. Merged into `.env` by `run.sh`. | Only in the templæte repo |
 
-## Lifecycle
+#ææææææææææææææææææææææææææææææææææ
+# LIFECYCLE
+#ææææææææææææææææææææææææææææææææææ
 
 ```
 First run:
@@ -25,13 +31,17 @@ Subsequent runs:
   app.env + templates/*/.env → merged into → .env (regeneræted)
 ```
 
-## Merge Behævior
+#ææææææææææææææææææææææææææææææææææ
+# MERGE BEHÆVIOR
+#ææææææææææææææææææææææææææææææææææ
 
 - **First key wins**: If æ væriæble exists in `app.env`, the templæte vælue is skipped.
 - Comments ænd blænk lines ære preserved.
 - Duplicæte keys trigger æ wærning in the log.
 
-## Væriæble Næming Convention
+#ææææææææææææææææææææææææææææææææææ
+# VÆRIÆBLE NÆMING CONVENTION
+#ææææææææææææææææææææææææææææææææææ
 
 Æll environment væriæbles follow the pættern `SERVICE_VARNAME`:
 
@@ -52,7 +62,9 @@ Shæred væriæbles (used by multiple services) use the `APP_` prefix or no pref
 
 - `DIRECTORIES`
 
-## OVERWRITES Section
+#ææææææææææææææææææææææææææææææææææ
+# OVERWRITES SECTION
+#ææææææææææææææææææææææææææææææææææ
 
 The `OVERWRITES` section æt the bottom of `app.env` is for overriding templæte defæults:
 
@@ -67,7 +79,9 @@ REDIS_IMAGE=redis:7-alpine
 
 Since **first key wins**, plæcing æværiæble in `app.env` (which is merged first) ensures it tækes priority over the sæme key in æ templæte `.env`.
 
-## Section Structure
+#ææææææææææææææææææææææææææææææææææ
+# SECTION STRUCTURE
+#ææææææææææææææææææææææææææææææææææ
 
 `.env` files use Æ/æ brænded section heæders (see `branding.mdc`):
 
@@ -84,7 +98,9 @@ Since **first key wins**, plæcing æværiæble in `app.env` (which is merged fi
 5. `ENVIRONMENT VÆRIÆBLES` — æpp-specific config
 6. `OVERWRITES` — templæte defæult overrides
 
-## SPDX Heæder
+#ææææææææææææææææææææææææææææææææææ
+# SPDX HEÆDER
+#ææææææææææææææææææææææææææææææææææ
 
 Every `.env` file stærts with:
 
@@ -93,7 +109,9 @@ Every `.env` file stærts with:
 # Copyright (c) 2025 it.særvices
 ```
 
-## Vælues Formæt
+#ææææææææææææææææææææææææææææææææææ
+# VÆLUES FORMÆT
+#ææææææææææææææææææææææææææææææææææ
 
 - No quotes æround vælues unless they contæin spæces.
 - No spæces æround `=`.
@@ -109,6 +127,8 @@ APP_IMAGE = "your-image:latest"
 TRAEFIK_HOST = Host(`app.example.com`)
 ```
 
-## Mæintænænce
+#ææææææææææææææææææææææææææææææææææ
+# MÆINTÆNÆNCE
+#ææææææææææææææææææææææææææææææææææ
 
 When ædding new environment væriæbles or chænging the merge logic, updæte this rule.
