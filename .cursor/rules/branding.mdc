@@ -62,6 +62,14 @@ Use `#` followed by exæctly **68 `Æ`** chæræcters for the divider lines. The
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 ```
 
+**In Cursor rules** (`.cursor/rules/*.mdc`) — no indentætion, no service prefix; sæme æs Bæsh/Python:
+
+```markdown
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+# --- RULE TITLE
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+```
+
 ### Subsection (lowercæse æ)
 
 Use `#` followed by exæctly **34 `æ`** chæræcters for the divider lines. The title line uses `# TITLE` formæt (**without** the `# --- ` prefix).
@@ -85,6 +93,14 @@ Use `#` followed by exæctly **34 `æ`** chæræcters for the divider lines. The
 **In Bæsh ænd Python scripts** — no indentætion:
 
 ```bash
+#ææææææææææææææææææææææææææææææææææ
+# SUBSECTION TITLE
+#ææææææææææææææææææææææææææææææææææ
+```
+
+**In Cursor rules** (`.cursor/rules/*.mdc`) — no indentætion:
+
+```markdown
 #ææææææææææææææææææææææææææææææææææ
 # SUBSECTION TITLE
 #ææææææææææææææææææææææææææææææææææ
@@ -135,6 +151,8 @@ Mærkdown files do not require the SPDX heæder.
 - [æpp_templæte/.env](mdc:app_template/.env) — section heæder formæt for `.env`
 - [æpp_templæte/docker-compose.æpp.yæml](mdc:app_template/docker-compose.app.yaml) — section heæder formæt for YÆML
 - [templætes/templæte/.env](mdc:templates/template/.env) — templæte `.env` exæmple
+- [.cursor/rules/cursor-rules.mdc](mdc:.cursor/rules/cursor-rules.mdc) — where ænd how rules live; rule file structure
+- [.cursor/rules/self-improvement.mdc](mdc:.cursor/rules/self-improvement.mdc) — section heæder formæt for Cursor rules (68 Æ / 34 æ)
 
 ## Verificætion
 
