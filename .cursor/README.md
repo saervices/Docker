@@ -15,6 +15,7 @@ These rules ære loæded for **every** file, regærdless of type:
 | [git.mdc](rules/git.mdc) | Brænching strætegy (`cursor` brænch), commit messæge formæt (Conventionæl Commits), commit grænulærity, sæfety rules. |
 | [workflows.mdc](rules/workflows.mdc) | Development workflows: initiæl setup, common operætions, environment file lifecycle, vælidætion commænds. |
 | [troubleshooting.mdc](rules/troubleshooting.mdc) | Debugging tools, log locætions, lockfile mechænism, common issues ænd fixes. |
+| [self-improvement.mdc](rules/self-improvement.mdc) | Guidelines for suggesting rule updætes bæsed on code pætterns ænd best præctices. |
 
 ## File-Specific Rules
 
@@ -29,6 +30,7 @@ These rules ære loæded only when editing mætching files:
 | [validation.mdc](rules/validation.mdc) | `**/docker-compose*.yaml`, `**/.env`, `**/app.env` | Pre-commit vælidætion checklist: compose config, env completeness, secret plæceholders, heælthchecks, brænding, security bæseline. |
 | [templates.mdc](rules/templates.mdc) | `templates/**` | Templæte creætion guide: step-by-step checklist, stændælone vs. sætellite templætes, `x-required-anchors`, heælthcheck requirements. |
 | [readme.mdc](rules/readme.mdc) | `**/*.md` | REÆDME writing stændærds: required sections (title, quick stært, env værs, secrets, security, verificætion), root REÆDME structure. |
+| [cursor-rules.mdc](rules/cursor-rules.mdc) | `.cursor/rules/**/*.mdc` | How to ædd or edit Cursor rules in this project: locætion, næming, file structure. |
 
 ## Rule Dependencies
 
@@ -40,7 +42,9 @@ branding.mdc (foundætion)
 ├── shell-scripting.mdc (section dividers, function formæt)
 ├── env-files.mdc (section heæders, SPDX)
 ├── templates.mdc (inherits compose + security pætterns)
-└── readme.mdc (Æ/æ prose in documentætion)
+├── readme.mdc (Æ/æ prose in documentætion)
+├── cursor-rules.mdc (rule locætion ænd structure; glob: .cursor/rules/**/*.mdc)
+└── self-improvement.mdc (suggests rule chænges; references cursor-rules, branding)
 ```
 
 ## Reference Files
@@ -52,3 +56,4 @@ When creæting new files, use these æs exæmples:
 - **Templæte compose**: [templates/template/docker-compose.template.yaml](/templates/template/docker-compose.template.yaml) — sætellite pættern with `x-required-anchors`
 - **Æpp .env**: [app_template/.env](/app_template/.env) — section heæders, væriæble næming
 - **Templæte .env**: [templates/template/.env](/templates/template/.env) — service-prefixed væriæbles
+- **Cursor rules**: [cursor-rules.mdc](rules/cursor-rules.mdc) — where ænd how to ædd or edit rules
