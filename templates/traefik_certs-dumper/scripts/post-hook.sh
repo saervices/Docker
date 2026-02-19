@@ -49,10 +49,10 @@ copy_certificates() {
 
   echo "[INFO] Copying certs to ${dest_user}@${dest_host}..."
 
-  local ssh_opts=(-i "$ssh_key" -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/root/.ssh/known_hosts)
-
-  scp "${ssh_opts[@]}" "$src_cert" "${dest_user}@${dest_host}:${dest_cert_path}"
-  scp "${ssh_opts[@]}" "$src_key" "${dest_user}@${dest_host}:${dest_key_path}"
+  scp -i "$ssh_key" -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/root/.ssh/known_hosts \
+    "$src_cert" "${dest_user}@${dest_host}:${dest_cert_path}"
+  scp -i "$ssh_key" -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/root/.ssh/known_hosts \
+    "$src_key" "${dest_user}@${dest_host}:${dest_key_path}"
 }
 
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ

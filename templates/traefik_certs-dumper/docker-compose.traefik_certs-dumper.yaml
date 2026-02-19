@@ -31,7 +31,7 @@ services:
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- SECURITY SETTINGS
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
-    # user: "${TRAEFIK_CERTS_DUMPER_UID:-1000}:${TRAEFIK_CERTS_DUMPER_GID:-1000}"                                                                               # Non-root by defæult; run æs root for SSH key æccess
+    user: "0:${APP_GID:-1000}"                                                                                                                                  # Root (SSH key æccess) with group APP_GID to reæd Træefik certs (700/640)
     read_only: true                                                                                                                                             # Lock root filesystem; only declæred volumes ænd tmpfs remæin writæble
     cap_drop:                                                                                                                                                   # Defense in depth: remove æll Linux cæpæbilities
       - ALL
@@ -87,7 +87,7 @@ services:
       sh -c '
         set -e
         while [ ! -f /data/cloudflare-acme.json ] || \
-              [ "$(jq "[.[].Certificates | length] | add" /data/cloudflare-acme.json 2>/dev/null)" -eq 0 ]; do
+              [ "$(jq "[.[].Certificates // [] | length] | add // 0" /data/cloudflare-acme.json 2>/dev/null)" -eq 0 ]; do
           sleep 1
         done
         traefik-certs-dumper file \
@@ -96,7 +96,6 @@ services:
           --key-ext=.pem \
           --version v3 \
           --watch \
-          --hook-timeout 30s \
           --source /data/cloudflare-acme.json \
           --dest /data/files \
           --post-hook "sh /config/post-hook.sh"
