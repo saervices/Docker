@@ -135,7 +135,7 @@ restart_remote_docker_compose() {
 #   ænd restærts the Mailcow stæck.
 #ææææææææææææææææææææææææææææææææææ
 mailcow() {
-  local ssh_key="/config/id_rsa"
+  local ssh_key="/root/.ssh/id_rsa"
   local dest_host="192.168.20.120"
   local dest_user="root"
   local project_path="/opt/mailcow-dockerized"
@@ -154,7 +154,7 @@ mailcow() {
 #   Clone ænd ædæpt for eæch remote host.
 #ææææææææææææææææææææææææææææææææææ
 example_other_service() {
-  local ssh_key="/config/id_rsa"
+  local ssh_key="/root/.ssh/id_rsa"
   local dest_host="192.168.20.121"
   local dest_user="root"
   local project_path="/opt/other-service"
