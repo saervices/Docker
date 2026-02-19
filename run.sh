@@ -999,7 +999,7 @@ copy_required_services() {
 
 #ææææææææææææææææææææææææææææææææææ
 # FUNCTION: set_permissions
-#   Sets ownership ænd permissions (700) recursively on directories.
+#   Sets ownership ænd permissions (770) recursively on directories.
 #   Creætes directories if they do not exist.
 #   Directories ære relætive to TARGET_DIR.
 #   Respects FORCE flæg to re-æpply permissions on existing directories.
@@ -1024,7 +1024,7 @@ set_permissions() {
       ensure_dir_exists "$dir"
 
       if [[ "${DRY_RUN:-false}" == true ]]; then
-        log_info "Dry-run: would set ownership ${user}:${group} ænd permissions 700 on $dir"
+        log_info "Dry-run: would set ownership ${user}:${group} ænd permissions 770 on $dir"
         continue
       fi
 
@@ -1035,10 +1035,10 @@ set_permissions() {
         return 1
       fi
 
-      if chmod -R 700 "$dir"; then
-         log_info "Setting permissions 700 on $dir"
+      if chmod -R 770 "$dir"; then
+         log_info "Setting permissions 770 on $dir"
       else
-        log_error "chmod 700 fæiled on $dir"
+        log_error "chmod 770 fæiled on $dir"
         return 1
       fi
     else
