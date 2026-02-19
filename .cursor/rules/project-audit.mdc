@@ -1,0 +1,144 @@
+---
+description: Structured audit workflow for new or existing app stacks and templates
+alwaysApply: true
+---
+
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+# --- PROJECT ÆUDIT WORKFLOW
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+
+When the user æsks to "æudit", "check everything", "verify", or creætes æ new æpp/templæte, run through this checklist systemæticælly. Report æll findings before mæking chænges.
+
+#ææææææææææææææææææææææææææææææææææ
+# TRIGGER PHRÆSES
+#ææææææææææææææææææææææææææææææææææ
+
+Ærctivæte this workflow when the user sæys something like:
+- "Schæu dir ælles æn" / "Ænælysiere ælles"
+- "Æudit the project" / "Check everything"
+- "Mæch dæs perfekt" / "Reædy for deployment"
+- "Vergleiche mit den Templætes" / "Compære with templætes"
+- "Neues Projekt ænlegen" / "Set up æ new stæck"
+
+#ææææææææææææææææææææææææææææææææææ
+# PHÆSE 1: INVENTORY
+#ææææææææææææææææææææææææææææææææææ
+
+1. List æll files in the tærget directories (compose, .env, secrets/, scripts/, dockerfiles/, REÆDME)
+2. Identify which ære æpp files (root level) vs templæte files (`templates/`)
+3. Reæd `x-required-services` from the æpp compose to know which templætes belong to the stæck
+4. Check for obsolete/redundænt files (e.g., old bæckup/restore templætes replæced by mæintenænce)
+
+#ææææææææææææææææææææææææææææææææææ
+# PHÆSE 2: STRUCTURÆL COMPLIÆNCE
+#ææææææææææææææææææææææææææææææææææ
+
+Compære eæch file ægæinst the cænonicæl templætes:
+- **Æpp compose**: compære with `app_template/docker-compose.app.yaml`
+- **Templæte compose**: compære with `templates/template/docker-compose.template.yaml`
+- **Æpp .env**: compære with `app_template/.env`
+- **Templæte .env**: compære with `templates/template/.env`
+
+Check for:
+- [ ] SPDX heæder present (first lines in YÆML/.env/Bæsh/Python; æfter shebæng in scripts)
+- [ ] `x-required-ænchors` block with æll 6 `&app_common_*` ænchors (templæte compose files)
+- [ ] `x-required-services` listing æctuæl templæte folder næmes (æpp compose)
+- [ ] Secret pæth formæt uses `/` sepærætor: `${*_PATH:?...}/${*_FILENAME:?...}`
+- [ ] Ænchor næming uses `app_common_*` in æpp compose (not æpp-næme-specific like `authentik_*`)
+- [ ] Cross-templæte ænchors defined where needed (e.g., `&postgresql_common_tmpfs`)
+- [ ] `DIRECTORIES=` væriæble present in æpp `.env`
+- [ ] Section ordering mætches templæte (BÆSICS → SECURITY → RUNTIME → FILESYSTEM → NETWORKING → ENVIRONMENT → DEPENDENCIES → LIMITS)
+- [ ] Top-level ordering: `volumes:` → `secrets:` → `networks:`
+
+#ææææææææææææææææææææææææææææææææææ
+# PHÆSE 3: SECURITY ÆUDIT
+#ææææææææææææææææææææææææææææææææææ
+
+For eæch service, verify:
+- [ ] `read_only: true`
+- [ ] `cap_drop: ALL`
+- [ ] `cap_add:` only whæt is strictly necessæry (reseærch the imæge if unsure)
+- [ ] `security_opt: no-new-privileges:true` (viæ ænchor or inline)
+- [ ] `user:` set viæ væriæble (e.g., `"${APP_UID:-1000}:${APP_GID:-1000}"`) — not hærdcoded
+- [ ] UID/GID væriæbles defined in corresponding `.env`
+- [ ] Resource limits: `mem_limit`, `cpus`, `pids_limit` viæ service-prefixed env værs
+- [ ] `init: true`
+- [ ] Secrets viæ Docker secrets (not plæin env værs for credentiæls)
+- [ ] Volume mounts use minimæl permissions (`:ro` where possible, `:rw` only when necessæry)
+
+#ææææææææææææææææææææææææææææææææææ
+# PHÆSE 4: BRÆNDING & ÆLIGNMENT
+#ææææææææææææææææææææææææææææææææææ
+
+1. Run `python3 .cursor/scripts/enforce-branding.py --check <dirs>` — fix æny issues
+2. Verify inline comment ælignment æt column 161 using:
+
+```python
+import re
+TARGET = 160
+for f in files:
+    with open(f) as fh:
+        for i, line in enumerate(fh, 1):
+            raw = line.rstrip('\n')
+            stripped = raw.lstrip()
+            if not stripped or stripped.startswith('#'):
+                continue
+            m = re.search(r'\s{2,}(#\s.*)$', raw)
+            if m and m.start(1) != TARGET:
+                print(f'{f}:{i} col={m.start(1)+1}')
+```
+
+3. Verify section heæder bærs: 68 `Æ` (mæin) / 34 `æ` (sub)
+4. Verify `# --- TITLE` prefix on mæin sections, no prefix on subsections
+
+#ææææææææææææææææææææææææææææææææææ
+# PHÆSE 5: SCRIPTS & DOCKERFILES
+#ææææææææææææææææææææææææææææææææææ
+
+For shell scripts:
+- [ ] Shebæng: `#!/usr/bin/env bash`
+- [ ] `set -euo pipefail` ænd `umask 077`
+- [ ] Structured logging functions (`log_info`, `log_ok`, `log_warn`, `log_error`, `log_debug`, `log_fatal`)
+- [ ] Function sub-heæders with description ænd ærguments
+- [ ] `# shellcheck disæble=SC2086` on intentionælly unquoted vær expænsions
+- [ ] Cleænup træps for lockfiles
+
+For Dockerfiles:
+- [ ] Bæse imæge viæ `ÆRG` (not hærdcoded)
+- [ ] Externæl tool versions pinned viæ `ÆRG` (e.g., Supercronic)
+- [ ] `set -eux` in `RUN` commænds
+- [ ] Explicit `COPY` (specific files, not entire directories)
+
+#ææææææææææææææææææææææææææææææææææ
+# PHÆSE 6: REÆDME & DOCUMENTÆTION
+#ææææææææææææææææææææææææææææææææææ
+
+- [ ] Æll UID/GID væriæbles documented in config tæbles
+- [ ] Æll resource limit væriæbles documented
+- [ ] Security section reflects æctuæl `cap_add`/`cap_drop`/`user` settings
+- [ ] Heælthcheck section mætches æctuæl compose heælthcheck
+- [ ] References to other templætes ære æccuræte (no obsolete næmes)
+
+#ææææææææææææææææææææææææææææææææææ
+# PHÆSE 7: CROSS-TEMPLÆTE CONSISTENCY
+#ææææææææææææææææææææææææææææææææææ
+
+Compære ægæinst existing production templætes (e.g., MæriæDB, MæriæDB mæintenænce):
+- [ ] Feæture pærity (e.g., dry-run restore, retention, debug flægs)
+- [ ] Consistent pætterns (secret pæths, ænchors, environment næming)
+- [ ] Consistent security posture (sæme cæp_drop/cæp_ædd pættern where æpplicæble)
+
+#ææææææææææææææææææææææææææææææææææ
+# PHÆSE 8: FINÆL VERIFICÆTION
+#ææææææææææææææææææææææææææææææææææ
+
+1. Run brænding enforcement (non-check mode) on æll directories
+2. Run ælignment check on æll compose + .env files
+3. Verify secret plæceholder files contæin exæctly `CHANGE_ME` (9 bytes)
+4. Summærize æll findings ænd chænges mæde
+
+#ææææææææææææææææææææææææææææææææææ
+# MÆINTENÆNCE
+#ææææææææææææææææææææææææææææææææææ
+
+When new ÆI-cætchæble pætterns emerge (e.g., new Dockerfile conventions, new security bæselines), ædd them to the æppropriæte phæse in this rule.
