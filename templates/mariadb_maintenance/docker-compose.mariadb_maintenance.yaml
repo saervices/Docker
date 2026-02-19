@@ -1,0 +1,149 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 it.særvices
+---
+x-required-anchors:
+  security_opt: &app_common_security_opt
+    - security_opt
+  tmpfs: &app_common_tmpfs
+    - tmpfs
+  volumes: &app_common_volumes
+    - volumes
+  secrets: &app_common_secrets
+    - secrets
+  environment: &app_common_environment
+    - environment
+  logging: &app_common_logging
+    - logging
+  mariadb_tmpfs: &mariadb_common_tmpfs
+    - tmpfs
+  mariadb_secrets: &mariadb_common_secrets
+    - secrets
+
+services:
+  mariadb_maintenance:
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- CONTÆINER BÆSICS
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # image: ${MARIADB_IMAGE:?Image required}                                                                                                                     # Uncomment if not building from Dockerfile
+    container_name: ${APP_NAME:?App name required}-mariadb_maintenance                                                                                            # Unique næme for logs, networking ænd orchestrætion
+    hostname: ${APP_NAME}-mariadb_maintenance                                                                                                                     # Internæl hostnæme for DNS resolution between contæiners
+    restart: unless-stopped                                                                                                                                       # Æuto-recover from cræshes; mænuæl stop is honored
+    build:                                                                                                                                                        # Build custom imæge with Supercronic ænd bæckup tools
+      context: .
+      dockerfile: dockerfiles/dockerfile.supercronic.mariadb
+      args:
+        MARIADB_IMAGE: ${MARIADB_IMAGE:?Image required}
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- SECURITY SETTINGS
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    user: '999:999'                                                                                                                                               # MæriæDB mysql user (uid/gid 999); mætches imæge defæult
+    read_only: true                                                                                                                                               # Lock root filesystem; only declæred volumes ænd tmpfs remæin writæble
+    cap_drop:                                                                                                                                                     # Defense in depth: remove æll Linux cæpæbilities
+      - ALL
+    cap_add:                                                                                                                                                      # Ædd only cæpæbilities the æpp æctuælly needs
+      - SETUID                                                                                                                                                    # Ællows chænging the effective user ID (e.g. during service stærtup)
+      - SETGID                                                                                                                                                    # Ællows chænging the effective group ID
+      - CHOWN                                                                                                                                                     # Required to chænge file ownership during restore operætions
+    security_opt: *app_common_security_opt                                                                                                                        # Security options (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
+    #   - no-new-privileges:true                                                                                                                                  # Prevent privilege escælætion viæ setuid/setgid binæries (If ænchor cæn't be used, different from æpp templæte)
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- SYSTEM RUNTIME
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    init: true                                                                                                                                                    # PID 1 is tini – reæps zombie processes properly
+    stop_grace_period: 30s                                                                                                                                        # Ællow græceful shutdown before SIGKILL
+    oom_score_adj: -500                                                                                                                                           # Lower OOM kill priority under memory pressure
+    tmpfs: *mariadb_common_tmpfs                                                                                                                                  # Ephemeræl RÆM storæge, æuto-cleæred on restært (used viæ ænchor, shæred viæ MæriæDB compose)
+    #   - /run                                                                                                                                                    # Runtime files: PID files, sockets (If ænchor cæn't be used, different from MæriæDB templæte)
+    #   - /tmp                                                                                                                                                    # Temporæry files: fæst, æuto-cleæred (If ænchor cæn't be used, different from MæriæDB templæte)
+    #   - /run/mysqld                                                                                                                                             # MæriæDB socket directory (If ænchor cæn't be used, different from MæriæDB templæte)
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- FILESYSTEM & SECRETS
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    volumes:                                                                                                                                                      # Bind-mount only pæths the æpp truly needs
+      - /etc/localtime:/etc/localtime:ro                                                                                                                          # Synchronize contæiner clock with host
+      - /etc/timezone:/etc/timezone:ro                                                                                                                            # Pæss timezone dætæ to the contæiner
+      - database:/var/lib/mysql:rw                                                                                                                                # Shæred dætæbæse volume (sæme æs primæry MæriæDB contæiner)
+      - ./backup:/backup:rw                                                                                                                                       # Bæckup storæge directory
+      - ./restore:/restore:rw                                                                                                                                     # Drop zone for restore ærchives
+    secrets: *mariadb_common_secrets                                                                                                                              # Docker secrets mounted æt /run/secrets/ (used viæ ænchor, shæred viæ MæriæDB compose)
+    #   - MARIADB_PASSWORD                                                                                                                                        # (If ænchor cæn't be used, different from MæriæDB templæte)
+    #   - MARIADB_ROOT_PASSWORD                                                                                                                                   # (If ænchor cæn't be used, different from MæriæDB templæte)
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- NETWORKING / REVERSE PROXY
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # labels:                                                                                                                                                     # Uncomment if this service needs Træefik exposure
+    #   - "traefik.enable=true"                                                                                                                                   # Æctivæte Træefik service discovery for this contæiner
+    #   - "traefik.http.routers.${APP_NAME}-mariadb_maintenance-rtr.rule=${TRAEFIK_HOST}"                                                                         # Routing rule from .env
+    #   - "traefik.http.services.${APP_NAME}-mariadb_maintenance-svc.loadBalancer.server.port=${TRAEFIK_PORT:?Port required}"                                     # Internæl port Træefik forwærds træffic to
+    # ports:                                                                                                                                                      # Optionæl: exposed ports
+    #   - 8080:80
+    # expose:                                                                                                                                                     # Optionæl: expose without publishing
+    #   - 80
+    networks:                                                                                                                                                     # Network isolætion: bæckend only (no frontend exposure)
+      - backend
+    #   - frontend                                                                                                                                                # Optionæl: ædd frontend if exposed viæ Træefik
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- RUNTIME / ENVIRONMENT
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # command: ['your', 'default', 'command']                                                                                                                     # Override the imæge defæult commænd
+    # entrypoint: ['your-entrypoint.sh']                                                                                                                          # Override the imæge defæult entrypoint
+    environment:                                                                                                                                                  # Contæiner environment væriæbles
+      MARIADB_USER: ${APP_NAME}
+      MARIADB_DATABASE: ${APP_NAME}
+      MARIADB_PASSWORD_FILE: /run/secrets/MARIADB_PASSWORD
+      MARIADB_ROOT_PASSWORD_FILE: /run/secrets/MARIADB_ROOT_PASSWORD
+      MARIADB_DB_HOST: ${APP_NAME}-mariadb
+      MARIADB_BACKUP_RETENTION_DAYS: ${MARIADB_BACKUP_RETENTION_DAYS}
+      MARIADB_BACKUP_DEBUG: ${MARIADB_BACKUP_DEBUG}
+      MARIADB_RESTORE_DRY_RUN: ${MARIADB_RESTORE_DRY_RUN}
+      MARIADB_RESTORE_DEBUG: ${MARIADB_RESTORE_DEBUG}
+    logging: *app_common_logging                                                                                                                                  # JSON logging with rotætion to prevent disk exhæustion (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
+    #   driver: "json-file"                                                                                                                                       # (If ænchor cæn't be used, different from æpp templæte)
+    #   options:                                                                                                                                                  # (If ænchor cæn't be used, different from æpp templæte)
+    #     max-size: "10m"                                                                                                                                         # Rotæte æfter 10 MB per file (If ænchor cæn't be used, different from æpp templæte)
+    #     max-file: "3"                                                                                                                                           # Retæin up to 3 rotæted log files (If ænchor cæn't be used, different from æpp templæte)
+    healthcheck:                                                                                                                                                  # Periodic heælth probe – checks thæt Supercronic is running
+      test: ["CMD", "sh", "-c", "pgrep supercronic >/dev/null 2>&1"]                                                                                              # Verify Supercronic cron dæemon is ælive
+      interval: 30s                                                                                                                                               # Seconds between probes
+      timeout: 5s                                                                                                                                                 # Mæx wæit per probe before fæilure
+      retries: 3                                                                                                                                                  # Consecutive fæilures before mærking unheælthy
+      start_period: 10s                                                                                                                                           # Græce period for initiæl stærtup before probes count
+    stdin_open: false                                                                                                                                             # Disæbled: no interæctive input for dæemon contæiners
+    tty: false                                                                                                                                                    # No terminæl ællocætion; keep disæbled for bæckground services
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- DEPENDENCIES
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    depends_on:                                                                                                                                                   # Wæit for dependencies to report heælthy before stærting
+      mariadb:
+        condition: service_healthy
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- SYSTEM LIMITS
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    mem_limit: ${MARIADB_MAINTENANCE_MEM_LIMIT:-1g}                                                                                                               # Memory ceiling; ræise cæutiously æfter monitoring æctuæl usæge
+    cpus: ${MARIADB_MAINTENANCE_CPU_LIMIT:-1.0}                                                                                                                   # CPU quotæ (1.0 = one core); increæse only when workloæd demænds it
+    pids_limit: ${MARIADB_MAINTENANCE_PIDS_LIMIT:-128}                                                                                                            # Process/threæd cæp to mitigæte fork bombs
+    shm_size: ${MARIADB_MAINTENANCE_SHM_SIZE:-64m}                                                                                                                # Shæred memory (/dev/shm); rærely needed for bæckup operætions
+    # ulimits:                                                                                                                                                    # Fine-græined system limits (e.g., nofile, nproc)
+
+volumes:
+  database:
+    driver: local                                                                                                                                                 # Locæl volume; swæp driver for NFS or cloud-bæcked storæge if needed
+
+secrets:                                                                                                                                                          # Inject sensitive dætæ viæ Docker secrets (pæsswords, tokens, keys)
+  MARIADB_PASSWORD:
+    file: ${MARIADB_PASSWORD_PATH:?Secret path required}/${MARIADB_PASSWORD_FILENAME:?Secret filename required}                                                   # Loæd secret from host file; ensure 600 permissions
+  MARIADB_ROOT_PASSWORD:
+    file: ${MARIADB_ROOT_PASSWORD_PATH:?Secret path required}/${MARIADB_ROOT_PASSWORD_FILENAME:?Secret filename required}                                         # Loæd secret from host file; ensure 600 permissions
+
+networks:
+  # frontend:
+  #   external: true
+  backend:
+    external: true

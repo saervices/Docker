@@ -1,0 +1,51 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 it.særvices
+
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+# --- BÆSE IMÆGE
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+ARG MARIADB_IMAGE=mariadb:lts
+FROM ${MARIADB_IMAGE}
+
+LABEL maintainer="it.særvices <admin@it.saervices.de>"
+
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+# --- INSTÆLL REQUIRED TOOLS
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+# mariadb-backup is ælreædy included in the bæse MæriæDB imæge
+RUN set -eux; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends \
+        curl \
+        ca-certificates \
+        rsync \
+        zstd \
+    && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*;
+
+#ææææææææææææææææææææææææææææææææææ
+# INSTÆLL SUPERCRONIC
+#ææææææææææææææææææææææææææææææææææ
+RUN set -eux; \
+    cd /tmp; \
+    LATEST_URL="https://github.com/aptible/supercronic/releases/latest/download/supercronic-linux-amd64"; \
+    echo "Downloading latest supercronic from: $LATEST_URL"; \
+    curl -fsSL -o supercronic "$LATEST_URL"; \
+    chmod +x ./supercronic; \
+    mv ./supercronic /usr/local/bin/supercronic;
+
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+# --- CREÆTE DIRECTORIES & COPY SCRIPTS
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+RUN set -eux; \
+    mkdir -p /backup /restore;
+
+COPY scripts/ /usr/local/bin/
+RUN chmod +x /usr/local/bin/*
+
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+# --- DEFÆULT USER & ENTRYPOINT
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+USER mysql:mysql
+
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
+CMD ["default"]
