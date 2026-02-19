@@ -85,12 +85,12 @@ copy_certificates() {
 
   log_info "Copying certs to ${dest_user}@${dest_host}..."
 
-  local ssh_opts=(-i "$ssh_key" -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/root/.ssh/known_hosts)
-
-  if ! scp "${ssh_opts[@]}" "$src_cert" "${dest_user}@${dest_host}:${dest_cert_path}"; then
+  if ! scp -i "$ssh_key" -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/root/.ssh/known_hosts \
+    "$src_cert" "${dest_user}@${dest_host}:${dest_cert_path}"; then
     log_error "Failed to copy certificate to ${dest_host}:${dest_cert_path}"
   fi
-  if ! scp "${ssh_opts[@]}" "$src_key" "${dest_user}@${dest_host}:${dest_key_path}"; then
+  if ! scp -i "$ssh_key" -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/root/.ssh/known_hosts \
+    "$src_key" "${dest_user}@${dest_host}:${dest_key_path}"; then
     log_error "Failed to copy key to ${dest_host}:${dest_key_path}"
   fi
 
@@ -117,9 +117,8 @@ restart_remote_docker_compose() {
   local ssh_key="$4"
 
   log_info "Restarting Docker Compose at ${remote_project_path} on ${dest_host}..."
-  local ssh_opts=(-i "$ssh_key" -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/root/.ssh/known_hosts)
-
-  if ! ssh "${ssh_opts[@]}" "${dest_user}@${dest_host}" "cd \"${remote_project_path}\" && docker compose restart"; then
+  if ! ssh -i "$ssh_key" -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/root/.ssh/known_hosts \
+    "${dest_user}@${dest_host}" "cd \"${remote_project_path}\" && docker compose restart"; then
     log_error "Failed to restart Docker Compose on ${dest_host}:${remote_project_path}"
   fi
 
