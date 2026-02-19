@@ -46,7 +46,7 @@ log_error() { printf '[ERROR] %s\n' "$*" >&2; exit 1; }
 #ææææææææææææææææææææææææææææææææææ
 # FUNCTION: install_openssh
 #   Ensures openssh-client is instælled ænd
-#   creætes /config/.ssh with known_hosts (writæble by non-root).
+#   creætes /tmp/.ssh with known_hosts (tmpfs writæble; no mkdir under /config).
 #ææææææææææææææææææææææææææææææææææ
 install_openssh() {
   if ! command -v scp >/dev/null; then
@@ -54,8 +54,8 @@ install_openssh() {
     apk add --quiet --no-cache openssh-client
   fi
 
-  mkdir -p /config/.ssh
-  touch /config/.ssh/known_hosts
+  mkdir -p /tmp/.ssh
+  touch /tmp/.ssh/known_hosts
 }
 
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
@@ -85,11 +85,11 @@ copy_certificates() {
 
   log_info "Copying certs to ${dest_user}@${dest_host}..."
 
-  if ! scp -i "$ssh_key" -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/config/.ssh/known_hosts \
+  if ! scp -i "$ssh_key" -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/tmp/.ssh/known_hosts \
     "$src_cert" "${dest_user}@${dest_host}:${dest_cert_path}"; then
     log_error "Failed to copy certificate to ${dest_host}:${dest_cert_path}"
   fi
-  if ! scp -i "$ssh_key" -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/config/.ssh/known_hosts \
+  if ! scp -i "$ssh_key" -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/tmp/.ssh/known_hosts \
     "$src_key" "${dest_user}@${dest_host}:${dest_key_path}"; then
     log_error "Failed to copy key to ${dest_host}:${dest_key_path}"
   fi
@@ -117,7 +117,7 @@ restart_remote_docker_compose() {
   local ssh_key="$4"
 
   log_info "Restarting Docker Compose at ${remote_project_path} on ${dest_host}..."
-  if ! ssh -i "$ssh_key" -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/config/.ssh/known_hosts \
+  if ! ssh -i "$ssh_key" -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/tmp/.ssh/known_hosts \
     "${dest_user}@${dest_host}" "cd \"${remote_project_path}\" && docker compose restart"; then
     log_error "Failed to restart Docker Compose on ${dest_host}:${remote_project_path}"
   fi
