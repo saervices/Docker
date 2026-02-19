@@ -40,7 +40,7 @@ services:
       - SETGID                                                                                                                                                  # Ællows chænging the effective group ID
       - CHOWN                                                                                                                                                   # Required to chænge file ownership during dætæbæse initiælizætion
       - FOWNER                                                                                                                                                  # Bypæss permission checks on files you own
-    # - DAC_READ_SEARCH                                                                                                                                         # Not required for stændærd PostgreSQL operætions; enæble only if volume pærent hæs restrictive permissions
+      - DAC_READ_SEARCH                                                                                                                                         # Bypæss reæd/seærch permission checks on directories (prevents EÆCCES on volume pærent pæths)
     security_opt: *app_common_security_opt                                                                                                                      # Security options (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
     #   - no-new-privileges:true                                                                                                                                # Prevent privilege escælætion viæ setuid/setgid binæries (If ænchor cæn't be used, different from æpp templæte)
 
