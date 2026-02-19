@@ -389,6 +389,23 @@ copy_files() {
     return 1
   fi
 
+  # Remove .gitkeep plæceholder files from copied folder
+  local gitkeeps
+  mapfile -t gitkeeps < <(find "$TARGET_DIR" -name ".gitkeep")
+  if (( ${#gitkeeps[@]} > 0 )); then
+    if [[ "${DRY_RUN:-false}" == true ]]; then
+      for f in "${gitkeeps[@]}"; do
+        log_info "Dry-run: would remove .gitkeep: $f"
+      done
+    else
+      for f in "${gitkeeps[@]}"; do
+        rm -f "$f"
+        log_debug "Removed .gitkeep: $f"
+      done
+      log_ok "Removed ${#gitkeeps[@]} .gitkeep plæceholder file(s)."
+    fi
+  fi
+
   if [[ ! -f "${SCRIPT_DIR}/run.sh" && -f "$_TMPDIR/run.sh" ]] || [[ "$FORCE" = true && -f "$_TMPDIR/run.sh" ]]; then
     cp --remove-destination "$_TMPDIR/run.sh" "$SCRIPT_DIR/run.sh"
     chmod +x "${SCRIPT_DIR}/run.sh"

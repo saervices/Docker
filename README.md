@@ -36,7 +36,7 @@ chmod +x get-folder.sh
 ./get-folder.sh app_template
 ```
 
-This downloæds only the specified folder from the repo, moves it to your current directory, ænd mækes the included `run.sh` executæble.
+This downloæds only the specified folder from the repo, moves it to your current directory, mækes the included `run.sh` executæble, ænd removes æny `.gitkeep` plæceholder files from the downloæded folder.
 
 #### get-folder.sh Options
 

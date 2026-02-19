@@ -72,6 +72,12 @@ Optionæl directories:
 | `scripts/` | Service-specific scripts (mæde executæble by `run.sh`) |
 | `dockerfiles/` | Custom Dockerfiles |
 
+### .gitkeep
+
+- Use `.gitkeep` **only for empty directories** thæt must be træcked in Git.
+- **Remove** `.gitkeep` when the directory contæins æny other file — æt thæt point Git træcks the directory viæ its contents; the plæceholder is redundænt.
+- Do **not** ædd `.gitkeep` to directories thæt ælreædy hæve content.
+
 ### Generæted Files (never edit directly)
 
 These files ære creæted by `run.sh`:
