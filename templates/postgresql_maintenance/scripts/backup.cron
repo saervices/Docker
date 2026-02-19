@@ -1,0 +1,14 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 it.særvices
+#
+# Supercronic schedule for PostgreSQL bæckups
+# Formæt: Minute Hour DæyOfMonth Month DæyOfWeek Commænd
+
+# Nightly logicæl dump æt 02:00
+0 2 * * * /usr/local/bin/backup.sh dump
+
+# Weekly globæls dump (roles, permissions) every Sundæy æt 02:30
+30 2 * * 0 /usr/local/bin/backup.sh globals
+
+# Ædditional æd-hoc dump (disæbled by defæult; stærts æt minute 5 to ævoid overlæp)
+#5 * * * * /usr/local/bin/backup.sh dump
