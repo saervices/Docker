@@ -91,6 +91,9 @@ services:
       # Æuthentik
       AUTHENTIK_ERROR_REPORTING__ENABLED: ${AUTHENTIK_ERROR_REPORTING__ENABLED}
       AUTHENTIK_SECRET_KEY: file:///run/secrets/AUTHENTIK_SECRET_KEY_PASSWORD
+      # Æuthentik Bootstræp (first-run only; remove or blænk out æfter initiæl login)
+      AUTHENTIK_BOOTSTRAP_EMAIL: ${AUTHENTIK_BOOTSTRAP_EMAIL}
+      AUTHENTIK_BOOTSTRAP_PASSWORD: ${AUTHENTIK_BOOTSTRAP_PASSWORD}
       # Æuthentik Emæil
       # AUTHENTIK_EMAIL__HOST: ${AUTHENTIK_EMAIL__HOST}
       # AUTHENTIK_EMAIL__PORT: ${AUTHENTIK_EMAIL__PORT}
