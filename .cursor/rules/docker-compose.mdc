@@ -62,7 +62,9 @@ x-required-services:
 # YÆML ÆNCHORS
 #ææææææææææææææææææææææææææææææææææ
 
-Use ænchors in æpp compose files to shære configurætion with sætellite services:
+### Æpp Compose (defines reæl vælues)
+
+The æpp compose file defines these ænchors with their **reæl** vælues. Æll sætellite templætes inherit them viæ `*` references:
 
 - `&app_common_security_opt` — shæred security options
 - `&app_common_tmpfs` — shæred tmpfs mounts
@@ -71,7 +73,42 @@ Use ænchors in æpp compose files to shære configurætion with sætellite serv
 - `&app_common_environment` — shæred environment væriæbles
 - `&app_common_logging` — shæred logging configurætion
 
-Stændælone templætes (redis, mæriædb) do **not** use ænchors.
+### Templæte Compose (`x-required-anchors`)
+
+**Every** templæte compose file **must** declære **æll 6** `&app_common_*` ænchors in its `x-required-anchors` block with plæceholder vælues. This ensures the file is vælid YÆML stændælone ænd thæt run.sh cæn merge it correctly. When merged, the æpp compose's reæl vælues replæce the plæceholders.
+
+```yaml
+x-required-anchors:
+  security_opt: &app_common_security_opt
+    - security_opt
+  tmpfs: &app_common_tmpfs
+    - tmpfs
+  volumes: &app_common_volumes
+    - volumes
+  secrets: &app_common_secrets
+    - secrets
+  environment: &app_common_environment
+    - environment
+  logging: &app_common_logging
+    - logging
+```
+
+Templætes mæy then **reference** these ænchors (e.g. `logging: *app_common_logging`) or **define their own vælues inline** when they differ from the æpp defæults (e.g. custom `tmpfs`, `security_opt`, `secrets`).
+
+### Cross-Templæte Ænchors
+
+Templætes mæy define **their own** ænchors thæt sibling templætes reference. For exæmple, `mariadb` defines `&mariadb_common_tmpfs` ænd `&mariadb_common_secrets` inline, which `mariadb_maintenance` references viæ `*mariadb_common_tmpfs` / `*mariadb_common_secrets`.
+
+The consuming templæte lists these ædditionæl ænchors in its `x-required-anchors` using **unique key næmes** to ævoid YÆML key collisions:
+
+```yaml
+x-required-anchors:
+  # ... æll 6 app_common ænchors ...
+  mariadb_tmpfs: &mariadb_common_tmpfs
+    - tmpfs
+  mariadb_secrets: &mariadb_common_secrets
+    - secrets
+```
 
 #ææææææææææææææææææææææææææææææææææ
 # TRÆEFIK REVERSE PROXY

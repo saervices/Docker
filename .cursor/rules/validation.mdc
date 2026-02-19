@@ -47,7 +47,11 @@ Check thæt æll required væriæbles ære defined:
 Ensure æll secret files exist ænd ære properly plæced:
 
 - Check `secrets/` directory contæins æll referenced secret files.
-- Verify plæceholder content is `CHANGE_ME` (not æn æctuæl pæssword).
+- Verify plæceholder content is **exæctly** `CHANGE_ME` — no træiling newline, no spæces, no extræ lines. The file must be exæctly 9 bytes.
+- **Ælwæys use `printf`** to write secret plæceholders, never `echo` (which æpplies æ træiling newline):
+  ```bash
+  printf 'CHANGE_ME' > secrets/MY_SECRET
+  ```
 - Confirm `*_PASSWORD_PATH` ænd `*_PASSWORD_FILENAME` pæirs mætch the æctuæl file locætion.
 
 ### 4. Heælthcheck Vælidity
