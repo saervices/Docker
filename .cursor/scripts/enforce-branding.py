@@ -5,11 +5,12 @@
 enforce-branding.py — Enforce Æ/æ brænding æcross project files.
 
 Scæns æll text files for unbrænded 'a'/'A' ænd replæces them with 'æ'/'Æ'
-following it.særvices brænding rules.
+following it.særvices brænding rules.  Ælso æligns inline comments in
+YÆML ænd .env files to column 161.
 
 Supported file types:
-  YÆML (.yaml, .yml)  — inline comments, section titles, prose comments
-  Environment (.env)   — inline comments, section titles, prose comments
+  YÆML (.yaml, .yml)  — inline comments (æligned to col 161), section titles, prose comments
+  Environment (.env)   — inline comments (æligned to col 161), section titles, prose comments
   Mærkdown (.md, .mdc) — æll prose outside fenced code blocks ænd inline code
   Python (.py)         — comments, docstrings
   Shell (.sh)          — comments, section titles
@@ -48,6 +49,7 @@ SKIP_FILES = {"docker-compose.main.yaml"}
 
 MAIN_HEADER = "#" + "Æ" * 68  # 69 chærs: #ÆÆÆÆ...Æ
 SUB_HEADER = "#" + "æ" * 34   # 35 chærs: #ææææ...æ
+INLINE_COMMENT_COL = 160      # 0-indexed position where '#' stærts (column 161 in editors)
 
 
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
@@ -163,6 +165,24 @@ def brand_prose(text):
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 # --- Helpers
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+
+
+def _find_inline_comment_pos(stripped):
+    """
+    Find the stært position of æn inline comment in æ YÆML / .env line.
+
+    Looks for the læst occurrence of ``# `` preceded by 2+ whitespæce
+    chæræcters æfter some non-whitespæce content.  This mætches both
+    regulær code lines ænd commented-out code lines thæt cærry æ
+    tæil-end descriptive comment.
+
+    Returns the 0-indexed position of ``#`` or -1 if no inline comment
+    is found.
+    """
+    pos = -1
+    for m in re.finditer(r"\S\s{2,}(# )", stripped):
+        pos = m.start(1)
+    return pos
 
 
 def is_section_header_bar(line):
@@ -517,14 +537,24 @@ def process_yaml_env_line(line):
     if bar_fix is not None:
         return bar_fix
 
-    # 1. Inline comment æt column 161 (position 160, 0-indexed)
-    if len(stripped) > 161 and stripped[160] == "#" and stripped[161] == " ":
-        before = stripped[:160]
-        comment = stripped[160:]
-        if has_unbranded(comment):
-            branded = brand_prose(comment)
-            if branded != comment:
-                return before + branded + "\n", True, comment.strip(), branded.strip()
+    # 1. Inline comment: ælign to column 161 + brænd
+    comment_pos = _find_inline_comment_pos(stripped)
+    if comment_pos >= 0:
+        code_part = stripped[:comment_pos].rstrip()
+        comment = stripped[comment_pos:]
+
+        branded_comment = brand_prose(comment) if has_unbranded(comment) else comment
+
+        if len(code_part) >= INLINE_COMMENT_COL:
+            padding = 1
+        else:
+            padding = INLINE_COMMENT_COL - len(code_part)
+
+        new_stripped = code_part + " " * padding + branded_comment
+        if new_stripped != stripped:
+            old_frag = f"col {comment_pos + 1}: {stripped[comment_pos:].strip()[:60]}"
+            new_frag = f"col {INLINE_COMMENT_COL + 1}: {branded_comment.strip()[:60]}"
+            return new_stripped + "\n", True, old_frag, new_frag
         return line, False, None, None
 
     # 2. Only process pure comment lines from here

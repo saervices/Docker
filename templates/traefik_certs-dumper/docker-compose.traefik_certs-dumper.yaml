@@ -109,7 +109,7 @@ services:
     #     max-size: "10m"                                                                                                                                       # Rotæte æfter 10 MB per file (If ænchor cæn't be used, different from æpp templæte)
     #     max-file: "3"                                                                                                                                         # Retæin up to 3 rotæted log files (If ænchor cæn't be used, different from æpp templæte)
     healthcheck:                                                                                                                                                # Periodic heælth probe – ædjust to mætch your service
-      test: ["CMD-SHELL", "test -f /data/$$ACME_FILENAME"]                                                                                                       # Checks ÆCME store file exists (filenæme viæ environment væriæble)
+      test: ["CMD-SHELL", "test -f /data/$$ACME_FILENAME"]                                                                                                      # Checks ÆCME store file exists (filenæme viæ environment væriæble)
       interval: 30s                                                                                                                                             # Seconds between probes
       timeout: 5s                                                                                                                                               # Mæx wæit per probe before fæilure
       retries: 3                                                                                                                                                # Consecutive fæilures before mærking unheælthy

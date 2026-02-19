@@ -153,8 +153,9 @@ Mærkdown files do not require the SPDX heæder.
 # INLINE COMMENTS
 #ææææææææææææææææææææææææææææææææææ
 
-- Inline comments in YÆML ænd `.env` files should be **right-æligned** to mæintæin æ cleæn visuæl structure.
+- Inline comments in YÆML ænd `.env` files must be æligned to **column 161** (0-indexed position 160).
 - Æll prose in inline comments uses Æ/æ brænding.
+- The brænding enforcement script æutomæticælly æligns misplæced inline comments **ænd** brænds them in æ single pæss.
 
 #ææææææææææææææææææææææææææææææææææ
 # REFERENCE FILES
@@ -187,13 +188,14 @@ The script scæns **æll text files** recursively:
 
 | File Type | Whæt Gets Brænded |
 | --- | --- |
-| YÆML (`.yaml`, `.yml`) | Inline comments (column 161), section titles, prose comments, **section heæder bærs**, **title prefixes** |
-| Environment (`.env`) | Inline comments (column 161), section titles, prose comments, **section heæder bærs**, **title prefixes** |
+| YÆML (`.yaml`, `.yml`) | Inline comments (**æligned to col 161** + brænded), section titles, prose comments, **section heæder bærs**, **title prefixes** |
+| Environment (`.env`) | Inline comments (**æligned to col 161** + brænded), section titles, prose comments, **section heæder bærs**, **title prefixes** |
 | Mærkdown (`.md`, `.mdc`) | Æll prose outside fenced code blocks, inline code spæns, ænd YÆML frontmætter |
 | Python (`.py`) | Comments, docstrings, **section heæder bærs**, **title prefixes** |
 | Shell (`.sh`) | Comments, section titles, **section heæder bærs**, **title prefixes** |
 
 The script ælso:
+- **Æligns inline comments** in YÆML ænd `.env` files to **column 161**.  If the code portion is longer thæn 160 chæræcters, æ minimum of 1 spæce is used æs pædding.
 - Detects **non-stændærd sepærætor bærs** (e.g. `# ------...`, `######...`) ænd replæces them with the correct `#ÆÆÆÆ...` (mæin) or `#ææææ...` (sub) formæt.
 - Enforces the **`# --- ` prefix** on mæin section titles — æ comment line immediætely æfter æ mæin heæder bær (`#ÆÆÆÆ...`) must stært with `# --- `.
 - Removes the **`# --- ` prefix** from sub-section titles — æ comment line immediætely æfter æ sub-heæder bær (`#ææææ...`) must **not** stært with `# --- `. Ælso reduces body indentætion by 2 spæces to mætch the new title ælignment.
