@@ -4,6 +4,42 @@
 set -euo pipefail
 
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+# --- LOGGING
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: log_info
+#   Prints æn informætionæl messæge to stdout.
+#   Ærguments:
+#     $* - messæge text
+#ææææææææææææææææææææææææææææææææææ
+log_info()  { printf '[INFO]  %s\n' "$*"; }
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: log_ok
+#   Prints æ success messæge to stdout.
+#   Ærguments:
+#     $* - messæge text
+#ææææææææææææææææææææææææææææææææææ
+log_ok()    { printf '[OK]    %s\n' "$*"; }
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: log_warn
+#   Prints æ wærning messæge to stderr.
+#   Ærguments:
+#     $* - messæge text
+#ææææææææææææææææææææææææææææææææææ
+log_warn()  { printf '[WARN]  %s\n' "$*" >&2; }
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: log_error
+#   Prints æn error messæge to stderr ænd exits with code 1.
+#   Ærguments:
+#     $* - messæge text
+#ææææææææææææææææææææææææææææææææææ
+log_error() { printf '[ERROR] %s\n' "$*" >&2; exit 1; }
+
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 # --- DEPENDENCY CHECK
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 
@@ -14,7 +50,7 @@ set -euo pipefail
 #ææææææææææææææææææææææææææææææææææ
 install_openssh() {
   if ! command -v scp >/dev/null; then
-    echo "[INFO] Installing openssh-client..."
+    log_info "Installing openssh-client..."
     apk add --quiet --no-cache openssh-client
   fi
 
@@ -47,12 +83,18 @@ copy_certificates() {
   local dest_key_path="$6"
   local ssh_key="$7"
 
-  echo "[INFO] Copying certs to ${dest_user}@${dest_host}..."
+  log_info "Copying certs to ${dest_user}@${dest_host}..."
 
-  scp -i "$ssh_key" -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/root/.ssh/known_hosts \
-    "$src_cert" "${dest_user}@${dest_host}:${dest_cert_path}"
-  scp -i "$ssh_key" -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/root/.ssh/known_hosts \
-    "$src_key" "${dest_user}@${dest_host}:${dest_key_path}"
+  local ssh_opts=(-i "$ssh_key" -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/root/.ssh/known_hosts)
+
+  if ! scp "${ssh_opts[@]}" "$src_cert" "${dest_user}@${dest_host}:${dest_cert_path}"; then
+    log_error "Failed to copy certificate to ${dest_host}:${dest_cert_path}"
+  fi
+  if ! scp "${ssh_opts[@]}" "$src_key" "${dest_user}@${dest_host}:${dest_key_path}"; then
+    log_error "Failed to copy key to ${dest_host}:${dest_key_path}"
+  fi
+
+  log_ok "Certificates copied to ${dest_user}@${dest_host}"
 }
 
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
@@ -74,10 +116,14 @@ restart_remote_docker_compose() {
   local remote_project_path="$3"
   local ssh_key="$4"
 
-  echo "[INFO] Restarting Docker Compose at ${remote_project_path} on ${dest_host}..."
+  log_info "Restarting Docker Compose at ${remote_project_path} on ${dest_host}..."
   local ssh_opts=(-i "$ssh_key" -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/root/.ssh/known_hosts)
 
-  ssh "${ssh_opts[@]}" "${dest_user}@${dest_host}" "cd \"${remote_project_path}\" && docker compose restart"
+  if ! ssh "${ssh_opts[@]}" "${dest_user}@${dest_host}" "cd \"${remote_project_path}\" && docker compose restart"; then
+    log_error "Failed to restart Docker Compose on ${dest_host}:${remote_project_path}"
+  fi
+
+  log_ok "Docker Compose restarted on ${dest_host}"
 }
 
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
@@ -127,5 +173,5 @@ example_other_service() {
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 
 install_openssh
-mailcow
-echo "[INFO] Done."
+# mæilcow
+log_ok "All post-hook tasks completed."

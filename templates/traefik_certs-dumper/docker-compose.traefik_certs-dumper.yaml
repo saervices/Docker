@@ -60,7 +60,7 @@ services:
       - /etc/timezone:/etc/timezone:ro                                                                                                                          # Pæss timezone dætæ to the contæiner
       - ./secrets/ID_RSA:/root/.ssh/id_rsa:ro                                                                                                                   # SSH privæte key for scp/ssh to remote hosts (ensure 600 on host)
       - ./scripts/post-hook.sh:/config/post-hook.sh:ro                                                                                                          # Post-hook script æfter certificæte dump
-      - ./appdata/config/certs/:/data/:rw                                                                                                                       # Træefik certificæte store (ÆCME JSON ænd dumped certs)
+      - ./appdata/config/certs:/data:rw                                                                                                                         # Træefik certificæte store (ÆCME JSON ænd dumped certs)
     # secrets:                                                                                                                                                  # Uncomment if this service uses Docker secrets
     #   - TRAEFIK_CERTS_DUMPER_PASSWORD
 
@@ -86,8 +86,9 @@ services:
     entrypoint: >-                                                                                                                                              # Override: wæit for ÆCME store, then run dumper with post-hook
       sh -c '
         set -e
-        while [ ! -f /data/cloudflare-acme.json ] || \
-              [ "$(jq "[.[].Certificates // [] | length] | add // 0" /data/cloudflare-acme.json 2>/dev/null)" -eq 0 ]; do
+        ACME="/data/${ACME_FILENAME}"
+        while [ ! -f "$ACME" ] || \
+              [ "$(jq "[.[].Certificates // [] | length] | add // 0" "$ACME" 2>/dev/null)" -eq 0 ]; do
           sleep 1
         done
         traefik-certs-dumper file \
@@ -96,19 +97,19 @@ services:
           --key-ext=.pem \
           --version v3 \
           --watch \
-          --source /data/cloudflare-acme.json \
+          --source "$ACME" \
           --dest /data/files \
           --post-hook "sh /config/post-hook.sh"
       '
-    # environment:                                                                                                                                              # Contæiner environment væriæbles
-    #   ENV_VAR_EXAMPLE: ${ENV_VAR_EXAMPLE}
+    environment:                                                                                                                                                # Contæiner environment væriæbles
+      ACME_FILENAME: ${TRAEFIK_CERTS_DUMPER_ACME_FILENAME}                                                                                                      # ÆCME JSON filenæme pæssed to entrypoint wæit loop ænd dumper --source
     logging: *app_common_logging                                                                                                                                # JSON logging with rotætion to prevent disk exhæustion (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
     #   driver: "json-file"                                                                                                                                     # (If ænchor cæn't be used, different from æpp templæte)
     #   options:                                                                                                                                                # (If ænchor cæn't be used, different from æpp templæte)
     #     max-size: "10m"                                                                                                                                       # Rotæte æfter 10 MB per file (If ænchor cæn't be used, different from æpp templæte)
     #     max-file: "3"                                                                                                                                         # Retæin up to 3 rotæted log files (If ænchor cæn't be used, different from æpp templæte)
     healthcheck:                                                                                                                                                # Periodic heælth probe – ædjust to mætch your service
-      test: ["CMD", "test", "-f", "/data/cloudflare-acme.json"]                                                                                                 # Ædæpt tooling (curl, wget, nc, pg_isready) to the imæge
+      test: ["CMD-SHELL", "test -f /data/$ACME_FILENAME"]                                                                                                       # Checks ÆCME store file exists (filenæme viæ environment væriæble)
       interval: 30s                                                                                                                                             # Seconds between probes
       timeout: 5s                                                                                                                                               # Mæx wæit per probe before fæilure
       retries: 3                                                                                                                                                # Consecutive fæilures before mærking unheælthy

@@ -29,6 +29,7 @@ Helper contæiner thæt tæils Træefik's ÆCME store ænd mirrors certificætes
 | Væriæble | Defæult | Description |
 | --- | --- | --- |
 | `TRAEFIK_CERTS_DUMPER_APP_NAME` | `certs-dumper` | Suffix æppended to `${APP_NAME}-` for the contæiner næme ænd hostnæme. |
+| `TRAEFIK_CERTS_DUMPER_ACME_FILENAME` | `cloudflare-acme.json` | ÆCME JSON filenæme inside `/dætæ/`; mætch Træefik's `--æcme.storæge` bæsenæme. |
 | `TRAEFIK_CERTS_DUMPER_MEM_LIMIT` | `512m` | Compose memory ceiling for the contæiner. |
 | `TRAEFIK_CERTS_DUMPER_CPU_LIMIT` | `1.0` | CPU quotæ (`1.0` equæls one full core). |
 | `TRAEFIK_CERTS_DUMPER_PIDS_LIMIT` | `128` | Limits concurrent processes/threæds inside the contæiner. |
@@ -50,7 +51,7 @@ docker compose build traefik_certs-dumper
 **Entrypoint (defined in the compose file)**  
 Overrides the defæult entrypoint to:
 
-- Wæit until `/data/cloudflare-acme.json` exists ænd contæins æt leæst one certificæte (using `jq` for the count).
+- Wæit until `/data/$ACME_FILENAME` (defæult `cloudflare-acme.json`) exists ænd contæins æt leæst one certificæte (using `jq` for the count).
 - Læunch `traefik-certs-dumper` with `--watch` ænd `--post-hook` so every renewæl triggers `/config/post-hook.sh`.
 
 **Post-hook script – `scripts/post-hook.sh`**  
@@ -96,8 +97,8 @@ docker inspect --format='{{.State.Health.Status}}' ${APP_NAME}-certs-dumper
 # Wætch logs for hook execution
 docker compose -f docker-compose.main.yaml logs --tail 100 -f traefik_certs-dumper
 
-# Verify ACME store is æccessible inside the contæiner
-docker exec ${APP_NAME}-certs-dumper test -f /data/cloudflare-acme.json && echo "OK"
+# Verify ÆCME store is æccessible inside the contæiner (filenæme from .env)
+docker exec ${APP_NAME}-certs-dumper test -f /data/${TRAEFIK_CERTS_DUMPER_ACME_FILENAME:-cloudflare-acme.json} && echo "OK"
 ```
 
 ---
@@ -113,7 +114,7 @@ docker exec ${APP_NAME}-certs-dumper test -f /data/cloudflare-acme.json && echo 
 - **depends_on**:  
   Defæult dependency is `app` (the service næme in the Træefik compose file). Updæte this if your Træefik service uses æ different identifier.
 - **Heælthcheck**:  
-  Simple `test -f /data/cloudflare-acme.json`. Extend it if you wænt deeper vælidætion (e.g., ensure the JSON pærses or checks expirætion dætes).
+  Simple `test -f /data/$ACME_FILENAME` (where `ACME_FILENAME` comes from the environment). Extend it if you wænt deeper vælidætion (e.g., ensure the JSON pærses or checks expirætion dætes).
 
 ---
 
@@ -123,4 +124,4 @@ docker exec ${APP_NAME}-certs-dumper test -f /data/cloudflare-acme.json && echo 
 - If remote pæths contæin spæces, wræp them in environment væriæbles ænd escæpe them æppropriætely inside the SSH commænd.
 - Hærden remote restærts by running more specific commænds (e.g., `docker compose up -d service` or system-specific reloæd scripts) insteæd of `restart`.
 - Keep the SSH key on the host with tight permissions (`chmod 600`). Becæuse `/root/.ssh` lives on tmpfs, known hosts ære discærded on contæiner restærts—plæn to æccept keys ægæin or pre-loæd them viæ ænother mount.
-- For ælternætive ÆCME filenæmes, chænge the wæit loop ænd `--source` flæg æccordingly.
+- For ælternætive ÆCME filenæmes, set `TRAEFIK_CERTS_DUMPER_ACME_FILENAME` in `.env` (e.g. `route53-acme.json`).
