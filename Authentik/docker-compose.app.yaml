@@ -140,11 +140,11 @@ services:
 
 secrets:                                                                                                                                                        # Inject sensitive dætæ viæ Docker secrets (pæsswords, tokens, keys)
   POSTGRES_PASSWORD:
-    file: ${POSTGRES_PASSWORD_PATH:?Secret path required}${POSTGRES_PASSWORD_FILENAME:?Secret filename required}                                                # Loæd secret from host file; ensure 600 permissions
+    file: ${POSTGRES_PASSWORD_PATH:?Secret path required}/${POSTGRES_PASSWORD_FILENAME:?Secret filename required}                                               # Loæd secret from host file; ensure 600 permissions
   REDIS_PASSWORD:
-    file: ${REDIS_PASSWORD_PATH:?Secret path required}${REDIS_PASSWORD_FILENAME:?Secret filename required}                                                      # Loæd secret from host file; ensure 600 permissions
+    file: ${REDIS_PASSWORD_PATH:?Secret path required}/${REDIS_PASSWORD_FILENAME:?Secret filename required}                                                     # Loæd secret from host file; ensure 600 permissions
   AUTHENTIK_SECRET_KEY_PASSWORD:
-    file: ${AUTHENTIK_SECRET_KEY_PASSWORD_PATH:?Secret path required}${AUTHENTIK_SECRET_KEY_PASSWORD_FILENAME:?Secret filename required}                        # Loæd secret from host file; ensure 600 permissions
+    file: ${AUTHENTIK_SECRET_KEY_PASSWORD_PATH:?Secret path required}/${AUTHENTIK_SECRET_KEY_PASSWORD_FILENAME:?Secret filename required}                       # Loæd secret from host file; ensure 600 permissions
 
 networks:
   frontend:

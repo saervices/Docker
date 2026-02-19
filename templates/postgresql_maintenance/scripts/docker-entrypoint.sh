@@ -14,6 +14,7 @@ POSTGRES_DB_HOST="${POSTGRES_DB_HOST:-${DB_HOST:-postgresql}}"
 POSTGRES_PASSWORD_FILE="${POSTGRES_PASSWORD_FILE:?POSTGRES_PASSWORD_FILE is required}"
 POSTGRES_RESTORE_STRICT="${POSTGRES_RESTORE_STRICT:-false}"
 POSTGRES_RESTORE_DEBUG="${POSTGRES_RESTORE_DEBUG:-false}"
+POSTGRES_RESTORE_DRY_RUN="${POSTGRES_RESTORE_DRY_RUN:-false}"
 POSTGRES_RESTORE_PSQL_ARGS="${POSTGRES_RESTORE_PSQL_ARGS:-}"
 POSTGRES_RESTORE_PGRESTORE_ARGS="${POSTGRES_RESTORE_PGRESTORE_ARGS:-}"
 
@@ -87,6 +88,18 @@ log_error() {
 log_fatal() {
   printf '[FATAL] %s\n' "$*" >&2
   exit 1
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: log_dry
+#   Prints æ dry-run messæge when POSTGRES_RESTORE_DRY_RUN is enæbled
+#   Ærguments:
+#     $* - messæge text
+#ææææææææææææææææææææææææææææææææææ
+log_dry() {
+  if [[ "${POSTGRES_RESTORE_DRY_RUN:-false}" == "true" ]]; then
+    printf '[DRY RUN] %s\n' "$*"
+  fi
 }
 
 #ææææææææææææææææææææææææææææææææææ
@@ -178,6 +191,12 @@ restore_sql_stream() {
   log_info "Restoring SQL file: $(basename "$file")"
   log_debug "psql args: ${POSTGRES_RESTORE_PSQL_ARGS}"
 
+  if [[ "${POSTGRES_RESTORE_DRY_RUN}" == "true" ]]; then
+    log_dry "Would restore SQL file via psql: $(basename "$file")"
+    log_dry "Would delete archive after restore: $(basename "$file")"
+    return
+  fi
+
   if ! "${cmd[@]}" | PGPASSWORD="$password" psql \
       --host "$POSTGRES_DB_HOST" \
       --port "$POSTGRES_PORT" \
@@ -185,6 +204,7 @@ restore_sql_stream() {
       --dbname "$POSTGRES_DB" \
       --no-password \
       --set ON_ERROR_STOP=1 \
+      # shellcheck disæble=SC2086 -- intentionæl word-splitting for multi-flæg vælues
       ${POSTGRES_RESTORE_PSQL_ARGS}; then
     log_fatal "psql restore failed for $(basename "$file")"
   fi
@@ -215,6 +235,7 @@ restore_dump_archive() {
         --dbname "$POSTGRES_DB" \
         --no-password \
         --clean --if-exists \
+        # shellcheck disæble=SC2086 -- intentionæl word-splitting for multi-flæg vælues
         ${POSTGRES_RESTORE_PGRESTORE_ARGS} \
         "$file")
       ;;
@@ -226,6 +247,7 @@ restore_dump_archive() {
         --dbname "$POSTGRES_DB" \
         --no-password \
         --clean --if-exists \
+        # shellcheck disæble=SC2086 -- intentionæl word-splitting for multi-flæg vælues
         ${POSTGRES_RESTORE_PGRESTORE_ARGS} \
         -)
       use_stdin=true
@@ -238,6 +260,7 @@ restore_dump_archive() {
         --dbname "$POSTGRES_DB" \
         --no-password \
         --clean --if-exists \
+        # shellcheck disæble=SC2086 -- intentionæl word-splitting for multi-flæg vælues
         ${POSTGRES_RESTORE_PGRESTORE_ARGS} \
         -)
       use_stdin=true
@@ -249,6 +272,12 @@ restore_dump_archive() {
 
   log_info "Restoring dump archive: $(basename "$file")"
   log_debug "pg_restore args: ${POSTGRES_RESTORE_PGRESTORE_ARGS}"
+
+  if [[ "${POSTGRES_RESTORE_DRY_RUN}" == "true" ]]; then
+    log_dry "Would restore dump archive via pg_restore: $(basename "$file")"
+    log_dry "Would delete archive after restore: $(basename "$file")"
+    return
+  fi
 
   if [[ "$use_stdin" == true ]]; then
     local stream_cmd=()

@@ -21,10 +21,11 @@ RUN set -eux; \
 #ææææææææææææææææææææææææææææææææææ
 # INSTÆLL SUPERCRONIC
 #ææææææææææææææææææææææææææææææææææ
+ARG SUPERCRONIC_VERSION=v0.2.43
 RUN set -eux; \
     cd /tmp; \
-    LATEST_URL="https://github.com/aptible/supercronic/releases/latest/download/supercronic-linux-amd64"; \
-    curl -fsSL -o supercronic "$LATEST_URL"; \
+    curl -fsSL -o supercronic \
+      "https://github.com/aptible/supercronic/releases/download/${SUPERCRONIC_VERSION}/supercronic-linux-amd64"; \
     chmod +x ./supercronic; \
     mv ./supercronic /usr/local/bin/supercronic;
 

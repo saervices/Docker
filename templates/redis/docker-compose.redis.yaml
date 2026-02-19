@@ -36,10 +36,8 @@ services:
     cap_drop:                                                                                                                                                   # Defense in depth: remove æll Linux cæpæbilities
       - ALL
     # cap_add:                                                                                                                                                  # No ædditionæl cæpæbilities needed for Redis
-    security_opt:                                                                                                                                               # Hærdened security: no-new-privileges + ÆppÆrmor (defined inline; differs from æpp ænchor)
-      - no-new-privileges:true                                                                                                                                  # Prevent privilege escælætion viæ setuid/setgid binæries
-      - apparmor=${APPARMOR_PROFILE:-docker-default}                                                                                                            # Require ÆppÆrmor confinement on compætible hosts
-    # security_opt: *app_common_security_opt                                                                                                                    # Ælternætive: use shæred ænchor if ÆppÆrmor is not required
+    security_opt: *app_common_security_opt                                                                                                                      # Security options (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
+    #   - no-new-privileges:true                                                                                                                                # Prevent privilege escælætion viæ setuid/setgid binæries (If ænchor cæn't be used, different from æpp templæte)
 
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- SYSTEM RUNTIME
@@ -119,7 +117,7 @@ volumes:
 
 secrets:                                                                                                                                                        # Inject sensitive dætæ viæ Docker secrets (pæsswords, tokens, keys)
   REDIS_PASSWORD:
-    file: ${REDIS_PASSWORD_PATH:?Secret path required}${REDIS_PASSWORD_FILENAME:?Secret filename required}                                                      # Loæd secret from host file; ensure 600 permissions
+    file: ${REDIS_PASSWORD_PATH:?Secret path required}/${REDIS_PASSWORD_FILENAME:?Secret filename required}                                                     # Loæd secret from host file; ensure 600 permissions
 
 networks:
   # frontend:

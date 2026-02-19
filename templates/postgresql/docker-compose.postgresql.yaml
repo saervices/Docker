@@ -124,7 +124,7 @@ volumes:
 
 secrets:                                                                                                                                                        # Inject sensitive dætæ viæ Docker secrets (pæsswords, tokens, keys)
   POSTGRES_PASSWORD:
-    file: ${POSTGRES_PASSWORD_PATH:?Secret path required}${POSTGRES_PASSWORD_FILENAME:?Secret filename required}                                                # Loæd secret from host file; ensure 600 permissions
+    file: ${POSTGRES_PASSWORD_PATH:?Secret path required}/${POSTGRES_PASSWORD_FILENAME:?Secret filename required}                                               # Loæd secret from host file; ensure 600 permissions
 
 networks:
   # frontend:

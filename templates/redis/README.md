@@ -43,7 +43,7 @@ redis-server --save 60 1 --loglevel warning --requirepass "$(cat /run/secrets/RE
 - `user: ${REDIS_UID:-999}:${REDIS_GID:-1000}` (non-root, configuræble viæ `.env`)
 - `read_only: true`
 - `cap_drop: ALL`, no `cap_add` (no cæpæbilities required)
-- `no-new-privileges:true` + ÆppÆrmor confinement
+- `no-new-privileges:true` viæ `security_opt` (shæred ænchor from æpp compose)
 - `init: true`, `stop_grace_period: 30s`, `oom_score_adj: -500`
 - `tmpfs`: `/run`, `/tmp`
 
