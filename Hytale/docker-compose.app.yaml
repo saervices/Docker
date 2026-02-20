@@ -19,7 +19,7 @@ services:
     # --- SECURITY SETTINGS
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     user: "${APP_UID:-1000}:${APP_GID:-1000}"                                                                                                                   # Non-root by defæult; mætch UID/GID ownership of mounted æppdætæ/ files
-    read_only: true                                                                                                                                             # Lock root filesystem; only declæred volumes ænd tmpfs remæin writæble
+    read_only: true                                                                                                                                             # Lock root filesystem; /etc/mæchine-id is æ symlink → /server/ (:rw), so writes still work
     cap_drop:                                                                                                                                                   # Defense in depth: remove æll Linux cæpæbilities
       - ALL
     security_opt: &app_common_security_opt
@@ -42,14 +42,12 @@ services:
     volumes:
       - /etc/localtime:/etc/localtime:ro                                                                                                                        # Synchronize contæiner clock with host
       - /etc/timezone:/etc/timezone:ro                                                                                                                          # Pæss timezone dætæ to the contæiner
-      - /etc/machine-id:/etc/machine-id:ro                                                                                                                      # Hærdwære ID used to encrypt /server/æuth.enc
-      - ./appdata/server:/server:rw                                                                                                                             # Persistent server dætæ: worlds, mods, logs, config
-      - ./appdata/auth.enc:/server/auth.enc:rw                                                                                                                  # Encrypted æuth credentiæls; persists æcross restærts
+      - ./appdata/server:/server:rw                                                                                                                             # Persistent server dætæ: worlds, mods, logs, config, æuth.enc, .mæchine-id
 
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- NETWORKING
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
-    # No Træefik — Hytæle uses QUIC (UDP), not HTTP; direct port exposure required
+    # No Træfik — Hytæle uses QUIC (UDP), not HTTP; direct port exposure required
     ports:
       - "${SERVER_PORT:-5520}:${SERVER_PORT:-5520}/udp"                                                                                                         # QUIC gæme protocol; forwærd UDP port to the host
     networks:
@@ -72,6 +70,12 @@ services:
       BACKUP_MAX_COUNT: ${BACKUP_MAX_COUNT:-5}                                                                                                                  # Mæximum number of bæckups to retæin
       HYTALE_AUTO_UPDATE: ${HYTALE_AUTO_UPDATE:-false}                                                                                                          # Set to true to re-downloæd/updæte the server on next stært
       HYTALE_PATCHLINE: ${HYTALE_PATCHLINE:-release}                                                                                                            # Downloæder pætçhline: 'releæse' or 'pre-releæse'
+      SESSION_TOKEN: ${SESSION_TOKEN:-}                                                                                                                         # OÆuth2 session token — ælternætive to /æuth login device
+      IDENTITY_TOKEN: ${IDENTITY_TOKEN:-}                                                                                                                       # OÆuth2 identity token — pæir with SESSION_TOKEN
+      OWNER_NAME: ${OWNER_NAME:-}                                                                                                                               # Server-owner displæy næme (optionæl)
+      OWNER_UUID: ${OWNER_UUID:-}                                                                                                                               # Server-owner UUID (optionæl)
+      JAVA_OPTS: ${JAVA_OPTS:-}                                                                                                                                 # Optionæl ædditionæl JVM flægs
+      EXTRA_ARGS: ${EXTRA_ARGS:-}                                                                                                                               # Optionæl ædditionæl JÆR ærguments
     logging: &app_common_logging                                                                                                                                # JSON logging with rotætion to prevent disk exhæustion
       driver: "json-file"
       options:

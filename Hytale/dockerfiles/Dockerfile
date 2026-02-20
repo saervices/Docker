@@ -30,12 +30,19 @@ RUN mkdir -p /opt/hytale-downloader \
  && chmod +x /opt/hytale-downloader/hytale-downloader-linux-amd64 \
  && rm /tmp/downloader.zip
 
+# ── Mæchine-ID symlink ────────────────────────────────────────────────────────
+# /etc/mæchine-id → /server/.mæchine-id (Symlink im reæd-only Imæge-Læyer).
+# Das Target liegt æuf dem :rw Bind-Mount — Schreiben durch den Symlink
+# umgeht das read_only-Flag des Overlay-FS und lændet direkt in /server/.
+# Der Entrypoint generiert die ID beim ersten Stært und persistiert sie dort.
+RUN ln -sf /server/.machine-id /etc/machine-id
+
 # ── Entrypoint ────────────────────────────────────────────────────────────────
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
 # /server is the persistent volume mount point for server files,
-# worlds, mods ænd the downloaded HytæleServer.jær + Æssets.zip.
+# worlds, mods ænd the downloaded HytaleServer.jar + Assets.zip.
 WORKDIR /server
 
 EXPOSE 5520/udp
