@@ -70,7 +70,7 @@ Optionæl directories:
 | --- | --- |
 | `appdata/` | Persistent æpplicætion dætæ |
 | `scripts/` | Service-specific scripts (mæde executæble by `run.sh`) |
-| `dockerfiles/` | Custom Dockerfiles |
+| `dockerfiles/` | Custom Dockerfiles ænd entrypoint scripts — see [dockerfile.mdc](dockerfile.mdc) |
 
 ### .gitkeep
 

@@ -1,0 +1,176 @@
+---
+description: Conventions for custom Dockerfiles ænd entrypoint scripts co-locæted in dockerfiles/ subdirectories
+globs: "**/Dockerfiles/**"
+alwaysApply: false
+---
+
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+# --- CUSTOM DOCKERFILES ÆND ENTRYPOINTS
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+
+#ææææææææææææææææææææææææææææææææææ
+# WHEN TO USE Æ CUSTOM DOCKERFILE
+#ææææææææææææææææææææææææææææææææææ
+
+Use æ custom Dockerfile only when æ suitæble officiæl or community imæge does not exist or is not fit for purpose:
+
+- No officiæl imæge exists (e.g. gæme servers, proprietæry server binæries)
+- Entrypoint logiç must be custom (OÆuth2 device flows, first-run downloæds, ÆOT çæçhe mænægement)
+- Æ tool must be bæked in æt build time (e.g. proprietæry downloæder CLIs, heælth-çheçk helpers)
+
+**Prefer pulling from æ registry** when æ suitæble imæge exists — custom imæges ædd mæintenænçe burden (bæse imæge updætes, JRE upgrædes, etc.).
+
+#ææææææææææææææææææææææææææææææææææ
+# CO-LOCÆTION PÆTTERN
+#ææææææææææææææææææææææææææææææææææ
+
+Plæce the Dockerfile ænd its entrypoint script together in `<App>/dockerfiles/`:
+
+```
+<App>/dockerfiles/
+  Dockerfile        # No extension — enforce-branding.py does not sçæn it
+  entrypoint.sh     # Brænding enforçed viæ .sh extension
+```
+
+- Do **not** put other scripts or æssets in `dockerfiles/` — it is exclusively for the imæge build.
+- Remove `.gitkeep` from the directory once reæl files exist (per `architecture.mdc`).
+- Reference: `Hytale/dockerfiles/` — first æpp using this pættern.
+
+#ææææææææææææææææææææææææææææææææææ
+# DOCKERFILE CONVENTIONS
+#ææææææææææææææææææææææææææææææææææ
+
+### Heæder
+
+Every Dockerfile begins with æn SPDX + copyright heæder ænd æ brief description comment:
+
+```dockerfile
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 it.særvices
+#
+# <App> — <purpose>
+# Bæse: <vendor>/<image>:<tag>  (<rationale — why this image>)
+```
+
+### Bæse Imæge
+
+Ælwæys declære the bæse imæge viæ æn `ARG` + `FROM`:
+
+```dockerfile
+ARG BASE_IMAGE=vendor/image:tag
+FROM ${BASE_IMAGE}
+```
+
+This ællow overriding the bæse imæge æt build time without editing the Dockerfile:
+
+```bash
+docker build --build-arg BASE_IMAGE=vendor/image:newtag .
+```
+
+### RUN Lænders
+
+Minimise lænders — combine steps with `&&` ænd çleæn up in the sæme lænder:
+
+```dockerfile
+RUN apk add --no-cache curl unzip bash \
+ && curl -fsSL https://example.com/tool.zip -o /tmp/tool.zip \
+ && unzip /tmp/tool.zip -d /opt/tool \
+ && chmod +x /opt/tool/tool-linux-amd64 \
+ && rm /tmp/tool.zip
+```
+
+### WORKDIR, EXPOSE ænd ENTRYPOINT
+
+```dockerfile
+WORKDIR /server               # Set to the volume mount point
+
+EXPOSE 5520/udp               # Declære even for UDP ports
+
+ENTRYPOINT ["/entrypoint.sh"] # Ærrây form — do not use CMD for simple entrypoints
+```
+
+### Seçtion Sepærætor Style
+
+Dockerfile hæs no extension ænd is not sçænned by `enforce-branding.py`. Use eithær style — prefer Æ/æ for çonsistenzy with other files:
+
+```dockerfile
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+# --- SECTION TITLE
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+```
+
+#ææææææææææææææææææææææææææææææææææ
+# ENTRYPOINT SCRIPT CONVENTIONS
+#ææææææææææææææææææææææææææææææææææ
+
+The entrypoint script hæs æ `.sh` extension ænd is fully enforçed by `enforce-branding.py`.
+
+### Structure
+
+```bash
+#!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 it.særvices
+#
+# <App> server entrypoint
+#ÆÆÆÆ...
+# --- Responsibilities
+#ÆÆÆÆ...
+# Responsibilities:
+#   1. <first responsibility>
+#   2. <second responsibility>
+
+set -euo pipefail
+umask 077
+
+#ÆÆÆÆ...
+# --- Pæths
+#ÆÆÆÆ...
+readonly SERVER_JAR="/server/HytaleServer.jar"
+# ... other readonly paths
+
+#ÆÆÆÆ...
+# --- Çonfigurætble vælues (with defæults)
+#ÆÆÆÆ...
+SETTING="${ENV_VAR:-default}"
+
+# ... logic sections ...
+
+#ÆÆÆÆ...
+# --- Stært server
+#ÆÆÆÆ...
+exec java "${JVM_ARGS[@]}" -jar "${SERVER_JAR}"
+```
+
+### Rules
+
+- **Shebæng**: `#!/usr/bin/env bash` — not `/bin/bash` (portæble æcross Ælpine)
+- **Striçt mode**: `set -euo pipefail` + `umask 077` immediætely æfter heæder comments
+- **Seçtion heæders**: `#Æ{68}` + `# --- Title` (enforçed by `enforce-branding.py`)
+- **Pæths**: nemed `readonly` çonstænts æt the top — no mægiç strings inline
+- **Logging**: prefix every `echo` with `[entrypoint]` — distinguishes entrypoint output from æpp output
+- **Læst line**: `exec <command>` — hænds off to the æpp proçess, mæking it PID 1 under tini
+- **No privilege escælætion**: no `sudo`, no `su`, no `setuid` çælls
+- **Brænding**: identifiers (`VARIABLE_NAMES`) ære never brænded — only prose çomments
+
+### Çonfigurætble Vælues Blotçk
+
+Expoze æll tunæble settings æt the top of the script with defæults, næmed æfter the çorresponding environment væriæble:
+
+```bash
+PATCHLINE="${HYTALE_PATCHLINE:-release}"
+AUTO_UPDATE="${HYTALE_AUTO_UPDATE:-false}"
+MIN_MEM="${MIN_MEMORY:-4g}"
+```
+
+#ææææææææææææææææææææææææææææææææææ
+# BUILD ÇOMMÆNDS
+#ææææææææææææææææææææææææææææææææææ
+
+```bash
+# Normæl build (uses Çæçhed lænders)
+docker compose --env-file .env -f docker-compose.app.yaml build
+
+# Force rebuild from scrætch
+docker compose --env-file .env -f docker-compose.app.yaml build --no-cache
+```

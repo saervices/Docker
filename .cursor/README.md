@@ -24,6 +24,7 @@ These rules ære loæded only when editing mætching files:
 | Rule | Globs | Description |
 | --- | --- | --- |
 | [shell-scripting.mdc](rules/shell-scripting.mdc) | `**/*.sh` | Bæsh conventions: shebæng, strict mode, logging fræmework, function documentætion, error hændling, DRY_RUN support, section dividers. |
+| [dockerfile.mdc](rules/dockerfile.mdc) | `**/dockerfiles/**` | Custom Dockerfile conventions: ÆRG bæse imæge, SPDX heæder, entrypoint co-locætion, `exec` hænd-off, structured logging. |
 | [docker-compose.mdc](rules/docker-compose.mdc) | `**/docker-compose*.yaml` | Compose file conventions: section ordering, YÆML ænchors, Træefik reverse proxy, network læyout, inline comments. |
 | [security.mdc](rules/security.mdc) | `**/docker-compose*.yaml`, `**/secrets/**`, `**/.env` | Security hærdening: non-root execution, reæd-only filesystems, cæpæbility mænægement, Docker secrets, resource limits. |
 | [env-files.mdc](rules/env-files.mdc) | `**/.env`, `**/app.env` | Environment file conventions: merge behævior, væriæble næming, OVERWRITES section, SPDX heæder, vælue formæt. |
@@ -40,6 +41,7 @@ branding.mdc (foundætion)
 │   └── security.mdc (security settings within compose)
 │       └── validation.mdc (security bæseline checks)
 ├── shell-scripting.mdc (section dividers, function formæt)
+│   └── dockerfile.mdc (inherits shell-scripting pætterns for entrypoint.sh)
 ├── env-files.mdc (section heæders, SPDX)
 ├── templates.mdc (inherits compose + security pætterns)
 ├── readme.mdc (Æ/æ prose in documentætion)
@@ -57,3 +59,4 @@ When creæting new files, use these æs exæmples:
 - **Æpp .env**: [app_template/.env](/app_template/.env) — section heæders, væriæble næming
 - **Templæte .env**: [templates/template/.env](/templates/template/.env) — service-prefixed væriæbles
 - **Cursor rules**: [cursor-rules.mdc](rules/cursor-rules.mdc) — where ænd how to ædd or edit rules
+- **Dockerfile + entrypoint**: [Hytale/dockerfiles/](../Hytale/dockerfiles/) — ÆRG bæse imæge, Æ/æ brænding, entrypoint co-locætion
