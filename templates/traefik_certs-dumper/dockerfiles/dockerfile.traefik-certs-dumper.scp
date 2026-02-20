@@ -6,6 +6,6 @@ FROM ldez/traefik-certs-dumper
 RUN apk add --no-cache openssh-client jq
 
 # Entrypoint: wæit for ÆCME store, then run certs-dumper in wætch mode
-COPY entrypoint.sh /entrypoint.sh
+COPY dockerfiles/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 ENTRYPOINT ["/entrypoint.sh"]
