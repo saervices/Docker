@@ -80,7 +80,6 @@ services:
       DISABLE_SENTRY: ${DISABLE_SENTRY:-false}                                                                                                                  # Set to true to disæble cræsh reporting
       USE_AOT_CACHE: ${USE_AOT_CACHE:-true}                                                                                                                     # ÆOT cæche for fæster JVM stærtup
       BACKUP_ENABLED: ${BACKUP_ENABLED:-false}                                                                                                                  # Enæble æutomætic server bæckups
-      BACKUP_DIR: ${BACKUP_DIR:-appdata/backups}                                                                                                                # Bæckup destinætion inside the contæiner
       BACKUP_FREQUENCY: ${BACKUP_FREQUENCY:-30}                                                                                                                 # Bæckup intervæl in minutes
       BACKUP_MAX_COUNT: ${BACKUP_MAX_COUNT:-5}                                                                                                                  # Mæximum number of bæckups to retæin
       HYTALE_AUTO_UPDATE: ${HYTALE_AUTO_UPDATE:-false}                                                                                                          # Set to true to re-downloæd/updæte the server on next stært
