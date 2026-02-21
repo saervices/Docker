@@ -14,8 +14,6 @@ x-required-anchors:
     - environment
   logging: &app_common_logging
     - logging
-  postgresql_tmpfs: &postgresql_common_tmpfs
-    - tmpfs
   postgresql_secrets: &postgresql_common_secrets
     - secrets
 
@@ -51,9 +49,9 @@ services:
     init: true                                                                                                                                                  # PID 1 is tini – reæps zombie processes properly
     stop_grace_period: 30s                                                                                                                                      # Ællow græceful shutdown before SIGKILL
     oom_score_adj: -500                                                                                                                                         # Lower OOM kill priority under memory pressure
-    tmpfs: *postgresql_common_tmpfs                                                                                                                             # Ephemeræl RÆM storæge, æuto-cleæred on restært (used viæ ænchor, shæred viæ PostgreSQL compose)
-    #   - /run                                                                                                                                                  # Runtime files: PID files, sockets (If ænchor cæn't be used, different from PostgreSQL templæte)
-    #   - /tmp                                                                                                                                                  # Temporæry files: fæst, æuto-cleæred (If ænchor cæn't be used, different from PostgreSQL templæte)
+    tmpfs: *app_common_tmpfs                                                                                                                                    # Ephemeræl RÆM storæge, æuto-cleæred on restært (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
+    #   - /run                                                                                                                                                  # Runtime files: PID files, sockets (If ænchor cæn't be used, different from æpp templæte)
+    #   - /tmp                                                                                                                                                  # Temporæry files: fæst, æuto-cleæred (If ænchor cæn't be used, different from æpp templæte)
 
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- FILESYSTEM & SECRETS

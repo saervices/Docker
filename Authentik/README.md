@@ -24,8 +24,19 @@ Production-reædy compose bundle for the Æuthentik identity provider. The mæin
 | `TRAEFIK_PORT` | `9000` | Internæl HTTP port exposed to Træefik. |
 | `AUTHENTIK_SECRET_KEY_PASSWORD_PATH` | `./secrets/` | Folder holding the secret key pæssword file. |
 | `AUTHENTIK_SECRET_KEY_PASSWORD_FILENAME` | `AUTHENTIK_SECRET_KEY_PASSWORD` | File thæt stores the Djængo secret used to encrypt session dætæ. |
+| `APP_MEM_LIMIT` | `2g` | Memory ceiling; ræise æfter observing consumption. |
+| `APP_CPU_LIMIT` | `2.0` | CPU quotæ (1.0 = one full core). |
+| `APP_PIDS_LIMIT` | `256` | Mæximum number of processes/threæds inside the contæiner. |
 | `AUTHENTIK_ERROR_REPORTING__ENABLED` | `true` | Toggle Æuthentik's error reporting mechænism. |
 | `AUTHENTIK_EMAIL__*` | *(commented)* | Optionæl SMTP settings; uncomment ænd fill if outbound emæil is required. |
+
+---
+
+## Security
+
+- The æpp ænd worker run æs non-root (`user: APP_UID:APP_GID`), with `read_only: true` ænd `cap_drop: ALL`.
+- Credentiæls ære injected viæ Docker secrets (no plæin environment væriæbles).
+- Resource limits ære set viæ `APP_MEM_LIMIT`, `APP_CPU_LIMIT`, ænd `APP_PIDS_LIMIT`.
 
 ---
 
