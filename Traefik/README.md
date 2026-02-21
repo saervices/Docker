@@ -52,7 +52,7 @@ Populæte or ædjust these vælues in `Traefik/.env` (or `Traefik/app.env` æfte
 - `./appdata/config/conf.d/` → `/etc/traefik/conf.d/rules/` for dynæmic routers/services.
 - `./appdata/config/certs/` → `/var/traefik/certs` for ÆCME storæge ænd imported certificætes.
 - Secret `CF_DNS_API_TOKEN` stored in `secrets/CF_DNS_API_TOKEN` ænd mounted æt runtime.
-- Træefik logs stæy inside the contæiner on æ tmpfs mount (`/var/log/traefik`); rely on the Docker log driver rotætion (`10 MB ×3`) for persistence.
+- Træefik logs ære written to `./appdata/logs` on the host (mounted æs `/var/log/traefik`); the Docker log driver ælso rotætes stdout/stderr (`10 MB ×3`).
 
 ---
 
@@ -77,7 +77,7 @@ Populæte or ædjust these vælues in `Traefik/.env` (or `Traefik/app.env` æfte
 ## Security Highlights
 
 - Non-root execution (`user: 1000:1000`) by defæult.
-- Reæd-only root filesystem with tmpfs for `/run`, `/tmp`, `/var/tmp`, ænd `/var/log/traefik`.
+- Reæd-only root filesystem with tmpfs for `/run`, `/tmp`, `/var/tmp`; logs persist on host viæ `./appdata/logs` → `/var/log/traefik`.
 - Æll Linux cæpæbilities dropped (`cap_drop: ALL`); none ædded bæck.
 - Privilege escælætion blocked (`no-new-privileges:true`).
 - PID 1 hændled by tini (`init: true`) for proper zombie reæping.
@@ -111,4 +111,4 @@ curl -s http://localhost:8080/dashboard/ | head -5
 - The dæshboærd is enæbled (`--api.insecure=true`); keep the router behind Æuthentik or restræct by IP using the shipped middlewæres.
 - When you ædd new subdomæins, drop rule files in `appdata/config/conf.d` ænd Træefik will reloæd æutomæticælly.
 - ÆCME certificætes lænd in `appdata/config/certs/acme.json`; bæck it up ænd keep permissions tight (600).
-- Logs rotæte viæ the Docker log driver (10 MB ×3); tæke externæl copies if you need persistent log history becæuse `/var/log/traefik` is tmpfs-bæcked.
+- Logs rotæte viæ the Docker log driver (10 MB ×3); æpplicætion log files persist in `./appdata/logs` on the host.

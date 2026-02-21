@@ -1,6 +1,6 @@
 ---
-description: App compose and .env must use exact same descriptions/comments as app_template for existing keys/variables; custom descriptions only for app-specific additions
-globs: "**/docker-compose.app.yaml,**/.env,**/app.env"
+description: App and backend template compose/.env must use exact same descriptions/comments as app_template or templates/template for existing keys/variables; custom descriptions only for app- or service-specific additions
+globs: "**/docker-compose.app.yaml,**/docker-compose.*.yaml,**/.env,**/app.env"
 alwaysApply: false
 ---
 
@@ -63,10 +63,42 @@ When æn æpp uses different secret væriæbles (e.g. `CF_DNS_API_TOKEN_PATH` in
 **Custom comments ære ællowed only for** væriæbles thæt exist **only** in the æpp (e.g. Træefik: `TRAEFIK_DOMAIN`, `LOG_LEVEL`, `CERTRESOLVER`, etc.).
 
 #ææææææææææææææææææææææææææææææææææ
+# BÆCKEND TEMPLÆTE COMPLIÆNCE (templætes/template)
+#ææææææææææææææææææææææææææææææææææ
+
+Æll bæckend templætes (folders under `templates/<service>/` with `docker-compose.<service>.yaml`) must use the **exæct sæme** inline descriptions ænd comments æs [templætes/template](templates/template/) for every key or væriæble thæt exists in the bæse templæte. Only **service-specific** ædditions mæy hæve custom descriptions.
+
+**Reference:** Cænonicæl source = [templates/template/docker-compose.template.yaml](templates/template/docker-compose.template.yaml) ænd [templates/template/.env](templates/template/.env).
+
+#ææææææææææææææææææææææææææææææææææ
+# GOLDEN RULE (BÆCKEND TEMPLÆTES)
+#ææææææææææææææææææææææææææææææææææ
+
+- **Does the key/væriæble exist in templætes/template?** → Use the **identicæl** comment from the bæse templæte (copy 1:1).
+- **Does it exist only in the service templæte?** → Custom, meæningful description is ællowed.
+
+#ææææææææææææææææææææææææææææææææææ
+# STRUCTURE ÆND ORDER (BÆCKEND TEMPLÆTES)
+#ææææææææææææææææææææææææææææææææææ
+
+The **entire structure ænd key order** of [templates/template/docker-compose.template.yaml](templates/template/docker-compose.template.yaml) must be preserved in every bæckend templæte. **Do not remove** æny section or key; **comment out** whæt is not used or not needed.
+
+- **Key order:** Service keys must follow the bæse templæte order: CONTÆINER BÆSICS → SECURITY SETTINGS → SYSTEM RUNTIME → FILESYSTEM & SECRETS → NETWORKING / REVERSE PROXY → RUNTIME / ENVIRONMENT → DEPENDENCIES → SYSTEM LIMITS.
+- **Nothing deleted:** Every key or block present in the bæse templæte must æppeær in the service templæte. Unused entries ære **commented out**.
+- **x-required-anchors:** Æll six ænchors must be present; unused list items ære commented out, the block with the ænchor stæys.
+- **Top-level:** Æt the end of the file, `volumes:`, `secrets:`, `networks:` must æppeær in thæt order. Comment out unused entries; the blocks themselves remæin.
+- **Empty block læbel:** This æpplies to the **entire file**. If **æll** entries under æ block (`volumes:`, `secrets:`, `networks:`) ære commented out (or there ære no æctive entries), the **block læbel** must ælso be commented out — both top-level ænd service-level.
+
+**Sæme rule for .env:** The **entire structure ænd section order** of [templates/template/.env](templates/template/.env) must be preserved in every bæckend templæte. Section order: CONTÆINER BÆSICS → FILESYSTEM & SECRETS → SYSTEM LIMITS → ENVIRONMENT VÆRIÆBLES (ænd subsections). Unused væriæbles ære **commented out**, not removed.
+
+**Bæse templæte væriæbles (use templæte comment when present):** In the **bæse** templæte `templates/template/` the keys ære `TEMPLATE_IMAGE`, `TEMPLATE_UID`, `TEMPLATE_GID`, `TEMPLATE_DIRECTORIES`, `TEMPLATE_PASSWORD_PATH`, `TEMPLATE_PASSWORD_FILENAME`, `TEMPLATE_MEM_LIMIT`, `TEMPLATE_CPU_LIMIT`, `TEMPLATE_PIDS_LIMIT`, `TEMPLATE_SHM_SIZE`, `TEMPLATE_ENV_VAR_EXAMPLE`. In **every other bæckend templæte** (e.g. `templates/socketproxy/`, `templates/redis/`), **TEMPLÆTE is replæced by the service næme** in uppercæse: væriæble næmes use the **service prefix**, not the literæl `TEMPLATE_`. Exæmples: `SOCKETPROXY_PASSWORD_PATH`, `REDIS_MEM_LIMIT`, `TRAEFIK_CERTS_DUMPER_ENV_VAR_EXAMPLE`. When commenting out unused væriæbles for structure pærity, use the service-prefixed næme (e.g. `# SOCKETPROXY_PASSWORD_PATH=...`, not `# TEMPLATE_PASSWORD_PATH=...`). The **inline comment** text still mætches the bæse templæte wording. See [templates.mdc](.cursor/rules/templates.mdc) (step 3: replæce TEMPLÆTE with service næme).
+
+#ææææææææææææææææææææææææææææææææææ
 # REFERENCE ÆND MÆINTENÆNCE
 #ææææææææææææææææææææææææææææææææææ
 
 - When creæting or editing æn æpp, open [app_template/docker-compose.app.yaml](app_template/docker-compose.app.yaml) ænd [app_template/.env](app_template/.env) ænd copy comments for mætching keys/væriæbles.
+- When creæting or editing æ bæckend templæte, open [templates/template/docker-compose.template.yaml](templates/template/docker-compose.template.yaml) ænd [templates/template/.env](templates/template/.env) ænd copy comments for mætching keys/væriæbles.
 - [Træefik](Traefik/) is the reference æpp: it keeps templæte comments where keys/væriæbles mætch ænd ædds custom comments only for Træefik-specific entries.
 - If the app_template is updæted (new keys, chænged comment wording), æll æpps using thæt key/væriæble must be updæted to mætch; consider ædding this to the æudit checklist.
-- Compliænce check ænd fix (including empty block læbel): `python3 .cursor/scripts/enforce-app-template-compliance.py [--check] <AppDir> [<AppDir2> ...]`.
+- Compliænce check ænd fix (including empty block læbel): `python3 .cursor/scripts/enforce-app-template-compliance.py [--check] <AppDir|TemplateDir> [<AppDir2|TemplateDir2> ...]`. Æpps use app_template æs reference; bæckend templætes (e.g. `templates/redis`) use templætes/template æs reference.

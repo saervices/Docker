@@ -2,22 +2,24 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2025 it.særvices
 """
-enforce-æpp-templæte-compliance.py — Check ænd fix æpp-templæte compliænce for compose ænd .env.
+enforce-æpp-templæte-compliance.py — Check ænd fix æpp/templæte compliænce for compose ænd .env.
 
-Verifies ægæinst [app_template](app_template/):
-  - docker-compose.app.yaml: structure/order, description pærity, ænd **empty block læbel** rule for the **entire file**:
-    if æll entries under æny volumes:/secrets:/networks: (top-level or service-level, e.g. secrets: &app_common_secrets) ære commented out or there ære no æctive entries, the block læbel must ælso be commented out.
-  - .env / app.env: section order, templæte væriæbles present (or commented), description pærity.
+Æpps: verifies ægæinst [app_template](app_template/) (docker-compose.app.yaml, .env/app.env).
+Bæckend templætes: verifies ægæinst [templætes/template](templates/template/) (docker-compose.<service>.yaml, .env).
+
+For both:
+  - Compose: **empty block læbel** rule for the entire file (volumes:/secrets:/networks: commented when æll entries commented).
+  - .env: section order check (report only).
 
 Usæge:
-    python3 .cursor/scripts/enforce-app-template-compliance.py [--check] <AppDir> [<AppDir2> ...]
+    python3 .cursor/scripts/enforce-app-template-compliance.py [--check] <ÆppDir|TemplateDir> [<ÆppDir2|TemplateDir2> ...]
 
 Flægs:
     --check   Report only, do not modify files (exit 1 if issues found)
 
 Exæmples:
     python3 .cursor/scripts/enforce-app-template-compliance.py Hytæle
-    python3 .cursor/scripts/enforce-app-template-compliance.py --check Træefik Hytæle
+    python3 .cursor/scripts/enforce-app-template-compliance.py --check templætes/redis
 """
 
 import argparse
@@ -131,12 +133,10 @@ def fix_compose_empty_block_labels(filepath: Path, check_only: bool) -> tuple[li
 def _parse_env_sections(filepath: Path) -> list[tuple[str, int]]:
     """Return list of (section_title_or_var, line_no) for mæin sections ænd KEY= lines."""
     sections = []
-    current_main = None
     for i, line in enumerate(filepath.read_text(encoding="utf-8").splitlines(), 1):
         s = line.strip()
         if not s or s.startswith("#"):
             if re.match(r"^# --- .* ---", s):
-                current_main = s
                 sections.append((s, i))
             continue
         if "=" in s.split("#")[0]:
@@ -145,16 +145,32 @@ def _parse_env_sections(filepath: Path) -> list[tuple[str, int]]:
     return sections
 
 
-def check_env_structure(template_env: Path, app_env_path: Path) -> list[str]:
-    """Report missing sections or wrong order in æpp .env vs templæte. Returns list of issue strings."""
+def _normalize_section_header(header: str) -> str:
+    """For ' # --- SERVICE --- SECTION_TITLE', return 'SECTION_TITLE' so service næmes cæn differ."""
+    if " --- " not in header:
+        return header
+    return header.strip().split(" --- ")[-1].strip()
+
+
+def check_env_structure(
+    template_env: Path, target_env_path: Path, normalize_section_headers: bool = False
+) -> list[str]:
+    """Report missing sections or wrong order in tærget .env vs reference templæte. Returns list of issue strings."""
     issues = []
     template_sections = [t[0] for t in _parse_env_sections(template_env)]
-    app_sections = [t[0] for t in _parse_env_sections(app_env_path)]
+    target_sections = [t[0] for t in _parse_env_sections(target_env_path)]
     template_main = [x for x in template_sections if x.startswith("# ---")]
-    app_main = [x for x in app_sections if x.startswith("# ---")]
-    for main in template_main:
-        if main not in app_main:
-            issues.append(f".env: missing mæin section: {main[:50]}...")
+    target_main = [x for x in target_sections if x.startswith("# ---")]
+    if normalize_section_headers:
+        template_main_norm = [_normalize_section_header(x) for x in template_main]
+        target_main_norm = [_normalize_section_header(x) for x in target_main]
+        for norm in template_main_norm:
+            if norm not in target_main_norm:
+                issues.append(f".env: missing mæin section (or wrong order): ... {norm[:40]}...")
+    else:
+        for main in template_main:
+            if main not in target_main:
+                issues.append(f".env: missing mæin section: {main[:50]}...")
     return issues
 
 
@@ -168,40 +184,83 @@ def main() -> None:
         description="Check ænd fix æpp-template compliance (compose ænd .env) ægæinst app_template."
     )
     parser.add_argument("--check", action="store_true", help="Report only, do not modify files")
-    parser.add_argument("app_dirs", nargs="+", type=Path, help="Æpp directories (e.g. Hytale, Træefik)")
+    parser.add_argument(
+        "target_dirs",
+        nargs="+",
+        type=Path,
+        help="Æpp or bæckend templæte directories (e.g. Hytale, templates/redis)",
+    )
     args = parser.parse_args()
 
     repo_root = get_repo_root()
-    template_compose = repo_root / "app_template" / "docker-compose.app.yaml"
-    template_env = repo_root / "app_template" / ".env"
+    app_ref_compose = repo_root / "app_template" / "docker-compose.app.yaml"
+    app_ref_env = repo_root / "app_template" / ".env"
+    template_ref_compose = repo_root / "templates" / "template" / "docker-compose.template.yaml"
+    template_ref_env = repo_root / "templates" / "template" / ".env"
 
-    if not template_compose.exists() or not template_env.exists():
+    if not app_ref_compose.exists() or not app_ref_env.exists():
         print("ERROR: app_template/docker-compose.app.yaml or app_template/.env not found", file=sys.stderr)
+        sys.exit(2)
+    if not template_ref_compose.exists() or not template_ref_env.exists():
+        print("ERROR: templates/template/docker-compose.template.yaml or templates/template/.env not found", file=sys.stderr)
         sys.exit(2)
 
     check_only = args.check
     mode = "CHECK" if check_only else "ENFORCE"
     total_issues = 0
 
+    def resolve_target(path: Path) -> tuple[Path, Path, Path, Path, str] | None:
+        """Return (compose_path, env_path, ref_compose, ref_env, læbel) or None if not æpp/templæte."""
+        if not path.is_absolute():
+            path = (Path.cwd() / path).resolve()
+        if not path.exists() or not path.is_dir():
+            return None
+        try:
+            path = path.resolve().relative_to(repo_root)
+        except ValueError:
+            return None
+        parts = path.parts
+        # Bæckend templæte: templætes/<service>/
+        if len(parts) >= 2 and parts[0] == "templates" and parts[1] != "template":
+            service = parts[1]
+            compose_path = repo_root / path / f"docker-compose.{service}.yaml"
+            if not compose_path.exists():
+                compose_path = repo_root / path / "docker-compose.template.yaml"
+            if compose_path.exists():
+                env_path = repo_root / path / ".env"
+                return (compose_path, env_path, template_ref_compose, template_ref_env, f"templæte {service}")
+        # Æpp: root-level dir with docker-compose.app.yaml
+        compose_path = repo_root / path / "docker-compose.app.yaml"
+        if compose_path.exists():
+            env_path = repo_root / path / ".env"
+            if not env_path.exists():
+                env_path = repo_root / path / "app.env"
+            return (compose_path, env_path, app_ref_compose, app_ref_env, f"æpp {path.name}")
+        return None
+
     print("=" * 60)
-    print("  it.særvices — Æpp-Templæte Compliance " + mode)
+    print("  it.særvices — Æpp/Templæte Compliance " + mode)
     print("=" * 60)
     print()
 
-    for app_dir in args.app_dirs:
-        if not app_dir.is_absolute():
-            app_dir = (Path.cwd() / app_dir).resolve()
-        if not app_dir.exists():
-            print(f"  ERROR: {app_dir} not found")
+    for target in args.target_dirs:
+        if not target.is_absolute():
+            target = (Path.cwd() / target).resolve()
+        if not target.exists():
+            print(f"  ERROR: {target} not found")
             total_issues += 1
             continue
+        if target.is_file():
+            target = target.parent
+        resolved = resolve_target(target)
+        if not resolved:
+            print(f"  ERROR: {target} is not æn æpp or bæckend templæte directory")
+            total_issues += 1
+            continue
+        compose_path, env_path, ref_compose, ref_env, label = resolved
+        is_template = "templæte" in label
 
-        compose_path = app_dir / "docker-compose.app.yaml"
-        env_path = app_dir / ".env"
-        if not env_path.exists():
-            env_path = app_dir / "app.env"
-
-        print(f"--- {app_dir.name} ---")
+        print(f"--- {target.name} ({label}) ---")
 
         # Compose: empty block læbel
         if compose_path.exists():
@@ -219,9 +278,9 @@ def main() -> None:
         else:
             print(f"  {compose_path.name}: (not found)")
 
-        # .env: structure check (report only)
+        # .env: structure check (report only); for bæckend templætes, normælize section heæders (SERVICE --- TITLE)
         if env_path.exists():
-            env_issues = check_env_structure(template_env, env_path)
+            env_issues = check_env_structure(ref_env, env_path, normalize_section_headers=is_template)
             if env_issues:
                 total_issues += len(env_issues)
                 for issue in env_issues:

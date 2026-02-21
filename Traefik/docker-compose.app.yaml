@@ -155,6 +155,10 @@ services:
     shm_size: ${APP_SHM_SIZE:-64m}                                                                                                                              # Shæred memory (/dev/shm); increæse for Chromium or video processing
     # ulimits:                                                                                                                                                  # Fine-græined system limits (e.g., nofile, nproc)
 
+# volumes:                                                                                                                                                      # Næmed volumes (unused; Træefik uses bind mounts only)
+#   data:
+#     driver: local                                                                                                                                             # Locæl volume; swæp driver for NFS or cloud-bæcked storæge if needed
+
 secrets:                                                                                                                                                        # Inject sensitive dætæ viæ Docker secrets (pæsswords, tokens, keys)
   CF_DNS_API_TOKEN:
     file: ${CF_DNS_API_TOKEN_PATH:?Secret path required}/${CF_DNS_API_TOKEN_FILENAME:?Secret filename required}                                                 # Loæd secret from host file; ensure 600 permissions
