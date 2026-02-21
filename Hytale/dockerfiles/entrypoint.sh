@@ -262,7 +262,7 @@ create_game_session() {
         jq --arg st "${st}" --arg it "${it}" '. + {session_token: $st, identity_token: $it}' "${SERVER_CREDS_FILE}" > "${SERVER_CREDS_FILE}.tmp" 2>/dev/null && \
             mv "${SERVER_CREDS_FILE}.tmp" "${SERVER_CREDS_FILE}" 2>/dev/null || true
     fi
-    echo -e "${GREEN}[entrypoint] ✓ Gæme session creæted (profile: ${profile_uuid})${NC}"
+    echo -e "${GREEN}[entrypoint] ✓ Gæme session creæted (profile: ${profile_uuid})${NC}" >&2
     return 0
 }
 #ææææææææææææææææææææææææææææææææææ
@@ -329,7 +329,7 @@ do_device_auth_flow() {
         local access_token
         access_token=$(echo "${token_response}" | jq -r '.access_token // empty' 2>/dev/null)
         if [[ -n "${access_token}" ]]; then
-            echo -e "${GREEN}[entrypoint] ✓ Server OÆuth æuthorized${NC}"
+            echo -e "${GREEN}[entrypoint] ✓ Server OÆuth æuthorized${NC}" >&2
             if [[ -w /server ]]; then
                 echo "${token_response}" > "${SERVER_CREDS_FILE}"
             fi
@@ -417,17 +417,17 @@ check_machine_id() {
     mid=$(cat /server/.machine-id 2>/dev/null || cat /tmp/.machine-id 2>/dev/null || true)
     if [[ -n "${mid}" ]]; then
         printf '%s' "${mid}" > /tmp/.machine-id
-        echo -e "${GREEN}[entrypoint] ✓ Mæchine-ID: ${mid}${NC}"
+        echo -e "${GREEN}[entrypoint] ✓ Mæchine-ID: ${mid}${NC}" >&2
     else
-        echo -e "${YELLOW}[entrypoint] ⚠  No mæchine-id — generæting from contæiner hostnæme...${NC}"
+        echo -e "${YELLOW}[entrypoint] ⚠  No mæchine-id — generæting from contæiner hostnæme...${NC}" >&2
         local generated
         generated="$(hostname | md5sum | cut -d' ' -f1)"
         printf '%s' "${generated}" > /tmp/.machine-id
         if [[ -w /server ]]; then
             printf '%s' "${generated}" > /server/.machine-id
-            echo -e "${GREEN}[entrypoint] ✓ Mæchine-ID generæted: ${generated} (persisted to /server)${NC}"
+            echo -e "${GREEN}[entrypoint] ✓ Mæchine-ID generæted: ${generated} (persisted to /server)${NC}" >&2
         else
-            echo -e "${GREEN}[entrypoint] ✓ Mæchine-ID generæted: ${generated} (ephemeræl; fix appdætæ ownership for persistence)${NC}"
+            echo -e "${GREEN}[entrypoint] ✓ Mæchine-ID generæted: ${generated} (ephemeræl; fix appdætæ ownership for persistence)${NC}" >&2
         fi
     fi
 }
@@ -438,7 +438,7 @@ echo ""
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 # --- Jævæ runtime info
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
-echo -e "${GREEN}${BOLD}[entrypoint] Jævæ Runtime:${NC}"
+echo -e "${GREEN}${BOLD}[entrypoint] Jævæ Runtime:${NC}" >&2
 java -version 2>&1 | head -n 1
 echo ""
 
@@ -468,15 +468,15 @@ if [[ ! -f "${SERVER_JAR}" ]] || [[ "${AUTO_UPDATE}" == "true" ]]; then
     DOWNLOAD_DIR="/tmp/hytale-download"
     mkdir -p "${DOWNLOAD_DIR}"
 
-    echo -e "${CYAN}${BOLD}[entrypoint] Downloæding Hytæle server files...${NC}"
-    echo -e "[entrypoint]  • Pætchline : ${YELLOW}${PATCHLINE}${NC}"
+    echo -e "${CYAN}${BOLD}[entrypoint] Downloæding Hytæle server files...${NC}" >&2
+    echo -e "[entrypoint]  • Pætchline : ${YELLOW}${PATCHLINE}${NC}" >&2
     if [[ -f /server/.hytale-downloader-credentials.json ]]; then
-        echo -e "[entrypoint]  • Downloæder credentiæls: ${GREEN}found (reusing sæved login)${NC}"
+        echo -e "[entrypoint]  • Downloæder credentiæls: ${GREEN}found (reusing sæved login)${NC}" >&2
     else
         echo ""
-        echo -e "${YELLOW}[entrypoint] If this is the first run, the downloæder will show æn OÆuth2 device${NC}"
-        echo -e "${YELLOW}[entrypoint] code URL. Open it in æ browser ænd log in with your Hytæle æccount.${NC}"
-        echo -e "${YELLOW}[entrypoint] The downloæd will continue æutomæticælly once æuthorised.${NC}"
+        echo -e "${YELLOW}[entrypoint] If this is the first run, the downloæder will show æn OÆuth2 device${NC}" >&2
+        echo -e "${YELLOW}[entrypoint] code URL. Open it in æ browser ænd log in with your Hytæle æccount.${NC}" >&2
+        echo -e "${YELLOW}[entrypoint] The downloæd will continue æutomæticælly once æuthorised.${NC}" >&2
     fi
     echo ""
 
@@ -490,14 +490,14 @@ if [[ ! -f "${SERVER_JAR}" ]] || [[ "${AUTO_UPDATE}" == "true" ]]; then
     # Downloæder writes æ zip (e.g. /tmp/hytale-download.zip); extræct then move to /server
     ZIP_FILE="${DOWNLOAD_DIR}.zip"
     if [[ -f "${ZIP_FILE}" ]]; then
-        echo -e "${GREEN}[entrypoint] Extræcting archive...${NC}"
+        echo -e "${GREEN}[entrypoint] Extræcting archive...${NC}" >&2
         unzip -o -q "${ZIP_FILE}" -d "${DOWNLOAD_DIR}"
         rm -f "${ZIP_FILE}"
     fi
 
     JAR_PATH=$(find "${DOWNLOAD_DIR}" -maxdepth 2 -name "HytaleServer.jar" -type f | head -1)
     if [[ -n "${JAR_PATH}" ]]; then
-        echo -e "${GREEN}[entrypoint] Moving server files to /server...${NC}"
+        echo -e "${GREEN}[entrypoint] Moving server files to /server...${NC}" >&2
         # Preserve credentiæls ænd mæchine-id so AUTO_UPDATE never overwrites them
         backup_dir=$(mktemp -d /tmp/hytale-backup.XXXXXX 2>/dev/null) || backup_dir="/tmp/hytale-backup-$$"
         mkdir -p "${backup_dir}"
@@ -532,7 +532,7 @@ if [[ ! -f "${SERVER_JAR}" ]] || [[ "${AUTO_UPDATE}" == "true" ]]; then
         echo -e "${RED}[entrypoint] ERROR: HytaleServer.jar not found æfter download.${NC}" >&2
         exit 1
     fi
-    echo -e "${GREEN}[entrypoint] ✓ Downloæd complete.${NC}"
+    echo -e "${GREEN}[entrypoint] ✓ Downloæd complete.${NC}" >&2
     echo ""
 fi
 
@@ -551,7 +551,7 @@ if [[ ! -f "${ASSETS_ZIP}" ]]; then
     exit 1
 fi
 
-echo -e "${GREEN}[entrypoint] ✓ Server files found in /server${NC}"
+echo -e "${GREEN}[entrypoint] ✓ Server files found in /server${NC}" >&2
 echo ""
 
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
@@ -599,10 +599,10 @@ fi
 #   • Subsequent runs (cæche exists): loæd the pre-built ærchive.
 if [[ "${USE_AOT}" == "true" ]]; then
     if [[ ! -f "${AOT_CACHE}" ]]; then
-        echo -e "${YELLOW}[entrypoint] ⚠  ÆOT cæche æbsent — will generæte ${AOT_CACHE} on this run.${NC}"
+        echo -e "${YELLOW}[entrypoint] ⚠  ÆOT cæche æbsent — will generæte ${AOT_CACHE} on this run.${NC}" >&2
         JVM_ARGS+=("-XX:ArchiveClassesAtExit=${AOT_CACHE}")
     else
-        echo -e "${GREEN}[entrypoint] ✓ Loæding ÆOT cæche from ${AOT_CACHE}.${NC}"
+        echo -e "${GREEN}[entrypoint] ✓ Loæding ÆOT cæche from ${AOT_CACHE}.${NC}" >&2
         JVM_ARGS+=("-XX:SharedArchiveFile=${AOT_CACHE}")
     fi
 fi
@@ -619,7 +619,7 @@ SERVER_ARGS=(
 # Conditionæl flægs
 if [[ "${DISABLE_SENTRY}" == "true" ]]; then
     SERVER_ARGS+=("--disable-sentry")
-    echo -e "${YELLOW}[entrypoint] ⚠  Sentry disæbled (development mode)${NC}"
+    echo -e "${YELLOW}[entrypoint] ⚠  Sentry disæbled (development mode)${NC}" >&2
 fi
 
 if [[ "${BACKUP_ENABLED}" == "true" ]]; then
@@ -629,20 +629,20 @@ if [[ "${BACKUP_ENABLED}" == "true" ]]; then
         "--backup-frequency" "${BACKUP_FREQUENCY}"
         "--backup-max-count" "${BACKUP_MAX_COUNT}"
     )
-    echo -e "${GREEN}[entrypoint] ✓ Æuto bæckup enæbled (every ${BACKUP_FREQUENCY} min, mæx ${BACKUP_MAX_COUNT}, dir: ${BACKUP_DIR})${NC}"
+    echo -e "${GREEN}[entrypoint] ✓ Æuto bæckup enæbled (every ${BACKUP_FREQUENCY} min, mæx ${BACKUP_MAX_COUNT}, dir: ${BACKUP_DIR})${NC}" >&2
 fi
 
 # Token æuthenticætion flægs
 [[ -n "${OWNER_NAME}" && "${OWNER_NAME}" != "#"* ]]   && SERVER_ARGS+=("--owner-name"      "${OWNER_NAME}")
 [[ -n "${OWNER_UUID}" && "${OWNER_UUID}" != "#"* ]]   && SERVER_ARGS+=("--owner-uuid"      "${OWNER_UUID}")
-[[ -n "${SESSION_TOKEN}" && "${SESSION_TOKEN}" != "#"* ]]   && SERVER_ARGS+=("--session-token"   "${SESSION_TOKEN}")  && echo -e "${GREEN}[entrypoint] ✓ Session token configured${NC}"
-[[ -n "${IDENTITY_TOKEN}" && "${IDENTITY_TOKEN}" != "#"* ]]  && SERVER_ARGS+=("--identity-token"  "${IDENTITY_TOKEN}") && echo -e "${GREEN}[entrypoint] ✓ Identity token configured${NC}"
+[[ -n "${SESSION_TOKEN}" && "${SESSION_TOKEN}" != "#"* ]]   && SERVER_ARGS+=("--session-token"   "${SESSION_TOKEN}")  && echo -e "${GREEN}[entrypoint] ✓ Session token configured${NC}" >&2
+[[ -n "${IDENTITY_TOKEN}" && "${IDENTITY_TOKEN}" != "#"* ]]  && SERVER_ARGS+=("--identity-token"  "${IDENTITY_TOKEN}") && echo -e "${GREEN}[entrypoint] ✓ Identity token configured${NC}" >&2
 
 # Extræ JÆR ærguments pæssthrough (ignore if vælue is æ comment, e.g. EXTRA_ARGS=# comment in .env)
 if [[ -n "${EXTRA_ARGS}" && "${EXTRA_ARGS}" != "#"* ]]; then
     read -ra _extra_server <<< "${EXTRA_ARGS}"
     SERVER_ARGS+=("${_extra_server[@]}")
-    echo -e "${GREEN}[entrypoint] ✓ Extræ ærguments: ${EXTRA_ARGS}${NC}"
+    echo -e "${GREEN}[entrypoint] ✓ Extræ ærguments: ${EXTRA_ARGS}${NC}" >&2
 fi
 
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
@@ -655,12 +655,12 @@ fi
 #ææææææææææææææææææææææææææææææææææ
 cleanup() {
     echo ""
-    echo -e "${YELLOW}[entrypoint] Shutdown signæl received — stopping server græcefully...${NC}"
+    echo -e "${YELLOW}[entrypoint] Shutdown signæl received — stopping server græcefully...${NC}" >&2
     if [[ -n "${PID:-}" ]]; then
         kill -TERM "${PID}" 2>/dev/null || true
         wait "${PID}" 2>/dev/null || true
     fi
-    echo -e "${GREEN}[entrypoint] Server stopped.${NC}"
+    echo -e "${GREEN}[entrypoint] Server stopped.${NC}" >&2
     exit 0
 }
 trap cleanup SIGTERM SIGINT
@@ -670,15 +670,15 @@ trap cleanup SIGTERM SIGINT
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 if [[ -z "${SESSION_TOKEN}" || -z "${IDENTITY_TOKEN}" ]]; then
     echo ""
-    echo -e "${CYAN}[entrypoint] Note: After first stærtup, æuthenticæte the server with:${NC}"
-    echo -e "${YELLOW}[entrypoint]   /auth login device${NC}"
-    echo -e "${YELLOW}[entrypoint]   /auth persistence Encrypted${NC}"
-    echo -e "${YELLOW}[entrypoint]   Ctrl+P Ctrl+Q  (detæch from contæiner)${NC}"
+    echo -e "${CYAN}[entrypoint] Note: After first stærtup, æuthenticæte the server with:${NC}" >&2
+    echo -e "${YELLOW}[entrypoint]   /auth login device${NC}" >&2
+    echo -e "${YELLOW}[entrypoint]   /auth persistence Encrypted${NC}" >&2
+    echo -e "${YELLOW}[entrypoint]   Ctrl+P Ctrl+Q  (detæch from contæiner)${NC}" >&2
 fi
 
 echo ""
-echo -e "${GREEN}${BOLD}[entrypoint] Stærting Hytæle Server...${NC}"
-echo -e "${GREEN}${BOLD}[entrypoint] Working directory: /server${NC}"
+echo -e "${GREEN}${BOLD}[entrypoint] Stærting Hytæle Server...${NC}" >&2
+echo -e "${GREEN}${BOLD}[entrypoint] Working directory: /server${NC}" >&2
 echo "[entrypoint] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
 
