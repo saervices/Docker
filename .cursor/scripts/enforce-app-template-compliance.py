@@ -278,9 +278,9 @@ def main() -> None:
         else:
             print(f"  {compose_path.name}: (not found)")
 
-        # .env: structure check (report only); for bæckend templætes, normælize section heæders (SERVICE --- TITLE)
+        # .env: structure check (report only); normælize section heæders so æpp/templæte prefix (ÆPP, SEÆFILE, REDIS, etc.) is ignored
         if env_path.exists():
-            env_issues = check_env_structure(ref_env, env_path, normalize_section_headers=is_template)
+            env_issues = check_env_structure(ref_env, env_path, normalize_section_headers=True)
             if env_issues:
                 total_issues += len(env_issues)
                 for issue in env_issues:

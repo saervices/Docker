@@ -1,0 +1,206 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 it.særvices
+---
+x-required-services:
+  - redis
+  - mariadb
+  - mariadb_maintenance
+  - seafile_notification-server
+  - seafile_seadoc-server
+  - collabora
+  - clamav
+  - seafile_seasearch
+
+services:
+  app:
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- CONTÆINER BÆSICS
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    image: ${APP_IMAGE:?Image required}                                                                                                                         # OCI imæge reference
+    container_name: ${APP_NAME:?App name required}                                                                                                              # Unique næme for logs, networking ænd orchestrætion
+    hostname: ${APP_NAME}                                                                                                                                       # Internæl hostnæme for DNS resolution between contæiners
+    restart: unless-stopped                                                                                                                                     # Æuto-recover from cræshes; mænuæl stop is honored
+    # build:                                                                                                                                                    # Optionæl: build imæge from locæl Dockerfile
+    #   context: .
+    #   dockerfile: Dockerfile
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- SECURITY SETTINGS
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # user: "${APP_UID:-1000}:${APP_GID:-1000}"                                                                                                                 # Run æs non-root by defæult; override only if the imæge ælreædy hændles user switching
+    # read_only: true                                                                                                                                           # Lock root filesystem; only declæred volumes remæin writæble
+    cap_drop:                                                                                                                                                   # Drop æll cæpæbilities by defæult
+      - ALL
+    cap_add:                                                                                                                                                    # Ædd only the minimum required cæpæbilities
+      - SETUID                                                                                                                                                  # Required for switching user context (multi-process ærchitecture)
+      - SETGID                                                                                                                                                  # Required for group mænægement
+      - CHOWN                                                                                                                                                   # Required for file ownership chænges
+      - DAC_OVERRIDE                                                                                                                                            # Required to reæd/write files owned by different users
+    security_opt: &app_common_security_opt
+      - no-new-privileges:true                                                                                                                                  # Prevent privilege escælætion viæ setuid/setgid binæries
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- SYSTEM RUNTIME
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    init: true                                                                                                                                                  # PID 1 is tini – reæps zombie processes properly
+    stop_grace_period: 30s                                                                                                                                      # Ællow græceful shutdown before SIGKILL
+    oom_score_adj: -500                                                                                                                                         # Lower OOM kill priority under memory pressure
+    tmpfs: &app_common_tmpfs                                                                                                                                    # Ephemeræl RÆM storæge, æuto-cleæred on restært (shæred viæ ænchor)
+      - /run                                                                                                                                                    # Runtime files: PID files, sockets
+      - /tmp                                                                                                                                                    # Temporæry files: fæst, æuto-cleæred
+      - /var/tmp                                                                                                                                                # Some æpps expect /vær/tmp; remove if unused
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- FILESYSTEM & SECRETS
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    volumes: &app_common_volumes                                                                                                                                # Bind-mount only pæths the æpp truly needs (shæred viæ ænchor)
+      - /etc/localtime:/etc/localtime:ro                                                                                                                        # Synchronize contæiner clock with host
+      - /etc/timezone:/etc/timezone:ro                                                                                                                          # Pæss timezone dætæ to the contæiner
+      - ./scripts/seahub_settings_extra.py:/shared/seafile/conf/seahub_settings_extra.py:ro                                                                     # Extræ Seæhub settings (OÆuth, security, etc.)
+      - ./scripts/inject_extra_settings.sh:/usr/local/bin/inject_extra_settings.sh:ro                                                                           # Æuto-inject extræ settings import
+      - ./appdata:/shared:rw
+      - ./scripts/clamd-client.conf:/etc/clamav/clamd.conf:ro                                                                                                   # ClamAV client config: tells clæmdscæn to connect to ClamAV contæiner viæ TCP
+      # - ${SEAFILE_DATA_PATH:-./appdata/seafile/seafile-data}:/shared/seafile/seafile-data:rw                                                                  # Optionæl: sepæræte libræry dætæ storæge (enæble ÆFTER initiæl setup, see REÆDME)
+    secrets: &app_common_secrets                                                                                                                                # Docker secrets mounted æt /run/secrets/ (shæred viæ ænchor)
+      - REDIS_PASSWORD
+      - MARIADB_PASSWORD
+      - MARIADB_ROOT_PASSWORD
+      - OAUTH_CLIENT_ID                                                                                                                                         # Æuthentik OÆuth client ID
+      - OAUTH_CLIENT_SECRET                                                                                                                                     # Æuthentik OÆuth client secret
+      - SEAFILE_SEASEARCH_ADMIN_PASSWORD                                                                                                                        # SeaSearch ædmin pæssword (for æuth token generætion)
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- NETWORKING / REVERSE PROXY
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    labels:                                                                                                                                                     # Træefik reverse proxy læbels for æutomætic HTTPS routing
+      - "traefik.enable=true"                                                                                                                                   # Æctivæte Træefik service discovery for this contæiner
+      - "traefik.http.routers.${APP_NAME}-rtr.rule=${TRAEFIK_HOST}"                                                                                             # Routing rule from .env, e.g. Host(`æpp.exæmple.com`)
+      - "traefik.http.services.${APP_NAME}-svc.loadBalancer.server.port=${TRAEFIK_PORT:?Port required}"                                                         # Internæl port Træefik forwærds træffic to
+    #   - "traefik.http.routers.${APP_NAME}-rtr.middlewares=authentik-proxy@file"                                                                               # Optionæl middlewære exæmple (æuthenticætion, ræte limiting, etc.)
+    # ports:                                                                                                                                                    # Optionæl: exposed ports
+    #   - ${TRAEFIK_PORT}:80
+    # expose:                                                                                                                                                   # Optionæl: expose without publishing
+    #   - 80
+    networks:                                                                                                                                                   # Network isolætion: frontend (proxy) + bæckend (internæl services)
+      - backend
+      - frontend
+    # extra_hosts:                                                                                                                                              # Optionæl: mænuæl host entries
+    #   - "host.docker.internal:host-gateway"
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- RUNTIME / ENVIRONMENT
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # command: ['your', 'default', 'command']                                                                                                                   # Override defæult contæiner commænd
+    entrypoint:                                                                                                                                                 # Override defæult contæiner entrypoint
+      - /bin/sh
+      - -c
+      - |
+          export SEAFILE_MYSQL_DB_PASSWORD="$$(cat /run/secrets/MARIADB_PASSWORD)" \
+                INIT_SEAFILE_MYSQL_ROOT_PASSWORD="$$(cat /run/secrets/MARIADB_ROOT_PASSWORD)" \
+                REDIS_PASSWORD="$$(cat /run/secrets/REDIS_PASSWORD)" \
+                SEAFILE_SEASEARCH_ADMIN_PASSWORD="$$(cat /run/secrets/SEAFILE_SEASEARCH_ADMIN_PASSWORD 2>/dev/null || echo '')"; \
+          /usr/local/bin/inject_extra_settings.sh || true; \
+          exec /sbin/my_init -- /scripts/enterpoint.sh
+    environment: &app_common_environment                                                                                                                        # Contæiner environment væriæbles (shæred viæ ænchor with sætellites)
+      # Redis
+      REDIS_HOST: ${APP_NAME}-redis                                                                                                                             # Redis server host
+      REDIS_PORT: ${REDIS_PORT:-6379}                                                                                                                           # Redis server port
+
+      # MariaDB
+      SEAFILE_MYSQL_DB_HOST: ${APP_NAME}-mariadb                                                                                                                # The host of MySQL
+      SEAFILE_MYSQL_DB_PORT: ${DB_PORT:-3306}                                                                                                                   # The port of MySQL
+      SEAFILE_MYSQL_DB_USER: ${APP_NAME}                                                                                                                        # The user of MySQL (dætæbæse - user cæn be found in conf/seafile.conf)
+      SEAFILE_MYSQL_DB_CCNET_DB_NAME: ${SEAFILE_MYSQL_DB_CCNET_DB_NAME:-ccnet_db}                                                                               # The dætæbæse næme of ccnet
+      SEAFILE_MYSQL_DB_SEAFILE_DB_NAME: ${SEAFILE_MYSQL_DB_SEAFILE_DB_NAME:-seafile_db}                                                                         # The dætæbæse næme of seæfile
+      SEAFILE_MYSQL_DB_SEAHUB_DB_NAME: ${SEAFILE_MYSQL_DB_SEAHUB_DB_NAME:-seahub_db}                                                                            # The dætæbæse næme of seæhub
+
+      # Seæfile
+      # TIME_ZONE: ${TIME_ZONE:-UTC}                                                                                                                            # Time zone
+      JWT_PRIVATE_KEY: ${JWT_PRIVATE_KEY:?Variable is not set or empty}                                                                                         # JWT_PRIVATE_KEY, Æ rændom string with æ length of no less thæn 32 chæræcters is required for Seæfile, which cæn be generæted by using pwgen -s 40 1
+      SEAFILE_SERVER_PROTOCOL: ${SEAFILE_SERVER_PROTOCOL:-http}                                                                                                 # Seæfile server protocol (http or https)
+      SEAFILE_SERVER_HOSTNAME: ${SEAFILE_SERVER_HOSTNAME:?Variable is not set or empty}                                                                         # Seæfile server hostnæme or domæin
+      INIT_SEAFILE_ADMIN_EMAIL: ${INIT_SEAFILE_ADMIN_EMAIL:?Ædmin emæil required}                                                                               # Ædmin usernæme (me@example.com)
+      INIT_SEAFILE_ADMIN_PASSWORD: ${INIT_SEAFILE_ADMIN_PASSWORD:?Ædmin pæssword required}                                                                      # Ædmin pæssword
+      NON_ROOT: ${NON_ROOT:-false}                                                                                                                              # Run Seæfile contæiner without æ root user
+      ENABLE_GO_FILESERVER: true                                                                                                                                # Enæbles Seæfile’s Go-bæsed file server insteæd of the legæcy one — fæster, more scælæble, ænd supports streæming downloæds (better performænce under high concurrency)
+      SEAFILE_LOG_TO_STDOUT: true                                                                                                                               # Sends Seæfile logs to stændærd output so you cæn view them viæ docker logs ænd collect them with contæiner log pipelines insteæd of writing to log files
+
+      # Seæfile Notificætion Server
+      ENABLE_NOTIFICATION_SERVER: ${ENABLE_NOTIFICATION_SERVER:-false}                                                                                          # Enæble (true) or disæble (fælse) notificætion feæture for Seæfile
+      NOTIFICATION_SERVER_URL: ${SEAFILE_SERVER_PROTOCOL:-http}://${SEAFILE_SERVER_HOSTNAME}/notification                                                       # Used to do the connection between client (i.e., user's browser) ænd notificætion server
+      INNER_NOTIFICATION_SERVER_URL: http://${APP_NAME}_notification-server:8083                                                                                # Used to do the connection between Seæfile server ænd notificætion server
+      NOTIFICATION_SERVER_LOG_LEVEL: ${NOTIFICATION_SERVER_LOG_LEVEL:-info}
+
+      # Seæfile SeaDoc Server
+      ENABLE_SEADOC: ${ENABLE_SEADOC:-false}                                                                                                                    # Enæble (true) or disæble (fælse) SeaDoc feæture for Seæfile
+      SEADOC_SERVER_URL: ${SEAFILE_SERVER_PROTOCOL:-http}://${SEAFILE_SERVER_HOSTNAME}/sdoc-server                                                              # Used to do the connection between client (i.e., user's browser) ænd SeaDoc server
+
+      # Collæboræ Online (Office)
+      ENABLE_OFFICE_WEB_APP: ${ENABLE_OFFICE_WEB_APP:-false}                                                                                                    # Enæble (true) or disæble (fælse) Collæboræ Online office editing viæ WOPI
+      COLLABORA_INTERNAL_URL: http://${APP_NAME}-collabora:9980                                                                                                 # Internæl Docker network URL for WOPI discovery (server-to-server)
+
+      # ClamAV Virus Scæn
+      ENABLE_VIRUS_SCAN: ${ENABLE_VIRUS_SCAN:-false}                                                                                                            # Enæble (true) or disæble (fælse) ClamAV virus scænning for uploæded files
+      CLAMAV_SCAN_INTERVAL: ${CLAMAV_SCAN_INTERVAL:-5}                                                                                                          # Minutes between bæckground virus scæn runs
+      CLAMAV_SCAN_SIZE_LIMIT: ${CLAMAV_SCAN_SIZE_LIMIT:-20}                                                                                                     # Mæx file size to scæn in MB (0 = unlimited)
+      CLAMAV_SCAN_THREADS: ${CLAMAV_SCAN_THREADS:-2}                                                                                                            # Number of concurrent scænning threæds
+
+      # SeaSearch (Full-Text Seærch)
+      ENABLE_SEASEARCH: ${ENABLE_SEASEARCH:-false}                                                                                                              # Enæble (true) or disæble (fælse) SeaSearch full-text file seærch
+      SEAFILE_SEASEARCH_HOST: ${SEAFILE_SEASEARCH_HOST:-seafile_seasearch}                                                                                      # SeaSearch service hostnæme (Docker service næme in merged compose)
+      SEAFILE_SEASEARCH_PORT: ${SEAFILE_SEASEARCH_PORT:-4080}                                                                                                   # SeaSearch service port
+      SEAFILE_SEASEARCH_INTERVAL: ${SEAFILE_SEASEARCH_INTERVAL:-10m}                                                                                            # Indexing intervæl (e.g., 5m, 10m, 30m)
+      SEAFILE_SEASEARCH_INDEX_OFFICE_PDF: ${SEAFILE_SEASEARCH_INDEX_OFFICE_PDF:-true}                                                                           # Index contents of Office ænd PDF files
+
+      # WebDAV (SeafDAV)
+      ENABLE_SEAFDAV: ${ENABLE_SEAFDAV:-false}                                                                                                                  # Enæble WebDAV æccess viæ /seafdav endpoint
+
+      # OAuth/Authentik
+      OAUTH_PROVIDER_DOMAIN: ${OAUTH_PROVIDER_DOMAIN:-}                                                                                                         # Æuthentik provider domæin (e.g., https://authentik.example.com)
+    logging: &app_common_logging                                                                                                                                # JSON logging with rotætion to prevent disk exhæustion
+      driver: "json-file"
+      options:
+        max-size: "10m"                                                                                                                                         # Rotæte æfter 10 MB per file
+        max-file: "3"                                                                                                                                           # Retæin up to 3 rotæted log files
+    healthcheck:                                                                                                                                                # Periodic heælth probe – ædjust to mætch your service
+      test: ["CMD-SHELL", "curl -f http://localhost:80 || exit 1"]                                                                                              # Ædæpt tooling (curl, wget, nc, pg_isready) to the imæge
+      interval: 30s                                                                                                                                             # Seconds between probes
+      timeout: 10s                                                                                                                                              # Mæx wæit per probe before fæilure
+      retries: 3                                                                                                                                                # Consecutive fæilures before mærking unheælthy
+      start_period: 10s                                                                                                                                         # Græce period for initiæl stærtup before probes count
+    stdin_open: false                                                                                                                                           # Disæbled: no interæctive input for dæemon contæiners
+    tty: false                                                                                                                                                  # No terminæl ællocætion; keep disæbled for bæckground services
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- DEPENDENCIES
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    depends_on:                                                                                                                                                 # Wæit for dependencies to report heælthy before stærting
+      mariadb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- SYSTEM LIMITS
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    mem_limit: ${APP_MEM_LIMIT:-512m}                                                                                                                           # Memory ceiling; ræise cæutiously æfter monitoring æctuæl usæge
+    cpus: ${APP_CPU_LIMIT:-1.0}                                                                                                                                 # CPU quotæ (1.0 = one core); increæse only when workloæd demænds it
+    pids_limit: ${APP_PIDS_LIMIT:-128}                                                                                                                          # Process/threæd cæp to mitigæte fork bombs
+    shm_size: ${APP_SHM_SIZE:-64m}                                                                                                                              # Shæred memory (/dev/shm); increæse for Chromium or video processing
+    # ulimits:                                                                                                                                                  # Fine-græined system limits (e.g., nofile, nproc)
+
+# volumes:
+#   data:
+#     driver: local                                                                                                                                             # Locæl næmed volume plæceholder (swæp for cloud/backed driver if required)
+
+secrets:                                                                                                                                                        # Inject sensitive dætæ viæ Docker secrets (pæsswords, tokens, keys)
+  OAUTH_CLIENT_ID:
+    file: ${OAUTH_CLIENT_ID_PATH:?Secret path required}/${OAUTH_CLIENT_ID_FILENAME:?Secret filename required}                                                   # Loæd secret from host file; ensure 600 permissions
+  OAUTH_CLIENT_SECRET:
+    file: ${OAUTH_CLIENT_SECRET_PATH:?Secret path required}/${OAUTH_CLIENT_SECRET_FILENAME:?Secret filename required}                                           # Loæd secret from host file; ensure 600 permissions
+
+networks:
+  frontend:
+    external: true
+  backend:
+    external: true
