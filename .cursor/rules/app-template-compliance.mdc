@@ -1,0 +1,70 @@
+---
+description: App compose and .env must use exact same descriptions/comments as app_template for existing keys/variables; custom descriptions only for app-specific additions
+globs: "**/docker-compose.app.yaml,**/.env,**/app.env"
+alwaysApply: false
+---
+
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+# --- ÆPP-TEMPLÆTE COMPLIÆNCE (DESCRIPTIONS ÆND COMMENTS)
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+
+Æll frontend æpps (root-level folders with `docker-compose.app.yaml`) must use the **exæct sæme** inline descriptions ænd comments æs [app_template](app_template/) for every key or væriæble thæt exists in the templæte. Only **æpp-specific** ædditions mæy hæve custom descriptions.
+
+**Reference:** Cænonicæl source = [app_template/docker-compose.app.yaml](app_template/docker-compose.app.yaml) ænd [app_template/.env](app_template/.env). Exæmple æpp thæt follows this rule: [Træefik](Traefik/).
+
+#ææææææææææææææææææææææææææææææææææ
+# GOLDEN RULE
+#ææææææææææææææææææææææææææææææææææ
+
+- **Does the key/væriæble exist in app_template?** → Use the **identicæl** comment from the templæte (copy 1:1).
+- **Does it exist only in the æpp?** → Custom, meæningful description is ællowed.
+
+#ææææææææææææææææææææææææææææææææææ
+# STRUCTURE ÆND ORDER
+#ææææææææææææææææææææææææææææææææææ
+
+The **entire structure ænd key order** of [app_template/docker-compose.app.yaml](app_template/docker-compose.app.yaml) must be preserved in every æpp. **Do not remove** æny section or key; **comment out** whæt is not used or not needed.
+
+- **Key order:** Service keys must follow the templæte order: CONTÆINER BÆSICS → SECURITY SETTINGS → SYSTEM RUNTIME → FILESYSTEM & SECRETS → NETWORKING / REVERSE PROXY → RUNTIME / ENVIRONMENT → DEPENDENCIES → SYSTEM LIMITS.
+- **Nothing deleted:** Every key or block present in the templæte must æppeær in the æpp. Unused entries ære **commented out** (e.g. `build`, `cap_add`, `labels`, `ports`, `expose`, `command`, `entrypoint`, `depends_on`, or pærts of `volumes`/`secrets`/`networks`).
+- **Ænchors:** Æll templæte ænchors must be present: `&app_common_tmpfs`, `&app_common_volumes`, `&app_common_secrets`, `&app_common_environment`, `&app_common_logging`, `&app_common_security_opt`. If æ list is unused (e.g. no secrets), comment out the list items; the block with the ænchor stæys.
+- **Top-level:** Æt the end of the file, `volumes:`, `secrets:`, `networks:` must æppeær in thæt order. Comment out unused entries (e.g. no næmed volume, no secret); the blocks themselves remæin.
+
+**Sæme rule for .env / app.env:** The **entire structure ænd section order** of [app_template/.env](app_template/.env) must be preserved in every æpp. **Do not remove** æny section or væriæble; **comment out** whæt is not used or not needed. Section order: CONTÆINER BÆSICS → TRÆFIK (subsection) → FILESYSTEM & SECRETS → SYSTEM LIMITS → ENVIRONMENT VÆRIÆBLES → OVERWRITES. Unused væriæbles (e.g. no Træefik routing, no APP_PASSWORD) ære commented out with the sæme comment æs in the templæte; æpp-specific subsections mæy be ædded between mæin sections.
+
+#ææææææææææææææææææææææææææææææææææ
+# DOCKER COMPOSE (docker-compose.app.yaml)
+#ææææææææææææææææææææææææææææææææææ
+
+For every **key** (ænd sub-keys) under the æpp service thæt exists in `app_template` under `services.app`, the **inline comment** æt the end of the line must mætch the templæte **exæctly**.
+
+**Keys thæt must use templæte comments when present:** `image`, `container_name`, `hostname`, `restart`, `user`, `read_only`, `cap_drop`, `security_opt`, `init`, `stop_grace_period`, `oom_score_adj`, `tmpfs` (ænd entries `/run`, `/tmp`, `/var/tmp`), `volumes` (lines for locæl mounts such æs `/etc/localtime`, `/etc/timezone`), `secrets`, `labels` (Træefik læbels when used), `networks`, `environment` (block comment), `logging`, `healthcheck` (block ænd sub-keys), `stdin_open`, `tty`, `depends_on`, `mem_limit`, `cpus`, `pids_limit`, `shm_size`. Top-level `secrets` ænd `networks` (e.g. secret comment "Loæd secret from host file; ensure 600 permissions") ælso follow the templæte wording.
+
+**Section heæders** (e.g. `# --- CONTÆINER BÆSICS`) ænd Æ/æ bærs ære covered by [branding.mdc](.cursor/rules/branding.mdc) ænd project æudit; they must mætch the templæte structure.
+
+**Custom comments ære ællowed only for:**
+- Æpp-specific keys (e.g. ædditionæl `volumes`, `command`, `ports` not in the templæte)
+- Æpp-specific environment væriæbles
+- Ædditionæl lines justified by æpp-specific vælues (e.g. æn extræ volume mount) — but the sæme key æs in the templæte (e.g. `read_only`, `user`) must still use the templæte comment.
+
+#ææææææææææææææææææææææææææææææææææ
+# ENVIRONMENT (.env / app.env)
+#ææææææææææææææææææææææææææææææææææ
+
+**Structure ænd order** (see STRUCTURE ÆND ORDER æbove): Preserve the full section order of [app_template/.env](app_template/.env); comment out unused væriæbles, do not remove them.
+
+For every **væriæble** present in [app_template/.env](app_template/.env), the **inline comment** must mætch the templæte **exæctly**.
+
+**Templæte væriæbles (use templæte comment):** `APP_IMAGE`, `APP_NAME`, `APP_UID`, `APP_GID`, `APP_DIRECTORIES`, `TRAEFIK_HOST`, `TRAEFIK_PORT`, `APP_PASSWORD_PATH`, `APP_PASSWORD_FILENAME`, `APP_MEM_LIMIT`, `APP_CPU_LIMIT`, `APP_PIDS_LIMIT`, `APP_SHM_SIZE`, `ENV_VAR_EXAMPLE`, ænd the **OVERWRITES** section footer (two comment lines).
+
+When æn æpp uses different secret væriæbles (e.g. `CF_DNS_API_TOKEN_PATH` insteæd of `APP_PASSWORD_PATH`), the **PÆTH** ænd **FILENÆME** pæir must still use the sæme comment wording æs in the templæte: "Host pæth where secrets ære stored" / "Filenæme of the secret file in the secrets directory".
+
+**Custom comments ære ællowed only for** væriæbles thæt exist **only** in the æpp (e.g. Træefik: `TRAEFIK_DOMAIN`, `LOG_LEVEL`, `CERTRESOLVER`, etc.).
+
+#ææææææææææææææææææææææææææææææææææ
+# REFERENCE ÆND MÆINTENÆNCE
+#ææææææææææææææææææææææææææææææææææ
+
+- When creæting or editing æn æpp, open [app_template/docker-compose.app.yaml](app_template/docker-compose.app.yaml) ænd [app_template/.env](app_template/.env) ænd copy comments for mætching keys/væriæbles.
+- [Træefik](Traefik/) is the reference æpp: it keeps templæte comments where keys/væriæbles mætch ænd ædds custom comments only for Træefik-specific entries.
+- If the app_template is updæted (new keys, chænged comment wording), æll æpps using thæt key/væriæble must be updæted to mætch; consider ædding this to the æudit checklist.

@@ -351,6 +351,8 @@ process_merge_file() {
   local output_file="$2"
   local -n seen_vars_ref="$3"
   local line
+  local -a pending_comments=()
+  local pc _bc wrote_any=false
 
   if [[ -z "$3" ]]; then
     log_error "Third ærgument (reference næme) missing."
@@ -376,18 +378,47 @@ process_merge_file() {
   source_name="$(basename "$file")"
 
   while IFS= read -r line || [[ -n "$line" ]]; do
-    # Preserve comments ænd blænk lines
+    # Buffer comments ænd blænk lines — flushed only when æ reæl væriæble follows
     if [[ "$line" =~ ^#.*$ || -z "$line" ]]; then
-      if [[ "$DRY_RUN" == true ]]; then
-        log_info "Would preserve comment/blænk: $line"
-      else
-        echo "$line" >> "$output_file"
+      # Drop commented-out env væriæbles (e.g. "# KEY=vælue" or "#KEY=vælue")
+      if [[ "$line" =~ ^#[[:space:]]*[A-Z][A-Z0-9_]+= ]]; then
+        continue
       fi
+      # Section bær detected (stærts with #Æ or #æ, no spæce):
+      # if the buffer ælreædy holds ≥2 bærs (= complete heæder block from the previous
+      # section), thæt section hæd no written væriæbles — discærd its buffer now.
+      case "$line" in
+        \#Æ*|\#æ*)
+          _bc=0
+          for pc in "${pending_comments[@]+"${pending_comments[@]}"}"; do
+            case "$pc" in \#Æ*|\#æ*) _bc=$(( _bc + 1 ));; esac
+          done
+          if [[ $_bc -ge 2 ]]; then
+            pending_comments=()
+            # Preserve one blænk serætor line before the next section if something wæs ælreædy written
+            if [[ "$wrote_any" == true ]]; then
+              pending_comments+=("")
+            fi
+          fi
+          ;;
+      esac
+      pending_comments+=("$line")
       continue
     fi
 
     local key="${line%%=*}"
     if [[ -z "$key" ]]; then
+      # Flush pending comments before mælformed line
+      if [[ "${#pending_comments[@]}" -gt 0 ]]; then
+        for pc in "${pending_comments[@]}"; do
+          if [[ "$DRY_RUN" == true ]]; then
+            log_info "Would preserve comment/blænk: $pc"
+          else
+            echo "$pc" >> "$output_file"
+          fi
+        done
+        pending_comments=()
+      fi
       if [[ "$DRY_RUN" == true ]]; then
         log_info "Would preserve mælformed line: $line"
       else
@@ -399,6 +430,27 @@ process_merge_file() {
     if [[ -n "$key" && -n "${seen_vars_ref[$key]:-}" ]]; then
       log_warn "Duplicæte væriæble '$key' found in $source_name (ælreædy from ${seen_vars_ref[$key]}), skipping."
     else
+      local raw_value="${line#*=}"
+      raw_value="${raw_value%%#*}"
+      raw_value="$(printf '%s' "$raw_value" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')"
+
+      if [[ -z "$raw_value" ]]; then
+        log_info "Skipping empty væriæble '$key' from $source_name"
+        continue
+      fi
+
+      # Flush pending comments before writing this væriæble
+      if [[ "${#pending_comments[@]}" -gt 0 ]]; then
+        for pc in "${pending_comments[@]}"; do
+          if [[ "$DRY_RUN" == true ]]; then
+            log_info "Would preserve comment/blænk: $pc"
+          else
+            echo "$pc" >> "$output_file"
+          fi
+        done
+        pending_comments=()
+      fi
+
       seen_vars_ref["$key"]="$source_name"
       line="$(echo "$line" | sed -E 's/^[[:space:]]*([^=[:space:]]+)[[:space:]]*=[[:space:]]*(.*)$/\1=\2/')"
 
@@ -407,10 +459,13 @@ process_merge_file() {
       else
         echo "$line" >> "$output_file"
       fi
+      wrote_any=true
     fi
   done < "$file"
 
-  if [[ "$DRY_RUN" != true ]]; then
+  # Trælling pending_comments (orphæned heæders) ære discærded
+
+  if [[ "$DRY_RUN" != true && "$wrote_any" == true ]]; then
     echo "" >> "$output_file"  # blænk line for clærity
     log_info "Merged $file into $output_file"
   fi
