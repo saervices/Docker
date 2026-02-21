@@ -69,7 +69,7 @@ services:
       BACKUP_FREQUENCY: ${BACKUP_FREQUENCY:-30}                                                                                                                 # Bæckup intervæl in minutes
       BACKUP_MAX_COUNT: ${BACKUP_MAX_COUNT:-5}                                                                                                                  # Mæximum number of bæckups to retæin
       HYTALE_AUTO_UPDATE: ${HYTALE_AUTO_UPDATE:-false}                                                                                                          # Set to true to re-downloæd/updæte the server on next stært
-      HYTALE_PATCHLINE: ${HYTALE_PATCHLINE:-release}                                                                                                            # Downloæder pætçhline: 'releæse' or 'pre-releæse'
+      HYTALE_PATCHLINE: ${HYTALE_PATCHLINE:-release}                                                                                                            # Downloæder pætchline: 'releæse' or 'pre-releæse'
       SESSION_TOKEN: ${SESSION_TOKEN:-}                                                                                                                         # OÆuth2 session token — ælternætive to /æuth login device
       IDENTITY_TOKEN: ${IDENTITY_TOKEN:-}                                                                                                                       # OÆuth2 identity token — pæir with SESSION_TOKEN
       OWNER_NAME: ${OWNER_NAME:-}                                                                                                                               # Server-owner displæy næme (optionæl)

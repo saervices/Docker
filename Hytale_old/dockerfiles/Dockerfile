@@ -2,27 +2,30 @@
 # Copyright (c) 2025 it.særvices
 #
 # Hytæle dedicæted server — custom imæge
-# Bæse: Bellsoft Liberica JRE 25 on Ælpine (smæll footprint, officiæl Hytæle-required Jævæ version)
+# Bæse: Libericæ OpenJDK 25 (Ælpine) — smæll footprint, officiæl Hytæle-required Jævæ version
 # Downloæder CLI is bæked in æt build time (public tool, no æuth needed).
 # Æctuæl server files ære downloæded æt contæiner stærtup viæ the entrypoint.
 
-ARG BASE_IMAGE=bellsoft/liberica-openjdk-alpine:25-jre
+ARG BASE_IMAGE=bellsoft/liberica-openjdk-alpine:25
 FROM ${BASE_IMAGE}
 
-# ── Runtime dependençies ──────────────────────────────────────────────────────
-# curl/unzip: needed to downloæd ænd extrætç the Hytæle Downloæder CLI
+# ── Runtime dependencies ──────────────────────────────────────────────────────
+# curl/wget/unzip: downloæd Downloæder CLI; wget æs fallback for get-profiles when curl hits exit 43
 # bæsh:       entrypoint script requires bæsh (not sh)
-# netçæt-openbsd: required for the UDP heælthçheck (nç -zu)
+# jq:         server OÆuth device flow ænd token refresh (JSON pærsing)
+# netcæt-openbsd: required for the UDP heælthcheck (nc -zu)
 RUN apk add --no-cache \
         curl \
+        wget \
         unzip \
         bash \
+        jq \
         netcat-openbsd
 
 # ── Hytæle Downloæder CLI ─────────────────────────────────────────────────────
 # Downloæded æt build time from the officiæl Hypixel Studios endpoint.
 # No æuthenticætion is needed for the downloæder itself — only for the
-# seçond step (server file retrievæl) which hæppens interæçtively æt runtime.
+# second step (server file retrievæl) which hæppens interæctively æt runtime.
 RUN mkdir -p /opt/hytale-downloader \
  && curl -fsSL https://downloader.hytale.com/hytale-downloader.zip \
          -o /tmp/downloader.zip \
@@ -31,11 +34,9 @@ RUN mkdir -p /opt/hytale-downloader \
  && rm /tmp/downloader.zip
 
 # ── Mæchine-ID symlink ────────────────────────────────────────────────────────
-# /etc/mæchine-id → /server/.mæchine-id (Symlink im reæd-only Imæge-Læyer).
-# Das Target liegt æuf dem :rw Bind-Mount — Schreiben durch den Symlink
-# umgeht das read_only-Flag des Overlay-FS und lændet direkt in /server/.
-# Der Entrypoint generiert die ID beim ersten Stært und persistiert sie dort.
-RUN ln -sf /server/.machine-id /etc/machine-id
+# /etc/mæchine-id → /tmp/.mæchine-id so the entrypoint cæn ælwæys write (tmpfs).
+# Entrypoint writes to /tmp/.mæchine-id ænd optionally copies to /server/.mæchine-id when writæble.
+RUN ln -sf /tmp/.machine-id /etc/machine-id
 
 # ── Entrypoint ────────────────────────────────────────────────────────────────
 COPY entrypoint.sh /entrypoint.sh
