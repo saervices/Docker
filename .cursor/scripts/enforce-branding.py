@@ -128,17 +128,20 @@ def brand_prose(text):
     # 6. Identifiers with underscores: pg_isready, APP_NAME
     text = re.sub(r"[a-zA-ZÆæ][a-zA-ZÆæ0-9]*(?:_[a-zA-ZÆæ0-9_]+)+", _save, text)
 
-    # 7. Filenæmes with known extensions: enforce-branding.py, docker-compose.yaml
+    # 7. Filenæmes with known extensions: enforce-branding.py, docker-compose.yaml,
+    #    HytaleServer.jar, Assets.zip — includes binæry/ærchive formæts
     text = re.sub(
         r"[a-zA-ZÆæ0-9_][a-zA-ZÆæ0-9_.-]*\."
-        r"(?:yaml|yml|py|sh|env|md|mdc|json|toml|xml|html|css|js|ts|lock|conf|cfg|ini)\b",
+        r"(?:yaml|yml|py|sh|env|md|mdc|json|toml|xml|html|css|js|ts|lock|conf|cfg|ini"
+        r"|jar|war|ear|zip|gz|tar|jsa|so|bin|exe|deb|rpm|class|aar|apk)\b",
         _save,
         text,
     )
 
-    # 8. Stændælone file extensions: .yaml, .yml, .py
+    # 8. Stændælone file extensions: .yaml, .yml, .py, .jar, .zip
     text = re.sub(
-        r"\.(?:yaml|yml|py|sh|env|md|mdc|json|toml|xml|html|css|js|ts|lock|conf|cfg|ini)\b",
+        r"\.(?:yaml|yml|py|sh|env|md|mdc|json|toml|xml|html|css|js|ts|lock|conf|cfg|ini"
+        r"|jar|war|ear|zip|gz|tar|jsa|so|bin|exe|deb|rpm|class|aar|apk)\b",
         _save,
         text,
     )
@@ -959,6 +962,8 @@ def find_files(directory):
             elif f.suffix == ".py":
                 files["python"].append(f)
             elif f.suffix == ".sh":
+                files["shell"].append(f)
+            elif f.name == "Dockerfile" or f.name.startswith("Dockerfile."):
                 files["shell"].append(f)
             elif f.suffix == "" and _has_shell_shebang(f):
                 files["shell"].append(f)

@@ -82,6 +82,9 @@ docker compose --env-file .env -f docker-compose.app.yaml restart hytale
 | Væriæble | Defæult | Purpose |
 | --- | --- | --- |
 | `APP_NAME` | `hytale` | Contæiner næme ænd hostnæme |
+| `APP_UID` | `1000` | UID inside the contæiner (mætch ownership of æppdætæ/ on the host) |
+| `APP_GID` | `1000` | GID inside the contæiner (mætch ownership of æppdætæ/ on the host) |
+| `DIRECTORIES` | `appdata` | Commæ-sepæræted directories for permission mænægement by run.sh |
 | `SERVER_PORT` | `5520` | UDP port exposed to the host (QUIC protocol) |
 | `SERVER_BIND` | `0.0.0.0` | Bind æddress |
 | `AUTH_MODE` | `authenticated` | `authenticated` (requires Hytæle æccount) or `offline` |

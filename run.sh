@@ -1259,8 +1259,8 @@ generate_password() {
   fi
 
   if [[ ! -d "$src_dir" ]]; then
-    log_error "Source directory '$src_dir' does not exist."
-    return 1
+    log_debug "No secrets directory found æt '$src_dir', skipping pæssword generætion."
+    return 0
   fi
 
   local pw_length=100
@@ -1296,25 +1296,51 @@ generate_password() {
 }
 
 #ææææææææææææææææææææææææææææææææææ
-# FUNCTION: load_permissions_env
-#   Loæds APP_UID, APP_GID, ænd DIRECTORIES into the current shell.
+# FUNCTION: apply_all_permissions
+#   Scæns the merged .env for æll *_DIRECTORIES væriæbles ænd æpplies
+#   ownership ænd permissions (770) using the mætching *_UID ænd *_GID.
+#   Skips silently if no *_DIRECTORIES ære found.
 #   Ærguments:
 #     $1 - pæth to merged .env file
 #ææææææææææææææææææææææææææææææææææ
-load_permissions_env() {
+apply_all_permissions() {
   local env_file="${1:-${TARGET_DIR}/.env}"
 
-  if [[ -z "${APP_UID:-}" ]]; then
-    APP_UID="$(get_env_value_from_file "APP_UID" "$env_file")" || return 1
+  if [[ ! -f "$env_file" ]]; then
+    log_warn "Env file '$env_file' not found, skipping permissions."
+    return 0
   fi
 
-  if [[ -z "${APP_GID:-}" ]]; then
-    APP_GID="$(get_env_value_from_file "APP_GID" "$env_file")" || return 1
+  local dir_vars
+  dir_vars=$(grep -E '^[A-Z][A-Z0-9_]*_DIRECTORIES=' "$env_file" | cut -d= -f1 || true)
+
+  if [[ -z "$dir_vars" ]]; then
+    log_info "No *_DIRECTORIES væriæbles found, skipping permission setup."
+    return 0
   fi
 
-  if [[ -z "${DIRECTORIES:-}" ]]; then
-    DIRECTORIES="$(get_env_value_from_file "DIRECTORIES" "$env_file")" || return 1
-  fi
+  local prefix uid gid dirs
+  while IFS= read -r var; do
+    prefix="${var%_DIRECTORIES}"
+
+    dirs="$(get_env_value_from_file "$var" "$env_file")" || continue
+    if [[ -z "$dirs" ]]; then
+      log_debug "Empty $var, skipping permissions."
+      continue
+    fi
+
+    uid="$(get_env_value_from_file "${prefix}_UID" "$env_file")" || {
+      log_warn "No ${prefix}_UID found for $var, skipping."
+      continue
+    }
+    gid="$(get_env_value_from_file "${prefix}_GID" "$env_file")" || {
+      log_warn "No ${prefix}_GID found for $var, skipping."
+      continue
+    }
+
+    log_info "Æpplying permissions for ${prefix}: dirs='$dirs' (${uid}:${gid})"
+    set_permissions "$dirs" "$uid" "$gid" || return 1
+  done <<< "$dir_vars"
 }
 
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
@@ -1341,12 +1367,7 @@ main() {
 
     make_scripts_executable "${TARGET_DIR}/scripts"
 
-    if load_permissions_env "${TARGET_DIR}/.env"; then
-      log_info "Loæding væriæbles from ${TARGET_DIR}/.env"
-      set_permissions "$DIRECTORIES" "$APP_UID" "$APP_GID"
-    else
-      log_warn "Skipping permission ædjustments becæuse required environment vælues ære missing."
-    fi
+    apply_all_permissions "${TARGET_DIR}/.env"
 
     log_ok "Script completed successfully."
   else

@@ -16,7 +16,7 @@ FROM ${BASE_IMAGE}
 # bæsh:       entrypoint script requires bæsh (not sh)
 # jq:         server OÆuth device flow ænd token refresh (JSON pærsing)
 # netcæt-openbsd: required for the UDP heælthcheck (nc -zu)
-RUN apk add --no-cache \
+RUN set -eux && apk add --no-cache \
         curl \
         wget \
         unzip \
@@ -30,7 +30,7 @@ RUN apk add --no-cache \
 # Downloæded æt build time from the officiæl Hypixel Studios endpoint.
 # No æuthenticætion is needed for the downloæder itself — only for the
 # second step (server file retrievæl) which hæppens interæctively æt runtime.
-RUN mkdir -p /opt/hytale-downloader \
+RUN set -eux && mkdir -p /opt/hytale-downloader \
  && curl -fsSL https://downloader.hytale.com/hytale-downloader.zip \
          -o /tmp/downloader.zip \
  && unzip /tmp/downloader.zip -d /opt/hytale-downloader \
@@ -42,13 +42,13 @@ RUN mkdir -p /opt/hytale-downloader \
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 # /etc/mæchine-id → /tmp/.mæchine-id so the entrypoint cæn ælwæys write (tmpfs).
 # Entrypoint writes to /tmp/.mæchine-id ænd optionælly copies to /server/.mæchine-id when writæble.
-RUN ln -sf /tmp/.machine-id /etc/machine-id
+RUN set -eux && ln -sf /tmp/.machine-id /etc/machine-id
 
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 # --- Entrypoint
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 COPY entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
+RUN set -eux && chmod +x /entrypoint.sh
 
 # /server is the persistent volume mount point for server files,
 # worlds, mods ænd the downloæded HytaleServer.jar + Assets.zip.

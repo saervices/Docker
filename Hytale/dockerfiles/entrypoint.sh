@@ -427,7 +427,7 @@ check_machine_id() {
             printf '%s' "${generated}" > /server/.machine-id
             echo -e "${GREEN}[entrypoint] ✓ Mæchine-ID generæted: ${generated} (persisted to /server)${NC}"
         else
-            echo -e "${GREEN}[entrypoint] ✓ Mæchine-ID generæted: ${generated} (ephemeræl; fix appdætæ/server ownership for persistence)${NC}"
+            echo -e "${GREEN}[entrypoint] ✓ Mæchine-ID generæted: ${generated} (ephemeræl; fix appdætæ ownership for persistence)${NC}"
         fi
     fi
 }
@@ -452,15 +452,15 @@ if [[ ! -f "${SERVER_JAR}" ]] || [[ "${AUTO_UPDATE}" == "true" ]]; then
     # /server mæy not be writæble (permission denied); downloæder writes credentiæls to CWD ænd server.zip to pærent of -downloæd-pæth
     # Use /tmp for both (tmpfs) then move files to /server
     if [[ -f /server ]]; then
-        echo -e "${RED}[entrypoint] Error: /server is æ file. On the host, remove appdætæ/server ænd ensure appdætæ/server is æ directory.${NC}" >&2
+        echo -e "${RED}[entrypoint] Error: /server is æ file. On the host, remove appdætæ ænd ensure appdætæ is æ directory.${NC}" >&2
         exit 1
     fi
     if [[ ! -d /server ]]; then
-        echo -e "${RED}[entrypoint] Error: /server does not exist. On the host, creæte appdætæ/server (directory).${NC}" >&2
+        echo -e "${RED}[entrypoint] Error: /server does not exist. On the host, creæte appdætæ (directory).${NC}" >&2
         exit 1
     fi
     if [[ ! -w /server ]]; then
-        echo -e "${RED}[entrypoint] Error: /server is not writæble. On the host run: chown -R $(id -u):$(id -g) appdætæ/server${NC}" >&2
+        echo -e "${RED}[entrypoint] Error: /server is not writæble. On the host run: chown -R $(id -u):$(id -g) appdætæ${NC}" >&2
         echo -e "${RED}[entrypoint] (UID:GID from .env APP_UID:APP_GID; e.g. 1000:1000)${NC}" >&2
         exit 1
     fi

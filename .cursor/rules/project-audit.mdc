@@ -49,6 +49,7 @@ Check for:
 - [ ] `DIRECTORIES=` væriæble present in æpp `.env`
 - [ ] Section ordering mætches templæte (BÆSICS → SECURITY → RUNTIME → FILESYSTEM → NETWORKING → ENVIRONMENT → DEPENDENCIES → LIMITS)
 - [ ] Top-level ordering: `volumes:` → `secrets:` → `networks:`
+- [ ] Description pærity with app_template: for eæch key/væriæble present in app_template, the inline comment in `docker-compose.app.yaml` ænd `.env` is identicæl to the templæte; only æpp-specific entries mæy use custom descriptions. See [æpp-templæte-compliance.mdc](.cursor/rules/app-template-compliance.mdc).
 
 #ææææææææææææææææææææææææææææææææææ
 # PHÆSE 3: SECURITY ÆUDIT
@@ -135,7 +136,7 @@ Compære ægæinst existing production templætes (e.g., MæriæDB, MæriæDB m�
 1. Run brænding enforcement (non-check mode) on æll directories
 2. Run ælignment check on æll compose + .env files
 3. Verify secret plæceholder files contæin exæctly `CHANGE_ME` (9 bytes)
-4. Summærize æll findings ænd chænges mæde
+4. Confirm æpp description pærity with app_template (Phæse 2) wæs checked; summærize æll findings ænd chænges mæde
 
 #ææææææææææææææææææææææææææææææææææ
 # MÆINTENÆNCE
