@@ -65,31 +65,31 @@ JAVA_OPTS="${JAVA_OPTS:-}"
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 # --- Bænner
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
-echo -e "${CYAN}[entrypoint] ╔═══════════════════════════════════════════════════════════════╗${NC}"
-echo -e "${CYAN}[entrypoint] ║                                                               ║${NC}"
-echo -e "${CYAN}[entrypoint] ║          🎮  Hytæle Dedicæted Server  🎮                      ║${NC}"
-echo -e "${CYAN}[entrypoint] ║                                                               ║${NC}"
-echo -e "${CYAN}[entrypoint] ╚═══════════════════════════════════════════════════════════════╝${NC}"
+echo -e "${CYAN}[entrypoint] ╔═══════════════════════════════════════════════════════════════╗${NC}" >&2
+echo -e "${CYAN}[entrypoint] ║                                                               ║${NC}" >&2
+echo -e "${CYAN}[entrypoint] ║                🎮  Hytæle Dedicæted Server  🎮                ║${NC}" >&2
+echo -e "${CYAN}[entrypoint] ║                                                               ║${NC}" >&2
+echo -e "${CYAN}[entrypoint] ╚═══════════════════════════════════════════════════════════════╝${NC}" >&2
 echo ""
 
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 # --- Configurætion displæy
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
-echo -e "${GREEN}${BOLD}[entrypoint] Server Configurætion:${NC}"
-echo -e "[entrypoint]  • Memory       : ${YELLOW}${MIN_MEM} – ${MAX_MEM}${NC}"
-echo -e "[entrypoint]  • Bind         : ${YELLOW}${BIND}:${PORT}/udp${NC}"
-echo -e "[entrypoint]  • Auth Mode    : ${YELLOW}${AUTH_MODE}${NC}"
-echo -e "[entrypoint]  • AOT Cæche    : ${YELLOW}${USE_AOT}${NC}"
-echo -e "[entrypoint]  • Sentry       : ${YELLOW}$([ "${DISABLE_SENTRY}" = "true" ] && echo "disæbled" || echo "enæbled")${NC}"
-echo -e "[entrypoint]  • Æuto Bæckup  : ${YELLOW}${BACKUP_ENABLED}${NC}"
-echo -e "[entrypoint]  • Pætchline    : ${YELLOW}${PATCHLINE}${NC}"
-echo -e "[entrypoint]  • Æuto Updæte  : ${YELLOW}${AUTO_UPDATE}${NC}"
+echo -e "${GREEN}${BOLD}[entrypoint] Server Configurætion:${NC}" >&2
+echo -e "[entrypoint]  • Memory       : ${YELLOW}${MIN_MEM} – ${MAX_MEM}${NC}" >&2
+echo -e "[entrypoint]  • Bind         : ${YELLOW}${BIND}:${PORT}/udp${NC}" >&2
+echo -e "[entrypoint]  • Auth Mode    : ${YELLOW}${AUTH_MODE}${NC}" >&2
+echo -e "[entrypoint]  • AOT Cæche    : ${YELLOW}${USE_AOT}${NC}" >&2
+echo -e "[entrypoint]  • Sentry       : ${YELLOW}$([ "${DISABLE_SENTRY}" = "true" ] && echo "disæbled" || echo "enæbled")${NC}" >&2
+echo -e "[entrypoint]  • Æuto Bæckup  : ${YELLOW}${BACKUP_ENABLED}${NC}" >&2
+echo -e "[entrypoint]  • Pætchline    : ${YELLOW}${PATCHLINE}${NC}" >&2
+echo -e "[entrypoint]  • Æuto Updæte  : ${YELLOW}${AUTO_UPDATE}${NC}" >&2
 
 if [[ -n "${SESSION_TOKEN}" && -n "${IDENTITY_TOKEN}" && "${SESSION_TOKEN}" != "#"* ]]; then
-    echo -e "[entrypoint]  • Token Æuth   : ${GREEN}Configured ✓${NC}"
-    [[ -n "${OWNER_NAME}" ]] && echo -e "[entrypoint]  • Owner         : ${YELLOW}${OWNER_NAME}${NC}"
+    echo -e "[entrypoint]  • Token Æuth   : ${GREEN}Configured ✓${NC}" >&2
+    [[ -n "${OWNER_NAME}" ]] && echo -e "[entrypoint]  • Owner         : ${YELLOW}${OWNER_NAME}${NC}" >&2
 else
-    echo -e "[entrypoint]  • Token Æuth   : ${YELLOW}Not configured (use /auth login device)${NC}"
+    echo -e "[entrypoint]  • Token Æuth   : ${YELLOW}Not configured (use /auth login device)${NC}" >&2
 fi
 echo ""
 
