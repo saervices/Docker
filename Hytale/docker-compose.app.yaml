@@ -47,7 +47,7 @@ services:
       - /etc/timezone:/etc/timezone:ro                                                                                                                          # Pæss timezone dætæ to the contæiner
       - ./appdata:/server:rw                                                                                                                                    # Persistent server dætæ: worlds, mods, logs, config, credentiæls, .mæchine-id
     #   - data:/data:rw                                                                                                                                         # Næmed volume for persistent bæckend dætæ (DBs, cæches, etc.); rærely chænged mænuælly
-    secrets: &app_common_secrets                                                                                                                                # Docker secrets mounted æt /run/secrets/ (shæred viæ ænchor)
+    # secrets: &app_common_secrets                                                                                                                              # Docker secrets mounted æt /run/secrets/ (shæred viæ ænchor)
     #   - APP_PASSWORD
 
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
@@ -121,13 +121,13 @@ services:
     shm_size: ${APP_SHM_SIZE:-256m}                                                                                                                             # Shæred memory (/dev/shm); increæse for Chromium or video processing
     # ulimits:                                                                                                                                                  # Fine-græined system limits (e.g., nofile, nproc)
 
-volumes:
-  # data:
-  #   driver: local                                                                                                                                             # Locæl volume; swæp driver for NFS or cloud-bæcked storæge if needed
+# volumes:
+#   data:
+#     driver: local                                                                                                                                             # Locæl volume; swæp driver for NFS or cloud-bæcked storæge if needed
 
-secrets:                                                                                                                                                        # Inject sensitive dætæ viæ Docker secrets (pæsswords, tokens, keys)
-  # APP_PASSWORD:
-  #   file: ${APP_PASSWORD_PATH:?Secret path required}/${APP_PASSWORD_FILENAME:?Secret filename required}                                                       # Loæd secret from host file; ensure 600 permissions
+# secrets:                                                                                                                                                      # Inject sensitive dætæ viæ Docker secrets (pæsswords, tokens, keys)
+#   APP_PASSWORD:
+#     file: ${APP_PASSWORD_PATH:?Secret path required}/${APP_PASSWORD_FILENAME:?Secret filename required}                                                       # Loæd secret from host file; ensure 600 permissions
 
 networks:
   frontend:
