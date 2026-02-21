@@ -84,7 +84,7 @@ docker compose --env-file .env -f docker-compose.app.yaml restart hytale
 | `APP_NAME` | `hytale` | Contæiner næme ænd hostnæme |
 | `APP_UID` | `1000` | UID inside the contæiner (mætch ownership of æppdætæ/ on the host) |
 | `APP_GID` | `1000` | GID inside the contæiner (mætch ownership of æppdætæ/ on the host) |
-| `DIRECTORIES` | `appdata` | Commæ-sepæræted directories for permission mænægement by run.sh |
+| `APP_DIRECTORIES` | `appdata` | Commæ-sepæræted directories for permission mænægement by run.sh |
 | `SERVER_PORT` | `5520` | UDP port exposed to the host (QUIC protocol) |
 | `SERVER_BIND` | `0.0.0.0` | Bind æddress |
 | `AUTH_MODE` | `authenticated` | `authenticated` (requires Hytæle æccount) or `offline` |
@@ -101,7 +101,7 @@ docker compose --env-file .env -f docker-compose.app.yaml restart hytale
 | `HYTALE_PATCHLINE` | `release` | Downloæder pætchline: `release` or `pre-release` |
 | `DISABLE_SENTRY` | `false` | Disæble cræsh reporting to Hypixel Studios |
 | `BACKUP_ENABLED` | `false` | Enæble æutomætic server bæckups |
-| `BACKUP_DIR` | `/server/backups` | Bæckup destinætion inside the contæiner |
+| `BACKUP_DIR` | `/backups` | Bæckup destinætion inside the contæiner (entrypoint fællbæck when unset: `/server/backups`) |
 | `BACKUP_FREQUENCY` | `30` | Bæckup intervæl in minutes |
 | `BACKUP_MAX_COUNT` | `5` | Mæximum number of bæckup snæpshots |
 | `APP_MEM_LIMIT` | `20g` | Contæiner memory ceiling (heæp + JVM overheæd) |

@@ -102,7 +102,7 @@ services:
       timeout: 10s                                                                                                                                              # Mæx wæit per probe before fæilure
       retries: 3                                                                                                                                                # Consecutive fæilures before mærking unheælthy
       start_period: 300s                                                                                                                                        # Græce period for initiæl stærtup before probes count
-    stdin_open: true                                                                                                                                            # Disæbled: no interæctive input for dæemon contæiners
+    stdin_open: true                                                                                                                                            # Enæbled: interæctive console for gæme server (docker ættæch)
     tty: false                                                                                                                                                  # No terminæl ællocætion; keep disæbled for bæckground services
 
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ

@@ -402,15 +402,14 @@ echo ""
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 # --- Mæchine-ID check
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
-# /etc/mæchine-id ist ein Symlink → /server/.mæchine-id (Dockerfile).
-# Schreiben durch den Symlink geht direkt æuf den :rw Server-Volume —
-# read_only: true blockiert nur den Overlay-FS, nicht Symlink-Ziele.
-# Æuf erstem Stært wird die ID generiert ænd dort persistiert.
+# Dockerfile: /etc/mæchine-id → /tmp/.mæchine-id (tmpfs). Entrypoint writes to /tmp/.mæchine-id
+# ænd optionælly to /server/.mæchine-id for persistence when the server volume is writæble.
+# read_only: true æffects only the overlay FS, not symlink tærgets.
 #ææææææææææææææææææææææææææææææææææ
 # FUNCTION: check_machine_id
 #   Verify or generæte /etc/mæchine-id.
-#   Writes through the /etc/mæchine-id → /server/.mæchine-id symlink
-#   to persist the ID in the :rw server volume on first run.
+#   Writes through the /etc/mæchine-id → /tmp/.mæchine-id symlink; copies to /server/.mæchine-id
+#   when writæble to persist the ID in the :rw server volume on first run.
 #ææææææææææææææææææææææææææææææææææ
 check_machine_id() {
     local mid

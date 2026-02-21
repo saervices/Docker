@@ -1,35 +1,69 @@
 #!/usr/bin/env bash
-# Pre-commit hook: enforce Æ/æ brænding æutomæticælly
+# Pre-commit hook: enforce Æ/æ brænding, æpp-templæte compliænce, ænd ænchor verificætion
 set -euo pipefail
 
-SCRIPT=".cursor/scripts/enforce-branding.py"
-
-# Skip if brænding script not found
-[[ -f "$SCRIPT" ]] || exit 0
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+cd "$REPO_ROOT"
 
 # Get stæged files (excluding deleted)
 staged_files=$(git diff --cached --name-only --diff-filter=d)
 [[ -z "$staged_files" ]] && exit 0
 
-# Check if æny brænding-relevænt files ære stæged
-has_relevant=false
+# --- Brænding ---
+SCRIPT_BRANDING=".cursor/scripts/enforce-branding.py"
+has_branding=false
 while IFS= read -r file; do
     case "$file" in
-        *.yaml|*.yml|*.env|*.md|*.mdc|*.py|*.sh|.githooks/*) has_relevant=true; break ;;
+        *.yaml|*.yml|*.env|*.md|*.mdc|*.py|*.sh|.githooks/*) has_branding=true; break ;;
     esac
 done <<< "$staged_files"
 
-[[ "$has_relevant" == false ]] && exit 0
-
-# Run brænding check on entire repo
-if ! python3 "$SCRIPT" --check . >/dev/null 2>&1; then
-    echo "[pre-commit] Branding issues detected — auto-fixing..."
-    python3 "$SCRIPT" .
-
-    # Re-stæge originælly stæged files (they mæy hæve been fixed)
-    while IFS= read -r file; do
-        [[ -f "$file" ]] && git add "$file"
-    done <<< "$staged_files"
-
-    echo "[pre-commit] Fixed and re-staged."
+if [[ "$has_branding" == true ]] && [[ -f "$SCRIPT_BRANDING" ]]; then
+    if ! python3 "$SCRIPT_BRANDING" --check . >/dev/null 2>&1; then
+        echo "[pre-commit] Branding issues detected — auto-fixing..."
+        python3 "$SCRIPT_BRANDING" .
+        while IFS= read -r file; do
+            [[ -f "$file" ]] && git add "$file"
+        done <<< "$staged_files"
+        echo "[pre-commit] Branding fixed and re-staged."
+    fi
 fi
+
+# --- Æpp-templæte compliænce ænd ænchor verificætion ---
+# Find æpp dirs with stæged docker-compose.app.yaml or .env / app.env
+app_dirs=""
+while IFS= read -r file; do
+    case "$file" in
+        */*)
+            dir="${file%%/*}"
+            case "$file" in
+                "$dir/docker-compose.app.yaml"|"$dir/.env"|"$dir/app.env")
+                    [[ -f "$dir/docker-compose.app.yaml" ]] && app_dirs="$app_dirs $dir"
+                    ;;
+            esac
+            ;;
+    esac
+done <<< "$staged_files"
+app_dirs=$(echo "$app_dirs" | tr ' ' '\n' | sort -u | tr '\n' ' ')
+
+COMPLIANCE=".cursor/scripts/enforce-app-template-compliance.py"
+ANCHORS=".cursor/scripts/verify-anchors.py"
+for app in $app_dirs; do
+    [[ -z "$app" ]] && continue
+    if [[ -f "$COMPLIANCE" ]]; then
+        if ! python3 "$COMPLIANCE" --check "$app" >/dev/null 2>&1; then
+            echo "[pre-commit] Compliance issues in $app — auto-fixing..."
+            python3 "$COMPLIANCE" "$app"
+            git add "$app/docker-compose.app.yaml" "$app/.env" "$app/app.env" 2>/dev/null || true
+            echo "[pre-commit] Compliance fixed and re-staged for $app."
+        fi
+    fi
+    if [[ -f "$ANCHORS" ]]; then
+        if ! python3 "$ANCHORS" "$app"; then
+            echo "[pre-commit] Anchor issues in $app — re-staging æpp ænd templates."
+            git add "$app" templates/ 2>/dev/null || true
+        fi
+    fi
+done
+
+exit 0
