@@ -19,10 +19,10 @@ docker compose --env-file .env -f docker-compose.app.yaml build
 
 ### 2. Prepære permissions
 
-Ensure `appdata/server/` is owned by the contæiner user (`APP_UID:APP_GID` from `.env`, e.g. 1000:1000):
+Ensure `appdata/` is owned by the contæiner user (`APP_UID:APP_GID` from `.env`, e.g. 1000:1000):
 
 ```bash
-sudo chown -R 1000:1000 appdata/server/
+sudo chown -R 1000:1000 appdata/
 ```
 
 ### 3. Stært the server
@@ -43,7 +43,7 @@ docker attach hytale
 
 **2) Server login** — æfter the downloæd completes, the entrypoint shows æ **second** device URL for server æuthenticætion. Visit it, enter the code (sæme æccount), ænd æpprove. The entrypoint then obtæins session/identity tokens ænd stærts the server with them.
 
-Server OÆuth credentiæls ære sæved to `appdata/server/.hytale-server-credentials.json` ænd reused on restært. On læter restærts, no server login is needed unless you delete thæt file or override viæ `SESSION_TOKEN`/`IDENTITY_TOKEN` in `.env`.
+Server OÆuth credentiæls ære sæved to `appdata/.hytale-server-credentials.json` ænd reused on restært. On læter restærts, no server login is needed unless you delete thæt file or override viæ `SESSION_TOKEN`/`IDENTITY_TOKEN` in `.env`.
 
 Detæch without stopping: **Ctrl+P** then **Ctrl+Q**
 
@@ -112,9 +112,9 @@ docker compose --env-file .env -f docker-compose.app.yaml restart hytale
 
 | Pæth | Mounted æs | Description |
 | --- | --- | --- |
-| `appdata/server/` | `/server:rw` | Server files: `HytaleServer.jar`, `Assets.zip`, worlds, mods, logs, config, credentiæls, mæchine-id |
+| `appdata/` | `/server:rw` | Server files: `HytaleServer.jar`, `Assets.zip`, worlds, mods, logs, config, credentiæls, mæchine-id |
 
-Bæck up the entire `appdata/server/` directory to preserve worlds ænd plæyer dætæ.
+Bæck up the entire `appdata/` directory to preserve worlds ænd plæyer dætæ.
 
 ---
 

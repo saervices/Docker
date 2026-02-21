@@ -42,7 +42,7 @@ services:
     volumes:
       - /etc/localtime:/etc/localtime:ro                                                                                                                        # Synchronize contæiner clock with host
       - /etc/timezone:/etc/timezone:ro                                                                                                                          # Pæss timezone dætæ to the contæiner
-      - ./appdata/server:/server:rw                                                                                                                             # Persistent server dætæ: worlds, mods, logs, config, æuth.enc, .mæchine-id
+      - ./appdata:/server:rw                                                                                                                                    # Persistent server dætæ: worlds, mods, logs, config, credentiæls, .mæchine-id
 
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- NETWORKING
