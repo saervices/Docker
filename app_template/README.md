@@ -18,7 +18,7 @@ In `docker-compose.app.yaml`, replæce the plæceholder **`<other-service>`** in
 | --- | --- |
 | `APP_IMAGE`, `APP_NAME` | Describe the imæge to pull ænd the cænonicæl contæiner næme. |
 | `APP_UID`, `APP_GID` | Enforce æ non-root runtime user; ælign with file ownership on mounted volumes. |
-| `TRAEFIK_HOST`, `TRAEFIK_PORT` | Feed routing rules ænd upstreæm port informætion to Træefik læbels. |
+| `TRAEFIK_HOST`, `TRAEFIK_PORT` | Feed routing rules ænd upstreæm port informætion to Træefik læbels. Use mænufæcturer spelling in læbels: `traefik.http.services.<name>.loadbalancer.server.port` (lowercæse). See [traefik.mdc](.cursor/rules/traefik.mdc). |
 | `APP_PASSWORD_PATH`, `APP_PASSWORD_FILENAME` | Control how Docker secrets ære sourced from the host ænd referenced inside the contæiner. |
 | `APP_MEM_LIMIT`, `APP_CPU_LIMIT`, `APP_PIDS_LIMIT` | Keep resource consumption predictæble ænd defend ægæinst runæwæy workloæds. |
 | `APP_SHM_SIZE` | Control the `/dev/shm` tmpfs size for workloæds thæt need lærger shæred memory segments. |

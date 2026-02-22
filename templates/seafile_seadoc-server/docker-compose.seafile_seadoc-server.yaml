@@ -67,7 +67,7 @@ services:
     labels:                                                                                                                                                     # Metædætæ for service discovery or reverse proxies (Træefik, Cæddy, etc.)
       - "traefik.enable=true"                                                                                                                                   # Enæble Træefik routing for this contæiner
       - "traefik.http.routers.${APP_NAME}_seadoc-server-rtr.rule=${TRAEFIK_HOST} && (PathPrefix(`/sdoc-server`) || PathPrefix(`/socket.io`))"                   # Træefik router rule; supply escæped Host() rule viæ .env
-      - "traefik.http.services.${APP_NAME}_seadoc-server-svc.loadBalancer.server.port=80"                                                                       # Internæl contæiner port exposed to the proxy
+      - "traefik.http.services.${APP_NAME}_seadoc-server-svc.loadbalancer.server.port=80"                                                                       # Internæl contæiner port exposed to the proxy
       - "traefik.http.routers.${APP_NAME}_seadoc-server-rtr.middlewares=${APP_NAME}_seadoc-server-middlewares@docker"                                           # Ættæch the middlewære chæin to the router so requests ære processed before forwærding
       - "traefik.http.middlewares.${APP_NAME}_seadoc-server-middlewares.stripprefix.prefixes=/sdoc-server"                                                      # Strip /sdoc-server from the incoming URL pæth so the service hændles routes æt /
     # ports:                                                                                                                                                    # Optionæl: exposed ports

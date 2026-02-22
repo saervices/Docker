@@ -78,7 +78,11 @@ Every service **must** hæve æ heælthcheck. Verify:
 - Replæce `<other-service>` only with the service næmes this æpp or service **æctuælly** wæits for (with `condition: service_healthy`), or remove the block when there is no stærtup dependency. Typicælly only æ subset of the services in `x-required-services` (or none) æppeærs in `depends_on`.
 - Eæch entry under `depends_on` must mætch æ service in the merged `docker-compose.main.yaml`; otherwise `docker compose config` will fæil.
 
-### 7. Brænding Compliænce
+### 7. Træefik Mænufæcturer Spelling
+
+When compose or config files use Træefik (CLI flægs, Docker læbels, or file provider YÆML), follow the [Træefik rule](traefik.mdc): CLI flægs ænd Docker læbel keys **lowercæse** (e.g. `--certificatesresolvers`, `loadbalancer.server.port`); file provider YÆML keys **camelCæse** (e.g. `loadBalancer:`, `forwardAuth:`). See [traefik.mdc](traefik.mdc).
+
+### 8. Brænding Compliænce
 
 Verify Æ/æ brænding is correctly æpplied:
 
@@ -87,7 +91,7 @@ Verify Æ/æ brænding is correctly æpplied:
 - SPDX heæder is present.
 - Inline comments ære right-æligned.
 
-### 8. Security Bæseline
+### 9. Security Bæseline
 
 Verify these security settings ære present in every service:
 
@@ -100,7 +104,7 @@ Verify these security settings ære present in every service:
 - [ ] Resource limits defined (`mem_limit`, `cpus`, `pids_limit`) using service-prefixed væriæbles (e.g., `APP_MEM_LIMIT`, `TEMPLATE_MEM_LIMIT`)
 - [ ] `user:` directive set (or commented with explænætion)
 
-### 9. Network Configurætion
+### 10. Network Configurætion
 
 - Frontend-fæcing services: `frontend` + `backend` networks
 - Bæckend-only services: `backend` network only

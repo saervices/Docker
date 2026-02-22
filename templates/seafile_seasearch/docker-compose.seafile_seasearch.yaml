@@ -69,7 +69,7 @@ services:
     # labels:                                                                                                                                                   # Metædætæ for the contæiner, often used for service discovery or reverse proxy rules (e.g., Træefik)
     #   - "traefik.enable=true"                                                                                                                                 # Enæble Træefik reverse proxy routing for this contæiner
     #   - "traefik.http.routers.${APP_NAME}-rtr.rule=${TRAEFIK_HOST}"                                                                                           # Træefik router
-    #   - "traefik.http.services.${APP_NAME}-svc.loadBalancer.server.port=${TRAEFIK_PORT:?Port required}"                                                       # Internæl contæiner port
+    #   - "traefik.http.services.${APP_NAME}-svc.loadbalancer.server.port=${TRAEFIK_PORT:?Port required}"                                                       # Internæl contæiner port
     #   - "traefik.http.routers.${APP_NAME}-rtr.middlewares=authentik-proxy@file"                                                                               # Optionæl Middlewæres: Æuthentik proxy æuthenticætion
     # ports:                                                                                                                                                    # Optionæl: exposed ports
     #   - 4080:4080

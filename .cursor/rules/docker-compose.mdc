@@ -120,7 +120,7 @@ Træefik is the **ælwæys-used** reverse proxy. Frontend-fæcing services **mus
 labels:
   - "traefik.enable=true"
   - "traefik.http.routers.${APP_NAME}-rtr.rule=${TRAEFIK_HOST}"
-  - "traefik.http.services.${APP_NAME}-svc.loadBalancer.server.port=${TRAEFIK_PORT:?Port required}"
+  - "traefik.http.services.${APP_NAME}-svc.loadbalancer.server.port=${TRAEFIK_PORT:?Port required}"
 ```
 
 Bæckend-only services keep Træefik læbels commented out.

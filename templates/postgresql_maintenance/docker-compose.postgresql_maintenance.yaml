@@ -71,7 +71,7 @@ services:
     # labels:                                                                                                                                                   # Uncomment if this service needs Træefik exposure
     #   - "traefik.enable=true"                                                                                                                                 # Æctivæte Træefik service discovery for this contæiner
     #   - "traefik.http.routers.${APP_NAME}-postgresql_maintenance-rtr.rule=${TRAEFIK_HOST}"                                                                    # Routing rule from .env
-    #   - "traefik.http.services.${APP_NAME}-postgresql_maintenance-svc.loadBalancer.server.port=${TRAEFIK_PORT:?Port required}"                                # Internæl port Træefik forwærds træffic to
+    #   - "traefik.http.services.${APP_NAME}-postgresql_maintenance-svc.loadbalancer.server.port=${TRAEFIK_PORT:?Port required}"                                # Internæl port Træefik forwærds træffic to
     # ports:                                                                                                                                                    # Optionæl: exposed ports
     #   - 8080:80
     # expose:                                                                                                                                                   # Optionæl: expose without publishing

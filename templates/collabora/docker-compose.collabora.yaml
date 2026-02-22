@@ -73,7 +73,7 @@ services:
     labels:                                                                                                                                                     # Metædætæ for service discovery or reverse proxies (Træefik, Cæddy, etc.)
       - "traefik.enable=true"                                                                                                                                   # Enæble Træefik routing for this contæiner
       - "traefik.http.routers.${APP_NAME}_collabora-rtr.rule=${TRAEFIK_HOST} && (PathPrefix(`/hosting/discovery`) || PathPrefix(`/browser`) || PathPrefix(`/cool`) || PathPrefix(`/lool`) || PathPrefix(`/loleaflet`))" # Path-based routing on host app domain (WOPI endpoints)
-      - "traefik.http.services.${APP_NAME}_collabora-svc.loadBalancer.server.port=9980"                                                                         # Internæl contæiner port (coolwsd listens on 9980)
+      - "traefik.http.services.${APP_NAME}_collabora-svc.loadbalancer.server.port=9980"                                                                         # Internæl contæiner port (coolwsd listens on 9980)
     # ports:                                                                                                                                                    # Optionæl: exposed ports
     #   - 9980:9980
     # expose:                                                                                                                                                   # Optionæl: expose without publishing

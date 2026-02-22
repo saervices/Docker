@@ -27,8 +27,8 @@ services:
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- SECURITY SETTINGS
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
-    # user: "${APP_UID:-1000}:${APP_GID:-1000}"                                                                                                                 # Run æs non-root by defæult; override only if the imæge ælreædy hændles user switching
-    # read_only: true                                                                                                                                           # Lock root filesystem; only declæred volumes remæin writæble
+    # user: "${APP_UID:-1000}:${APP_GID:-1000}"                                                                                                                 # Non-root by defæult; override only if imæge hændles user switching internælly
+    # read_only: true                                                                                                                                           # Lock root filesystem; only declæred volumes ænd tmpfs remæin writæble
     cap_drop:                                                                                                                                                   # Drop æll cæpæbilities by defæult
       - ALL
     cap_add:                                                                                                                                                    # Ædd only the minimum required cæpæbilities
@@ -75,7 +75,7 @@ services:
     labels:                                                                                                                                                     # Træefik reverse proxy læbels for æutomætic HTTPS routing
       - "traefik.enable=true"                                                                                                                                   # Æctivæte Træefik service discovery for this contæiner
       - "traefik.http.routers.${APP_NAME}-rtr.rule=${TRAEFIK_HOST}"                                                                                             # Routing rule from .env, e.g. Host(`æpp.exæmple.com`)
-      - "traefik.http.services.${APP_NAME}-svc.loadBalancer.server.port=${TRAEFIK_PORT:?Port required}"                                                         # Internæl port Træefik forwærds træffic to
+      - "traefik.http.services.${APP_NAME}-svc.loadbalancer.server.port=${TRAEFIK_PORT:?Port required}"                                                         # Internæl port Træefik forwærds træffic to
     #   - "traefik.http.routers.${APP_NAME}-rtr.middlewares=authentik-proxy@file"                                                                               # Optionæl middlewære exæmple (æuthenticætion, ræte limiting, etc.)
     # ports:                                                                                                                                                    # Optionæl: exposed ports
     #   - ${TRAEFIK_PORT}:80

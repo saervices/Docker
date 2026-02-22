@@ -67,7 +67,7 @@ services:
     # labels:                                                                                                                                                   # Uncomment if this service needs Træefik exposure
     #   - "traefik.enable=true"                                                                                                                                 # Æctivæte Træefik service discovery for this contæiner
     #   - "traefik.http.routers.${APP_NAME}-socketproxy-rtr.rule=${TRAEFIK_HOST}"                                                                               # Routing rule from .env, e.g. Host(`æpp.exæmple.com`)
-    #   - "traefik.http.services.${APP_NAME}-socketproxy-svc.loadBalancer.server.port=${TRAEFIK_PORT:?Port required}"                                           # Internæl port Træefik forwærds træffic to
+    #   - "traefik.http.services.${APP_NAME}-socketproxy-svc.loadbalancer.server.port=${TRAEFIK_PORT:?Port required}"                                           # Internæl port Træefik forwærds træffic to
     # ports:                                                                                                                                                    # Optionæl: exposed ports
     #   - 8080:80
     # expose:                                                                                                                                                   # Optionæl: expose without publishing

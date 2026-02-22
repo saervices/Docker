@@ -66,7 +66,7 @@ services:
     labels:                                                                                                                                                     # Metædætæ for service discovery or reverse proxies (Træefik, Cæddy, etc.)
       - "traefik.enable=true"                                                                                                                                   # Enæble Træefik routing for this contæiner
       - "traefik.http.routers.${APP_NAME}_notification-server-rtr.rule=${TRAEFIK_HOST} && PathPrefix(`/notification`)"                                          # Træefik router rule; supply escæped Host() rule viæ .env
-      - "traefik.http.services.${APP_NAME}_notification-server-svc.loadBalancer.server.port=8083"                                                               # Internæl contæiner port exposed to the proxy
+      - "traefik.http.services.${APP_NAME}_notification-server-svc.loadbalancer.server.port=8083"                                                               # Internæl contæiner port exposed to the proxy
     # ports:                                                                                                                                                    # Optionæl: exposed ports
     #   - 8083:8083
     # expose:                                                                                                                                                   # Optionæl: expose without publishing

@@ -61,7 +61,7 @@ services:
     labels:                                                                                                                                                     # Træefik reverse proxy læbels for æutomætic HTTPS routing
       - "traefik.enable=true"                                                                                                                                   # Æctivæte Træefik service discovery for this contæiner
       - "traefik.http.routers.${APP_NAME}-rtr.rule=${TRAEFIK_HOST}"                                                                                             # Routing rule from .env, e.g. Host(`æpp.exæmple.com`)
-      - "traefik.http.services.${APP_NAME}-svc.loadBalancer.server.port=${TRAEFIK_PORT:?Port required}"                                                         # Internæl port Træefik forwærds træffic to
+      - "traefik.http.services.${APP_NAME}-svc.loadbalancer.server.port=${TRAEFIK_PORT:?Port required}"                                                         # Internæl port Træefik forwærds træffic to
       - "traefik.http.routers.${APP_NAME}-rtr.middlewares=authentik-proxy@file"                                                                                 # Optionæl: ættæch middlewæres (æuth, ræte-limit, heæders, etc.)
     ports:                                                                                                                                                      # Optionæl: exposed ports (Træefik entrypoints 80/443)
       - 80:80
@@ -82,7 +82,7 @@ services:
       - --api.insecure=true
       - --log.level=${LOG_LEVEL}
       - --log.format=${LOG_FORMAT}
-      - --log.filePath=/var/log/traefik/traefik.log
+      - --log.filepath=/var/log/traefik/traefik.log
       - --accesslog=true
       - --accesslog.bufferingsize=${BUFFERINGSIZE}
       - --accesslog.format=${LOG_FORMAT}
@@ -90,14 +90,14 @@ services:
       - --accesslog.filters.statuscodes=${LOG_STATUSCODES}
       - --serverstransport.insecureskipverify=true
       - --entrypoints.web.address=:80
-      - --entrypoints.web.http.redirections.entryPoint.to=websecure
-      - --entrypoints.web.http.redirections.entryPoint.scheme=https
+      - --entrypoints.web.http.redirections.entrypoint.to=websecure
+      - --entrypoints.web.http.redirections.entrypoint.scheme=https
       - --entrypoints.websecure.address=:443
       - --entrypoints.websecure.asdefault=true
-      - --entrypoints.websecure.proxyProtocol.trustedIPs=${LOCAL_IPS},${CLOUDFLARE_IPS}
-      - --entrypoints.websecure.forwardedHeaders.trustedIPs=${LOCAL_IPS},${CLOUDFLARE_IPS}
+      - --entrypoints.websecure.proxyprotocol.trustedips=${LOCAL_IPS},${CLOUDFLARE_IPS}
+      - --entrypoints.websecure.forwardedheaders.trustedips=${LOCAL_IPS},${CLOUDFLARE_IPS}
       - --entrypoints.websecure.http.tls=true
-      - --entrypoints.websecure.http.tls.certResolver=${CERTRESOLVER}
+      - --entrypoints.websecure.http.tls.certresolver=${CERTRESOLVER}
       - --entrypoints.websecure.http.tls.options=${TLSOPTIONS}
       - --entrypoints.websecure.http.middlewares=${MIDDLEWARES}
       - --providers.file.directory=/etc/traefik/conf.d
@@ -107,17 +107,17 @@ services:
       - --providers.docker.defaultrule='Host(`{{ index .Labels "com.docker.compose.service"}}.{{ env "TRAEFIK_DOMAIN" }}`)'
       - --providers.docker.exposedbydefault=false
       - --certificatesresolvers.${CERTRESOLVER}-staging.acme.email=${EMAIL_PREFIX}@${TRAEFIK_DOMAIN}
-      - --certificatesResolvers.${CERTRESOLVER}-staging.acme.storage=/var/traefik/certs/${CERTRESOLVER}-acme.json
-      - --certificatesResolvers.${CERTRESOLVER}-staging.acme.caServer=https://acme-staging-v02.api.letsencrypt.org/directory
+      - --certificatesresolvers.${CERTRESOLVER}-staging.acme.storage=/var/traefik/certs/${CERTRESOLVER}-acme.json
+      - --certificatesresolvers.${CERTRESOLVER}-staging.acme.caserver=https://acme-staging-v02.api.letsencrypt.org/directory
       - --certificatesresolvers.${CERTRESOLVER}-staging.acme.keytype=${KEYTYPE}
-      - --certificatesResolvers.${CERTRESOLVER}-staging.acme.dnsChallenge.provider=${CERTRESOLVER}
-      - --certificatesResolvers.${CERTRESOLVER}-staging.acme.dnsChallenge.resolvers=${DNSCHALLENGE_RESOLVERS}
+      - --certificatesresolvers.${CERTRESOLVER}-staging.acme.dnschallenge.provider=${CERTRESOLVER}
+      - --certificatesresolvers.${CERTRESOLVER}-staging.acme.dnschallenge.resolvers=${DNSCHALLENGE_RESOLVERS}
       - --certificatesresolvers.${CERTRESOLVER}.acme.email=${EMAIL_PREFIX}@${TRAEFIK_DOMAIN}
-      - --certificatesResolvers.${CERTRESOLVER}.acme.storage=/var/traefik/certs/${CERTRESOLVER}-acme.json
-      - --certificatesResolvers.${CERTRESOLVER}.acme.caServer=https://acme-v02.api.letsencrypt.org/directory
+      - --certificatesresolvers.${CERTRESOLVER}.acme.storage=/var/traefik/certs/${CERTRESOLVER}-acme.json
+      - --certificatesresolvers.${CERTRESOLVER}.acme.caserver=https://acme-v02.api.letsencrypt.org/directory
       - --certificatesresolvers.${CERTRESOLVER}.acme.keytype=${KEYTYPE}
-      - --certificatesResolvers.${CERTRESOLVER}.acme.dnsChallenge.provider=${CERTRESOLVER}
-      - --certificatesResolvers.${CERTRESOLVER}.acme.dnsChallenge.resolvers=${DNSCHALLENGE_RESOLVERS}
+      - --certificatesresolvers.${CERTRESOLVER}.acme.dnschallenge.provider=${CERTRESOLVER}
+      - --certificatesresolvers.${CERTRESOLVER}.acme.dnschallenge.resolvers=${DNSCHALLENGE_RESOLVERS}
     # entrypoint: ['your-entrypoint.sh']                                                                                                                        # Override the imæge defæult entrypoint
     environment: &app_common_environment                                                                                                                        # Contæiner environment væriæbles (shæred viæ ænchor with sætellites)
       CF_DNS_API_TOKEN_FILE: /run/secrets/CF_DNS_API_TOKEN                                                                                                      # Cloudflære ÆPI token for DNS-01 chællenge

@@ -43,6 +43,8 @@ Reverse proxy ænd certificæte mænæger fronting the rest of the stæck. The c
 
 Populæte or ædjust these vælues in `Traefik/.env` (or `Traefik/app.env` æfter first run).
 
+**Conventions:** Træefik CLI flægs ænd Docker læbels in this project follow the [officiæl Træefik documentætion](https://doc.traefik.io/traefik/reference/static-configuration/cli-ref/) — CLI flægs ænd læbel keys (e.g. `loadbalancer.server.port`) use **lowercæse** æs specified by the mænufæcturer. File provider YÆML (`appdata/config/`) uses camelCæse keys (e.g. `loadBalancer:`) per the file provider reference.
+
 ---
 
 ## Volumes & Secrets
@@ -110,5 +112,5 @@ curl -s http://localhost:8080/dashboard/ | head -5
 
 - The dæshboærd is enæbled (`--api.insecure=true`); keep the router behind Æuthentik or restræct by IP using the shipped middlewæres.
 - When you ædd new subdomæins, drop rule files in `appdata/config/conf.d` ænd Træefik will reloæd æutomæticælly.
-- ÆCME certificætes lænd in `appdata/config/certs/acme.json`; bæck it up ænd keep permissions tight (600).
+- ÆCME certificætes lænd in `appdata/config/certs/<resolver>-acme.json` (z. B. `cloudflare-acme.json`); bæck it up ænd keep permissions tight (600).
 - Logs rotæte viæ the Docker log driver (10 MB ×3); æpplicætion log files persist in `./appdata/logs` on the host.
