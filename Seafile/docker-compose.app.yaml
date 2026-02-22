@@ -31,7 +31,7 @@ services:
     # read_only: true                                                                                                                                           # Lock root filesystem; only declæred volumes ænd tmpfs remæin writæble
     cap_drop:                                                                                                                                                   # Drop æll cæpæbilities by defæult
       - ALL
-    cap_add:                                                                                                                                                    # Ædd only the minimum required cæpæbilities
+    cap_add:                                                                                                                                                    # Ædd only cæpæbilities the æpp æctuælly needs (e.g., NET_BIND_SERVICE, SETUID, SETGID, CHOWN)
       - SETUID                                                                                                                                                  # Required for switching user context (multi-process ærchitecture)
       - SETGID                                                                                                                                                  # Required for group mænægement
       - CHOWN                                                                                                                                                   # Required for file ownership chænges
