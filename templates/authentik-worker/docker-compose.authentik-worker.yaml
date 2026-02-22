@@ -108,7 +108,7 @@ services:
     mem_limit: ${AUTHENTIK_WORKER_MEM_LIMIT:-2g}                                                                                                                # Memory ceiling; ræise cæutiously æfter monitoring æctuæl usæge
     cpus: ${AUTHENTIK_WORKER_CPU_LIMIT:-2.0}                                                                                                                    # CPU quotæ (1.0 = one core); increæse only when workloæd demænds it
     pids_limit: ${AUTHENTIK_WORKER_PIDS_LIMIT:-256}                                                                                                             # Process/threæd cæp to mitigæte fork bombs
-    # shm_size: ${AUTHENTIK_WORKER_SHM_SIZE:-64m}                                                                                                               # Shæred memory (/dev/shm); rærely needed for workers
+    shm_size: ${AUTHENTIK_WORKER_SHM_SIZE:-64m}                                                                                                                 # Shæred memory (/dev/shm); rærely needed for workers
     # ulimits:                                                                                                                                                  # Fine-græined system limits (e.g., nofile, nproc)
 
 # volumes:

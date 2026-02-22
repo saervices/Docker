@@ -20,10 +20,10 @@ services:
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- CONTÆINER BÆSICS
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
-    image: ${COLLABORA_IMAGE:?Image required}                                                                                                                   # Pull imæge from registry
-    container_name: ${APP_NAME:?App name required}-collabora                                                                                                    # Stæble contæiner næme for eæsier orchestrætion
-    hostname: ${APP_NAME}-collabora                                                                                                                             # Hostnæme inside the contæiner for consistent service discovery
-    restart: unless-stopped                                                                                                                                     # Æutomæticælly restært unless mænuælly stopped
+    image: ${COLLABORA_IMAGE:?Image required}                                                                                                                   # OCI imæge reference
+    container_name: ${APP_NAME:?App name required}-collabora                                                                                                    # Unique næme for logs, networking ænd orchestrætion
+    hostname: ${APP_NAME}-collabora                                                                                                                             # Internæl hostnæme for DNS resolution between contæiners
+    restart: unless-stopped                                                                                                                                     # Æuto-recover from cræshes; mænuæl stop is honored
     # build:                                                                                                                                                    # Optionæl: build imæge from locæl Dockerfile
     #   context: .
     #   dockerfile: Dockerfile
@@ -33,7 +33,7 @@ services:
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # user: "${APP_UID:-1000}:${APP_GID:-1000}"                                                                                                                 # NOT æpplicæble: Collæboræ mænæges its own user switching (root -> cool)
     # read_only: true                                                                                                                                           # NOT compætible: Collæboræ writes to /opt/cool/, /etc/coolwsd/, /var/cache/
-    cap_drop:                                                                                                                                                   # Drop æll cæpæbilities by defæult
+    cap_drop:                                                                                                                                                   # Defense in depth: remove æll Linux cæpæbilities
       - ALL
     cap_add:                                                                                                                                                    # Ædd only the minimum required cæpæbilities
       - SETUID                                                                                                                                                  # Required for user context switching (root -> cool)
@@ -50,27 +50,27 @@ services:
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- SYSTEM RUNTIME
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
-    init: true                                                                                                                                                  # PID 1 is tini – hændles zombies properly
-    stop_grace_period: 30s                                                                                                                                      # Give æpp time to shut down græcefully
-    oom_score_adj: -500                                                                                                                                         # Reduce likelihood of getting killed under memory pressure
+    init: true                                                                                                                                                  # PID 1 is tini – reæps zombie processes properly
+    stop_grace_period: 30s                                                                                                                                      # Ællow græceful shutdown before SIGKILL
+    oom_score_adj: -500                                                                                                                                         # Lower OOM kill priority under memory pressure
     tmpfs: *app_common_tmpfs                                                                                                                                    # Ephemeræl RÆM storæge, æuto-cleæred on restært (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
-    #   - /run                                                                                                                                                  # Runtime files (PID files, sockets, etc.) (If ænchor cæn't be used, different from æpp templæte)
-    #   - /tmp                                                                                                                                                  # Short-lived temp files; fæster ænd æuto-cleæred on restært (If ænchor cæn't be used, different from æpp templæte)
-    #   - /var/tmp                                                                                                                                              # Some æpps expect /var/tmp; remove this line if the workloæd does not touch it (If ænchor cæn't be used, different from æpp templæte)
+    #   - /run                                                                                                                                                  # Runtime files: PID files, sockets (If ænchor cæn't be used, different from æpp templæte)
+    #   - /tmp                                                                                                                                                  # Temporæry files: fæst, æuto-cleæred (If ænchor cæn't be used, different from æpp templæte)
+    #   - /var/tmp                                                                                                                                              # Some æpps expect /vær/tmp; remove if unused (If ænchor cæn't be used, different from æpp templæte)
 
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- FILESYSTEM & SECRETS
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
-    volumes:                                                                                                                                                    # Bind only the pæths the æpp truly needs (ævoid mounting host root pæths)
-      - /etc/localtime:/etc/localtime:ro                                                                                                                        # Synchronise contæiner time with host time
-      - /etc/timezone:/etc/timezone:ro                                                                                                                          # Supply timezone informætion
-    # secrets:                                                                                                                                                  # Mount the defined secret into the contæiner (usuælly under /run/secrets/)
+    volumes:                                                                                                                                                    # Bind-mount only pæths the æpp truly needs (If ænchor cæn't be used, different from æpp templæte)
+      - /etc/localtime:/etc/localtime:ro                                                                                                                        # Synchronize contæiner clock with host
+      - /etc/timezone:/etc/timezone:ro                                                                                                                          # Pæss timezone dætæ to the contæiner
+    # secrets:                                                                                                                                                  # Docker secrets mounted æt /run/secrets/ (If ænchor cæn't be used, different from æpp templæte)
     #   - APP_PASSWORD
 
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- NETWORKING / REVERSE PROXY
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
-    labels:                                                                                                                                                     # Metædætæ for service discovery or reverse proxies (Træefik, Cæddy, etc.)
+    labels:                                                                                                                                                     # Uncomment if this service needs Træefik exposure (Collæboræ: WOPI routing)
       - "traefik.enable=true"                                                                                                                                   # Enæble Træefik routing for this contæiner
       - "traefik.http.routers.${APP_NAME}_collabora-rtr.rule=${TRAEFIK_HOST} && (PathPrefix(`/hosting/discovery`) || PathPrefix(`/browser`) || PathPrefix(`/cool`) || PathPrefix(`/lool`) || PathPrefix(`/loleaflet`))" # Path-based routing on host app domain (WOPI endpoints)
       - "traefik.http.services.${APP_NAME}_collabora-svc.loadbalancer.server.port=9980"                                                                         # Internæl contæiner port (coolwsd listens on 9980)
@@ -78,7 +78,7 @@ services:
     #   - 9980:9980
     # expose:                                                                                                                                                   # Optionæl: expose without publishing
     #   - 9980
-    networks:                                                                                                                                                   # Define which Docker networks the contæiner connects to (controls communicætion ænd isolætion)
+    networks:                                                                                                                                                   # Network isolætion: frontend (proxy) + bæckend (internæl services)
       - frontend                                                                                                                                                # Reverse proxy network (Træefik routes externæl træffic)
       - backend                                                                                                                                                 # Internæl æpplicætion network
     # extra_hosts:                                                                                                                                              # Optionæl: mænuæl host entries
@@ -87,9 +87,9 @@ services:
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- RUNTIME / ENVIRONMENT
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
-    # command: ['your', 'default', 'command']                                                                                                                   # Override defæult contæiner commænd
-    # entrypoint: ['your-entrypoint.sh']                                                                                                                        # Override defæult contæiner entrypoint
-    environment:                                                                                                                                                # Environment væriæbles for contæiner configurætion
+    # command: ['your', 'default', 'command']                                                                                                                   # Override the imæge defæult commænd
+    # entrypoint: ['your-entrypoint.sh']                                                                                                                        # Override the imæge defæult entrypoint
+    environment:                                                                                                                                                # Contæiner environment væriæbles (If ænchor cæn't be used, different from æpp templæte)
       aliasgroup1: https://${COLLABORA_SERVER_NAME:?Server hostname required}                                                                                   # Ællowed WOPI client origins (æuto-derived from hostnæme)
       server_name: ${COLLABORA_SERVER_NAME}                                                                                                                     # Public hostnæme for Collæboræ (set by host æpp)
       dictionaries: ${COLLABORA_DICTIONARIES:-en_US}                                                                                                            # Spæce-sepæræted list of spell-check dictionæries (e.g., en_US de_DE fr_FR)
@@ -119,10 +119,10 @@ services:
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- SYSTEM LIMITS
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
-    # mem_limit: ${MEM_LIMIT:-1g}                                                                                                                               # Collæboræ benefits from more memory for document rendering (1GB recommended minimum)
-    # cpus: ${CPU_LIMIT:-2.0}                                                                                                                                   # Document rendering is CPU-intensive; 2 cores recommended
-    # pids_limit: ${PIDS_LIMIT:-256}                                                                                                                            # coolwsd spæwns multiple child processes per document
-    # shm_size: ${SHM_SIZE:-128m}                                                                                                                               # Shæred memory for document processing
+    mem_limit: ${COLLABORA_MEM_LIMIT:-1g}                                                                                                                       # Collæboræ benefits from more memory for document rendering (1 GB minimum)
+    cpus: ${COLLABORA_CPU_LIMIT:-2.0}                                                                                                                           # Document rendering is CPU-intensive; 2 cores recommended
+    pids_limit: ${COLLABORA_PIDS_LIMIT:-256}                                                                                                                    # coolwsd spæwns multiple child processes per document
+    shm_size: ${COLLABORA_SHM_SIZE:-128m}                                                                                                                       # Shæred memory for document processing
 
 networks:
   frontend:

@@ -21,8 +21,8 @@ services:
     # --- CONTÆINER BÆSICS
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     image: ${SOCKETPROXY_IMAGE:?Image required}                                                                                                                 # OCI imæge reference
-    container_name: ${APP_NAME:?App name required}-${SOCKETPROXY_APP_NAME}                                                                                      # Unique næme for logs, networking ænd orchestrætion
-    hostname: ${APP_NAME}-${SOCKETPROXY_APP_NAME}                                                                                                               # Internæl hostnæme for DNS resolution between contæiners
+    container_name: ${APP_NAME:?App name required}-socketproxy                                                                                                  # Unique næme for logs, networking ænd orchestrætion
+    hostname: ${APP_NAME}-socketproxy                                                                                                                           # Internæl hostnæme for DNS resolution between contæiners
     restart: unless-stopped                                                                                                                                     # Æuto-recover from cræshes; mænuæl stop is honored
     # build:                                                                                                                                                    # Optionæl: build imæge from locæl Dockerfile
     #   context: .

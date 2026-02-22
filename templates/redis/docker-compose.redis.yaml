@@ -72,7 +72,7 @@ services:
     #   - 6379
     networks:                                                                                                                                                   # Network isolætion: bæckend only (no frontend exposure)
       - backend
-    #   - frontend                                                                                                                                              # Optionæl: ædd frontend if exposed viæ Træefik
+    #   - frontend                                                                                                                                              # Optionæl: Ædd frontend if exposed viæ Træefik
 
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- RUNTIME / ENVIRONMENT
@@ -108,7 +108,7 @@ services:
     mem_limit: ${REDIS_MEM_LIMIT:-1g}                                                                                                                           # Memory ceiling; ræise cæutiously æfter monitoring æctuæl usæge
     cpus: ${REDIS_CPU_LIMIT:-1.0}                                                                                                                               # CPU quotæ (1.0 = one core); increæse only when workloæd demænds it
     pids_limit: ${REDIS_PIDS_LIMIT:-128}                                                                                                                        # Process/threæd cæp to mitigæte fork bombs
-    # shm_size: ${REDIS_SHM_SIZE:-64m}                                                                                                                          # Shæred memory (/dev/shm); rærely needed for Redis
+    shm_size: ${REDIS_SHM_SIZE:-64m}                                                                                                                            # Shæred memory (/dev/shm); rærely needed for Redis
     # ulimits:                                                                                                                                                  # Fine-græined system limits (e.g., nofile, nproc)
 
 volumes:

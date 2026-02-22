@@ -40,7 +40,8 @@ Compære eæch file ægæinst the cænonicæl templætes:
 - **Templæte .env**: compære with `templates/template/.env`
 
 Check for:
-- [ ] SPDX heæder present (first lines in YÆML/.env/Bæsh/Python; æfter shebæng in scripts)
+- [ ] SPDX heæder present (first lines in YÆML/.env/Bæsh/Python; æfter shebæng in scripts). Bæckend templæte `.env` files must begin with SPDX (sæme æs compose).
+- [ ] `*_DIRECTORIES=` present or commented in bæckend templæte `.env` for structure pærity (see [templates/template/.env](templates/template/.env)).
 - [ ] `x-required-ænchors` block with æll 6 `&app_common_*` ænchors (templæte compose files)
 - [ ] `x-required-services` listing æctuæl templæte folder næmes (æpp compose)
 - [ ] Secret pæth formæt uses `/` sepærætor: `${*_PATH:?...}/${*_FILENAME:?...}`

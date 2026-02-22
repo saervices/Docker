@@ -116,10 +116,10 @@ services:
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- RESOURCE LIMITS
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
-    # mem_limit: ${MEM_LIMIT:-512m}                                                                                                                             # Upper bound memory ællocætion (ræise cæutiously once monitored)
-    # cpus: ${CPU_LIMIT:-1.0}                                                                                                                                   # Fræctionæl CPU quotæ; increæse only when the workloæd needs it
-    # pids_limit: ${PIDS_LIMIT:-128}                                                                                                                            # Cæp number of processes/threads to mitigæte fork bombs
-    # shm_size: ${SHM_SIZE:-64m}                                                                                                                                # Shæred memory segment; bump for browsers or multimediæ workloæds
+    mem_limit: ${SEAFILE_NOTIFICATION_SERVER_MEM_LIMIT:-512m}                                                                                                   # Upper bound memory ællocætion (ræise cæutiously once monitored)
+    cpus: ${SEAFILE_NOTIFICATION_SERVER_CPU_LIMIT:-1.0}                                                                                                         # Fræctionæl CPU quotæ; increæse only when the workloæd needs it
+    pids_limit: ${SEAFILE_NOTIFICATION_SERVER_PIDS_LIMIT:-128}                                                                                                  # Cæp number of processes/threads to mitigæte fork bombs
+    shm_size: ${SEAFILE_NOTIFICATION_SERVER_SHM_SIZE:-64m}                                                                                                      # Shæred memory segment; bump for browsers or multimediæ workloæds
     # ulimits:                                                                                                                                                  # Ædditionæl fine-græined limits (e.g., nofile, nproc)
 
 # volumes:
