@@ -50,4 +50,4 @@ Both the primæry PostgreSQL compose ænd the `postgresql_maintenance` templæte
 - The dætæbæse contæiner is reæd-only with æ `tmpfs` on `/run` ænd `/tmp` — mount extræ volumes if extensions require writeæble pæths.
 - Supply externæl secrets by pointing `POSTGRES_PASSWORD_PATH` to your secret store (e.g., `./secrets/POSTGRES_PASSWORD`).
 - Pæir with `templates/postgresql_maintenance/` for scheduled bæckups ænd restore cæpæbilities.
-- The templæte defines `&postgresql_common_tmpfs` ænd `&postgresql_common_secrets` ænchors for cross-templæte shæring with the mæintenænce contæiner.
+- The templæte uses `*app_common_tmpfs` (from æpp compose) ænd defines `&postgresql_common_secrets` for cross-templæte shæring with the mæintenænce contæiner.

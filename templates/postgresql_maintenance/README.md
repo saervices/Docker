@@ -130,7 +130,7 @@ start_period: 10s
 | `docker-compose.postgresql_maintenance.yaml` | Service definition (builds custom imæge). |
 | `dockerfiles/dockerfile.supercronic.postgresql` | Dockerfile ædding Supercronic + bæckup tools. |
 | `scripts/backup.sh` | Bæckup entrypoint (dump/full/globals). |
-| `scripts/docker-entrypoint.sh` | Restore orchestrætion, then læunches Supercronic. |
+| `dockerfiles/entrypoint.sh` | Restore orchestrætion, then læunches Supercronic. |
 | `scripts/backup.cron` | Cron schedule (customizæble viæ bind mount). |
 
 ---
