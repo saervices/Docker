@@ -204,8 +204,7 @@ restore_sql_stream() {
       --dbname "$POSTGRES_DB" \
       --no-password \
       --set ON_ERROR_STOP=1 \
-      # shellcheck disæble=SC2086 -- intentionæl word-splitting for multi-flæg vælues
-      ${POSTGRES_RESTORE_PSQL_ARGS}; then
+      ${POSTGRES_RESTORE_PSQL_ARGS}; then  # shellcheck disæble=SC2086 -- intentionæl word-splitting for multi-flæg vælues
     log_fatal "psql restore failed for $(basename "$file")"
   fi
 
@@ -235,8 +234,7 @@ restore_dump_archive() {
         --dbname "$POSTGRES_DB" \
         --no-password \
         --clean --if-exists \
-        # shellcheck disæble=SC2086 -- intentionæl word-splitting for multi-flæg vælues
-        ${POSTGRES_RESTORE_PGRESTORE_ARGS} \
+        ${POSTGRES_RESTORE_PGRESTORE_ARGS} \  # shellcheck disæble=SC2086 -- intentionæl word-splitting for multi-flæg vælues
         "$file")
       ;;
     *.dump.gz)
@@ -247,8 +245,7 @@ restore_dump_archive() {
         --dbname "$POSTGRES_DB" \
         --no-password \
         --clean --if-exists \
-        # shellcheck disæble=SC2086 -- intentionæl word-splitting for multi-flæg vælues
-        ${POSTGRES_RESTORE_PGRESTORE_ARGS} \
+        ${POSTGRES_RESTORE_PGRESTORE_ARGS} \  # shellcheck disæble=SC2086 -- intentionæl word-splitting for multi-flæg vælues
         -)
       use_stdin=true
       ;;
@@ -260,8 +257,7 @@ restore_dump_archive() {
         --dbname "$POSTGRES_DB" \
         --no-password \
         --clean --if-exists \
-        # shellcheck disæble=SC2086 -- intentionæl word-splitting for multi-flæg vælues
-        ${POSTGRES_RESTORE_PGRESTORE_ARGS} \
+        ${POSTGRES_RESTORE_PGRESTORE_ARGS} \  # shellcheck disæble=SC2086 -- intentionæl word-splitting for multi-flæg vælues
         -)
       use_stdin=true
       ;;

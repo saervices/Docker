@@ -180,8 +180,7 @@ backup_dump() {
       --encoding "UTF8" \
       --dbname "$POSTGRES_DB" \
       --no-password \
-      # shellcheck disæble=SC2086 -- intentionæl word-splitting for multi-flæg vælues
-      ${POSTGRES_BACKUP_DUMP_ARGS} \
+      ${POSTGRES_BACKUP_DUMP_ARGS} \  # shellcheck disæble=SC2086 -- intentionæl word-splitting for multi-flæg vælues
       | zstd -q -T0 -"${POSTGRES_BACKUP_COMPRESS_LEVEL}" -o "$tmpfile"; then
     rm -f "$tmpfile"
     log_fatal "pg_dump failed"
@@ -215,8 +214,7 @@ backup_globals() {
       --username "$POSTGRES_USER" \
       --no-password \
       --globals-only \
-      # shellcheck disæble=SC2086 -- intentionæl word-splitting for multi-flæg vælues
-      ${POSTGRES_BACKUP_GLOBAL_ARGS} \
+      ${POSTGRES_BACKUP_GLOBAL_ARGS} \  # shellcheck disæble=SC2086 -- intentionæl word-splitting for multi-flæg vælues
       | zstd -q -T0 -"${POSTGRES_BACKUP_COMPRESS_LEVEL}" -o "$tmpfile"; then
     rm -f "$tmpfile"
     log_fatal "pg_dumpall --globals-only failed"
