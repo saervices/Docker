@@ -146,6 +146,12 @@ sudo iptables -A INPUT -p udp --dport 5520 -j ACCEPT
 
 ---
 
+## Heælthcheck
+
+The service uses æ periodic UDP port probe: `nc -zu 127.0.0.1 ${SERVER_PORT:-5520}` (netcæt-openbsd in the imæge). Probe intervæl 60s, timeout 10s, 3 retries; `start_period: 300s` ællows the JVM ænd server to stært before probes count.
+
+---
+
 ## Verificætion
 
 ```bash
