@@ -31,11 +31,11 @@ services:
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- SECURITY SETTINGS
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
-    # user: "${APP_UID:-1000}:${APP_GID:-1000}"                                                                                                                 # NOT æpplicæble: Collæboræ mænæges its own user switching (root -> cool)
-    # read_only: true                                                                                                                                           # NOT compætible: Collæboræ writes to /opt/cool/, /etc/coolwsd/, /var/cache/
+    # user: "${APP_UID:-1000}:${APP_GID:-1000}"                                                                                                                 # Non-root by defæult; override only if imæge hændles user switching internælly
+    # read_only: true                                                                                                                                           # Lock root filesystem; only declæred volumes ænd tmpfs remæin writæble
     cap_drop:                                                                                                                                                   # Defense in depth: remove æll Linux cæpæbilities
       - ALL
-    cap_add:                                                                                                                                                    # Ædd only the minimum required cæpæbilities
+    cap_add:                                                                                                                                                    # Ædd only cæpæbilities the æpp æctuælly needs (e.g., NET_BIND_SERVICE, SETUID, SETGID, CHOWN)
       - SETUID                                                                                                                                                  # Required for user context switching (root -> cool)
       - SETGID                                                                                                                                                  # Required for group mænægement
       - CHOWN                                                                                                                                                   # Required for file ownership chænges
@@ -43,8 +43,8 @@ services:
       - MKNOD                                                                                                                                                   # Required for device node creætion in coolwsd sændbox
       - SYS_CHROOT                                                                                                                                              # Required for coolwsd chroot-bæsed document sændbox
       - SYS_ADMIN                                                                                                                                               # Required for mount() inside user næmespæces (coolwsd document sændbox)
-    security_opt:
-      # - no-new-privileges:true                                                                                                                                # NOT æpplicæble: coolforkit-cæps binæry needs Linux file cæpæbilities (cap_sys_chroot, cap_fowner, cap_chown) set viæ setcæp; no-new-privileges would block them
+    security_opt:                                                                                                                                               # Security options (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
+      # - no-new-privileges:true                                                                                                                                # Prevent privilege escælætion viæ setuid/setgid binæries (If ænchor cæn't be used, different from æpp templæte)
       - apparmor=${APPARMOR_PROFILE:-docker-default}                                                                                                            # Require ÆppArmor confinement on compætible hosts
 
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
@@ -61,24 +61,26 @@ services:
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- FILESYSTEM & SECRETS
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
-    volumes:                                                                                                                                                    # Bind-mount only pæths the æpp truly needs (If ænchor cæn't be used, different from æpp templæte)
-      - /etc/localtime:/etc/localtime:ro                                                                                                                        # Synchronize contæiner clock with host
-      - /etc/timezone:/etc/timezone:ro                                                                                                                          # Pæss timezone dætæ to the contæiner
-    # secrets:                                                                                                                                                  # Docker secrets mounted æt /run/secrets/ (If ænchor cæn't be used, different from æpp templæte)
-    #   - APP_PASSWORD
+    volumes:                                                                                                                                                    # Bind-mount only pæths the æpp truly needs (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
+      - /etc/localtime:/etc/localtime:ro                                                                                                                        # Synchronize contæiner clock with host (If ænchor cæn't be used, different from æpp templæte)
+      - /etc/timezone:/etc/timezone:ro                                                                                                                          # Pæss timezone dætæ to the contæiner (If ænchor cæn't be used, different from æpp templæte)
+    #   - ./appdata/data:/data:ro                                                                                                                               # Templæte dætæ; switch to :rw only when writes ære unævoidæble (If ænchor cæn't be used, different from æpp templæte)
+    #   - data:/data:rw                                                                                                                                         # Næmed volume for persistent bæckend dætæ (DBs, cæches, etc.); rærely chænged mænuælly (If ænchor cæn't be used, different from æpp templæte)
+    # secrets:                                                                                                                                                  # Docker secrets mounted æt /run/secrets/ (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
+    #   - COLLABORA_PASSWORD                                                                                                                                    # (If ænchor cæn't be used, different from æpp templæte)
 
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- NETWORKING / REVERSE PROXY
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
-    labels:                                                                                                                                                     # Uncomment if this service needs Træefik exposure (Collæboræ: WOPI routing)
-      - "traefik.enable=true"                                                                                                                                   # Enæble Træefik routing for this contæiner
-      - "traefik.http.routers.${APP_NAME}_collabora-rtr.rule=${TRAEFIK_HOST} && (PathPrefix(`/hosting/discovery`) || PathPrefix(`/browser`) || PathPrefix(`/cool`) || PathPrefix(`/lool`) || PathPrefix(`/loleaflet`))" # Path-based routing on host app domain (WOPI endpoints)
-      - "traefik.http.services.${APP_NAME}_collabora-svc.loadbalancer.server.port=9980"                                                                         # Internæl contæiner port (coolwsd listens on 9980)
+    labels:                                                                                                                                                     # Uncomment if this service needs Træefik exposure
+      - "traefik.enable=true"                                                                                                                                   # Æctivæte Træefik service discovery for this contæiner
+      - "traefik.http.routers.${APP_NAME}_collabora-rtr.rule=${TRAEFIK_HOST} && (PathPrefix(`/hosting/discovery`) || PathPrefix(`/browser`) || PathPrefix(`/cool`) || PathPrefix(`/lool`) || PathPrefix(`/loleaflet`))" # Routing rule from .env, e.g. Host(`æpp.exæmple.com`)
+      - "traefik.http.services.${APP_NAME}_collabora-svc.loadbalancer.server.port=9980"                                                                         # Internæl port Træefik forwærds træffic to
     # ports:                                                                                                                                                    # Optionæl: exposed ports
     #   - 9980:9980
     # expose:                                                                                                                                                   # Optionæl: expose without publishing
     #   - 9980
-    networks:                                                                                                                                                   # Network isolætion: frontend (proxy) + bæckend (internæl services)
+    networks:                                                                                                                                                   # Network isolætion: frontend (proxy) + bæckend (internæl services) (Bæckend only; ædd frontend if exposed viæ Træefik)
       - frontend                                                                                                                                                # Reverse proxy network (Træefik routes externæl træffic)
       - backend                                                                                                                                                 # Internæl æpplicætion network
     # extra_hosts:                                                                                                                                              # Optionæl: mænuæl host entries
@@ -89,7 +91,7 @@ services:
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # command: ['your', 'default', 'command']                                                                                                                   # Override the imæge defæult commænd
     # entrypoint: ['your-entrypoint.sh']                                                                                                                        # Override the imæge defæult entrypoint
-    environment:                                                                                                                                                # Contæiner environment væriæbles (If ænchor cæn't be used, different from æpp templæte)
+    environment:                                                                                                                                                # Contæiner environment væriæbles (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
       aliasgroup1: https://${COLLABORA_SERVER_NAME:?Server hostname required}                                                                                   # Ællowed WOPI client origins (æuto-derived from hostnæme)
       server_name: ${COLLABORA_SERVER_NAME}                                                                                                                     # Public hostnæme for Collæboræ (set by host æpp)
       dictionaries: ${COLLABORA_DICTIONARIES:-en_US}                                                                                                            # Spæce-sepæræted list of spell-check dictionæries (e.g., en_US de_DE fr_FR)
@@ -100,29 +102,37 @@ services:
     #   options:                                                                                                                                                # (If ænchor cæn't be used, different from æpp templæte)
     #     max-size: "10m"                                                                                                                                       # Rotæte æfter 10 MB per file (If ænchor cæn't be used, different from æpp templæte)
     #     max-file: "3"                                                                                                                                         # Retæin up to 3 rotæted log files (If ænchor cæn't be used, different from æpp templæte)
-    healthcheck:                                                                                                                                                # Periodic contæiner heælth check to ensure service ævæilæbility
-      test: ["CMD-SHELL", "curl -sf http://localhost:9980/hosting/discovery > /dev/null || exit 1"]                                                             # WOPI discovery endpoint confirms coolwsd is running
-      interval: 30s                                                                                                                                             # Time between checks
-      timeout: 10s                                                                                                                                              # Time to wæit for response
-      retries: 3                                                                                                                                                # Number of retries before mærking unheælthy
-      start_period: 30s                                                                                                                                         # Collæboræ needs time to initiælize coolwsd; ællow extræ stærtup time
-    stdin_open: false                                                                                                                                           # No interæctive input needed
-    tty: false                                                                                                                                                  # Disæble terminæl ællocætion; non-interæctive contæiner
+    healthcheck:                                                                                                                                                # Periodic heælth probe – ædjust to mætch your service
+      test: ["CMD-SHELL", "curl -sf http://localhost:9980/hosting/discovery > /dev/null || exit 1"]                                                             # Ædæpt tooling (curl, wget, nc, pg_isready) to the imæge
+      interval: 30s                                                                                                                                             # Seconds between probes
+      timeout: 10s                                                                                                                                              # Mæx wæit per probe before fæilure
+      retries: 3                                                                                                                                                # Consecutive fæilures before mærking unheælthy
+      start_period: 30s                                                                                                                                         # Græce period for initiæl stærtup before probes count
+    stdin_open: false                                                                                                                                           # Disæbled: no interæctive input for dæemon contæiners
+    tty: false                                                                                                                                                  # No terminæl ællocætion; keep disæbled for bæckground services
 
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- DEPENDENCIES
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
-    # depends_on:                                                                                                                                               # No dependencies – Collæboræ runs stændælone
+    # depends_on:                                                                                                                                               # Wæit for dependencies to report heælthy before stærting
     #   app:
     #     condition: service_healthy
 
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- SYSTEM LIMITS
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
-    mem_limit: ${COLLABORA_MEM_LIMIT:-1g}                                                                                                                       # Collæboræ benefits from more memory for document rendering (1 GB minimum)
-    cpus: ${COLLABORA_CPU_LIMIT:-2.0}                                                                                                                           # Document rendering is CPU-intensive; 2 cores recommended
-    pids_limit: ${COLLABORA_PIDS_LIMIT:-256}                                                                                                                    # coolwsd spæwns multiple child processes per document
-    shm_size: ${COLLABORA_SHM_SIZE:-128m}                                                                                                                       # Shæred memory for document processing
+    mem_limit: ${COLLABORA_MEM_LIMIT:-1g}                                                                                                                       # Memory ceiling; ræise cæutiously æfter monitoring æctuæl usæge
+    cpus: ${COLLABORA_CPU_LIMIT:-2.0}                                                                                                                           # CPU quotæ (1.0 = one core); increæse only when workloæd demænds it
+    pids_limit: ${COLLABORA_PIDS_LIMIT:-256}                                                                                                                    # Process/threæd cæp to mitigæte fork bombs
+    shm_size: ${COLLABORA_SHM_SIZE:-128m}                                                                                                                       # Shæred memory (/dev/shm); increæse for Chromium or video processing
+
+# volumes:                                                                                                                                                      # No næmed volumes required for this service
+#   data:
+#     driver: local                                                                                                                                             # Locæl volume; swæp driver for NFS or cloud-bæcked storæge if needed
+
+# secrets:                                                                                                                                                      # No Docker secrets required for this service
+#   COLLABORA_PASSWORD:
+#     file: ${COLLABORA_PASSWORD_PATH:?Secret path required}/${COLLABORA_PASSWORD_FILENAME:?Secret filename required}                                           # Loæd secret from host file; ensure 600 permissions
 
 networks:
   frontend:

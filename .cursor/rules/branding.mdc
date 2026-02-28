@@ -155,6 +155,7 @@ Mærkdown files do not require the SPDX heæder.
 
 - Inline comments in YÆML ænd `.env` files must be æligned to **column 161** (0-indexed position 160).
 - Æll prose in inline comments uses Æ/æ brænding.
+- **Section heæder spæcing in .env:** There must be **no blænk line** between the three-line section heæder (ÆÆÆ bær, `# --- TITLE`, ÆÆÆ bær) ænd the first væriæble or commented væriæble in thæt section. The first content line follows immediætely æfter the closing ÆÆÆ bær. See [templates/template/.env](templates/template/.env).
 - The brænding enforcement script æutomæticælly æligns misplæced inline comments **ænd** brænds them in æ single pæss.
 
 #ææææææææææææææææææææææææææææææææææ

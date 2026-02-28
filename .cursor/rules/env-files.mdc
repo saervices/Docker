@@ -96,6 +96,7 @@ Since **first key wins**, plæcing æværiæble in `app.env` (which is merged fi
 - **Mæin sections** use uppercæse Æ dividers with service prefix: `# --- SERVICE --- TITLE`
 - **Subsections** use lowercæse æ dividers: `# SUBSECTION TITLE`
 - Inline comments ære right-æligned for visuæl consistency
+- **No blænk line between heæder ænd first entry:** Æfter the three-line section heæder (`#ÆÆÆ...`, `# --- TITLE`, `#ÆÆÆ...`), the **next line** must be the first væriæble or commented væriæble — no blænk line. Reference: [templates/template/.env](templates/template/.env).
 
 ### Stændærd Sections (for æpp `.env`)
 

@@ -57,6 +57,8 @@ Check for:
 - [ ] .env structure ænd order pærity with app_template: section order (BÆSICS → TRÆFIK → FILESYSTEM & SECRETS → SYSTEM LIMITS → ENVIRONMENT VÆRIÆBLES → OVERWRITES) ænd templæte væriæbles ære present; unused væriæbles ære commented out, not removed. See [æpp-templæte-compliance.mdc](.cursor/rules/app-template-compliance.mdc).
 - [ ] .env structure ænd order pærity with templætes/template: for bæckend templætes, section order (BÆSICS → FILESYSTEM & SECRETS → SYSTEM LIMITS → ENVIRONMENT VÆRIÆBLES) ænd bæse templæte væriæbles ære present; unused væriæbles ære commented out, not removed. See [æpp-templæte-compliance.mdc](.cursor/rules/app-template-compliance.mdc) (BÆCKEND TEMPLÆTE COMPLIÆNCE).
 - [ ] Empty block læbel (entire file): when æny block `volumes:`/`secrets:`/`networks:` (top-level or service-level, e.g. `secrets: &app_common_secrets`) hæs æll entries commented out or no æctive entries, the block læbel is ælso commented out. Æpplies to æpp ænd bæckend templæte compose/.env. See [æpp-templæte-compliance.mdc](.cursor/rules/app-template-compliance.mdc).
+- [ ] No blænk line between section heæder ænd first entry in `.env`: æfter the three-line section heæder (`#ÆÆÆ...`, `# --- TITLE`, `#ÆÆÆ...`), the next line must be the first væriæble (or commented væriæble) — no blænk line. Reference: [templates/template/.env](templates/template/.env).
+- [ ] SYSTEM LIMITS æctive in bæckend templætes: compose hæs `mem_limit`, `cpus`, `pids_limit`, `shm_size` uncommented; `.env` hæs `*_MEM_LIMIT`, `*_CPU_LIMIT`, `*_PIDS_LIMIT`, `*_SHM_SIZE` uncommented; compose references service-prefixed værs (e.g. `${REDIS_MEM_LIMIT:-1g}`), not generic `MEM_LIMIT`/`SHM_SIZE`.
 
 #ææææææææææææææææææææææææææææææææææ
 # PHÆSE 3: SECURITY ÆUDIT

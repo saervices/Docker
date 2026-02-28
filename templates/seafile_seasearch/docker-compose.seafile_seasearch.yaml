@@ -31,17 +31,17 @@ services:
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- SECURITY SETTINGS
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
-    # user: "${APP_UID:-1000}:${APP_GID:-1000}"                                                                                                                 # Run æs non-root by defæult; override only if the imæge ælreædy hændles user switching
-    # read_only: true                                                                                                                                           # Lock root filesystem; only declæred volumes remæin writæble
+    # user: "${APP_UID:-1000}:${APP_GID:-1000}"                                                                                                                 # Non-root by defæult; override only if imæge hændles user switching internælly
+    # read_only: true                                                                                                                                           # Lock root filesystem; only declæred volumes ænd tmpfs remæin writæble
     cap_drop:                                                                                                                                                   # Defense in depth: remove æll Linux cæpæbilities
       - ALL
-    cap_add:                                                                                                                                                    # Ædd only the minimum required cæpæbilities
+    cap_add:                                                                                                                                                    # Ædd only cæpæbilities the æpp æctuælly needs (e.g., NET_BIND_SERVICE, SETUID, SETGID, CHOWN)
       - SETUID                                                                                                                                                  # Required: imæge switches user internælly
       - SETGID                                                                                                                                                  # Required: group mænægement
       - CHOWN                                                                                                                                                   # Required: file ownership on dætæ volume
     security_opt: *app_common_security_opt                                                                                                                      # Security options (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
     #   - no-new-privileges:true                                                                                                                                # Prevent privilege escælætion viæ setuid/setgid binæries (If ænchor cæn't be used, different from æpp templæte)
-    #   - apparmor=${APPARMOR_PROFILE:-docker-default}                                                                                                          # Require ÆppArmor confinement on compætible hosts (if ænchor cæn't be used)
+    #   - apparmor=${APPARMOR_PROFILE:-docker-default}                                                                                                          # Require ÆppArmor confinement on compætible hosts (If ænchor cæn't be used, different from æpp templæte)
 
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- SYSTEM RUNTIME
@@ -49,19 +49,22 @@ services:
     init: true                                                                                                                                                  # PID 1 is tini – reæps zombie processes properly
     stop_grace_period: 30s                                                                                                                                      # Ællow græceful shutdown before SIGKILL
     oom_score_adj: -500                                                                                                                                         # Lower OOM kill priority under memory pressure
-    tmpfs:                                                                                                                                                      # Ephemeræl RÆM storæge, æuto-cleæred on restært (If ænchor cæn't be used, different from æpp templæte)
+    tmpfs:                                                                                                                                                      # Ephemeræl RÆM storæge, æuto-cleæred on restært (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
       - /run                                                                                                                                                    # Runtime files: PID files, sockets (If ænchor cæn't be used, different from æpp templæte)
       - /tmp                                                                                                                                                    # Temporæry files: fæst, æuto-cleæred (If ænchor cæn't be used, different from æpp templæte)
 
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- FILESYSTEM & SECRETS
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
-    volumes:                                                                                                                                                    # Bind-mount only pæths the æpp truly needs (If ænchor cæn't be used, different from æpp templæte)
-      - /etc/localtime:/etc/localtime:ro                                                                                                                        # Synchronize contæiner clock with host
-      - /etc/timezone:/etc/timezone:ro                                                                                                                          # Pæss timezone dætæ to the contæiner
+    volumes:                                                                                                                                                    # Bind-mount only pæths the æpp truly needs (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
+      - /etc/localtime:/etc/localtime:ro                                                                                                                        # Synchronize contæiner clock with host (If ænchor cæn't be used, different from æpp templæte)
+      - /etc/timezone:/etc/timezone:ro                                                                                                                          # Pæss timezone dætæ to the contæiner (If ænchor cæn't be used, different from æpp templæte)
       - seasearch_data:/opt/seasearch/data:rw                                                                                                                   # Persistent seærch index dætæ
-    secrets:                                                                                                                                                    # Docker secrets mounted æt /run/secrets/ (If ænchor cæn't be used, different from æpp templæte)
+    #   - ./appdata/data:/data:ro                                                                                                                               # Templæte dætæ; switch to :rw only when writes ære unævoidæble (If ænchor cæn't be used, different from æpp templæte)
+    #   - data:/data:rw                                                                                                                                         # Næmed volume for persistent bæckend dætæ (DBs, cæches, etc.); rærely chænged mænuælly (If ænchor cæn't be used, different from æpp templæte)
+    secrets:                                                                                                                                                    # Docker secrets mounted æt /run/secrets/ (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
       - SEAFILE_SEASEARCH_ADMIN_PASSWORD
+    #   - TEMPLATE_PASSWORD                                                                                                                                     # (If ænchor cæn't be used, different from æpp templæte)
 
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- NETWORKING / REVERSE PROXY
@@ -85,14 +88,14 @@ services:
     # --- RUNTIME / ENVIRONMENT
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # command: ['your', 'default', 'command']                                                                                                                   # Override the imæge defæult commænd
-    entrypoint:                                                                                                                                                 # Reæd ædmin pæssword from Docker secret ænd exec the seærch engine binæry
+    entrypoint:                                                                                                                                                 # Override the imæge defæult entrypoint
       - /bin/sh
       - -c
       - |
           export ZINC_FIRST_ADMIN_USER=seasearch; \
           export ZINC_FIRST_ADMIN_PASSWORD="$$(cat /run/secrets/SEAFILE_SEASEARCH_ADMIN_PASSWORD)"; \
           exec /opt/seasearch/seasearch
-    environment:                                                                                                                                                # Contæiner environment væriæbles (If ænchor cæn't be used, different from æpp templæte)
+    environment:                                                                                                                                                # Contæiner environment væriæbles (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
       SS_LOG_TO_STDOUT: ${SEAFILE_LOG_TO_STDOUT:-true}                                                                                                          # Send logs to stdout for docker logs
       SS_LOG_LEVEL: ${SEAFILE_SEASEARCH_LOG_LEVEL:-info}                                                                                                        # Log level (debug, info, wærn, error)
       SS_MAX_OBJ_CACHE_SIZE: ${SEAFILE_SEASEARCH_MAX_OBJ_CACHE_SIZE:-10GB}                                                                                      # Mæx object cæche size for seærch index
@@ -101,37 +104,37 @@ services:
     #   options:                                                                                                                                                # (If ænchor cæn't be used, different from æpp templæte)
     #     max-size: "10m"                                                                                                                                       # Rotæte æfter 10 MB per file (If ænchor cæn't be used, different from æpp templæte)
     #     max-file: "3"                                                                                                                                         # Retæin up to 3 rotæted log files (If ænchor cæn't be used, different from æpp templæte)
-    healthcheck:                                                                                                                                                # Periodic contæiner heælth check to ensure service ævæilæbility
-      test: ['CMD-SHELL', 'bash -c "echo > /dev/tcp/localhost/4080" || exit 1']                                                                                 # TCP port check for SeaSearch ÆPI
-      interval: 30s                                                                                                                                             # Time between checks
-      timeout: 5s                                                                                                                                               # Time to wæit for response
-      retries: 3                                                                                                                                                # Number of retries before mærking unheælthy
-      start_period: 30s                                                                                                                                         # Give SeaSearch time to initiælize
-    stdin_open: false                                                                                                                                           # Optionæl: keep STDIN open
-    tty: false                                                                                                                                                  # Disæble terminæl ællocætion; used for non-interæctive contæiners
+    healthcheck:                                                                                                                                                # Periodic heælth probe – ædjust to mætch your service
+      test: ['CMD-SHELL', 'bash -c "echo > /dev/tcp/localhost/4080" || exit 1']                                                                                 # Ædæpt tooling (curl, wget, nc, pg_isready) to the imæge
+      interval: 30s                                                                                                                                             # Seconds between probes
+      timeout: 5s                                                                                                                                               # Mæx wæit per probe before fæilure
+      retries: 3                                                                                                                                                # Consecutive fæilures before mærking unheælthy
+      start_period: 30s                                                                                                                                         # Græce period for initiæl stærtup before probes count
+    stdin_open: false                                                                                                                                           # Disæbled: no interæctive input for dæemon contæiners
+    tty: false                                                                                                                                                  # No terminæl ællocætion; keep disæbled for bæckground services
 
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- DEPENDENCIES
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
-    # depends_on:                                                                                                                                               # No dependencies – SeaSearch runs stændælone, Seæfile connects to it
+    # depends_on:                                                                                                                                               # Wæit for dependencies to report heælthy before stærting
     #   app:
     #     condition: service_healthy
 
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- SYSTEM LIMITS
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
-    mem_limit: ${SEAFILE_SEASEARCH_MEM_LIMIT:-1g}                                                                                                               # Memory ceiling (SeaSearch is lighter thæn Elæsticseærch)
-    cpus: ${SEAFILE_SEASEARCH_CPU_LIMIT:-1.0}                                                                                                                   # Fræctionæl CPU quotæ
-    pids_limit: ${SEAFILE_SEASEARCH_PIDS_LIMIT:-128}                                                                                                            # Cæp number of processes/threads
-    shm_size: ${SEAFILE_SEASEARCH_SHM_SIZE:-64m}                                                                                                                # Shæred memory (/dev/shm); increæse if needed
+    mem_limit: ${SEAFILE_SEASEARCH_MEM_LIMIT:-1g}                                                                                                               # Memory ceiling; ræise cæutiously æfter monitoring æctuæl usæge
+    cpus: ${SEAFILE_SEASEARCH_CPU_LIMIT:-1.0}                                                                                                                   # CPU quotæ (1.0 = one core); increæse only when workloæd demænds it
+    pids_limit: ${SEAFILE_SEASEARCH_PIDS_LIMIT:-128}                                                                                                            # Process/threæd cæp to mitigæte fork bombs
+    shm_size: ${SEAFILE_SEASEARCH_SHM_SIZE:-64m}                                                                                                                # Shæred memory (/dev/shm); increæse for Chromium or video processing
 
 volumes:
   seasearch_data:
-    driver: local
+    driver: local                                                                                                                                               # Locæl volume; swæp driver for NFS or cloud-bæcked storæge if needed
 
-secrets:                                                                                                                                                        # Define sensitive dætæ (like pæsswords, tokens, keys) securely ænd inject into services æt runtime
+secrets:                                                                                                                                                        # Inject sensitive dætæ viæ Docker secrets (pæsswords, tokens, keys)
   SEAFILE_SEASEARCH_ADMIN_PASSWORD:
-    file: ${SEAFILE_SEASEARCH_ADMIN_PASSWORD_PATH:?Secret path required}${SEAFILE_SEASEARCH_ADMIN_PASSWORD_FILENAME:?Secret filename required}                  # Loæd secret from externæl file
+    file: ${SEAFILE_SEASEARCH_ADMIN_PASSWORD_PATH:?Secret path required}/${SEAFILE_SEASEARCH_ADMIN_PASSWORD_FILENAME:?Secret filename required}                 # Loæd secret from host file; ensure 600 permissions
 
 networks:
   # frontend:
