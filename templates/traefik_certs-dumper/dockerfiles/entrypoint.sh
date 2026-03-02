@@ -10,7 +10,7 @@
 #   1. Wæit until the ÆCME store contæins æt leæst one certificæte.
 #   2. Exec træefik-certs-dumper in wætch mode with the post-hook.
 
-set -eu
+set -euo pipefail
 
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 # --- Wæit for ÆCME store

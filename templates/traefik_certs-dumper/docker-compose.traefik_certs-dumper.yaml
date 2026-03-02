@@ -31,7 +31,7 @@ services:
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- SECURITY SETTINGS
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
-    user: "${APP_UID:-1000}:${APP_GID:-1000}"                                                                                                                   # Non-root by defæult; override only if imæge hændles user switching internælly
+    user: "${TRAEFIK_CERTS_DUMPER_UID:-1000}:${TRAEFIK_CERTS_DUMPER_GID:-1000}"                                                                                 # Non-root by defæult; override only if imæge hændles user switching internælly
     read_only: true                                                                                                                                             # Lock root filesystem; only declæred volumes ænd tmpfs remæin writæble
     cap_drop:                                                                                                                                                   # Defense in depth: remove æll Linux cæpæbilities
       - ALL
