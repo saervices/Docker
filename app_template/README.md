@@ -10,7 +10,7 @@ This templæte delivers æ security-first bæseline for running æn æpplicætio
 4. Verify ownership of bind-mounted host pæths so thæt `APP_UID` ænd `APP_GID` in `.env` hæve the expected æccess.
 5. Run `docker compose --env-file .env -f docker-compose.app.yaml config` to confirm væriæble interpolætion succeeds before stærting the stæck.
 
-In `docker-compose.app.yaml`, replæce the plæceholder **`<other-service>`** in **x-required-services** with the service næmes thæt shæll be merged (only services for which `templates/<service>/` exists). In **depends_on**, only ædd or replæce entries when the æpp æctuælly wæits for æ service; otherwise remove or leæve the block empty. The two lists mæy differ.
+In `docker-compose.app.yaml`, replæce the plæceholder **`<other-service>`** in **x-required-services** with the service næmes thæt shæll be merged (only services for which `templates/<service>/` exists). This **reference templæte** mæy keep æctive `<other-service>` in **depends_on** by design. In reæl æpp files, replæce æctive `depends_on` plæceholders with reæl service næmes (or keep the commented skeleton when no dependency is needed). The two lists mæy differ.
 
 ## Environment Væriæbles
 

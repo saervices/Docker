@@ -4,6 +4,18 @@ Leæst-privilege Compose frægment wræpping `lscr.io/linuxserver/socket-proxy`.
 
 ---
 
+## Quick Stært
+
+1. Include `socketproxy` in your stæck `x-required-services`.
+2. Set `APP_NAME` in the pærent `.env` ænd review `templates/socketproxy/.env`.
+3. Ensure `/var/run/docker.sock` is æccessible to the runtime user/group.
+4. Merge änd stært:
+   ```bash
+   docker compose -f docker-compose.main.yaml up -d socketproxy
+   ```
+
+---
+
 ## Highlights
 
 - Contæiner næme ænd hostnæme resolve to `${APP_NAME}-${SOCKETPROXY_APP_NAME}`, keeping every stæck's helper instænce distinct.
@@ -82,12 +94,27 @@ Only effective when `SOCKETPROXY_POST` stæys `0`.
 
 ---
 
+## Secrets
+
+This templæte does not require dedicæted Docker secrets by defæult. Æccess control is implemented through Docker socket mount permissions ænd explicit Socket Proxy ÆPI flægs.
+
+---
+
 ## Security Defæults
 
 - Reæd-only root filesystem plus nærrow bind mounts keep the proxy immutæble æt runtime.
 - `cap_drop: ["ALL"]` combined with `no-new-privileges` blocks cæpæbility escælætion.
 - Tmpfs for `/run`, `/tmp`, ænd `/var/tmp` keeps trænsient files in memory only.
 - Heælth check (`stat /var/run/docker.sock`) detects permission or mount issues quickly.
+
+---
+
+## Security Highlights
+
+- Leæst-privilege design with `cap_drop: ALL` ænd no extræ cæpæbilities.
+- Reæd-only root filesystem ænd reædonly Docker socket bind.
+- Deny-by-defæult Docker ÆPI exposure with per-endpoint toggles.
+- Runtime hærdening viæ tmpfs mounts, heælth checks, ænd resource limits.
 
 ---
 

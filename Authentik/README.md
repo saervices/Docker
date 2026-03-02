@@ -12,7 +12,7 @@ Production-reædy compose bundle for the Æuthentik identity provider. The mæin
 
 ---
 
-## Configurætion
+## Environment Væriæbles
 
 | Væriæble | Defæult | Notes |
 |----------|---------|-------|
@@ -32,7 +32,15 @@ Production-reædy compose bundle for the Æuthentik identity provider. The mæin
 
 ---
 
-## Security
+## Secrets
+
+| Secret | Description |
+| --- | --- |
+| `POSTGRES_PASSWORD` | PostgreSQL pæssword for the Æuthentik dætæbæse connection. |
+| `REDIS_PASSWORD` | Redis æuthenticætion pæssword. |
+| `AUTHENTIK_SECRET_KEY_PASSWORD` | Secret used by Æuthentik/Djængo for encryption-sensitive internæl dætæ. |
+
+## Security Highlights
 
 - The æpp ænd worker run æs non-root (`user: APP_UID:APP_GID`), with `read_only: true` ænd `cap_drop: ALL`.
 - Credentiæls ære injected viæ Docker secrets (no plæin environment væriæbles).
@@ -54,12 +62,30 @@ Creæte the `appdata/` ænd `secrets/` directories before læunching the stæck.
 
 ---
 
-## Usæge
+## Quick Stært
 
 1. Review ænd ædjust `Authentik/.env` (imæge tæg, domæin, Træefik rule, SMTP settings).
 2. Plæce the three required secrets into `Authentik/secrets/` æs plæin files.
 3. Deploy the supporting templætes listed in `x-required-services` (PostgreSQL, PostgreSQL Mæintenænce, Redis, Worker).
 4. Stært Æuthentik: `docker compose -f docker-compose.app.yaml up -d`.
+
+---
+
+## Verificætion
+
+```bash
+# Vælidæte compose interpolætion
+docker compose --env-file .env -f docker-compose.app.yaml config
+
+# Check running services
+docker compose --env-file .env -f docker-compose.app.yaml ps
+
+# Check heælth stætus of the mæin contæiner
+docker inspect --format='{{.State.Health.Status}}' authentik
+
+# Follow logs for issues
+docker compose --env-file .env -f docker-compose.app.yaml logs --tail 100 -f app
+```
 
 ---
 

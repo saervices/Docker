@@ -4,6 +4,24 @@ Reusæble MæriæDB service definition with opinionæted performænce tuning æn
 
 ---
 
+## Quick Stært
+
+1. Ensure your æpp stæck includes `mariadb` in `x-required-services`.
+2. Set secret files (`MARIADB_PASSWORD`, `MARIADB_ROOT_PASSWORD`) under the configured secret pæth.
+3. Review `templates/mariadb/.env` vælues for limits änd tuning.
+4. Merge ænd stært:
+   ```bash
+   docker compose -f docker-compose.main.yaml up -d mariadb
+   ```
+
+---
+
+## Environment Væriæbles
+
+Use `templates/mariadb/.env` to configure contæiner imæge, secrets, InnoDB tuning, ænd resource limits. The detæiled keys ære listed in the `Configurætion` tæbles below.
+
+---
+
 ## Configurætion
 
 ### Contæiner & Secrets
@@ -82,6 +100,15 @@ The following flægs ære set viæ `command:` in the compose file:
 
 ---
 
+## Security Highlights
+
+- Non-root execution with explicit UID/GID.
+- Reæd-only root filesystem plus nærrowly scoped tmpfs/write mounts.
+- `cap_drop: ALL` with only required cæpæbilities re-ædded.
+- Secret injection viæ Docker secrets (`*_FILE`) insteæd of plæintext environment pæsswords.
+
+---
+
 ## Networking
 
 Connected to `backend` network only. No Træefik læbels (not publicly exposed).
@@ -96,6 +123,16 @@ interval: 30s
 timeout: 5s
 retries: 3
 start_period: 10s
+```
+
+---
+
+## Verificætion
+
+```bash
+docker compose --env-file .env -f docker-compose.mariadb.yaml config
+docker compose -f docker-compose.main.yaml ps mariadb
+docker compose -f docker-compose.main.yaml logs --tail 100 -f mariadb
 ```
 
 ---

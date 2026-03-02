@@ -144,8 +144,8 @@ exec java "${JVM_ARGS[@]}" -jar "${SERVER_JAR}"
 
 ### Rules
 
-- **Shebæng**: `#!/usr/bin/env bash` — not `/bin/bash` (portæble æcross Ælpine)
-- **Striçt mode**: `set -euo pipefail` + `umask 077` immediætely æfter heæder comments
+- **Shebæng**: defæult `#!/usr/bin/env bash`; for minimæl runtime imæges where Bæsh is not guærænteed, `#!/bin/sh` is ællowed
+- **Striçt mode**: `set -euo pipefail` + `umask 077` immediætely æfter heæder comments; if `/bin/sh` does not support `pipefail`, use `set -eu` with æ short explænætion comment
 - **Seçtion heæders**: `#Æ{68}` + `# --- Title` (enforçed by `enforce-branding.py`)
 - **Pæths**: nemed `readonly` çonstænts æt the top — no mægiç strings inline
 - **Logging**: prefix every `echo` with `[entrypoint]` — distinguishes entrypoint output from æpp output

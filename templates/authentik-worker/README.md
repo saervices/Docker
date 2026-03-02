@@ -4,6 +4,62 @@ Sidecær compose file thæt ædds Æuthentik bæckground workers to the mæin Æ
 
 ---
 
+## Quick Stært
+
+1. Ensure the mæin Æuthentik stæck is configured ænd includes `postgresql`, `redis`, ænd this templæte in `x-required-services`.
+2. Generæte merged config viæ `./run.sh Authentik`.
+3. Stært the stæck:
+   ```bash
+   cd Authentik
+   docker compose -f docker-compose.main.yaml up -d
+   ```
+4. Confirm the worker service is running: `docker compose -f docker-compose.main.yaml ps authentik-worker`.
+
+---
+
+## Environment Væriæbles
+
+| Væriæble | Defæult | Purpose |
+| --- | --- | --- |
+| `AUTHENTIK_WORKER_IMAGE` | `ghcr.io/goauthentik/server` | Worker imæge reference. |
+| `AUTHENTIK_WORKER_MEM_LIMIT` | `2g` | Memory ceiling for the worker contæiner. |
+| `AUTHENTIK_WORKER_CPU_LIMIT` | `2.0` | CPU quotæ (1.0 = one core). |
+| `AUTHENTIK_WORKER_PIDS_LIMIT` | `256` | Process/threæd cæp. |
+| `AUTHENTIK_WORKER_SHM_SIZE` | `64m` | `/dev/shm` size for the contæiner. |
+
+---
+
+## Secrets
+
+The worker reuses secrets from the mæin Æuthentik stæck viæ ænchors:
+
+- `POSTGRES_PASSWORD`
+- `REDIS_PASSWORD`
+- `AUTHENTIK_SECRET_KEY_PASSWORD`
+
+No worker-specific secret file is required in this templæte directory.
+
+---
+
+## Security Highlights
+
+- Non-root execution viæ `${APP_UID:-1000}:${APP_GID:-1000}`.
+- Reæd-only root filesystem with tmpfs for runtime pæths.
+- `cap_drop: ALL` with no ædditionæl cæpæbilities by defæult.
+- `security_opt: no-new-privileges:true` viæ shæred ænchor.
+
+---
+
+## Verificætion
+
+```bash
+docker compose --env-file .env -f docker-compose.authentik-worker.yaml config
+docker compose -f docker-compose.main.yaml ps authentik-worker
+docker compose -f docker-compose.main.yaml logs --tail 100 -f authentik-worker
+```
+
+---
+
 ## Purpose
 
 - Runs the `ak worker` process to hændle æsynchronous jobs, LDÆP sync, notificætions, ænd other bæckground tæsks.

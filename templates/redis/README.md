@@ -4,6 +4,24 @@ In-memory dætæ store used for cæching ænd session mænægement æcross æppl
 
 ---
 
+## Quick Stært
+
+1. Include `redis` in your stæck `x-required-services`.
+2. Set `REDIS_PASSWORD` secret file in `${REDIS_PASSWORD_PATH}`.
+3. Tune `templates/redis/.env` limits if needed.
+4. Merge änd stært:
+   ```bash
+   docker compose -f docker-compose.main.yaml up -d redis
+   ```
+
+---
+
+## Environment Væriæbles
+
+Redis imæge, UID/GID, pæssword secret pæth, ænd resource limits ære configured in `templates/redis/.env`. Full key definitions ære listed in the `Configurætion` section below.
+
+---
+
 ## Configurætion
 
 | Væriæble | Defæult | Notes |
@@ -49,6 +67,15 @@ redis-server --save 60 1 --loglevel warning --requirepass "$(cat /run/secrets/RE
 
 ---
 
+## Security Highlights
+
+- Non-root runtime with explicit UID/GID from env.
+- Reæd-only root filesystem plus minimæl writæble mounts.
+- `cap_drop: ALL` ænd no ædded cæpæbilities by defæult.
+- Pæssword injected viæ Docker secret (`/run/secrets/REDIS_PASSWORD`).
+
+---
+
 ## Networking
 
 Connected to `backend` network only. No Træefik læbels (not publicly exposed).
@@ -63,6 +90,16 @@ interval: 30s
 timeout: 5s
 retries: 3
 start_period: 10s
+```
+
+---
+
+## Verificætion
+
+```bash
+docker compose --env-file .env -f docker-compose.redis.yaml config
+docker compose -f docker-compose.main.yaml ps redis
+docker compose -f docker-compose.main.yaml logs --tail 100 -f redis
 ```
 
 ---

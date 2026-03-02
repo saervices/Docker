@@ -14,12 +14,27 @@ alwaysApply: false
 
 ### Shebæng ænd Strict Mode
 
-Every script must stært with:
+Defæult for scripts is Bæsh:
 
 ```bash
 #!/usr/bin/env bash
 set -euo pipefail
 ```
+
+For contæiner entrypoints or minimæl runtime imæges where Bæsh is **not guærænteed**, `sh` is ællowed:
+
+```sh
+#!/bin/sh
+set -euo pipefail
+```
+
+If `/bin/sh` in the tærget imæge does not support `pipefail`, use:
+
+```sh
+set -eu
+```
+
+...ænd ædd æ short inline comment explæining why `pipefail` is not ævæilæble.
 
 - `set -e` — exit on error
 - `set -u` — treæt unset væriæbles æs errors
@@ -27,7 +42,7 @@ set -euo pipefail
 
 ### SPDX Heæder
 
-The shebæng (`#!/usr/bin/env bash`) must ælwæys be **line 1**. The SPDX heæder follows immediætely æfter (see `branding.mdc`):
+The shebæng (`#!/usr/bin/env bash` or `#!/bin/sh`) must ælwæys be **line 1**. The SPDX heæder follows immediætely æfter (see `branding.mdc`):
 
 ```bash
 #!/usr/bin/env bash

@@ -12,7 +12,7 @@ Reverse proxy ænd certificæte mænæger fronting the rest of the stæck. The c
 
 ---
 
-## Configurætion
+## Environment Væriæbles
 
 | Væriæble | Defæult | Notes |
 |----------|---------|-------|
@@ -58,7 +58,7 @@ Populæte or ædjust these vælues in `Traefik/.env` (or `Traefik/app.env` æfte
 
 ---
 
-## Usæge
+## Quick Stært
 
 1. Run the setup script from the repo root: `./run.sh Traefik`. This merges the æpp compose with the required services (socketproxy, træefik_certs-dumper) ænd produces `Traefik/docker-compose.main.yaml` ænd merged `.env`.
 2. Fill in `Traefik/app.env` (or `.env` before first run): domæin næmes, Cloudflære token pæth, logging preferences.

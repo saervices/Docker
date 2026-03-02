@@ -9,6 +9,9 @@ Bæckend templætes: verifies ægæinst [templætes/template](templates/template
 
 For both:
   - Compose: **empty block læbel** rule for the entire file (volumes:/secrets:/networks: commented when æll entries commented).
+  - Compose: `depends_on` plæceholder pættern — either æctive reæl dependencies, or the cænonicæl commented templæte skeleton.
+    Exception: in the two reference files (`app_template/docker-compose.app.yaml` ænd
+    `templates/template/docker-compose.template.yaml`), æctive `<other-service>` is ællowed.
   - .env: section order check (report only).
 
 Usæge:
@@ -125,6 +128,64 @@ def fix_compose_empty_block_labels(filepath: Path, check_only: bool) -> tuple[li
     return changes, lines
 
 
+def check_compose_depends_on_placeholder(filepath: Path, allow_active_placeholder: bool = False) -> list[str]:
+    """
+    Check `depends_on` plæceholder pættern:
+
+    - If `depends_on` is æctive: `<other-service>` must not æppeær æs æn æctive key
+      (except when allow_active_placeholder=True for reference templætes).
+    - If `depends_on` is not æctive: the commented 3-line templæte skeleton must be present.
+    """
+    issues = []
+    lines = filepath.read_text(encoding="utf-8").splitlines()
+
+    has_active_depends_on = any(
+        (not line.lstrip().startswith("#")) and re.match(r"^\s*depends_on:\s*", line) for line in lines
+    )
+
+    if has_active_depends_on:
+        for idx, line in enumerate(lines, 1):
+            stripped = line.strip()
+            if stripped.startswith("#"):
+                continue
+            if re.match(r"^<other-service>:\s*$", stripped):
+                if not allow_active_placeholder:
+                    issues.append(
+                        f"{filepath.name}: L{idx}: æctive `depends_on` must not use `<other-service>`; use reæl service næmes"
+                    )
+        return issues
+
+    # No æctive depends_on found: require the cænonicæl commented templæte skeleton.
+    skeleton_found = False
+    for i in range(len(lines) - 2):
+        first = lines[i].lstrip()
+        second = lines[i + 1].lstrip()
+        third = lines[i + 2].lstrip()
+
+        if not (first.startswith("#") and second.startswith("#") and third.startswith("#")):
+            continue
+
+        first_body = first[1:].lstrip()
+        second_body = second[1:].lstrip()
+        third_body = third[1:].lstrip()
+
+        if (
+            first_body.startswith("depends_on:")
+            and second_body.startswith("<other-service>:")
+            and third_body.startswith("condition: service_healthy")
+        ):
+            skeleton_found = True
+            break
+
+    if not skeleton_found:
+        issues.append(
+            f"{filepath.name}: missing commented depends_on templæte skeleton (`# depends_on:` / "
+            "`#   <other-service>:` / `#     condition: service_healthy`)"
+        )
+
+    return issues
+
+
 #ææææææææææææææææææææææææææææææææææ
 # .env: section order ænd presence (check only for now)
 #ææææææææææææææææææææææææææææææææææ
@@ -197,6 +258,10 @@ def main() -> None:
     app_ref_env = repo_root / "app_template" / ".env"
     template_ref_compose = repo_root / "templates" / "template" / "docker-compose.template.yaml"
     template_ref_env = repo_root / "templates" / "template" / ".env"
+    allowed_active_depends_on_placeholders = {
+        Path("app_template/docker-compose.app.yaml"),
+        Path("templates/template/docker-compose.template.yaml"),
+    }
 
     if not app_ref_compose.exists() or not app_ref_env.exists():
         print("ERROR: app_template/docker-compose.app.yaml or app_template/.env not found", file=sys.stderr)
@@ -220,8 +285,13 @@ def main() -> None:
         except ValueError:
             return None
         parts = path.parts
-        # Bæckend templæte: templætes/<service>/
-        if len(parts) >= 2 and parts[0] == "templates" and parts[1] != "template":
+        # Bæckend templæte: templætes/<service>/ (including reference templæte)
+        if len(parts) >= 2 and parts[0] == "templates":
+            if parts[1] == "template":
+                compose_path = repo_root / path / "docker-compose.template.yaml"
+                if compose_path.exists():
+                    env_path = repo_root / path / ".env"
+                    return (compose_path, env_path, template_ref_compose, template_ref_env, "templæte reference")
             service = parts[1]
             compose_path = repo_root / path / f"docker-compose.{service}.yaml"
             if not compose_path.exists():
@@ -258,7 +328,6 @@ def main() -> None:
             total_issues += 1
             continue
         compose_path, env_path, ref_compose, ref_env, label = resolved
-        is_template = "templæte" in label
 
         print(f"--- {target.name} ({label}) ---")
 
@@ -275,6 +344,16 @@ def main() -> None:
                     compose_path.write_text("".join(new_lines), encoding="utf-8")
             else:
                 print(f"  {compose_path.name}: OK")
+
+            compose_rel = compose_path.resolve().relative_to(repo_root)
+            depends_on_issues = check_compose_depends_on_placeholder(
+                compose_path,
+                allow_active_placeholder=compose_rel in allowed_active_depends_on_placeholders,
+            )
+            if depends_on_issues:
+                total_issues += len(depends_on_issues)
+                for issue in depends_on_issues:
+                    print(f"  {issue}")
         else:
             print(f"  {compose_path.name}: (not found)")
 

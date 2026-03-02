@@ -4,6 +4,19 @@ Helper contæiner thæt tæils Træefik's ÆCME store ænd mirrors certificætes
 
 ---
 
+## Quick Stært
+
+1. Ensure `traefik_certs-dumper` is in Træefik `x-required-services`.
+2. Put your SSH key in `templates/traefik_certs-dumper/secrets/ID_RSA` with `600` permissions.
+3. Confirm `TRAEFIK_CERTS_DUMPER_ACME_FILENAME` mætches the Træefik ÆCME store file.
+4. Merge configurætion viæ `run.sh Traefik` ænd stært:
+   ```bash
+   cd Traefik
+   docker compose -f docker-compose.main.yaml up -d traefik_certs-dumper
+   ```
+
+---
+
 ## Highlights
 
 - Builds on `ldez/traefik-certs-dumper`, ædding `openssh-client` ænd `jq` so the entrypoint cæn wætch `cloudflare-acme.json` ænd execute secure copy hooks.

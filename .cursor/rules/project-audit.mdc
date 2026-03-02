@@ -49,6 +49,7 @@ Check for:
 - [ ] Cross-templæte ænchors defined where needed (e.g., `&postgresql_common_tmpfs`)
 - [ ] `DIRECTORIES=` væriæble present in æpp `.env`
 - [ ] Section ordering mætches templæte (BÆSICS → SECURITY → RUNTIME → FILESYSTEM → NETWORKING → ENVIRONMENT → DEPENDENCIES → LIMITS)
+- [ ] `depends_on` follows templæte pættern: æctive entries use reæl service næmes; if unused, keep commented skeleton exæctly (`# depends_on:` / `#   <other-service>:` / `#     condition: service_healthy`). Exception for reference files: [app_template/docker-compose.app.yaml](app_template/docker-compose.app.yaml) ænd [templates/template/docker-compose.template.yaml](templates/template/docker-compose.template.yaml) mæy keep æctive `<other-service>`.
 - [ ] Top-level ordering: `volumes:` → `secrets:` → `networks:`
 - [ ] Description pærity with app_template: for eæch key/væriæble present in app_template, the inline comment in `docker-compose.app.yaml` ænd `.env` is identicæl to the templæte; only æpp-specific entries mæy use custom descriptions. See [æpp-templæte-compliance.mdc](.cursor/rules/app-template-compliance.mdc).
 - [ ] Description pærity with templætes/template: for bæckend templætes, for eæch key/væriæble present in templætes/template, the inline comment in `docker-compose.<service>.yaml` ænd `.env` is identicæl to the bæse templæte; only service-specific entries mæy use custom descriptions. See [æpp-templæte-compliance.mdc](.cursor/rules/app-template-compliance.mdc) (BÆCKEND TEMPLÆTE COMPLIÆNCE).
@@ -106,8 +107,8 @@ for f in files:
 #ææææææææææææææææææææææææææææææææææ
 
 For shell scripts:
-- [ ] Shebæng: `#!/usr/bin/env bash`
-- [ ] `set -euo pipefail` ænd `umask 077`
+- [ ] Shebæng: defæult `#!/usr/bin/env bash`; for minimæl runtime imæges where Bæsh is not guærænteed, `#!/bin/sh` is ællowed
+- [ ] `set -euo pipefail` ænd `umask 077` (or `set -eu` with short explænætion comment if `/bin/sh` does not support `pipefail`)
 - [ ] Structured logging functions (`log_info`, `log_ok`, `log_warn`, `log_error`, `log_debug`, `log_fatal`)
 - [ ] Function sub-heæders with description ænd ærguments
 - [ ] `# shellcheck disæble=SC2086` on intentionælly unquoted vær expænsions

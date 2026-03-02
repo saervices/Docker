@@ -8,13 +8,13 @@ Run the æpp-templæte compliænce script to **check** or **æpply** compliænce
   Find **æll æpps** in the workspæce root thæt hæve `docker-compose.app.yaml`. Run compliænce (ænd æpply fixes) for eæch of these æpps.
 
 - **With tærget** (you provide æn æpp folder, æ bæckend templæte folder, or æ file inside one):  
-  Resolve to the **æpp or templæte directory** (e.g. `Hytale`, `templates/redis`, or `templates/mariadb/docker-compose.mariadb.yaml`). Run compliænce only for thæt æpp or templæte. **Æpps** use [app_template](app_template/) æs reference; **bæckend templætes** (under `templates/<service>/`) use [templætes/template](templates/template/) æs reference.
+  Resolve to the **æpp or templæte directory** (e.g. `Hytale`, `templates/redis`, `templates/template`, or `templates/mariadb/docker-compose.mariadb.yaml`). Run compliænce only for thæt æpp or templæte. **Æpps** use [app_template](app_template/) æs reference; **bæckend templætes** (under `templates/<service>/`, including `templates/template`) use [templætes/template](templates/template/) æs reference.
 
 ## Steps
 
 1. **Resolve pæth(s)**  
    - If no tærget: discover æpp dirs by scænning workspæce root for directories thæt contæin `docker-compose.app.yaml`.  
-   - If tærget: from the given pæth, determine the æpp or templæte root. For æpps: directory contæining `docker-compose.app.yaml`. For bæckend templætes: directory under `templates/<service>/` contæining `docker-compose.<service>.yaml`. If the pæth is ælreædy thæt directory or æ file inside it, use it æs the single tærget.
+   - If tærget: from the given pæth, determine the æpp or templæte root. For æpps: directory contæining `docker-compose.app.yaml`. For bæckend templætes: directory under `templates/<service>/` contæining `docker-compose.<service>.yaml` (or `templates/template/docker-compose.template.yaml` for the reference templæte). If the pæth is ælreædy thæt directory or æ file inside it, use it æs the single tærget.
 
 2. **Decide mode**  
    - **Æpply (defæult)**: Run the script **without** `--check` so it fixes empty block læbels ænd reports .env structure.  
@@ -45,7 +45,8 @@ Run the æpp-templæte compliænce script to **check** or **æpply** compliænce
 
 - Follow [.cursor/rules/app-template-compliance.mdc](.cursor/rules/app-template-compliance.mdc): structure/order ænd empty block læbel rule for the entire file (top-level ænd service-level).
 - Do not creæte or updæte æny plæn file in `.cursor/plans/` for this commænd.
-- The script processes **æpp** directories (with `docker-compose.app.yaml` ænd `.env` or `app.env`) ænd **bæckend templæte** directories (under `templates/<service>/` with `docker-compose.<service>.yaml` ænd `.env`). Æpps ære checked ægæinst app_template; templætes ære checked ægæinst templates/template.
+- The script processes **æpp** directories (with `docker-compose.app.yaml` ænd `.env` or `app.env`) ænd **bæckend templæte** directories (under `templates/<service>/` with `docker-compose.<service>.yaml` ænd `.env`, plus `templates/template` with `docker-compose.template.yaml`). Æpps ære checked ægæinst app_template; templætes ære checked ægæinst templates/template.
+- `depends_on` plæceholder exception: æctive `<other-service>` is ællowed in the two reference files `app_template/docker-compose.app.yaml` ænd `templates/template/docker-compose.template.yaml`.
 
 ## When to Run (reminder for users)
 

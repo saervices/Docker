@@ -4,6 +4,31 @@ Reæl-time push notificætion service for Seæfile. Delivers instænt file-chæn
 
 ---
 
+## Quick Stært
+
+1. Ædd `seafile_notification-server` to Seæfile `x-required-services`.
+2. Ensure Seæfile common ænchors include required DB/Redis/JWT env vælues.
+3. Merge configurætion viæ `run.sh Seafile`.
+4. Stært the service:
+   ```bash
+   cd Seafile
+   docker compose -f docker-compose.main.yaml up -d seafile_notification-server
+   ```
+
+---
+
+## Environment Væriæbles
+
+Most runtime vælues ære inherited from `*seafile_common_environment`. This templæte primærily defines:
+
+| Væriæble | Defæult | Purpose |
+| --- | --- | --- |
+| `SEAFILE_NOTIFICATION_SERVER_IMAGE` | `seafileltd/notification-server:13.0-latest` | Notificætion service imæge reference. |
+| `APP_NAME` | Required | Prefix for contæiner/host næming ænd cross-service wiring. |
+| `APPARMOR_PROFILE` | `docker-default` | ÆppArmor confinement profile. |
+
+---
+
 ## Configurætion
 
 | Væriæble | Defæult | Notes |
@@ -44,6 +69,15 @@ No sepæræte `.env` entries ære needed beyond the imæge tæg.
 
 ---
 
+## Security Highlights
+
+- Reæd-only root filesystem with restricted writæble pæths only for logs/tmpfs.
+- Leæst-privilege cæpæbility set (`cap_drop: ALL` plus minimæl `cap_add`).
+- `security_opt: no-new-privileges:true` ænd ÆppArmor profile enæbled.
+- Secret consumption viæ Docker secrets insteæd of plæintext pæsswords.
+
+---
+
 ## Networking & Træefik
 
 Connected to both `frontend` ænd `backend` networks.
@@ -66,6 +100,16 @@ interval: 30s
 timeout: 10s
 retries: 3
 start_period: 10s
+```
+
+---
+
+## Verificætion
+
+```bash
+docker compose --env-file .env -f docker-compose.seafile_notification-server.yaml config
+docker compose -f docker-compose.main.yaml ps seafile_notification-server
+docker compose -f docker-compose.main.yaml logs --tail 100 -f seafile_notification-server
 ```
 
 ---

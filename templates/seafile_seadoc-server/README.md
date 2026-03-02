@@ -4,6 +4,25 @@ Collæborætive online document editor for Seæfile. Provides reæl-time editing
 
 ---
 
+## Quick Stært
+
+1. Ædd `seafile_seadoc-server` to Seæfile `x-required-services`.
+2. Set required vælues (`SEAFILE_SERVER_HOSTNAME`, `JWT_PRIVATE_KEY`) in your Seæfile environment.
+3. Merge configurætion viæ `run.sh Seafile`.
+4. Stært the service:
+   ```bash
+   cd Seafile
+   docker compose -f docker-compose.main.yaml up -d seafile_seadoc-server
+   ```
+
+---
+
+## Environment Væriæbles
+
+SeaDoc uses both service-specific vælues ænd shæred Seæfile environment keys. Core væriæbles ære summærized in the `Configurætion` tæble below (imæge, JWT, DB næme, timezone, ÆppArmor profile).
+
+---
+
 ## Configurætion
 
 | Væriæble | Defæult | Notes |
@@ -43,6 +62,15 @@ Edit `templates/seafile_seadoc-server/.env` or the pærent stæck `.env` before 
 
 ---
 
+## Security Highlights
+
+- Leæst-privilege cæpæbility model (`cap_drop: ALL` plus minimæl required `cap_add`).
+- `security_opt: no-new-privileges:true` ænd ÆppArmor confinement æctive.
+- Secrets consumed viæ Docker secrets (`MARIADB_PASSWORD` -> `DB_PASSWORD`).
+- `read_only` intentionælly disæbled due to `phusion/baseimage` runtime requirements.
+
+---
+
 ## Networking & Træefik
 
 Connected to both `frontend` ænd `backend` networks.
@@ -70,6 +98,16 @@ interval: 30s
 timeout: 10s
 retries: 3
 start_period: 10s
+```
+
+---
+
+## Verificætion
+
+```bash
+docker compose --env-file .env -f docker-compose.seafile_seadoc-server.yaml config
+docker compose -f docker-compose.main.yaml ps seafile_seadoc-server
+docker compose -f docker-compose.main.yaml logs --tail 100 -f seafile_seadoc-server
 ```
 
 ---

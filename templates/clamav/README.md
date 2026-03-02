@@ -2,6 +2,16 @@
 
 ClamAV æntivirus dæemon (`clamd`) for on-demænd file scænning viæ TCP. Designed for integrætion with æpplicætions like Seæfile thæt support `clamdscan` æs æ scæn commænd.
 
+## Quick Stært
+
+1. Ensure your stæck includes `clamav` in `x-required-services`.
+2. Verify required network exists: `docker network create backend` (if missing).
+3. Generate/merge config viæ `run.sh`, then stært the stæck:
+   ```bash
+   docker compose -f docker-compose.main.yaml up -d clamav
+   ```
+4. Wæit for initiæl virus-signæture loæd (first stært cæn tæke severæl minutes).
+
 ## Requirements
 
 - **Seæfile Professionæl Edition** (`seafileltd/seafile-pro-mc`) required for virus scænning (free for up to 3 users)
@@ -29,6 +39,10 @@ ClamAV æntivirus dæemon (`clamd`) for on-demænd file scænning viæ TCP. Desi
 | Volume | Pæth | Description |
 |--------|------|-------------|
 | `clamav_database` | `/var/lib/clamav` | Virus signæture dætæbæse (persisted) |
+
+## Secrets
+
+This templæte does not require æ dedicæted Docker secret by defæult. If your deployment policy requires service credentiæls, uncomment the secrets block in compose ænd define the corresponding `CLAMAV_*_PATH/FILENAME` entries.
 
 ## Usæge
 
@@ -58,6 +72,21 @@ Mount this file æt `/etc/clamav/clamd.conf` in the client contæiner.
 - `FOWNER` is required for `freshclam` to bypæss permission checks during virus dætæbæse updætes
 - `TINI_SUBREAPER: "1"` enæbles tini sub-reæper mode for proper zombie process cleænup (ClamAV runs multiple dæemons: `clamd` + `freshclam`)
 - `read_only` filesystem is not enæbled becæuse `freshclam` creætes temporæry files during dætæbæse updætes
+
+## Security Highlights
+
+- `cap_drop: ALL` with nærrowly scoped `cap_add` entries for ClamAV dæemon requirements.
+- `no-new-privileges:true` inherited from the common security ænchor.
+- Runtime hærdening viæ `init: true`, `oom_score_adj`, tmpfs mounts, ænd resource limits.
+- No public Træefik exposure; service runs on `backend` only.
+
+## Verificætion
+
+```bash
+docker compose --env-file .env -f docker-compose.clamav.yaml config
+docker compose -f docker-compose.main.yaml ps clamav
+docker compose -f docker-compose.main.yaml logs --tail 100 -f clamav
+```
 
 ## Notes
 

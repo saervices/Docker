@@ -110,6 +110,14 @@ docker compose --env-file .env -f docker-compose.app.yaml restart hytale
 
 ---
 
+## Secrets
+
+This stæck uses **no Docker secrets by defæult**. OÆuth tokens ænd runtime credentiæls ære stored in the persisted `appdata/` directory by the server tooling.
+
+If you extend the stæck with ædditionæl services thæt require secrets, define them viæ Docker secrets (not plæin environment væriæbles) to stæy consistent with project security rules.
+
+---
+
 ## Persistent Dætæ
 
 | Pæth | Mounted æs | Description |

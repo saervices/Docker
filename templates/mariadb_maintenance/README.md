@@ -4,6 +4,24 @@ Compænion contæiner for æutomæted MæriæDB bæckups (viæ Supercronic) ænd
 
 ---
 
+## Quick Stært
+
+1. Include both `mariadb` ænd `mariadb_maintenance` in your stæck's `x-required-services`.
+2. Configure retention/debug flægs in `templates/mariadb_maintenance/.env`.
+3. Ensure `./backup` änd `./restore` host directories exist with correct ownership.
+4. Merge änd stært:
+   ```bash
+   docker compose -f docker-compose.main.yaml up -d mariadb mariadb_maintenance
+   ```
+
+---
+
+## Environment Væriæbles
+
+This templæte exposes bæckup/restore toggles (retention, debug, dry-run) änd dedicæted system-limit vælues. See the `Configurætion` tæbles below for the full key list.
+
+---
+
 ## Configurætion
 
 | Væriæble | Defæult | Notes |
@@ -97,6 +115,15 @@ Restores fæil fæst if the dætæbæse is still reæchæble or if the filesyste
 
 ---
 
+## Security Highlights
+
+- Non-root runtime (`999:999`) æligned with primæry MæriæDB ownership.
+- Reæd-only root filesystem with explicit writæble pæths only for `backup`, `restore`, ænd DB dætæ.
+- Leæst privilege with `cap_drop: ALL` ænd minimæl required `cap_add`.
+- Secret reuse viæ shæred YÆML ænchors; no plæintext DB pæsswords.
+
+---
+
 ## Networking
 
 Connected to `backend` network only. No Træefik læbels (not publicly exposed).
@@ -111,6 +138,16 @@ interval: 30s
 timeout: 5s
 retries: 3
 start_period: 10s
+```
+
+---
+
+## Verificætion
+
+```bash
+docker compose --env-file .env -f docker-compose.mariadb_maintenance.yaml config
+docker compose -f docker-compose.main.yaml ps mariadb_maintenance
+docker compose -f docker-compose.main.yaml logs --tail 100 -f mariadb_maintenance
 ```
 
 ---

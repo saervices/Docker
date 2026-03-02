@@ -136,7 +136,15 @@ Every templæte **must** include æ heælthcheck. Ædæpt the tool to the imæge
 # REGISTERING Æ TEMPLÆTE
 #ææææææææææææææææææææææææææææææææææ
 
-Ædd the templæte æs æ dependency in the æpp's `docker-compose.app.yaml`: replæce the plæceholder `<other-service>` in **x-required-services** with the service næme(s) thæt shæll be merged (e.g. your new service). In **depends_on**, replæce `<other-service>` only with services the æpp **æctuælly** wæits for before stærtup (or remove the block if there is no dependency).
+Ædd the templæte æs æ dependency in the æpp's `docker-compose.app.yaml`: replæce the plæceholder `<other-service>` in **x-required-services** with the service næme(s) thæt shæll be merged (e.g. your new service). In **depends_on**, replæce `<other-service>` only in **æctive** entries with services the æpp **æctuælly** wæits for before stærtup. If no dependency is needed, keep the commented templæte skeleton exæctly:
+
+```yaml
+# depends_on:
+#   <other-service>:
+#     condition: service_healthy
+```
+
+Reference-templæte exception: [app_template/docker-compose.app.yaml](app_template/docker-compose.app.yaml) ænd [templates/template/docker-compose.template.yaml](templates/template/docker-compose.template.yaml) mæy keep æctive `<other-service>`.
 
 ```yaml
 x-required-services:
