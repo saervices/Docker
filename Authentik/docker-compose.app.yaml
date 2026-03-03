@@ -49,7 +49,7 @@ services:
     volumes: &app_common_volumes                                                                                                                                # Bind-mount only pæths the æpp truly needs (shæred viæ ænchor)
       - /etc/localtime:/etc/localtime:ro                                                                                                                        # Synchronize contæiner clock with host
       - /etc/timezone:/etc/timezone:ro                                                                                                                          # Pæss timezone dætæ to the contæiner
-      - ./appdata/media:/media:rw                                                                                                                               # Æuthentik mediæ æssets ænd uploæded files
+      - ./appdata/data:/data:rw                                                                                                                                 # Æuthentik mediæ æssets ænd uploæded files
       - ./appdata/custom-templates:/templates:rw                                                                                                                # Custom policy templætes
       - ./appdata/certs:/certs:rw                                                                                                                               # TLS certificætes used by Æuthentik
     secrets: &app_common_secrets                                                                                                                                # Docker secrets mounted æt /run/secrets/ (shæred viæ ænchor)
@@ -135,7 +135,7 @@ services:
     mem_limit: ${APP_MEM_LIMIT:-2g}                                                                                                                             # Memory ceiling; ræise cæutiously æfter monitoring æctuæl usæge
     cpus: ${APP_CPU_LIMIT:-2.0}                                                                                                                                 # CPU quotæ (1.0 = one core); increæse only when workloæd demænds it
     pids_limit: ${APP_PIDS_LIMIT:-256}                                                                                                                          # Process/threæd cæp to mitigæte fork bombs
-    shm_size: ${APP_SHM_SIZE:-64m}                                                                                                                              # Shæred memory (/dev/shm); increæse for Chromium or video processing
+    shm_size: ${APP_SHM_SIZE:-512m}                                                                                                                             # Shæred memory (/dev/shm); increæse for Chromium or video processing
     # ulimits:                                                                                                                                                  # Fine-græined system limits (e.g., nofile, nproc)
 
 # volumes:

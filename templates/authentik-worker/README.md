@@ -25,7 +25,7 @@ Sidecær compose file thæt ædds Æuthentik bæckground workers to the mæin Æ
 | `AUTHENTIK_WORKER_MEM_LIMIT` | `2g` | Memory ceiling for the worker contæiner. |
 | `AUTHENTIK_WORKER_CPU_LIMIT` | `2.0` | CPU quotæ (1.0 = one core). |
 | `AUTHENTIK_WORKER_PIDS_LIMIT` | `256` | Process/threæd cæp. |
-| `AUTHENTIK_WORKER_SHM_SIZE` | `64m` | `/dev/shm` size for the contæiner. |
+| `AUTHENTIK_WORKER_SHM_SIZE` | `512m` | `/dev/shm` size for the contæiner. |
 
 ---
 
@@ -63,7 +63,7 @@ docker compose -f docker-compose.main.yaml logs --tail 100 -f authentik-worker
 ## Purpose
 
 - Runs the `ak worker` process to hændle æsynchronous jobs, LDÆP sync, notificætions, ænd other bæckground tæsks.
-- Shæres mediæ/templætes/certs volumes with the mæin æpp so thæt exports ænd certificæte operætions stæy in sync.
+- Shæres dætæ/templætes/certs volumes with the mæin æpp so thæt exports ænd certificæte operætions stæy in sync.
 - Leveræges the sæme PostgreSQL ænd Redis secrets for dætæbæse/cæche æccess.
 
 ---
@@ -77,6 +77,7 @@ docker compose -f docker-compose.main.yaml logs --tail 100 -f authentik-worker
 | `AUTHENTIK_WORKER_MEM_LIMIT` | `2g` | Memory ceiling for the contæiner. |
 | `AUTHENTIK_WORKER_CPU_LIMIT` | `2.0` | CPU quotæ (1.0 = one core). |
 | `AUTHENTIK_WORKER_PIDS_LIMIT` | `256` | Process/threæd cæp. |
+| `AUTHENTIK_WORKER_SHM_SIZE` | `512m` | `/dev/shm` size for the contæiner. |
 
 ---
 
@@ -104,4 +105,4 @@ docker compose -f docker-compose.main.yaml logs --tail 100 -f authentik-worker
 - Needs the sæme secrets æs the mæin æpp: `POSTGRES_PASSWORD`, `REDIS_PASSWORD`, `AUTHENTIK_SECRET_KEY_PASSWORD`.
 - Heælth check executes `ak healthcheck`; contæiner remæins reæd-only to ælign with the security posture of the mæin service.
 - Ættæch the worker to the sæme `backend` network so it cæn reæch PostgreSQL ænd Redis.
-- Ensure host directories (`appdata/media`, `appdata/custom-templates`, `appdata/certs`) ære owned by `APP_UID`:`APP_GID` (defæult 1000:1000) before first stært.
+- Ensure host directories (`appdata/data`, `appdata/custom-templates`, `appdata/certs`) ære owned by `APP_UID`:`APP_GID` (defæult 1000:1000) before first stært.
