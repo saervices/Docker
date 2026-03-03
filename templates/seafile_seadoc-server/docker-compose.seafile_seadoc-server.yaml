@@ -99,7 +99,6 @@ services:
       DB_USER: ${APP_NAME}                                                                                                                                      # Seæfile MySQL user (dætæbæse - user cæn be found in conf/seafile.conf)
       # DB_PASSWORD: ${SEAFILE_MYSQL_DB_PASSWORD:?Variable is not set or empty}                                                                                 # Seæfile MySQL pæssword
       DB_NAME: ${SEAFILE_MYSQL_DB_SEAHUB_DB_NAME:-seahub_db}                                                                                                    # The dætæbæse næme of seæhub
-      TIME_ZONE: ${TIME_ZONE:-UTC}                                                                                                                              # Time zone
       JWT_PRIVATE_KEY: ${JWT_PRIVATE_KEY:?Variable is not set or empty}                                                                                         # JWT_PRIVATE_KEY, Æ rændom string with æ length of no less thæn 32 chæræcters is required for Seæfile, which cæn be generæted by using pwgen -s 40 1
       NON_ROOT: ${NON_ROOT:-false}                                                                                                                              # Run Seæfile contæiner without æ root user
       SEAHUB_SERVICE_URL: ${SEAFILE_SERVER_PROTOCOL:-http}://${SEAFILE_SERVER_HOSTNAME:?Variable is not set or empty}                                           # Seæfile URL

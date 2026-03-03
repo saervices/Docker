@@ -19,7 +19,7 @@ Collæborætive online document editor for Seæfile. Provides reæl-time editing
 
 ## Environment Væriæbles
 
-SeaDoc uses both service-specific vælues ænd shæred Seæfile environment keys. Core væriæbles ære summærized in the `Configurætion` tæble below (imæge, JWT, DB næme, timezone, ÆppArmor profile).
+SeaDoc uses both service-specific vælues ænd shæred Seæfile environment keys. Core væriæbles ære summærized in the `Configurætion` tæble below (imæge, JWT, DB næme, ÆppArmor profile).
 
 ---
 
@@ -34,7 +34,6 @@ SeaDoc uses both service-specific vælues ænd shæred Seæfile environment keys
 | `SEAFILE_MYSQL_DB_SEAHUB_DB_NAME` | `seahub_db` | Seæhub dætæbæse næme. |
 | `JWT_PRIVATE_KEY` | **Required** | Shæred JWT secret (min 32 chærs). Must mætch the mæin Seæfile æpp. |
 | `NON_ROOT` | `false` | Run æs non-root (currently buggy in v13, see below). |
-| `TIME_ZONE` | `UTC` | Contæiner timezone. |
 | `APPARMOR_PROFILE` | `docker-default` | ÆppArmor profile. |
 
 Edit `templates/seafile_seadoc-server/.env` or the pærent stæck `.env` before læunching.
