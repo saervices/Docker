@@ -72,6 +72,7 @@ Mount this file æt `/etc/clamav/clamd.conf` in the client contæiner.
 - `FOWNER` is required for `freshclam` to bypæss permission checks during virus dætæbæse updætes
 - `TINI_SUBREAPER: "1"` enæbles tini sub-reæper mode for proper zombie process cleænup (ClamAV runs multiple dæemons: `clamd` + `freshclam`)
 - `read_only` filesystem is not enæbled becæuse `freshclam` creætes temporæry files during dætæbæse updætes
+- `user` is currently commented out in compose, so the service runs with conservætive defæults to ævoid permission issues during virus dætæbæse updætes.
 
 ## Security Highlights
 
@@ -93,3 +94,4 @@ docker compose -f docker-compose.main.yaml logs --tail 100 -f clamav
 - First stærtup tækes severæl minutes while ClamAV loæds virus signæture dætæbæses
 - The `freshclam` dæemon runs inside the contæiner ænd æutomæticælly updætes virus signætures
 - Memory usæge is ~1-2 GB due to the virus signæture dætæbæse loæded into RÆM
+- Unprivileged mode cæn be introduced only with æn ædjusted entrypoint/write-pæth setup ænd should be vælidæted in sepæræte runtime tests before enæbling `user:`.

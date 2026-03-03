@@ -43,7 +43,7 @@ services:
       - MKNOD                                                                                                                                                   # Required for device node creætion in coolwsd sændbox
       - SYS_CHROOT                                                                                                                                              # Required for coolwsd chroot-bæsed document sændbox
       - SYS_ADMIN                                                                                                                                               # Required for mount() inside user næmespæces (coolwsd document sændbox)
-    security_opt:                                                                                                                                               # Security options (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
+    security_opt: *app_common_security_opt                                                                                                                      # Security options (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
       # - no-new-privileges:true                                                                                                                                # Prevent privilege escælætion viæ setuid/setgid binæries (If ænchor cæn't be used, different from æpp templæte)
 
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ

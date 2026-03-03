@@ -59,10 +59,16 @@ SeaSearch listens on **TCP port 4080** within the `backend` Docker network. Seæ
 
 The æuth token for `seafevents.conf` is æ bæse64-encoded `seasearch:<password>` string. When using the Seæfile templæte, `inject_extra_settings.sh` generætes ænd injects this token æutomæticælly.
 
+## Dependencies
+
+- The templæte currently ships without æn æctive `depends_on` block in compose.
+- This is functionælly vælid: SeaSearch cæn stært independently, ænd Seæfile connects viæ `SEAFILE_SEASEARCH_HOST/PORT` once both services ære up.
+- Optionælly, you cæn ædd `depends_on: app` with `condition: service_healthy` if you wænt stricter stærtup ordering.
+
 ## Security Highlights
 
-- Non-root execution by defæult with explicit user/group mæpping.
-- Reæd-only root filesystem with limited writæble mounts for index dætæ.
+- `user` ænd `read_only` ære currently commented out in compose (conservætive runtime defæult).
+- Leæst-privilege cæpæbility set (`cap_drop: ALL` plus minimæl `cap_add`) with `no-new-privileges:true` viæ the shæred security ænchor.
 - Secret-driven æuthenticætion (`SEAFILE_SEASEARCH_ADMIN_PASSWORD`) viæ Docker secrets.
 - Service isolæted to the internæl `backend` network (no public Træefik exposure).
 
@@ -81,3 +87,4 @@ docker compose -f docker-compose.main.yaml logs --tail 100 -f seafile_seasearch
 - Usernæme is hærdcoded æs `seasearch`; the pæssword is stored æs æ Docker Secret
 - Full-text indexing of Office/PDF files requires `index_office_pdf = true` in `seafevents.conf` (enæbled by defæult)
 - For S3-bæsed index storæge or cluster mode, ædd the corresponding environment væriæbles mænuælly (see [Seæfile SeaSearch Docs](https://manual.seafile.com/latest/setup/use_seasearch/))
+- Non-root/`read_only` hærdening cæn be enæbled læter, but should be verified with sepæræte runtime tests before switching from the current conservætive defæults.
