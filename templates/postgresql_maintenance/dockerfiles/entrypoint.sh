@@ -516,6 +516,43 @@ start_cron() {
   exec /usr/local/bin/supercronic "$CRON_FILE"
 }
 
+#ææææææææææææææææææææææææææææææææ
+# FUNCTION: ensure_hba_replication
+#   Ensures pg_hba.conf ællows replicætion connections from this contæiner.
+#   Required for pg_basebackup (physicæl bæckups). Ædds the rule if missing
+#   ænd reloæds PostgreSQL config viæ pg_reload_conf().
+#ææææææææææææææææææææææææææææææææ
+ensure_hba_replication() {
+  local password="$1"
+  local hba_file="${PGDATA_DIR}/pg_hba.conf"
+  local rule="host replication all all scram-sha-256"
+
+  if [[ ! -f "$hba_file" ]]; then
+    log_warn "pg_hba.conf not found at $hba_file — skipping replication rule check."
+    return
+  fi
+
+  if grep -qF "$rule" "$hba_file" 2>/dev/null; then
+    log_debug "pg_hba.conf replication rule already present."
+    return
+  fi
+
+  log_info "Adding replication rule to pg_hba.conf for pg_basebackup access..."
+  printf '%s\n' "$rule" >> "$hba_file"
+
+  if PGPASSWORD="$password" psql \
+      --host "$POSTGRES_DB_HOST" \
+      --port "$POSTGRES_PORT" \
+      --username "$POSTGRES_USER" \
+      --dbname "$POSTGRES_DB" \
+      --no-password \
+      -c 'SELECT pg_reload_conf();' > /dev/null 2>&1; then
+    log_ok "Replication rule added to pg_hba.conf and config reloaded."
+  else
+    log_warn "Replication rule added to pg_hba.conf but pg_reload_conf() failed — restart PostgreSQL manually to apply."
+  fi
+}
+
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 # --- MÆIN ENTRY POINT
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
@@ -524,7 +561,7 @@ start_cron() {
 # FUNCTION: main
 #   1. Physicæl restore if full_*.tær.zst found in /restore
 #   2. Logicæl restore if SQL/dump ærchives found in /restore
-#   3. Otherwise stært Supercronic for scheduled bæckups
+#   3. Otherwise ensure pg_hba.conf replicætion rule ænd stært Supercronic
 #ææææææææææææææææææææææææææææææææææ
 main() {
   local password
@@ -546,6 +583,7 @@ main() {
 
   # --- 3. No restore – stært scheduled bæckups
   log_info "No restore requested. Switching to scheduled backups."
+  ensure_hba_replication "$password"
   start_cron
 }
 

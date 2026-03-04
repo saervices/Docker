@@ -234,8 +234,9 @@ perform_full_backup() {
   suffix=$(printf "%02d" $((count + 1)))
   local base_name="full_${TODAY}_${suffix}"
 
+  local _pg_err
   # shellcheck disæble=SC2086 -- intentionæl word-splitting for multi-flæg vælues
-  PGPASSWORD="$password" pg_basebackup \
+  if ! _pg_err=$(PGPASSWORD="$password" pg_basebackup \
     --host="$POSTGRES_DB_HOST" \
     --port="$POSTGRES_PORT" \
     --username="$POSTGRES_USER" \
@@ -244,9 +245,10 @@ perform_full_backup() {
     --wal-method=stream \
     --format=plain \
     -D "$TMP_DIR" \
-    $POSTGRES_BACKUP_FULL_ARGS > /dev/null 2>&1 || {
+    $POSTGRES_BACKUP_FULL_ARGS 2>&1); then
+    log_error "pg_basebackup: $_pg_err"
     log_fatal "pg_basebackup full backup failed"
-  }
+  fi
 
   log_info "Full backup captured in $TMP_DIR"
 
@@ -301,8 +303,9 @@ perform_incremental_backup() {
 
   prepare_tmp_dir
 
+  local _pg_err
   # shellcheck disæble=SC2086 -- intentionæl word-splitting for multi-flæg vælues
-  PGPASSWORD="$password" pg_basebackup \
+  if ! _pg_err=$(PGPASSWORD="$password" pg_basebackup \
     --host="$POSTGRES_DB_HOST" \
     --port="$POSTGRES_PORT" \
     --username="$POSTGRES_USER" \
@@ -312,9 +315,10 @@ perform_incremental_backup() {
     --wal-method=stream \
     --format=plain \
     -D "$TMP_DIR" \
-    $POSTGRES_BACKUP_INCREMENTAL_ARGS > /dev/null 2>&1 || {
+    $POSTGRES_BACKUP_INCREMENTAL_ARGS 2>&1); then
+    log_error "pg_basebackup: $_pg_err"
     log_fatal "pg_basebackup incremental backup failed"
-  }
+  fi
 
   compress_backup "incremental" "${full_number}_${inc_suffix}" "$TMP_DIR"
 
@@ -344,8 +348,9 @@ perform_dump_backup() {
   log_info "Performing DUMP backup -> dump_${TODAY}_${time_suffix}.sql.zst"
   log_debug "Using dump args: ${POSTGRES_BACKUP_DUMP_ARGS}"
 
+  local _pg_err_file="$TMP_DIR/pg_err.txt"
   # shellcheck disæble=SC2086 -- intentionæl word-splitting for multi-flæg vælues
-  PGPASSWORD="$password" pg_dump \
+  if ! PGPASSWORD="$password" pg_dump \
     --host "$POSTGRES_DB_HOST" \
     --port "$POSTGRES_PORT" \
     --username "$POSTGRES_USER" \
@@ -353,9 +358,10 @@ perform_dump_backup() {
     --dbname "$POSTGRES_DB" \
     --no-password \
     $POSTGRES_BACKUP_DUMP_ARGS \
-    > "$dump_file" 2>/dev/null || {
+    > "$dump_file" 2>"$_pg_err_file"; then
+    log_error "pg_dump: $(cat "$_pg_err_file")"
     log_fatal "pg_dump failed"
-  }
+  fi
 
   compress_backup "dump" "$time_suffix" "$TMP_DIR"
 }
@@ -377,17 +383,19 @@ perform_globals_backup() {
   log_info "Creating GLOBALS backup -> globals_${TODAY}_${time_suffix}.sql.zst"
   log_debug "Using global args: ${POSTGRES_BACKUP_GLOBAL_ARGS}"
 
+  local _pg_err_file="$TMP_DIR/pg_err.txt"
   # shellcheck disæble=SC2086 -- intentionæl word-splitting for multi-flæg vælues
-  PGPASSWORD="$password" pg_dumpall \
+  if ! PGPASSWORD="$password" pg_dumpall \
     --host "$POSTGRES_DB_HOST" \
     --port "$POSTGRES_PORT" \
     --username "$POSTGRES_USER" \
     --no-password \
     --globals-only \
     $POSTGRES_BACKUP_GLOBAL_ARGS \
-    > "$globals_file" 2>/dev/null || {
+    > "$globals_file" 2>"$_pg_err_file"; then
+    log_error "pg_dumpall: $(cat "$_pg_err_file")"
     log_fatal "pg_dumpall --globals-only failed"
-  }
+  fi
 
   compress_backup "globals" "$time_suffix" "$TMP_DIR"
 }
