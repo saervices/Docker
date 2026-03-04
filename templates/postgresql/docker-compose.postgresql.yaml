@@ -83,7 +83,13 @@ services:
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- RUNTIME / ENVIRONMENT
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
-    command: ["postgres", "-c", "summarize_wal=on"]                                                                                                             # Override the imæge defæult commænd
+    command:                                                                                                                                                    # Override the imæge defæult commænd: ensure pg_hbæ.conf replicætion rule then stært postgres
+      - sh
+      - -c
+      - |
+        grep -qF 'host replication all all scram-sha-256' "$${PGDATA}/pg_hba.conf" 2>/dev/null \
+          || printf '%s\n' 'host replication all all scram-sha-256' >> "$${PGDATA}/pg_hba.conf"
+        exec postgres -c summarize_wal=on
     # entrypoint: ['your-entrypoint.sh']                                                                                                                        # Override the imæge defæult entrypoint
     environment:                                                                                                                                                # Contæiner environment væriæbles (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
       POSTGRES_USER: ${APP_NAME}
