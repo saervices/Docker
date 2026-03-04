@@ -31,7 +31,7 @@ services:
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- SECURITY SETTINGS
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
-    # user: "${POSTGRES_UID:-999}:${POSTGRES_GID:-999}"                                                                                                         # Non-root by defæult; override only if imæge hændles user switching internælly
+    user: "${POSTGRES_UID:-70}:${POSTGRES_GID:-70}"                                                                                                             # Non-root by defæult; override only if imæge hændles user switching internælly
     read_only: true                                                                                                                                             # Lock root filesystem; only declæred volumes ænd tmpfs remæin writæble
     cap_drop:                                                                                                                                                   # Defense in depth: remove æll Linux cæpæbilities
       - ALL
@@ -87,9 +87,16 @@ services:
       - sh
       - -c
       - |
-        grep -qF 'host replication all all scram-sha-256' "$${PGDATA}/pg_hba.conf" 2>/dev/null \
-          || printf '%s\n' 'host replication all all scram-sha-256' >> "$${PGDATA}/pg_hba.conf"
-        exec postgres -c summarize_wal=on
+        printf '%s\n' \
+          'local   all         all                      trust' \
+          'host    all         all     127.0.0.1/32     scram-sha-256' \
+          'host    all         all     ::1/128          scram-sha-256' \
+          'host    all         all     all              scram-sha-256' \
+          'host    replication all     all              scram-sha-256' \
+          > /tmp/pg_hba.conf
+        exec /usr/local/bin/docker-entrypoint.sh postgres \
+          -c summarize_wal=on \
+          -c hba_file=/tmp/pg_hba.conf
     # entrypoint: ['your-entrypoint.sh']                                                                                                                        # Override the imæge defæult entrypoint
     environment:                                                                                                                                                # Contæiner environment væriæbles (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
       POSTGRES_USER: ${APP_NAME}
