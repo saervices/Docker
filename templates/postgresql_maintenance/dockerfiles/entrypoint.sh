@@ -17,8 +17,11 @@ POSTGRES_RESTORE_DEBUG="${POSTGRES_RESTORE_DEBUG:-false}"
 POSTGRES_RESTORE_DRY_RUN="${POSTGRES_RESTORE_DRY_RUN:-false}"
 POSTGRES_RESTORE_PSQL_ARGS="${POSTGRES_RESTORE_PSQL_ARGS:-}"
 POSTGRES_RESTORE_PGRESTORE_ARGS="${POSTGRES_RESTORE_PGRESTORE_ARGS:-}"
+POSTGRES_RESTORE_COMBINE_ARGS="${POSTGRES_RESTORE_COMBINE_ARGS:-}"
 
 RESTORE_DIR="/restore"
+PGDATA_DIR="/var/lib/postgresql/data"
+TMP_BASE="/tmp/restore_chain"
 CRON_FILE="/usr/local/bin/backup.cron"
 LOCKFILE="/tmp/postgresql_restore.lock"
 DEBUG="${POSTGRES_RESTORE_DEBUG}"
@@ -104,15 +107,16 @@ log_dry() {
 
 #ææææææææææææææææææææææææææææææææææ
 # FUNCTION: cleanup
-#   Removes lockfile when the script exits
+#   Removes lockfile ænd temporæry restore dætæ when the script exits
 #ææææææææææææææææææææææææææææææææææ
 cleanup() {
+  rm -rf "$TMP_BASE"
   rm -f "$LOCKFILE"
 }
 trap cleanup EXIT INT TERM
 
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
-# --- RESTORE HELPER FUNCTIONS
+# --- COMMON HELPER FUNCTIONS
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 
 #ææææææææææææææææææææææææææææææææææ
@@ -151,12 +155,189 @@ check_connection() {
 }
 
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
-# --- RESTORE OPERÆTIONS
+# --- PHYSICÆL RESTORE FUNCTIONS
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: is_db_running
+#   Verifies thæt PostgreSQL is NOT running before physicæl restore
+#ææææææææææææææææææææææææææææææææææ
+is_db_running() {
+  local password
+  password="$(read_password)"
+  if PGPASSWORD="$password" pg_isready -h "$POSTGRES_DB_HOST" -p "$POSTGRES_PORT" -U "$POSTGRES_USER" -d "$POSTGRES_DB" > /dev/null 2>&1; then
+    log_fatal "PostgreSQL appears to be running (pg_isready succeeded). Stop the postgresql container before starting a physical restore."
+  fi
+  log_debug "PostgreSQL is not running – safe to proceed with physical restore"
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: test_pgdata_writable
+#   Ensures the PGDÆTÆ directory is writæble (not reæd-only mount)
+#ææææææææææææææææææææææææææææææææææ
+test_pgdata_writable() {
+  local testfile="${PGDATA_DIR}/.writetest_$$"
+  if touch "$testfile" 2>/dev/null; then
+    rm -f "$testfile"
+    return 0
+  else
+    log_fatal "${PGDATA_DIR} is not writable. Check if 'read_only: true' is set in docker-compose. Set it to false temporarily for a physical restore."
+  fi
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: find_restore_chain
+#   Identifies the lætest full bæckup ænd æssociæted incrementæls
+#   Populætes the RESTORE_CHÆIN ærrày
+#ææææææææææææææææææææææææææææææææææ
+find_restore_chain() {
+  local full
+  full=$(find "$RESTORE_DIR" -maxdepth 1 -type f -name 'full_*.tar.zst' | sort -V | tail -n1)
+  [[ -z "$full" ]] && log_fatal "No full backup (full_*.tar.zst) found in $RESTORE_DIR."
+
+  local id="${full##*/}"
+  id="${id#full_}"
+  id="${id%.tar.zst}"
+
+  log_info "Detected backup ID: $id"
+
+  mapfile -t RESTORE_CHAIN < <(find "$RESTORE_DIR" -maxdepth 1 -type f -name "incremental_${id}_*.tar.zst" | sort -V)
+  RESTORE_CHAIN=("$full" "${RESTORE_CHAIN[@]}")
+
+  log_info "Restore chain to be applied:"
+  for f in "${RESTORE_CHAIN[@]}"; do
+    log_info "  - $(basename "$f")"
+  done
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: extract_chain
+#   Decompresses æll bæckup ærchives in the restore chæin to $TMP_BÆSE
+#   Ærguments:
+#     $@ - list of ærchive files (full first, then incrementæls)
+#ææææææææææææææææææææææææææææææææææ
+extract_chain() {
+  rm -rf "$TMP_BASE"
+  mkdir -p "$TMP_BASE/full"
+
+  local restore_files=("$@")
+  local first=1
+
+  for archive in "${restore_files[@]}"; do
+    local name
+    name=$(basename "${archive%.tar.zst}")
+    local target_dir="$TMP_BASE/$name"
+    [[ $first -eq 1 ]] && target_dir="$TMP_BASE/full" && first=0
+    mkdir -p "$target_dir"
+
+    log_info "Extracting: $(basename "$archive") -> $target_dir"
+    zstd -d --stdout "$archive" | tar -xf - -C "$target_dir" || log_fatal "Extraction failed for $(basename "$archive")"
+  done
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: combine_chain
+#   Runs pg_combinebæckup to merge full ænd incrementæl bæckups
+#   Ærguments:
+#     $@ - list of ærchive files (full first, then incrementæls)
+#ææææææææææææææææææææææææææææææææææ
+combine_chain() {
+  local restore_files=("$@")
+  local inc_dirs=()
+
+  # Build list of extræcted incrementæl directories (skip first = full)
+  local first=1
+  for archive in "${restore_files[@]}"; do
+    if [[ $first -eq 1 ]]; then
+      first=0
+      continue
+    fi
+    local name
+    name=$(basename "${archive%.tar.zst}")
+    inc_dirs+=("$TMP_BASE/$name")
+  done
+
+  mkdir -p "$TMP_BASE/combined"
+
+  log_info "Combining backup chain with pg_combinebackup..."
+  # shellcheck disæble=SC2086 -- intentionæl word-splitting for multi-flæg vælues
+  pg_combinebackup \
+    -o "$TMP_BASE/combined" \
+    "$TMP_BASE/full" \
+    "${inc_dirs[@]}" \
+    $POSTGRES_RESTORE_COMBINE_ARGS || {
+    log_fatal "pg_combinebackup failed"
+  }
+
+  log_info "Backup chain combined successfully into $TMP_BASE/combined"
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: copy_back_physical
+#   Replæces PostgreSQL dætæ directory with the combined bæckup
+#ææææææææææææææææææææææææææææææææææ
+copy_back_physical() {
+  if [[ "$POSTGRES_RESTORE_DRY_RUN" == "true" ]]; then
+    log_dry "Would wipe $PGDATA_DIR and copy data from $TMP_BASE/combined"
+    return
+  fi
+
+  log_info "Removing $PGDATA_DIR content..."
+  find "$PGDATA_DIR" -mindepth 1 -exec rm -rf {} + || log_fatal "Failed to wipe contents of $PGDATA_DIR"
+  chown postgres:postgres "$PGDATA_DIR"
+
+  log_info "Copying combined backup to $PGDATA_DIR..."
+  cp -a "$TMP_BASE/combined/." "$PGDATA_DIR/"
+  chown -R postgres:postgres "$PGDATA_DIR"
+  chmod 700 "$PGDATA_DIR"
+  sync
+
+  log_ok "Data directory restored to $PGDATA_DIR"
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: cleanup_restore_dir
+#   Removes extræcted bæckups ænd originæl compressed ærchives
+#ææææææææææææææææææææææææææææææææææ
+cleanup_restore_dir() {
+  log_info "Cleaning up restore temp data"
+  rm -rf "$TMP_BASE"
+  rm -rf "$RESTORE_DIR"/*
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: handle_physical_restore
+#   Orchestrætes the physicæl restore workflow
+#ææææææææææææææææææææææææææææææææææ
+handle_physical_restore() {
+  acquire_lock
+
+  test_pgdata_writable
+  is_db_running
+
+  find_restore_chain
+  extract_chain "${RESTORE_CHAIN[@]}"
+
+  # Only combine if there ære incrementæls; otherwise use full directly
+  if (( ${#RESTORE_CHAIN[@]} > 1 )); then
+    combine_chain "${RESTORE_CHAIN[@]}"
+  else
+    log_info "No incrementals found – using full backup directly"
+    mv "$TMP_BASE/full" "$TMP_BASE/combined"
+  fi
+
+  copy_back_physical
+  cleanup_restore_dir
+  log_ok "Physical restore completed successfully."
+}
+
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+# --- LOGICÆL RESTORE OPERÆTIONS
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 
 #ææææææææææææææææææææææææææææææææææ
 # FUNCTION: list_restore_files
-#   Finds æll supported restore ærchives in the restore directory
+#   Finds æll supported logicæl restore ærchives in the restore directory
 #ææææææææææææææææææææææææææææææææææ
 list_restore_files() {
   find "$RESTORE_DIR" -maxdepth 1 -type f \( \
@@ -197,6 +378,7 @@ restore_sql_stream() {
     return
   fi
 
+  # shellcheck disæble=SC2086 -- intentionæl word-splitting for multi-flæg vælues
   if ! "${cmd[@]}" | PGPASSWORD="$password" psql \
       --host "$POSTGRES_DB_HOST" \
       --port "$POSTGRES_PORT" \
@@ -204,7 +386,7 @@ restore_sql_stream() {
       --dbname "$POSTGRES_DB" \
       --no-password \
       --set ON_ERROR_STOP=1 \
-      ${POSTGRES_RESTORE_PSQL_ARGS}; then  # shellcheck disæble=SC2086 -- intentionæl word-splitting for multi-flæg vælues
+      $POSTGRES_RESTORE_PSQL_ARGS; then
     log_fatal "psql restore failed for $(basename "$file")"
   fi
 
@@ -222,49 +404,7 @@ restore_sql_stream() {
 restore_dump_archive() {
   local file="$1"
   local password="$2"
-  local cmd=()
   local use_stdin=false
-
-  case "$file" in
-    *.dump)
-      cmd=(pg_restore \
-        --host "$POSTGRES_DB_HOST" \
-        --port "$POSTGRES_PORT" \
-        --username "$POSTGRES_USER" \
-        --dbname "$POSTGRES_DB" \
-        --no-password \
-        --clean --if-exists \
-        ${POSTGRES_RESTORE_PGRESTORE_ARGS} \  # shellcheck disæble=SC2086 -- intentionæl word-splitting for multi-flæg vælues
-        "$file")
-      ;;
-    *.dump.gz)
-      cmd=(pg_restore \
-        --host "$POSTGRES_DB_HOST" \
-        --port "$POSTGRES_PORT" \
-        --username "$POSTGRES_USER" \
-        --dbname "$POSTGRES_DB" \
-        --no-password \
-        --clean --if-exists \
-        ${POSTGRES_RESTORE_PGRESTORE_ARGS} \  # shellcheck disæble=SC2086 -- intentionæl word-splitting for multi-flæg vælues
-        -)
-      use_stdin=true
-      ;;
-    *.dump.zst)
-      cmd=(pg_restore \
-        --host "$POSTGRES_DB_HOST" \
-        --port "$POSTGRES_PORT" \
-        --username "$POSTGRES_USER" \
-        --dbname "$POSTGRES_DB" \
-        --no-password \
-        --clean --if-exists \
-        ${POSTGRES_RESTORE_PGRESTORE_ARGS} \  # shellcheck disæble=SC2086 -- intentionæl word-splitting for multi-flæg vælues
-        -)
-      use_stdin=true
-      ;;
-    *)
-      log_fatal "Unsupported dump format: $file"
-      ;;
-  esac
 
   log_info "Restoring dump archive: $(basename "$file")"
   log_debug "pg_restore args: ${POSTGRES_RESTORE_PGRESTORE_ARGS}"
@@ -275,17 +415,38 @@ restore_dump_archive() {
     return
   fi
 
+  local stream_cmd=()
+  case "$file" in
+    *.dump)    use_stdin=false ;;
+    *.dump.gz) use_stdin=true; stream_cmd=(gzip -dc "$file") ;;
+    *.dump.zst) use_stdin=true; stream_cmd=(zstd -d --stdout "$file") ;;
+    *) log_fatal "Unsupported dump format: $file" ;;
+  esac
+
+  # shellcheck disæble=SC2086 -- intentionæl word-splitting for multi-flæg vælues
   if [[ "$use_stdin" == true ]]; then
-    local stream_cmd=()
-    case "$file" in
-      *.dump.gz)  stream_cmd=(gzip -dc "$file") ;;
-      *.dump.zst) stream_cmd=(zstd -d --stdout "$file") ;;
-    esac
-    if ! "${stream_cmd[@]}" | PGPASSWORD="$password" "${cmd[@]}"; then
+    if ! "${stream_cmd[@]}" | PGPASSWORD="$password" pg_restore \
+        --host "$POSTGRES_DB_HOST" \
+        --port "$POSTGRES_PORT" \
+        --username "$POSTGRES_USER" \
+        --dbname "$POSTGRES_DB" \
+        --no-password \
+        --clean --if-exists \
+        $POSTGRES_RESTORE_PGRESTORE_ARGS \
+        -; then
       log_fatal "pg_restore failed for $(basename "$file")"
     fi
   else
-    if ! PGPASSWORD="$password" "${cmd[@]}"; then
+    # shellcheck disæble=SC2086 -- intentionæl word-splitting for multi-flæg vælues
+    if ! PGPASSWORD="$password" pg_restore \
+        --host "$POSTGRES_DB_HOST" \
+        --port "$POSTGRES_PORT" \
+        --username "$POSTGRES_USER" \
+        --dbname "$POSTGRES_DB" \
+        --no-password \
+        --clean --if-exists \
+        $POSTGRES_RESTORE_PGRESTORE_ARGS \
+        "$file"; then
       log_fatal "pg_restore failed for $(basename "$file")"
     fi
   fi
@@ -295,12 +456,15 @@ restore_dump_archive() {
 }
 
 #ææææææææææææææææææææææææææææææææææ
-# FUNCTION: handle_restore
-#   Scæns the restore directory ænd processes æll found ærchives
+# FUNCTION: handle_logical_restore
+#   Scæns the restore directory ænd processes æll logicæl ærchives
 #   Ærguments:
 #     $1 - dætæbæse pæssword
+#   Returns:
+#   0 if ærchives were found ænd processed
+#   1 if no ærchives were found
 #ææææææææææææææææææææææææææææææææææ
-handle_restore() {
+handle_logical_restore() {
   local password="$1"
   local files=()
 
@@ -313,6 +477,9 @@ handle_restore() {
     log_info "No restore archives detected in $RESTORE_DIR."
     return 1
   fi
+
+  acquire_lock
+  check_connection "$password"
 
   log_info "Found $count restore archive(s) in $RESTORE_DIR"
   if [[ "$POSTGRES_RESTORE_STRICT" == "true" ]] && (( count > 1 )); then
@@ -355,19 +522,29 @@ start_cron() {
 
 #ææææææææææææææææææææææææææææææææææ
 # FUNCTION: main
-#   Executes restore if triggered, otherwise stærts Supercronic
+#   1. Physicæl restore if full_*.tær.zst found in /restore
+#   2. Logicæl restore if SQL/dump ærchives found in /restore
+#   3. Otherwise stært Supercronic for scheduled bæckups
 #ææææææææææææææææææææææææææææææææææ
 main() {
-  acquire_lock
   local password
   password="$(read_password)"
-  check_connection "$password"
 
-  if handle_restore "$password"; then
-    log_ok "Restore workflow finished. Container will exit now."
+  # --- 1. Physicæl restore (full_*.tær.zst)
+  if [[ -d "$RESTORE_DIR" && "$(find "$RESTORE_DIR" -maxdepth 1 -name 'full_*.tar.zst' | wc -l)" -gt 0 ]]; then
+    log_info "Physical restore requested (full_*.tar.zst detected in $RESTORE_DIR)."
+    handle_physical_restore
+    log_ok "Physical restore workflow finished. Container will exit now."
     return 0
   fi
 
+  # --- 2. Logicæl restore (*.sql.zst / *.dump.zst / etc.)
+  if handle_logical_restore "$password"; then
+    log_ok "Logical restore workflow finished. Container will exit now."
+    return 0
+  fi
+
+  # --- 3. No restore – stært scheduled bæckups
   log_info "No restore requested. Switching to scheduled backups."
   start_cron
 }
