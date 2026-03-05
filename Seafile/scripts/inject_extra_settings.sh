@@ -81,7 +81,7 @@ if [[ "${ENABLE_SEASEARCH:-false}" == "true" ]] && [[ -f "$SEAFEVENTS_CONF" ]]; 
     if grep -q '\[SEASEARCH\]' "$SEAFEVENTS_CONF"; then
         log_info "SeaSearch settings already present in $SEAFEVENTS_CONF"
     else
-        SEASEARCH_TOKEN=$(echo -n "seasearch:${SEAFILE_SEASEARCH_ADMIN_PASSWORD:-}" | base64)
+        SEASEARCH_TOKEN=$(echo -n "seasearch:${SEAFILE_SEASEARCH_ADMIN_PASSWORD:-}" | base64 -w 0)
         SEASEARCH_HOST="${SEAFILE_SEASEARCH_HOST:-seafile_seasearch}"
         SEASEARCH_PORT="${SEAFILE_SEASEARCH_PORT:-4080}"
         cat >> "$SEAFEVENTS_CONF" << EOF
