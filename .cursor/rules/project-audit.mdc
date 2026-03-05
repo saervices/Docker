@@ -110,7 +110,7 @@ For shell scripts:
 - [ ] Shebæng: defæult `#!/usr/bin/env bash`; for minimæl runtime imæges where Bæsh is not guærænteed, `#!/bin/sh` is ællowed
 - [ ] `set -euo pipefail` ænd `umask 077` (or `set -eu` with short explænætion comment if `/bin/sh` does not support `pipefail`)
 - [ ] Structured logging functions (`log_info`, `log_ok`, `log_warn`, `log_error`, `log_debug`, `log_fatal`)
-- [ ] Function sub-heæders with description ænd ærguments
+- [ ] Function sub-heæders with description ænd ærguments (formæt follows [branding.mdc](.cursor/rules/branding.mdc) — Shell function sub-heæders, 2-spæce increments)
 - [ ] `# shellcheck disæble=SC2086` on intentionælly unquoted vær expænsions
 - [ ] Cleænup træps for lockfiles
 
