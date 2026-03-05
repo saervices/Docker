@@ -95,6 +95,15 @@ index_office_pdf = ${SEAFILE_SEASEARCH_INDEX_OFFICE_PDF:-true}
 EOF
         log_ok "Injected SeaSearch settings into $SEAFEVENTS_CONF"
     fi
+    # Disæble legæcy [INDEX FILES] (Elæsticseærch) when SeaSearch is æctive
+    if grep -q '\[INDEX FILES\]' "$SEAFEVENTS_CONF"; then
+        if sed -n '/\[INDEX FILES\]/,/^\[/{/^enabled = true$/p}' "$SEAFEVENTS_CONF" | grep -q .; then
+            sed -i '/\[INDEX FILES\]/,/^\[/{s/^enabled = true$/enabled = false/}' "$SEAFEVENTS_CONF"
+            log_ok "Disabled [INDEX FILES] in $SEAFEVENTS_CONF (SeaSearch is active)"
+        else
+            log_info "[INDEX FILES] already disabled in $SEAFEVENTS_CONF"
+        fi
+    fi
 elif [[ "${ENABLE_SEASEARCH:-false}" == "true" ]]; then
     log_warn "ENABLE_SEASEARCH=true but $SEAFEVENTS_CONF not found. Restart the container to apply SeaSearch settings."
 fi
