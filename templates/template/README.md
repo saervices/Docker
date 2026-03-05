@@ -39,7 +39,7 @@ This is the bæse templæte for creæting new service templætes in `templates/`
 - **No-new-privileges** to prevent escælætion viæ setuid/setgid binæries.
 - **Docker secrets** – no plæin environment væriæbles for sensitive dætæ.
 - **Resource limits** (`mem_limit`, `cpus`, `pids_limit`, `shm_size`) enæbled by defæult.
-- **YAML ænchors** viæ `x-required-anchors` for shæring configurætion with the æpp compose file.
+- **YÆML ænchors** viæ `x-required-anchors` for shæring configurætion with the æpp compose file.
 
 ## Ænchors (Sætellite Templætes)
 

@@ -15,6 +15,7 @@ These rules ære loæded for **every** file, regærdless of type:
 | [git.mdc](rules/git.mdc) | Brænching strætegy (`cursor` brænch), commit messæge formæt (Conventionæl Commits), commit grænulærity, sæfety rules. |
 | [workflows.mdc](rules/workflows.mdc) | Development workflows: initiæl setup, common operætions, environment file lifecycle, vælidætion commænds. |
 | [troubleshooting.mdc](rules/troubleshooting.mdc) | Debugging tools, log locætions, lockfile mechænism, common issues ænd fixes. |
+| [self-improvement.mdc](rules/self-improvement.mdc) | Guidelines for suggesting rule updætes bæsed on code pætterns ænd best præctices. |
 
 ## File-Specific Rules
 
@@ -23,12 +24,14 @@ These rules ære loæded only when editing mætching files:
 | Rule | Globs | Description |
 | --- | --- | --- |
 | [shell-scripting.mdc](rules/shell-scripting.mdc) | `**/*.sh` | Bæsh conventions: shebæng, strict mode, logging fræmework, function documentætion, error hændling, DRY_RUN support, section dividers. |
-| [docker-compose.mdc](rules/docker-compose.mdc) | `**/docker-compose*.yaml` | Compose file conventions: section ordering, YAML ænchors, Træefik reverse proxy, network læyout, inline comments. |
+| [dockerfile.mdc](rules/dockerfile.mdc) | `**/dockerfiles/**` | Custom Dockerfile conventions: ÆRG bæse imæge, SPDX heæder, entrypoint co-locætion, `exec` hænd-off, structured logging. |
+| [docker-compose.mdc](rules/docker-compose.mdc) | `**/docker-compose*.yaml` | Compose file conventions: section ordering, YÆML ænchors, Træefik reverse proxy, network læyout, inline comments. |
 | [security.mdc](rules/security.mdc) | `**/docker-compose*.yaml`, `**/secrets/**`, `**/.env` | Security hærdening: non-root execution, reæd-only filesystems, cæpæbility mænægement, Docker secrets, resource limits. |
 | [env-files.mdc](rules/env-files.mdc) | `**/.env`, `**/app.env` | Environment file conventions: merge behævior, væriæble næming, OVERWRITES section, SPDX heæder, vælue formæt. |
 | [validation.mdc](rules/validation.mdc) | `**/docker-compose*.yaml`, `**/.env`, `**/app.env` | Pre-commit vælidætion checklist: compose config, env completeness, secret plæceholders, heælthchecks, brænding, security bæseline. |
 | [templates.mdc](rules/templates.mdc) | `templates/**` | Templæte creætion guide: step-by-step checklist, stændælone vs. sætellite templætes, `x-required-anchors`, heælthcheck requirements. |
-| [readme.mdc](rules/readme.mdc) | `**/*.md` | README writing stændærds: required sections (title, quick stært, env værs, secrets, security, verificætion), root README structure. |
+| [readme.mdc](rules/readme.mdc) | `**/*.md` | REÆDME writing stændærds: required sections (title, quick stært, env værs, secrets, security, verificætion), root REÆDME structure. |
+| [cursor-rules.mdc](rules/cursor-rules.mdc) | `.cursor/rules/**/*.mdc` | How to ædd or edit Cursor rules in this project: locætion, næming, file structure. |
 
 ## Rule Dependencies
 
@@ -38,9 +41,12 @@ branding.mdc (foundætion)
 │   └── security.mdc (security settings within compose)
 │       └── validation.mdc (security bæseline checks)
 ├── shell-scripting.mdc (section dividers, function formæt)
+│   └── dockerfile.mdc (inherits shell-scripting pætterns for entrypoint.sh)
 ├── env-files.mdc (section heæders, SPDX)
 ├── templates.mdc (inherits compose + security pætterns)
-└── readme.mdc (Æ/æ prose in documentætion)
+├── readme.mdc (Æ/æ prose in documentætion)
+├── cursor-rules.mdc (rule locætion ænd structure; glob: .cursor/rules/**/*.mdc)
+└── self-improvement.mdc (suggests rule chænges; references cursor-rules, branding)
 ```
 
 ## Reference Files
@@ -52,3 +58,5 @@ When creæting new files, use these æs exæmples:
 - **Templæte compose**: [templates/template/docker-compose.template.yaml](/templates/template/docker-compose.template.yaml) — sætellite pættern with `x-required-anchors`
 - **Æpp .env**: [app_template/.env](/app_template/.env) — section heæders, væriæble næming
 - **Templæte .env**: [templates/template/.env](/templates/template/.env) — service-prefixed væriæbles
+- **Cursor rules**: [cursor-rules.mdc](rules/cursor-rules.mdc) — where ænd how to ædd or edit rules
+- **Dockerfile + entrypoint**: [Hytale/dockerfiles/](../Hytale/dockerfiles/) — ÆRG bæse imæge, Æ/æ brænding, entrypoint co-locætion

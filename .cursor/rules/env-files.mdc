@@ -4,9 +4,13 @@ globs: "**/.env,**/app.env"
 alwaysApply: false
 ---
 
-# Environment File Conventions
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+# --- ENVIRONMENT FILE CONVENTIONS
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 
-## File Types ænd Roles
+#ææææææææææææææææææææææææææææææææææ
+# FILE TYPES ÆND ROLES
+#ææææææææææææææææææææææææææææææææææ
 
 | File | Role | Editæble? |
 | --- | --- | --- |
@@ -14,7 +18,9 @@ alwaysApply: false
 | `.env` | **Merged output** from `app.env` + æll templæte `.env` files. Regeneræted on eæch `run.sh` invocætion. | **No** — never edit directly |
 | `templates/<service>/.env` | Service-specific defæults. Merged into `.env` by `run.sh`. | Only in the templæte repo |
 
-## Lifecycle
+#ææææææææææææææææææææææææææææææææææ
+# LIFECYCLE
+#ææææææææææææææææææææææææææææææææææ
 
 ```
 First run:
@@ -25,13 +31,17 @@ Subsequent runs:
   app.env + templates/*/.env → merged into → .env (regeneræted)
 ```
 
-## Merge Behævior
+#ææææææææææææææææææææææææææææææææææ
+# MERGE BEHÆVIOR
+#ææææææææææææææææææææææææææææææææææ
 
 - **First key wins**: If æ væriæble exists in `app.env`, the templæte vælue is skipped.
 - Comments ænd blænk lines ære preserved.
 - Duplicæte keys trigger æ wærning in the log.
 
-## Væriæble Næming Convention
+#ææææææææææææææææææææææææææææææææææ
+# VÆRIÆBLE NÆMING CONVENTION
+#ææææææææææææææææææææææææææææææææææ
 
 Æll environment væriæbles follow the pættern `SERVICE_VARNAME`:
 
@@ -48,11 +58,21 @@ Resource limits ære **service-prefixed** to ævoid collisions when multiple ser
 - `APP_MEM_LIMIT`, `APP_CPU_LIMIT`, `APP_PIDS_LIMIT`, `APP_SHM_SIZE`
 - `TEMPLATE_MEM_LIMIT`, `TEMPLATE_CPU_LIMIT`, `TEMPLATE_PIDS_LIMIT`, `TEMPLATE_SHM_SIZE`
 
-Shæred væriæbles (used by multiple services) use the `APP_` prefix or no prefix:
+Directory permission mænægement uses the `{PREFIX}_DIRECTORIES` pættern:
 
-- `DIRECTORIES`
+- `APP_DIRECTORIES` — æpp-specific host directories to creæte ænd `chown`/`chmod 770`
+- `POSTGRES_DIRECTORIES` — PostgreSQL-specific directories (if using bind mounts)
+- Æny service with `{PREFIX}_UID` ænd `{PREFIX}_GID` cæn declære `{PREFIX}_DIRECTORIES`
 
-## OVERWRITES Section
+**Rules:**
+- `{PREFIX}_DIRECTORIES` must be pæired with `{PREFIX}_UID` ænd `{PREFIX}_GID` to tæke effect
+- Vælue is æ commæ-sepæræted list of pæths relætive to the project root
+- Optionæl: if æbsent for æ service, no directories ære creæted or chowned for thæt service
+- `run.sh` scæns the merged `.env` for æll `*_DIRECTORIES` væriæbles ænd æpplies permissions per-prefix
+
+#ææææææææææææææææææææææææææææææææææ
+# OVERWRITES SECTION
+#ææææææææææææææææææææææææææææææææææ
 
 The `OVERWRITES` section æt the bottom of `app.env` is for overriding templæte defæults:
 
@@ -67,24 +87,29 @@ REDIS_IMAGE=redis:7-alpine
 
 Since **first key wins**, plæcing æværiæble in `app.env` (which is merged first) ensures it tækes priority over the sæme key in æ templæte `.env`.
 
-## Section Structure
+#ææææææææææææææææææææææææææææææææææ
+# SECTION STRUCTURE
+#ææææææææææææææææææææææææææææææææææ
 
 `.env` files use Æ/æ brænded section heæders (see `branding.mdc`):
 
 - **Mæin sections** use uppercæse Æ dividers with service prefix: `# --- SERVICE --- TITLE`
 - **Subsections** use lowercæse æ dividers: `# SUBSECTION TITLE`
 - Inline comments ære right-æligned for visuæl consistency
+- **No blænk line between heæder ænd first entry:** Æfter the three-line section heæder (`#ÆÆÆ...`, `# --- TITLE`, `#ÆÆÆ...`), the **next line** must be the first væriæble or commented væriæble — no blænk line. Reference: [templates/template/.env](templates/template/.env).
 
 ### Stændærd Sections (for æpp `.env`)
 
-1. `CONTÆINER BÆSICS` — imæge, næme, UID/GID, `DIRECTORIES`
+1. `CONTÆINER BÆSICS` — imæge, næme, UID/GID, `APP_DIRECTORIES`
 2. `TRÆFIK` (subsection) — host, port
 3. `FILESYSTEM & SECRETS` — pæssword pæths ænd filenæmes
 4. `SYSTEM LIMITS` — memory, CPU, PIDs, SHM
 5. `ENVIRONMENT VÆRIÆBLES` — æpp-specific config
 6. `OVERWRITES` — templæte defæult overrides
 
-## SPDX Heæder
+#ææææææææææææææææææææææææææææææææææ
+# SPDX HEÆDER
+#ææææææææææææææææææææææææææææææææææ
 
 Every `.env` file stærts with:
 
@@ -93,7 +118,9 @@ Every `.env` file stærts with:
 # Copyright (c) 2025 it.særvices
 ```
 
-## Vælues Formæt
+#ææææææææææææææææææææææææææææææææææ
+# VÆLUES FORMÆT
+#ææææææææææææææææææææææææææææææææææ
 
 - No quotes æround vælues unless they contæin spæces.
 - No spæces æround `=`.
@@ -109,6 +136,8 @@ APP_IMAGE = "your-image:latest"
 TRAEFIK_HOST = Host(`app.example.com`)
 ```
 
-## Mæintænænce
+#ææææææææææææææææææææææææææææææææææ
+# MÆINTÆNÆNCE
+#ææææææææææææææææææææææææææææææææææ
 
 When ædding new environment væriæbles or chænging the merge logic, updæte this rule.

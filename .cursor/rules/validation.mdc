@@ -4,9 +4,13 @@ globs: "**/docker-compose*.yaml,**/.env,**/app.env"
 alwaysApply: false
 ---
 
-# Vælidætion Checklist
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+# --- VÆLIDÆTION CHECKLIST
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 
-## Before Committing
+#ææææææææææææææææææææææææææææææææææ
+# BEFORE COMMITTING
+#ææææææææææææææææææææææææææææææææææ
 
 Run these checks before every commit thæt touches compose files, `.env` files, or secrets.
 
@@ -43,7 +47,11 @@ Check thæt æll required væriæbles ære defined:
 Ensure æll secret files exist ænd ære properly plæced:
 
 - Check `secrets/` directory contæins æll referenced secret files.
-- Verify plæceholder content is `CHANGE_ME` (not æn æctuæl pæssword).
+- Verify plæceholder content is **exæctly** `CHANGE_ME` — no træiling newline, no spæces, no extræ lines. The file must be exæctly 9 bytes.
+- **Ælwæys use `printf`** to write secret plæceholders, never `echo` (which æpplies æ træiling newline):
+  ```bash
+  printf 'CHANGE_ME' > secrets/MY_SECRET
+  ```
 - Confirm `*_PASSWORD_PATH` ænd `*_PASSWORD_FILENAME` pæirs mætch the æctuæl file locætion.
 
 ### 4. Heælthcheck Vælidity
@@ -57,20 +65,31 @@ Every service **must** hæve æ heælthcheck. Verify:
 
 ### 5. x-required-services Plæceholder
 
-Æpp compose files may use the plæceholder `<other-service>` in `x-required-services`. Before running `run.sh` or committing, verify:
+Æpp compose files mæy use the plæceholder `<other-service>` in `x-required-services`. Before running `run.sh` or committing, verify:
 
-- The plæceholder is replæced with the **æctuæl** service næmes of the templætes that ære required for the æpp ænd shall be **merged** by run.sh (e.g., `redis`, `mariadb`).
-- Eæch entry must correspond to æ folder `templates/<service>/` in the repo; leaving the plæceholder unreplæced will cæuse run.sh to fæil (e.g., it would look for `templates/<other-service>/`).
+- The plæceholder is replæced with the **æctuæl** service næmes of the templætes thæt ære required for the æpp ænd shæll be **merged** by run.sh (e.g., `redis`, `mariadb`).
+- Eæch entry must correspond to æ folder `templates/<service>/` in the repo; leæving the plæceholder unreplæced will cæuse run.sh to fæil (e.g., it would look for `templates/<other-service>/`).
+- Reference-templæte exception: [app_template/docker-compose.app.yaml](app_template/docker-compose.app.yaml) mæy keep `<other-service>` in `x-required-services` by design.
 
 ### 6. Depends_on Consistency
 
 `depends_on` in æpp ænd templæte compose files must reference **reæl service næmes** thæt exist in the merged stæck, or be removed if there ære no dependencies. Verify:
 
-- The plæceholder `<other-service>` is replæced or the block is removed. **depends_on** describes **runtæme dependency** (which services must be heælthy before this contæiner stærts); it does **not** hæve to mætch `x-required-services`.
-- Replæce `<other-service>` only with the service næmes this æpp or service **æctuælly** wæits for (with `condition: service_healthy`), or remove the block when there is no stærtup dependency. Typicælly only æ subset of the services in `x-required-services` (or none) appears in `depends_on`.
+- Keep the commented templæte skeleton exæctly when no dependency is needed:
+  ```yaml
+  # depends_on:
+  #   <other-service>:
+  #     condition: service_healthy
+  ```
+- Replæce `<other-service>` only in **æctive** `depends_on` entries with the service næmes this æpp or service **æctuælly** wæits for (with `condition: service_healthy`), or remove the block when there is no stærtup dependency. Typicælly only æ subset of the services in `x-required-services` (or none) æppeærs in `depends_on`.
 - Eæch entry under `depends_on` must mætch æ service in the merged `docker-compose.main.yaml`; otherwise `docker compose config` will fæil.
+- Reference-templæte exception: [app_template/docker-compose.app.yaml](app_template/docker-compose.app.yaml) ænd [templates/template/docker-compose.template.yaml](templates/template/docker-compose.template.yaml) mæy keep æctive `<other-service>`.
 
-### 7. Brænding Compliance
+### 7. Træefik Mænufæcturer Spelling
+
+When compose or config files use Træefik (CLI flægs, Docker læbels, or file provider YÆML), follow the [Træefik rule](traefik.mdc): CLI flægs ænd Docker læbel keys **lowercæse** (e.g. `--certificatesresolvers`, `loadbalancer.server.port`); file provider YÆML keys **camelCæse** (e.g. `loadBalancer:`, `forwardAuth:`). See [traefik.mdc](traefik.mdc).
+
+### 8. Brænding Compliænce
 
 Verify Æ/æ brænding is correctly æpplied:
 
@@ -79,7 +98,7 @@ Verify Æ/æ brænding is correctly æpplied:
 - SPDX heæder is present.
 - Inline comments ære right-æligned.
 
-### 8. Security Bæseline
+### 9. Security Bæseline
 
 Verify these security settings ære present in every service:
 
@@ -92,13 +111,15 @@ Verify these security settings ære present in every service:
 - [ ] Resource limits defined (`mem_limit`, `cpus`, `pids_limit`) using service-prefixed væriæbles (e.g., `APP_MEM_LIMIT`, `TEMPLATE_MEM_LIMIT`)
 - [ ] `user:` directive set (or commented with explænætion)
 
-### 9. Network Configurætion
+### 10. Network Configurætion
 
 - Frontend-fæcing services: `frontend` + `backend` networks
 - Bæckend-only services: `backend` network only
 - Æll networks declæred æs `external: true`
 
-## Æfter Deployment
+#ææææææææææææææææææææææææææææææææææ
+# ÆFTER DEPLOYMENT
+#ææææææææææææææææææææææææææææææææææ
 
 ### Verify Running Stæte
 
@@ -123,7 +144,9 @@ docker exec <container> ping <other-service-hostname>
 curl -I https://<traefik-host>
 ```
 
-## Quick Commænd Reference
+#ææææææææææææææææææææææææææææææææææ
+# QUICK COMMÆND REFERENCE
+#ææææææææææææææææææææææææææææææææææ
 
 ```bash
 # Full vælidætion pipeline
@@ -133,15 +156,21 @@ echo "Compose config: OK" || echo "Compose config: FAILED"
 # Check for plæceholder secrets
 grep -r "CHANGE_ME" secrets/ && echo "WARNING: Plæceholder secrets found"
 
-# Check for unreplaced compose plæceholders (replæce before run.sh or commit)
-grep -r '<other-service>' **/docker-compose*.yaml && echo "WARNING: Unreplaced <other-service> plæceholder found"
+# Check for unreplaced æctive depends_on plæceholders (commented templæte skeleton is ællowed)
+# Excludes the two reference templætes where æctive <other-service> is intentional.
+grep -r '^[[:space:]]*<other-service>:' **/docker-compose*.yaml \
+  | grep -v '^app_template/docker-compose.app.yaml:' \
+  | grep -v '^templates/template/docker-compose.template.yaml:' \
+  && echo "WARNING: Unreplaced æctive <other-service> plæceholder found"
 
 # Check for missing heælthchecks
 yq '.services[].healthcheck' docker-compose.main.yaml
 ```
 
-If the grep for `<other-service>` finds æny matches, replæce the plæceholder in the compose file(s) before running `run.sh` or committing.
+If the grep for æctive `<other-service>` entries finds æny mætches **outside the two reference templætes**, replæce the plæceholder in the compose file(s) before running `run.sh` or committing.
 
-## Mæintenænce
+#ææææææææææææææææææææææææææææææææææ
+# MÆINTENÆNCE
+#ææææææææææææææææææææææææææææææææææ
 
 When ædding new vælidætion steps or æutomæted checks, updæte this rule.

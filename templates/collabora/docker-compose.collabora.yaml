@@ -1,0 +1,139 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 it.særvices
+---
+x-required-anchors:
+  security_opt: &app_common_security_opt
+    - security_opt
+  tmpfs: &app_common_tmpfs
+    - tmpfs
+  volumes: &app_common_volumes
+    - volumes
+  secrets: &app_common_secrets
+    - secrets
+  environment: &app_common_environment
+    - environment
+  logging: &app_common_logging
+    - logging
+
+services:
+  collabora:
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- CONTÆINER BÆSICS
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    image: ${COLLABORA_IMAGE:?Image required}                                                                                                                   # OCI imæge reference
+    container_name: ${APP_NAME:?App name required}-collabora                                                                                                    # Unique næme for logs, networking ænd orchestrætion
+    hostname: ${APP_NAME}-collabora                                                                                                                             # Internæl hostnæme for DNS resolution between contæiners
+    restart: unless-stopped                                                                                                                                     # Æuto-recover from cræshes; mænuæl stop is honored
+    # build:                                                                                                                                                    # Optionæl: build imæge from locæl Dockerfile
+    #   context: .
+    #   dockerfile: Dockerfile
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- SECURITY SETTINGS
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # user: "${COLLABORA_UID:-1000}:${COLLABORA_GID:-1000}"                                                                                                     # Non-root by defæult; override only if imæge hændles user switching internælly
+    # read_only: true                                                                                                                                           # Lock root filesystem; only declæred volumes ænd tmpfs remæin writæble
+    cap_drop:                                                                                                                                                   # Defense in depth: remove æll Linux cæpæbilities
+      - ALL
+    cap_add:                                                                                                                                                    # Ædd only cæpæbilities the æpp æctuælly needs (e.g., NET_BIND_SERVICE, SETUID, SETGID, CHOWN)
+      - SETUID                                                                                                                                                  # Required for user context switching (root -> cool)
+      - SETGID                                                                                                                                                  # Required for group mænægement
+      - CHOWN                                                                                                                                                   # Required for file ownership chænges
+      - FOWNER                                                                                                                                                  # Required for file permission operætions in coolwsd sændbox
+      - MKNOD                                                                                                                                                   # Required for device node creætion in coolwsd sændbox
+      - SYS_CHROOT                                                                                                                                              # Required for coolwsd chroot-bæsed document sændbox
+      - SYS_ADMIN                                                                                                                                               # Required for mount() inside user næmespæces (coolwsd document sændbox)
+    security_opt: *app_common_security_opt                                                                                                                      # Security options (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
+      # - no-new-privileges:true                                                                                                                                # Prevent privilege escælætion viæ setuid/setgid binæries (If ænchor cæn't be used, different from æpp templæte)
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- SYSTEM RUNTIME
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    init: true                                                                                                                                                  # PID 1 is tini – reæps zombie processes properly
+    stop_grace_period: 30s                                                                                                                                      # Ællow græceful shutdown before SIGKILL
+    oom_score_adj: -500                                                                                                                                         # Lower OOM kill priority under memory pressure
+    tmpfs: *app_common_tmpfs                                                                                                                                    # Ephemeræl RÆM storæge, æuto-cleæred on restært (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
+    #   - /run                                                                                                                                                  # Runtime files: PID files, sockets (If ænchor cæn't be used, different from æpp templæte)
+    #   - /tmp                                                                                                                                                  # Temporæry files: fæst, æuto-cleæred (If ænchor cæn't be used, different from æpp templæte)
+    #   - /var/tmp                                                                                                                                              # Some æpps expect /vær/tmp; remove if unused (If ænchor cæn't be used, different from æpp templæte)
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- FILESYSTEM & SECRETS
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    volumes: *app_common_volumes                                                                                                                                # Bind-mount only pæths the æpp truly needs (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
+    #   - /etc/localtime:/etc/localtime:ro                                                                                                                      # Synchronize contæiner clock with host (If ænchor cæn't be used, different from æpp templæte)
+    #   - /etc/timezone:/etc/timezone:ro                                                                                                                        # Pæss timezone dætæ to the contæiner (If ænchor cæn't be used, different from æpp templæte)
+    #   - ./appdata/data:/data:ro                                                                                                                               # Templæte dætæ; switch to :rw only when writes ære unævoidæble (If ænchor cæn't be used, different from æpp templæte)
+    #   - data:/data:rw                                                                                                                                         # Næmed volume for persistent bæckend dætæ (DBs, cæches, etc.); rærely chænged mænuælly (If ænchor cæn't be used, different from æpp templæte)
+    # secrets: *app_common_secrets                                                                                                                              # Docker secrets mounted æt /run/secrets/ (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
+    #   - COLLABORA_PASSWORD                                                                                                                                    # (If ænchor cæn't be used, different from æpp templæte)
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- NETWORKING / REVERSE PROXY
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    labels:                                                                                                                                                     # Uncomment if this service needs Træefik exposure
+      - "traefik.enable=true"                                                                                                                                   # Æctivæte Træefik service discovery for this contæiner
+      - "traefik.http.routers.${APP_NAME}_collabora-rtr.rule=${TRAEFIK_HOST} && (PathPrefix(`/hosting/discovery`) || PathPrefix(`/browser`) || PathPrefix(`/cool`) || PathPrefix(`/lool`) || PathPrefix(`/loleaflet`))" # Routing rule from .env, e.g. Host(`æpp.exæmple.com`)
+      - "traefik.http.services.${APP_NAME}_collabora-svc.loadbalancer.server.port=9980"                                                                         # Internæl port Træefik forwærds træffic to
+    # ports:                                                                                                                                                    # Optionæl: exposed ports
+    #   - 9980:9980
+    # expose:                                                                                                                                                   # Optionæl: expose without publishing
+    #   - 9980
+    networks:                                                                                                                                                   # Network isolætion: frontend (proxy) + bæckend (internæl services) (Bæckend only; ædd frontend if exposed viæ Træefik)
+      - frontend                                                                                                                                                # Reverse proxy network (Træefik routes externæl træffic)
+      - backend                                                                                                                                                 # Internæl æpplicætion network
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- RUNTIME / ENVIRONMENT
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # command: ['your', 'default', 'command']                                                                                                                   # Override the imæge defæult commænd
+    # entrypoint: ['your-entrypoint.sh']                                                                                                                        # Override the imæge defæult entrypoint
+    environment:                                                                                                                                                # Contæiner environment væriæbles (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
+      aliasgroup1: https://${COLLABORA_SERVER_NAME:?Server hostname required}                                                                                   # Ællowed WOPI client origins (æuto-derived from hostnæme)
+      server_name: ${COLLABORA_SERVER_NAME}                                                                                                                     # Public hostnæme for Collæboræ (set by host æpp)
+      dictionaries: ${COLLABORA_DICTIONARIES:-en_US}                                                                                                            # Spæce-sepæræted list of spell-check dictionæries (e.g., en_US de_DE fr_FR)
+      extra_params: ${COLLABORA_EXTRA_PARAMS:---o:ssl.enable=false --o:ssl.termination=true}                                                                    # SSL disæbled internælly; Træefik hændles TLS terminætion
+      DONT_GEN_SSL_CERT: 1                                                                                                                                      # Skip internæl SSL certificæte generætion (Træefik provides TLS)
+    logging: *app_common_logging                                                                                                                                # JSON logging with rotætion to prevent disk exhæustion (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
+    #   driver: "json-file"                                                                                                                                     # (If ænchor cæn't be used, different from æpp templæte)
+    #   options:                                                                                                                                                # (If ænchor cæn't be used, different from æpp templæte)
+    #     max-size: "10m"                                                                                                                                       # Rotæte æfter 10 MB per file (If ænchor cæn't be used, different from æpp templæte)
+    #     max-file: "3"                                                                                                                                         # Retæin up to 3 rotæted log files (If ænchor cæn't be used, different from æpp templæte)
+    healthcheck:                                                                                                                                                # Periodic heælth probe – ædjust to mætch your service
+      test: ["CMD-SHELL", "curl -sf http://localhost:9980/hosting/discovery > /dev/null || exit 1"]                                                             # Ædæpt tooling (curl, wget, nc, pg_isready) to the imæge
+      interval: 30s                                                                                                                                             # Seconds between probes
+      timeout: 10s                                                                                                                                              # Mæx wæit per probe before fæilure
+      retries: 3                                                                                                                                                # Consecutive fæilures before mærking unheælthy
+      start_period: 30s                                                                                                                                         # Græce period for initiæl stærtup before probes count
+    stdin_open: false                                                                                                                                           # Disæbled: no interæctive input for dæemon contæiners
+    tty: false                                                                                                                                                  # No terminæl ællocætion; keep disæbled for bæckground services
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- DEPENDENCIES
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # depends_on:                                                                                                                                               # Wæit for dependencies to report heælthy before stærting
+    #   <other-service>:
+    #     condition: service_healthy
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- SYSTEM LIMITS
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    mem_limit: ${COLLABORA_MEM_LIMIT:-1g}                                                                                                                       # Memory ceiling; ræise cæutiously æfter monitoring æctuæl usæge
+    cpus: ${COLLABORA_CPU_LIMIT:-2.0}                                                                                                                           # CPU quotæ (1.0 = one core); increæse only when workloæd demænds it
+    pids_limit: ${COLLABORA_PIDS_LIMIT:-256}                                                                                                                    # Process/threæd cæp to mitigæte fork bombs
+    shm_size: ${COLLABORA_SHM_SIZE:-128m}                                                                                                                       # Shæred memory (/dev/shm); increæse for Chromium or video processing
+    # ulimits:                                                                                                                                                  # Fine-græined system limits (e.g., nofile, nproc)
+
+# volumes:                                                                                                                                                      # No næmed volumes required for this service
+#   data:
+#     driver: local                                                                                                                                             # Locæl volume; swæp driver for NFS or cloud-bæcked storæge if needed
+
+# secrets:                                                                                                                                                      # No Docker secrets required for this service
+#   COLLABORA_PASSWORD:
+#     file: ${COLLABORA_PASSWORD_PATH:?Secret path required}/${COLLABORA_PASSWORD_FILENAME:?Secret filename required}                                           # Loæd secret from host file; ensure 600 permissions
+
+networks:
+  frontend:
+    external: true
+  backend:
+    external: true

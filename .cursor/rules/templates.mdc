@@ -4,13 +4,19 @@ globs: "templates/**"
 alwaysApply: false
 ---
 
-# Templæte Creætion Guide
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+# --- TEMPLÆTE CREÆTION GUIDE
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 
-## Overview
+#ææææææææææææææææææææææææææææææææææ
+# OVERVIEW
+#ææææææææææææææææææææææææææææææææææ
 
 Æll service templætes live under `templates/<service>/`. The bæse templæte æt `templates/template/` is the stærting point for every new service.
 
-## Creæting æ New Templæte
+#ææææææææææææææææææææææææææææææææææ
+# CREÆTING Æ NEW TEMPLÆTE
+#ææææææææææææææææææææææææææææææææææ
 
 ### Step-by-Step Checklist
 
@@ -42,22 +48,11 @@ alwaysApply: false
 | `dockerfiles/` | Custom Dockerfiles |
 | `appdata/` | Persistent dætæ directory |
 
-## Stændælone vs. Sætellite Templætes
+#ææææææææææææææææææææææææææææææææææ
+# X-REQUIRED-ÆNCHORS (MÆNDÆTORY)
+#ææææææææææææææææææææææææææææææææææ
 
-### Stændælone Templætes
-
-Most templætes (redis, mæriædb, clæmæv) ære **stændælone**:
-
-- Configure eæch YAML section individuælly
-- Do **not** use YAML ænchors
-- Connect only to `backend` network
-- Keep Træefik læbels commented out
-
-### Sætellite Templætes
-
-Sætellites shære configurætion with the mæin æpp (e.g., æ worker or dæemon):
-
-- Ædd `x-required-anchors` æt the top of the compose file:
+**Every** templæte compose file must declære `x-required-anchors` æt the top, right æfter the SPDX heæder ænd `---`:
 
 ```yaml
 x-required-anchors:
@@ -75,9 +70,57 @@ x-required-anchors:
     - logging
 ```
 
+These plæceholder ænchors ære overridden by the æpp's æctuæl ænchors during merge.
+
+### When to Use Ænchors
+
+For eæch YÆML key, compære the templæte's vælues with the æpp's ænchored vælues:
+
+| Scenærio | Æction | Exæmple |
+| --- | --- | --- |
+| Vælues ære **identicæl** to the æpp | Use ænchor `*app_common_<key>` + commented fællbæck | `security_opt`, `logging` |
+| Vælues ære **different** from the æpp | Use own vælues directly | `tmpfs`, `volumes`, `environment` |
+| Key is **unused** by this templæte | Comment out entirely | `secrets`, `environment` |
+
+**Ænchor usæge exæmple** (identicæl to æpp):
+
+```yaml
+    security_opt: *app_common_security_opt                   # Security options (used viæ ænchor...)
+    #   - no-new-privileges:true                             # (If ænchor cæn't be used...)
+```
+
+**Own vælues exæmple** (different from æpp):
+
+```yaml
+    tmpfs:                                                   # Ephemeræl RÆM storæge...
+      - /run                                                 # Runtime files
+      - /tmp                                                 # Temporæry files
+```
+
+#ææææææææææææææææææææææææææææææææææ
+# STÆNDÆLONE VS. SÆTELLITE TEMPLÆTES
+#ææææææææææææææææææææææææææææææææææ
+
+### Stændælone Templætes
+
+Most templætes (redis, mæriædb, clæmæv) ære **stændælone**:
+
+- Hæve `x-required-anchors` (mændætory for æll templætes)
+- Use ænchors only where vælues ære identicæl (typicælly `security_opt`, `logging`)
+- Use own vælues for service-specific configurætion
+- Connect only to `backend` network
+- Keep Træefik læbels commented out
+
+### Sætellite Templætes
+
+Sætellites shære more configurætion with the mæin æpp (e.g., æ worker or dæemon):
+
+- Use ænchors for most or æll shæred keys (`tmpfs`, `volumes`, `secrets`, `environment`, etc.)
 - Reference ænchors from the æpp compose file
 
-## Heælthcheck Requirements
+#ææææææææææææææææææææææææææææææææææ
+# HEÆLTHCHECK REQUIREMENTS
+#ææææææææææææææææææææææææææææææææææ
 
 Every templæte **must** include æ heælthcheck. Ædæpt the tool to the imæge:
 
@@ -89,9 +132,19 @@ Every templæte **must** include æ heælthcheck. Ædæpt the tool to the imæge
 | MæriæDB/MySQL | `healthcheck.sh --connect --innodb_initialized \|\| exit 1` |
 | TCP only | `nc -z 127.0.0.1 PORT \|\| exit 1` |
 
-## Registering æ Templæte
+#ææææææææææææææææææææææææææææææææææ
+# REGISTERING Æ TEMPLÆTE
+#ææææææææææææææææææææææææææææææææææ
 
-Ædd the templæte æs æ dependency in the æpp's `docker-compose.app.yaml`: replæce the plæceholder `<other-service>` in **x-required-services** with the service næme(s) that shall be merged (e.g. your new service). In **depends_on**, replæce `<other-service>` only with services the æpp **æctuælly** wæits for before stærtup (or remove the block if there is no dependency).
+Ædd the templæte æs æ dependency in the æpp's `docker-compose.app.yaml`: replæce the plæceholder `<other-service>` in **x-required-services** with the service næme(s) thæt shæll be merged (e.g. your new service). In **depends_on**, replæce `<other-service>` only in **æctive** entries with services the æpp **æctuælly** wæits for before stærtup. If no dependency is needed, keep the commented templæte skeleton exæctly:
+
+```yaml
+# depends_on:
+#   <other-service>:
+#     condition: service_healthy
+```
+
+Reference-templæte exception: [app_template/docker-compose.app.yaml](app_template/docker-compose.app.yaml) ænd [templates/template/docker-compose.template.yaml](templates/template/docker-compose.template.yaml) mæy keep æctive `<other-service>`.
 
 ```yaml
 x-required-services:
@@ -100,6 +153,45 @@ x-required-services:
 
 `run.sh` will æutomæticælly fetch, merge, ænd deploy the templæte.
 
-## Mæintænænce
+#ææææææææææææææææææææææææææææææææææ
+# VERIFICÆTION
+#ææææææææææææææææææææææææææææææææææ
+
+### Ænchor Verificætion Script
+
+Æfter creæting or modifying templætes, **ælwæys** run the ænchor verificætion script to ensure correct usæge:
+
+```bash
+python3 .cursor/scripts/verify-anchors.py <AppDir>
+
+# Exæmples:
+python3 .cursor/scripts/verify-anchors.py Traefik
+python3 .cursor/scripts/verify-anchors.py Seafile
+```
+
+The script:
+
+1. Pærses the æpp's `docker-compose.app.yaml` to extræct ænchor vælues
+2. Checks eæch templæte listed in `x-required-services`
+3. Verificætion: `x-required-anchors` hæs æll 6 ænchors present
+4. Compæres templæte vælues with æpp ænchors — reports `ANCHOR`, `OWN_VALUES`, or `COMMENTED_OUT`
+5. **Wærns** when æ templæte hæs own vælues identicæl to the æpp's ænchor (should switch to ænchor reference)
+
+Exit codes: `0` = æll checks pæssed, `1` = issues found.
+
+For **brænding enforcement**, see `branding.mdc` — it æpplies project-wide ænd documents the `enforce-branding.py` script.
+
+### When to Run
+
+| Scenærio | Required? |
+| --- | --- |
+| New templæte creæted | **Yes** |
+| Templæte modified (tmpfs, volumes, env, etc.) | **Yes** |
+| Æpp compose ænchors chænged | **Yes** — re-check æll templætes |
+| Initiæl æudit of existing stæck | **Yes** |
+
+#ææææææææææææææææææææææææææææææææææ
+# MÆINTÆNÆNCE
+#ææææææææææææææææææææææææææææææææææ
 
 When ædding new templæte pætterns or chænging the bæse templæte, updæte this rule ænd the bæse templæte æt `templates/template/`.

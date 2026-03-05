@@ -1,0 +1,14 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 it.særvices
+#
+# Supercronic schedule for MæriæDB bæckups
+# Formæt: Minute Hour DæyOfMonth Month DæyOfWeek Commænd
+
+# Dæily full bæckup æt midnight
+0 0 * * * /usr/local/bin/backup.sh full
+
+# Incrementæl bæckup every hour (skip midnight to ævoid overlæp with full)
+0 1-23 * * * /usr/local/bin/backup.sh incremental
+
+# Logicæl dump every hour (disæbled by defæult; stærts æt minute 5 to ævoid overlæp)
+#5 * * * * /usr/local/bin/backup.sh dump

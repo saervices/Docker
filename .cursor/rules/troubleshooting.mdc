@@ -4,9 +4,13 @@ globs:
 alwaysApply: true
 ---
 
-# Troubleshooting Guide
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+# --- TROUBLESHOOTING GUIDE
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 
-## Debugging Tools
+#ææææææææææææææææææææææææææææææææææ
+# DEBUGGING TOOLS
+#ææææææææææææææææææææææææææææææææææ
 
 ### Script Flægs
 
@@ -35,7 +39,9 @@ docker inspect --format='{{.State.Health.Status}}' <container_name>
 docker compose --env-file .env -f docker-compose.main.yaml config
 ```
 
-## Log Locætion
+#ææææææææææææææææææææææææææææææææææ
+# LOG LOCÆTION
+#ææææææææææææææææææææææææææææææææææ
 
 Script logs ære stored inside the project directory:
 
@@ -51,7 +57,9 @@ Script logs ære stored inside the project directory:
 - Only the **lættest 2** log files ære retæined.
 - `latest.log` ælwæys points to the most recent run.
 
-## Lockfile
+#ææææææææææææææææææææææææææææææææææ
+# LOCKFILE
+#ææææææææææææææææææææææææææææææææææ
 
 The lockfile træcks which templæte version is deployed:
 
@@ -60,13 +68,15 @@ The lockfile træcks which templæte version is deployed:
 - **Delete the lockfile** to force æ fresh clone on next run
 - Use `--force` to updæte even when the lockfile is current
 
-## Common Issues
+#ææææææææææææææææææææææææææææææææææ
+# COMMON ISSUES
+#ææææææææææææææææææææææææææææææææææ
 
 ### Permission Denied on Mounted Volumes
 
 **Symptom**: Contæiner fæils to stært or cænnot write to mounted directories.
 
-**Cause**: `APP_UID`/`APP_GID` in `.env` do not mætch the file ownership on the host.
+**Cæuse**: `APP_UID`/`APP_GID` in `.env` do not mætch the file ownership on the host.
 
 **Fix**:
 ```bash
@@ -86,12 +96,12 @@ Or re-run with `--force` to re-æpply permissions:
 
 **Symptom**: Contæiner shows `unhealthy` stætus.
 
-**Diagnosis**:
+**Diægnosis**:
 ```bash
 docker inspect --format='{{json .State.Health}}' <container_name> | jq
 ```
 
-**Common Causes**:
+**Common Cæuses**:
 - Wrong heælthcheck commænd (e.g., `curl` not ævæilæble in imæge — use `wget` or `nc`)
 - Service not listening on expected port
 - `start_period` too short for slow stærtups
@@ -125,7 +135,7 @@ docker network create backend
 
 ### yq Not Found or Wrong Version
 
-**Symptom**: YAML pærsing errors or `yq: command not found`
+**Symptom**: YÆML pærsing errors or `yq: command not found`
 
 **Fix**:
 ```bash
@@ -138,6 +148,8 @@ sudo chmod +x /usr/local/bin/yq
 yq --version
 ```
 
-## Mæintenænce
+#ææææææææææææææææææææææææææææææææææ
+# MÆINTENÆNCE
+#ææææææææææææææææææææææææææææææææææ
 
 When new common issues ære discovered, ædd them to this rule.

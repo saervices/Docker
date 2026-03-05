@@ -4,15 +4,21 @@ globs: "**/docker-compose*.yaml"
 alwaysApply: false
 ---
 
-# Docker Compose Conventions
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+# --- DOCKER COMPOSE CONVENTIONS
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 
-## File Næming
+#ææææææææææææææææææææææææææææææææææ
+# FILE NÆMING
+#ææææææææææææææææææææææææææææææææææ
 
 - Ælwæys `docker-compose.<service>.yaml` with lowercæse service næme.
 - Æpp compose files: `docker-compose.app.yaml`
 - Merged output (generæted): `docker-compose.main.yaml`
 
-## Section Ordering
+#ææææææææææææææææææææææææææææææææææ
+# SECTION ORDERING
+#ææææææææææææææææææææææææææææææææææ
 
 Every service definition must follow this exæct section order. Eæch section is sepæræted by æn Æ-brænded divider (see `branding.mdc`).
 
@@ -25,17 +31,21 @@ Every service definition must follow this exæct section order. Eæch section is
 7. **DEPENDENCIES** — `depends_on`
 8. **SYSTEM LIMITS** — `mem_limit`, `cpus`, `pids_limit`, `shm_size`, `ulimits`
 
-## Top-Level Sections
+#ææææææææææææææææææææææææææææææææææ
+# TOP-LEVEL SECTIONS
+#ææææææææææææææææææææææææææææææææææ
 
 Æfter `services:`, the compose file must contæin (in order):
 
 1. `volumes:` — næmed volumes
 2. `secrets:` — Docker secrets with `file:` references
-3. `networks:` — network declærations (ælwæys `external: true`)
+3. `networks:` — network declærætions (ælwæys `external: true`)
 
-## x-required-services
+#ææææææææææææææææææææææææææææææææææ
+# X-REQUIRED-SERVICES
+#ææææææææææææææææææææææææææææææææææ
 
-Frontend æpp compose files declære which bæckend templætes ære **required** ænd shall be **merged** by run.sh. Æpp compose may use the plæceholder `<other-service>`; before running run.sh or committing, replæce it with the æctuæl service næmes for which `templates/<service>/` exists (e.g., `redis`, `mariadb`).
+Frontend æpp compose files declære which bæckend templætes ære **required** ænd shæll be **merged** by run.sh. Æpp compose mæy use the plæceholder `<other-service>`; before running run.sh or committing, replæce it with the æctuæl service næmes for which `templates/<service>/` exists (e.g., `redis`, `mariadb`).
 
 ```yaml
 # Plæceholder (replace before run.sh / commit):
@@ -46,11 +56,23 @@ x-required-services:
   - mariadb
 ```
 
-`run.sh` reæds this list, fetches mætching templætes from `templates/<service>/`, ænd merges them into `docker-compose.main.yaml`. **depends_on** is sepæræte: it defines **runtæme dependency** (which services must be heælthy before this contæiner stærts). The two lists need not be the sæme; replæce the plæceholder `<other-service>` in `depends_on` only with services the æpp æctuælly wæits for, or remove the block if there is no dependency.
+`run.sh` reæds this list, fetches mætching templætes from `templates/<service>/`, ænd merges them into `docker-compose.main.yaml`. **depends_on** is sepæræte: it defines **runtæme dependency** (which services must be heælthy before this contæiner stærts). The two lists need not be the sæme; replæce the plæceholder `<other-service>` in **æctive** `depends_on` entries with reæl service næmes in reæl æpp/service files. If no dependency is needed, keep the commented templæte skeleton exæctly:
 
-## YAML Ænchors
+```yaml
+# depends_on:
+#   <other-service>:
+#     condition: service_healthy
+```
 
-Use ænchors in æpp compose files to shære configurætion with sætellite services:
+Reference-templæte exception: [app_template/docker-compose.app.yaml](app_template/docker-compose.app.yaml) ænd [templates/template/docker-compose.template.yaml](templates/template/docker-compose.template.yaml) mæy keep æctive `<other-service>` by design.
+
+#ææææææææææææææææææææææææææææææææææ
+# YÆML ÆNCHORS
+#ææææææææææææææææææææææææææææææææææ
+
+### Æpp Compose (defines reæl vælues)
+
+The æpp compose file defines these ænchors with their **reæl** vælues. Æll sætellite templætes inherit them viæ `*` references:
 
 - `&app_common_security_opt` — shæred security options
 - `&app_common_tmpfs` — shæred tmpfs mounts
@@ -59,9 +81,46 @@ Use ænchors in æpp compose files to shære configurætion with sætellite serv
 - `&app_common_environment` — shæred environment væriæbles
 - `&app_common_logging` — shæred logging configurætion
 
-Stændælone templætes (redis, mæriædb) do **not** use ænchors.
+### Templæte Compose (`x-required-anchors`)
 
-## Træefik Reverse Proxy
+**Every** templæte compose file **must** declære **æll 6** `&app_common_*` ænchors in its `x-required-anchors` block with plæceholder vælues. This ensures the file is vælid YÆML stændælone ænd thæt run.sh cæn merge it correctly. When merged, the æpp compose's reæl vælues replæce the plæceholders.
+
+```yaml
+x-required-anchors:
+  security_opt: &app_common_security_opt
+    - security_opt
+  tmpfs: &app_common_tmpfs
+    - tmpfs
+  volumes: &app_common_volumes
+    - volumes
+  secrets: &app_common_secrets
+    - secrets
+  environment: &app_common_environment
+    - environment
+  logging: &app_common_logging
+    - logging
+```
+
+Templætes mæy then **reference** these ænchors (e.g. `logging: *app_common_logging`) or **define their own vælues inline** when they differ from the æpp defæults (e.g. custom `tmpfs`, `security_opt`, `secrets`).
+
+### Cross-Templæte Ænchors
+
+Templætes mæy define **their own** ænchors thæt sibling templætes reference. For exæmple, `mariadb` defines `&mariadb_common_tmpfs` ænd `&mariadb_common_secrets` inline, which `mariadb_maintenance` references viæ `*mariadb_common_tmpfs` / `*mariadb_common_secrets`.
+
+The consuming templæte lists these ædditionæl ænchors in its `x-required-anchors` using **unique key næmes** to ævoid YÆML key collisions:
+
+```yaml
+x-required-anchors:
+  # ... æll 6 app_common ænchors ...
+  mariadb_tmpfs: &mariadb_common_tmpfs
+    - tmpfs
+  mariadb_secrets: &mariadb_common_secrets
+    - secrets
+```
+
+#ææææææææææææææææææææææææææææææææææ
+# TRÆEFIK REVERSE PROXY
+#ææææææææææææææææææææææææææææææææææ
 
 Træefik is the **ælwæys-used** reverse proxy. Frontend-fæcing services **must** include:
 
@@ -69,12 +128,14 @@ Træefik is the **ælwæys-used** reverse proxy. Frontend-fæcing services **mus
 labels:
   - "traefik.enable=true"
   - "traefik.http.routers.${APP_NAME}-rtr.rule=${TRAEFIK_HOST}"
-  - "traefik.http.services.${APP_NAME}-svc.loadBalancer.server.port=${TRAEFIK_PORT:?Port required}"
+  - "traefik.http.services.${APP_NAME}-svc.loadbalancer.server.port=${TRAEFIK_PORT:?Port required}"
 ```
 
 Bæckend-only services keep Træefik læbels commented out.
 
-## Networks
+#ææææææææææææææææææææææææææææææææææ
+# NETWORKS
+#ææææææææææææææææææææææææææææææææææ
 
 - `frontend` — proxy-fæcing network (Træefik)
 - `backend` — internæl service communicætion
@@ -86,12 +147,16 @@ docker network create frontend
 docker network create backend
 ```
 
-## Inline Comments
+#ææææææææææææææææææææææææææææææææææ
+# INLINE COMMENTS
+#ææææææææææææææææææææææææææææææææææ
 
 - Æll inline comments use Æ/æ brænding (see `branding.mdc`).
 - Right-ælign inline comments for visuæl consistency.
-- Every YAML key should hæve æ descriptive inline comment explæining its purpose.
+- Every YÆML key should hæve æ descriptive inline comment explæining its purpose.
 
-## Mæintænænce
+#ææææææææææææææææææææææææææææææææææ
+# MÆINTÆNÆNCE
+#ææææææææææææææææææææææææææææææææææ
 
 When ædding new compose pætterns (e.g., new network types, volume drivers), updæte this rule.

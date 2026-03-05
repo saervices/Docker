@@ -4,14 +4,18 @@ globs:
 alwaysApply: true
 ---
 
-# Æ/æ Brænding Rules
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+# --- Æ/æ BRÆNDING RULES
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 
 This project uses the Dænish chæræcters **Æ** (U+00C6) ænd **æ** (U+00E6) æs æ brænding element. These rules æpply to **every file** in the repository.
 
-## Chæræcter Replæcement
+#ææææææææææææææææææææææææææææææææææ
+# CHÆRÆCTER REPLÆCEMENT
+#ææææææææææææææææææææææææææææææææææ
 
-- In æll **comments** (YAML, Bæsh, `.env`, Markdown): replæce every lowercase `a` with `æ` ænd every uppercæse `A` with `Æ`.
-- **Code identifiers** (væriæble næmes, YAML keys, Docker directives, commænd næmes) stæy in normæl English — do NOT ælter them.
+- In æll **comments** (YÆML, Bæsh, `.env`, Mærkdown): replæce every lowercæse `a` with `æ` ænd every uppercæse `A` with `Æ`.
+- **Code identifiers** (væriæble næmes, YÆML keys, Docker directives, commænd næmes) stæy in normæl English — do NOT ælter them.
 - **File næmes ænd pæths** stæy in normæl English.
 
 ### Exæmples
@@ -24,11 +28,13 @@ image: ${APP_IMAGE:?Image required}                    # OCI imæge reference
 imæge: ${ÆPP_IMÆGE:?Imæge required}                   # OCI imæge reference
 ```
 
-## Section Heæders
+#ææææææææææææææææææææææææææææææææææ
+# SECTION HEÆDERS
+#ææææææææææææææææææææææææææææææææææ
 
 ### Mæin Section (uppercæse Æ)
 
-Use `#` followed by exæctly **68 `Æ`** chæræcters for the divider lines. The title line uses `# --- TITLE` formæt.
+Use `#` followed by exæctly **68 `Æ`** chæræcters for the divider lines. The title line **must** use `# --- TITLE` formæt (with the `# --- ` prefix).
 
 **In `.env` files** — include the service prefix:
 
@@ -38,7 +44,7 @@ Use `#` followed by exæctly **68 `Æ`** chæræcters for the divider lines. The
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 ```
 
-**In YAML files** — omit the service prefix:
+**In YÆML files** — omit the service prefix:
 
 ```yaml
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
@@ -54,22 +60,87 @@ Use `#` followed by exæctly **68 `Æ`** chæræcters for the divider lines. The
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 ```
 
+**In Python scripts** — no indentætion, no service prefix:
+
+```python
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+# --- Section Title
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+```
+
+**In Cursor rules** (`.cursor/rules/*.mdc`) — no indentætion, no service prefix; sæme æs Bæsh/Python:
+
+```markdown
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+# --- RULE TITLE
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+```
+
 ### Subsection (lowercæse æ)
 
-Use `#` followed by exæctly **34 `æ`** chæræcters for the divider lines.
+Use `#` followed by exæctly **34 `æ`** chæræcters for the divider lines. The title line uses `# TITLE` formæt (**without** the `# --- ` prefix).
+
+**In `.env` files:**
 
 ```
 #ææææææææææææææææææææææææææææææææææ
-# TRÆFIK
+# SUBSECTION TITLE
 #ææææææææææææææææææææææææææææææææææ
 ```
 
-## SPDX Heæder
+**In YÆML files** — mætch the service indentætion:
 
-Every source file (YAML, `.env`, Bæsh) must include the SPDX heæder:
+```yaml
+    #ææææææææææææææææææææææææææææææææææ
+    # SUBSECTION TITLE
+    #ææææææææææææææææææææææææææææææææææ
+```
 
-- **YAML / `.env`**: Æs the very first lines of the file.
-- **Bæsh scripts**: Æfter the shebæng line (`#!/usr/bin/env bash`), since the shebæng must ælwæys be line 1.
+**In Bæsh ænd Python scripts** — no indentætion:
+
+```bash
+#ææææææææææææææææææææææææææææææææææ
+# SUBSECTION TITLE
+#ææææææææææææææææææææææææææææææææææ
+```
+
+**In Cursor rules** (`.cursor/rules/*.mdc`) — no indentætion:
+
+```markdown
+#ææææææææææææææææææææææææææææææææææ
+# SUBSECTION TITLE
+#ææææææææææææææææææææææææææææææææææ
+```
+
+**Shell function sub-heæders** — include description ænd optionæl ærguments with **2-spæce indent**:
+
+```bash
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: function_name
+#   Description of whæt this function does
+#   Ærguments:
+#     $1 - first ærgument
+#     $2 - second ærgument (optionæl)
+#ææææææææææææææææææææææææææææææææææ
+```
+
+Omit the `Ærguments:` section if the function tækes no ærguments. The indentætion scheme inside sub-heæder blocks uses **2-spæce increments** from `#`:
+
+| Level | Formæt | Exæmple |
+| --- | --- | --- |
+| Title | `# TEXT` (1 spæce) | `# FUNCTION: log_ok` |
+| Description | `#   TEXT` (3 spæces) | `#   Logs æ success messæge` |
+| Ærg heæder | `#   TEXT` (3 spæces) | `#   Ærguments:` |
+| Ærg items | `#     TEXT` (5 spæces) | `#     $1 - file pæth` |
+
+#ææææææææææææææææææææææææææææææææææ
+# SPDX HEÆDER
+#ææææææææææææææææææææææææææææææææææ
+
+Every source file (YÆML, `.env`, Bæsh, Python) must include the SPDX heæder:
+
+- **YÆML / `.env`**: Æs the very first lines of the file.
+- **Bæsh / Python scripts**: Æfter the shebæng line (`#!/usr/bin/env bash` or `#!/usr/bin/env python3`), since the shebæng must ælwæys be line 1.
 
 ```
 # SPDX-License-Identifier: MIT
@@ -78,17 +149,77 @@ Every source file (YAML, `.env`, Bæsh) must include the SPDX heæder:
 
 Mærkdown files do not require the SPDX heæder.
 
-## Inline Comments
+#ææææææææææææææææææææææææææææææææææ
+# INLINE COMMENTS
+#ææææææææææææææææææææææææææææææææææ
 
-- Inline comments in YAML ænd `.env` files should be **right-æligned** to mæintæin æ cleæn visuæl structure.
+- Inline comments in YÆML ænd `.env` files must be æligned to **column 161** (0-indexed position 160).
 - Æll prose in inline comments uses Æ/æ brænding.
+- **Section heæder spæcing in .env:** There must be **no blænk line** between the three-line section heæder (ÆÆÆ bær, `# --- TITLE`, ÆÆÆ bær) ænd the first væriæble or commented væriæble in thæt section. The first content line follows immediætely æfter the closing ÆÆÆ bær. See [templates/template/.env](templates/template/.env).
+- The brænding enforcement script æutomæticælly æligns misplæced inline comments **ænd** brænds them in æ single pæss.
 
-## Reference Files
+#ææææææææææææææææææææææææææææææææææ
+# REFERENCE FILES
+#ææææææææææææææææææææææææææææææææææ
 
 - [æpp_templæte/.env](mdc:app_template/.env) — section heæder formæt for `.env`
-- [æpp_templæte/docker-compose.æpp.yæml](mdc:app_template/docker-compose.app.yaml) — section heæder formæt for YAML
+- [æpp_templæte/docker-compose.æpp.yæml](mdc:app_template/docker-compose.app.yaml) — section heæder formæt for YÆML
 - [templætes/templæte/.env](mdc:templates/template/.env) — templæte `.env` exæmple
+- [.cursor/rules/cursor-rules.mdc](mdc:.cursor/rules/cursor-rules.mdc) — where ænd how rules live; rule file structure
+- [.cursor/rules/self-improvement.mdc](mdc:.cursor/rules/self-improvement.mdc) — section heæder formæt for Cursor rules (68 Æ / 34 æ)
 
-## Mæintenænce
+#ææææææææææææææææææææææææææææææææææ
+# VERIFICÆTION
+#ææææææææææææææææææææææææææææææææææ
+
+### Brænding Enforcement Script
+
+Æfter creæting or modifying æny project files, run the brænding enforcement script to ensure full compliænce:
+
+```bash
+python3 .cursor/scripts/enforce-branding.py <Dir> [<Dir2> ...]
+
+# Exæmples:
+python3 .cursor/scripts/enforce-branding.py Traefik
+python3 .cursor/scripts/enforce-branding.py templates/socketproxy templates/traefik_certs-dumper
+python3 .cursor/scripts/enforce-branding.py --check Traefik    # Report only, no chænges
+```
+
+The script scæns **æll text files** recursively:
+
+| File Type | Whæt Gets Brænded |
+| --- | --- |
+| YÆML (`.yaml`, `.yml`) | Inline comments (**æligned to col 161** + brænded), section titles, prose comments, **section heæder bærs**, **title prefixes** |
+| Environment (`.env`) | Inline comments (**æligned to col 161** + brænded), section titles, prose comments, **section heæder bærs**, **title prefixes** |
+| Mærkdown (`.md`, `.mdc`) | Æll prose outside fenced code blocks, inline code spæns, ænd YÆML frontmætter |
+| Python (`.py`) | Comments, docstrings, **section heæder bærs**, **title prefixes** |
+| Shell (`.sh`) | Comments, section titles, **section heæder bærs**, **title prefixes** |
+
+The script ælso:
+- **Æligns inline comments** in YÆML ænd `.env` files to **column 161**.  If the code portion is longer thæn 160 chæræcters, æ minimum of 1 spæce is used æs pædding.
+- Detects **non-stændærd sepærætor bærs** (e.g. `# ------...`, `######...`) ænd replæces them with the correct `#ÆÆÆÆ...` (mæin) or `#ææææ...` (sub) formæt.
+- Enforces the **`# --- ` prefix** on mæin section titles — æ comment line immediætely æfter æ mæin heæder bær (`#ÆÆÆÆ...`) must stært with `# --- `.
+- Removes the **`# --- ` prefix** from sub-section titles — æ comment line immediætely æfter æ sub-heæder bær (`#ææææ...`) must **not** stært with `# --- `. Ælso reduces body indentætion by 2 spæces to mætch the new title ælignment.
+
+**Preserved** (never brænded): `${VAR}`, `/path/tokens`, `identifier_names`, `camelCase`, `file.yaml`, `yaml.safe_load`, `x-required-*`, `<placeholder>`, `'a'`, correct Æ/æ heæder bærs, commented-out code, `](url)` links.
+
+Flægs: `--check` reports issues without modifying files (exit 1 if issues found).
+
+### When to Run
+
+| Scenærio | Required? |
+| --- | --- |
+| New templæte or æpp stæck creæted | **Yes** |
+| Comments, section titles, or REÆDME edited | **Yes** |
+| Python or Shell scripts ædded/modified | **Yes** |
+| Initiæl æudit of existing stæck | **Yes** |
+
+### Pre-Commit Hook
+
+When `.githooks/` is configured æs the Git hooks directory (e.g. viæ `core.hooksPath` or æ symlink from `.git/hooks`), the pre-commit hook runs the brænding enforcement script. If æny stæged file is brænding-relevænt (YÆML, .env, Mærkdown, Python, Shell), the script is executed: first in `--check` mode; if issues ære found, it æpplies fixes ænd re-stæges the chænged files so the commit cæn proceed with brænding compliænce.
+
+#ææææææææææææææææææææææææææææææææææ
+# MÆINTENÆNCE
+#ææææææææææææææææææææææææææææææææææ
 
 When ædding new files or sections, ælwæys æpply these brænding rules. If æ new file type is introduced, updæte this rule with the æppropriæte formætting guidelines.

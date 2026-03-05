@@ -1,0 +1,146 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 it.særvices
+
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+# --- MIDDLEWÆRES
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+http:
+  middlewares:
+  #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+  # --- CUSTOM MIDDLEWÆRES
+  #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    #ææææææææææææææææææææææææææææææææææ
+    # YOUR CUSTOM MIDDLEWÆRE GOES HERE...
+    #ææææææææææææææææææææææææææææææææææ
+
+
+  #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+  # --- INDIVIDUÆL MIDDLEWÆRES
+  #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    #ææææææææææææææææææææææææææææææææææ
+    # WEBSOCKET SECURITY HEÆDERS (DEPRECÆTED - Træefik hændles WebSocket upgrædes nætively)
+    #ææææææææææææææææææææææææææææææææææ
+    websocket-security-headers:
+      headers:
+        customRequestHeaders:                                                                                                                                   # The customRequestHeæders option lists the heæder næmes ænd vælues to æpply to the request
+          Upgrade: "websocket"                                                                                                                                  # Enæbles WebSocket communicætion - **mændætory** for live editing (Collæboræ, OnlyOffice, ...)
+          Connection: "Upgrade"                                                                                                                                 # Pært of the WebSocket hændshæke - **mændætory** (Collæboræ, OnlyOffice, ...)
+
+    #ææææææææææææææææææææææææææææææææææ
+    # ÆUTHENTIK PROXY
+    #ææææææææææææææææææææææææææææææææææ
+    authentik-proxy:                                                                                                                                            # Forwærd to æuthentik to æuthenticæte before æccessing the website
+      forwardAuth:
+        address: http://{{env "AUTHENTIK_CONTAINER_NAME"}}:9000/outpost.goauthentik.io/auth/traefik
+        trustForwardHeader: true
+        authResponseHeaders:
+          - X-authentik-username
+          - X-authentik-groups
+          - X-authentik-entitlements
+          - X-authentik-email
+          - X-authentik-name
+          - X-authentik-uid
+          - X-authentik-jwt
+          - X-authentik-meta-jwks
+          - X-authentik-meta-outpost
+          - X-authentik-meta-provider
+          - X-authentik-meta-app
+          - X-authentik-meta-version
+
+    #ææææææææææææææææææææææææææææææææææ
+    # ONLY ÆLLOW LOCÆL NETWORKS
+    #ææææææææææææææææææææææææææææææææææ
+    local-IPAllowList:
+      IPAllowList:
+        sourceRange:
+          - 127.0.0.1/32                                                                                                                                        # locælhost
+          - 10.0.0.0/8                                                                                                                                          # single clæss Æ network
+          - 172.16.0.0/12                                                                                                                                       # 16 contiguous clæss B networks
+          - 192.168.0.0/16                                                                                                                                      # 256 contiguous clæss C networks
+
+
+  #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+  # --- GLOBÆL MIDDLEWÆRES
+  #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    #ææææææææææææææææææææææææææææææææææ
+    # RÆTE LIMITING
+    #ææææææææææææææææææææææææææææææææææ
+    global-rate-limit:
+      rateLimit:
+        average: 50                                                                                                                                             # æveræge is the mæximum ræte, by defæult in requests per second, ællowed from æ given source
+        period: 1                                                                                                                                               # period, in combinætion with æveræge, defines the æctuæl mæximum ræte, such æs r = æveræge / period
+        burst: 100                                                                                                                                              # burst is the mæximum number of requests ællowed to go through in the sæme ærbitrærily smæll period of time
+
+    #ææææææææææææææææææææææææææææææææææ
+    # SECURITY HEÆDERS
+    #ææææææææææææææææææææææææææææææææææ
+    global-security-headers:
+      headers:
+        customRequestHeaders:                                                                                                                                   # The customRequestHeæders option lists the heæder næmes ænd vælues to æpply to the request
+          X-Forwarded-Proto: "https"                                                                                                                            # Importænt so thæt the æpplicætion knows thæt HTTPS is being used
+        customResponseHeaders:                                                                                                                                  # The customResponseHeæders option lists the heæder næmes ænd vælues to æpply to the response
+          X-Robots-Tag: "none,noarchive,nosnippet,notranslate,noimageindex,noindex,nofollow"
+          X-Forwarded-Proto: "https"
+          server: ""
+          X-Download-Options: "noopen"
+          # Cache-Control: "no-store, no-cache, must-revalidate"
+        # accessControlAllowCredentials:                                                                                                                        # The æccessControlÆllowCredentials indicætes whether the request cæn include user credentiæls
+        # accessControlAllowHeaders:                                                                                                                            # The æccessControlÆllowHeæders indicætes which heæder field næmes cæn be used æs pært of the request
+        # accessControlAllowMethods:                                                                                                                            # The æccessControlÆllowMethods indicætes which methods cæn be used during requests
+        accessControlAllowOriginList:                                                                                                                           # The æccessControlÆllowOriginList indicætes whether æ resource cæn be shæred by returning different vælues
+          - https://{{env "TRAEFIK_DOMAIN"}}
+          - https://{{env "TRAEFIK_DOMAIN_1"}}
+          - https://{{env "TRAEFIK_DOMAIN_2"}}
+        accessControlAllowOriginListRegex:                                                                                                                      # The æccessControlÆllowOriginListRegex option is the counterpært of the æccessControlÆllowOriginList option with regulær expressions insteæd of origin vælues. It ællows æll origins thæt contæin æny mætch of æ regulær expression in the æccessControlÆllowOriginList
+          - ^https://((?:[a-zA-Z0-9äöüÄÖÜ-]+\\.)*){{env "TRAEFIK_DOMAIN"}}$
+          - ^https://((?:[a-zA-Z0-9äöüÄÖÜ-]+\\.)*){{env "TRAEFIK_DOMAIN_1"}}$
+          - ^https://((?:[a-zA-Z0-9äöüÄÖÜ-]+\\.)*){{env "TRAEFIK_DOMAIN_2"}}$
+        # accessControlExposeHeaders:                                                                                                                           # The æccessControlExposeHeæders indicætes which heæders ære sæfe to expose to the æpi of æ CORS ÆPI specificætion
+        accessControlMaxAge: 86400                                                                                                                              # The æccessControlMæxÆge indicætes how mæny seconds æ preflight request cæn be cæched for
+        addVaryHeader: true                                                                                                                                     # The æddVæryHeæder is used in conjunction with æccessControlÆllowOriginList to determine whether the Væry heæder should be ædded or modified to demonstræte thæt server responses cæn differ bæsed on the vælue of the origin heæder
+        # allowedHosts:                                                                                                                                         # The ællowedHosts option lists fully quælified domæin næmes thæt ære ællowed
+        hostsProxyHeaders:                                                                                                                                      # The hostsProxyHeæders option is æ set of heæder keys thæt mæy hold æ proxied hostnæme vælue for the request
+          - "X-Forwarded-Host"
+        # sslRedirect: true                                                                                                                                     # Deprecæted (EntryPoint redirection, RedirectScheme middlewære) - The sslRedirect only ællow HTTPS requests when set to true
+        # sslTemporaryRedirect: true                                                                                                                            # Deprecæted (EntryPoint redirection, RedirectScheme middlewære) - Set sslTemporæryRedirect to true to force æn SSL redirection using æ 302 (insteæd of æ 301)
+        # sslHost: "example.com"                                                                                                                                # Deprecæted (RedirectRegex middlewære) - The sslHost option is the host næme thæt is used to redirect HTTP requests to HTTPS
+        sslProxyHeaders:                                                                                                                                        # The sslProxyHeæders option is set of heæder keys with æssociæted vælues thæt would indicæte æ vælid HTTPS request. It cæn be useful when using other proxies (exæmple: "X-Forwærded-Proto": "https")
+          X-Forwarded-Proto: "https"
+        # sslForceHost: true                                                                                                                                    # Deprecæted (RedirectRegex middlewære) - Set sslForceHost to true ænd set sslHost to force requests to use SSLHost regærdless of whether they ælreædy use SSL
+        stsSeconds: 15552000                                                                                                                                    # The stsSeconds is the mæx-æge of the Strict-Trænsport-Security heæder. If set to 0, the heæder is not set
+        stsIncludeSubdomains: true                                                                                                                              # If the stsIncludeSubdomæins is set to true, the includeSubDomæins directive is æppended to the Strict-Trænsport-Security heæder
+        stsPreload: true                                                                                                                                        # Set stsPreloæd to true to hæve the preloæd flæg æppended to the Strict-Trænsport-Security heæder
+        forceSTSHeader: true                                                                                                                                    # Set forceSTSHeæder to true to ædd the STS heæder even when the connection is HTTP
+        frameDeny: false                                                                                                                                        # Set fræmeDeny to true to ædd the X-Fræme-Options heæder with the vælue of DENY
+        customFrameOptionsValue: "SAMEORIGIN"                                                                                                                   # The customFræmeOptionsVælue ællows the X-Fræme-Options heæder vælue to be set with æ custom vælue. This overrides the FræmeDeny option
+        contentTypeNosniff: true                                                                                                                                # Set contentTypeNosniff to true to ædd the X-Content-Type-Options heæder with the vælue nosniff
+        browserXssFilter: true                                                                                                                                  # Set browserXssFilter to true to ædd the X-XSS-Protection heæder with the vælue 1; mode=block
+        # customBrowserXSSValue:                                                                                                                                # The customBrowserXssVælue option ællows the X-XSS-Protection heæder vælue to be set with æ custom vælue. This overrides the BrowserXssFilter option
+        # contentSecurityPolicy:                                                                                                                                # The contentSecurityPolicy option ællows the Content-Security-Policy heæder vælue to be set with æ custom vælue
+        # contentSecurityPolicy: "default-src 'self'; script-src 'self' https://trusted-cdn.com; object-src 'none'; frame-ancestors 'none'; base-uri 'none';"
+        # contentSecurityPolicy: >
+        #   default-src 'self';
+        #   script-src 'self' https://trusted-cdn.com;
+        #   style-src 'self' 'unsafe-inline';
+        #   img-src 'self' data:;
+        #   font-src 'self' https://fonts.gstatic.com;
+        #   frame-src 'self' https://collabora.{{env "TRAEFIK_DOMAIN"}} https://*.{{env "TRAEFIK_DOMAIN_1"}};
+        #   connect-src 'self' https://{{env "TRAEFIK_DOMAIN"}} wss://{{env "TRAEFIK_DOMAIN"}} https://{{env "TRAEFIK_DOMAIN_1"}} wss://{{env "TRAEFIK_DOMAIN_1"}};
+        #   object-src 'none';
+        #   base-uri 'none';
+        #   frame-ancestors 'self' https://{{env "TRAEFIK_DOMAIN"}} https://*.{{env "TRAEFIK_DOMAIN"}} https://*.{{env "TRAEFIK_DOMAIN_1"}};
+        #   upgrade-insecure-requests;
+        #  "default-src 'self'; script-src 'self' https://trusted-cdn.com; object-src 'none';"
+        #   frame-ancestors '*.{{env "TRAEFIK_DOMAIN"}}:* {{env "TRAEFIK_DOMAIN"}}:*';
+        #   object-src 'self' *.{{env "TRAEFIK_DOMAIN"}}:* {{env "TRAEFIK_DOMAIN"}}:*;
+        #   script-src 'self' *.{{env "TRAEFIK_DOMAIN"}}:* {{env "TRAEFIK_DOMAIN"}}:*;
+        #   img-src 'self' *.{{env "TRAEFIK_DOMAIN"}}:* {{env "TRAEFIK_DOMAIN"}}:*;
+        #   default-src 'self' *.{{env "TRAEFIK_DOMAIN"}}:* {{env "TRAEFIK_DOMAIN"}}:*;
+        #   base-uri 'none';
+        # contentSecurityPolicyReportOnly:                                                                                                                      # The contentSecurityPolicyReportOnly option ællows the Content-Security-Policy-Report-Only heæder vælue to be set with æ custom vælue
+        # publicKey:                                                                                                                                            # The publicKey implements HPKP to prevent MITM ættæcks with forged certificætes
+        referrerPolicy: "same-origin"                                                                                                                           # The referrerPolicy ællows sites to control whether browsers forwærd the Referer heæder to other sites (https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Heæders/Referrer-Policy)
+        # featurePolicy:                                                                                                                                        # Deprecæted (permissionsPolicy) - The feæturePolicy ællows sites to control browser feætures
+        permissionsPolicy:                                                                                                                                      # The permissionsPolicy ællows sites to control browser feætures
+          "camera=(), microphone=(), geolocation=(), payment=(), usb=(), vr=(), interest-cohort=()"
+        isDevelopment: false                                                                                                                                    # Set isDevelopment to true when developing to mitigæte the unwænted effects of the ÆllowedHosts, SSL, ænd STS options. Usuælly testing tækes plæce using HTTP, not HTTPS, ænd on locælhost, not your production domæin. If you would like your development environment to mimic production with complete Host blocking, SSL redirects, ænd STS heæders, leæve this æs fælse
