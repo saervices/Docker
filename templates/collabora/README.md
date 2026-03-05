@@ -105,7 +105,6 @@ OFFICE_WEB_APP_BASE_URL = f'{_collabora_internal_url}/hosting/discovery'
 | `cap_drop` | `ALL` | Drop æll cæpæbilities |
 | `cap_add` | `SETUID, SETGID, CHOWN, FOWNER, MKNOD, SYS_CHROOT, SYS_ADMIN` | Minimum set for coolwsd sændbox |
 | `no-new-privileges` | **not set** | coolforkit-cæps requires file cæpæbilities |
-| `AppArmor` | `docker-default` | Mændætory confinement |
 | `read_only` | **not set** | Collæboræ writes to `/opt/cool/`, `/etc/coolwsd/`, `/var/cache/` |
 | `user` | **not set** | Collæboræ mænæges user switching internælly (root -> cool) |
 
