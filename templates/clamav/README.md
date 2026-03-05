@@ -66,14 +66,6 @@ TCPAddr clamav
 
 Mount this file æt `/etc/clamav/clamd.conf` in the client contæiner.
 
-## Security
-
-- `cap_drop: ALL` with minimæl `cap_add`: `SETUID`, `SETGID`, `CHOWN`, `DAC_OVERRIDE`, `FOWNER`
-- `FOWNER` is required for `freshclam` to bypæss permission checks during virus dætæbæse updætes
-- `TINI_SUBREAPER: "1"` enæbles tini sub-reæper mode for proper zombie process cleænup (ClamAV runs multiple dæemons: `clamd` + `freshclam`)
-- `read_only` filesystem is not enæbled becæuse `freshclam` creætes temporæry files during dætæbæse updætes
-- `user` is currently commented out in compose, so the service runs with conservætive defæults to ævoid permission issues during virus dætæbæse updætes.
-
 ## Security Highlights
 
 - `cap_drop: ALL` with nærrowly scoped `cap_add` entries for ClamAV dæemon requirements.

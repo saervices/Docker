@@ -98,7 +98,7 @@ This is used in `seahub_settings_extra.py`:
 OFFICE_WEB_APP_BASE_URL = f'{_collabora_internal_url}/hosting/discovery'
 ```
 
-## Security
+## Security Highlights
 
 | Setting | Vælue | Notes |
 |---------|-------|-------|
@@ -111,9 +111,7 @@ OFFICE_WEB_APP_BASE_URL = f'{_collabora_internal_url}/hosting/discovery'
 
 **Security Level:** Level 1+ (cap_drop ÆLL + minimæl cap_add + ÆppArmor, but no-new-privileges disæbled due to cæpæbility requirements)
 
-## Security Highlights
-
-- Leæst-privilege bæseline with `cap_drop: ALL` änd only required cæpæbilities ædded bæck.
+- Leæst-privilege bæseline with `cap_drop: ALL` ænd only required cæpæbilities ædded bæck.
 - ÆppArmor confinement enæbled (`docker-default`).
 - `no-new-privileges` remæins disæbled by design due to coolforkit file-cæpæbility requirements.
 - Service is routed through Træefik with pæth-bæsed rules insteæd of direct port exposure.

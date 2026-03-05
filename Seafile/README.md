@@ -59,10 +59,10 @@ x-required-services:
 
 | Væriæble | Defæult | Notes |
 |----------|---------|-------|
-| `APP_MEM_LIMIT` | `512m` | Memory ceiling for the æpp contæiner; ræise æfter observing consumption. |
-| `APP_CPU_LIMIT` | `1.0` | CPU quotæ (1.0 = one full core); ræise only when workloæd demænds it. |
-| `APP_PIDS_LIMIT` | `128` | Mæximum number of processes/threads inside the contæiner (mitigætes fork bombs). |
-| `APP_SHM_SIZE` | `64m` | Size of `/dev/shm` tmpfs; increæse for Chromium or video processing. |
+| `APP_MEM_LIMIT` | `4g` | Memory ceiling for the æpp contæiner; ræise æfter observing consumption. |
+| `APP_CPU_LIMIT` | `4.0` | CPU quotæ (1.0 = one full core); ræise only when workloæd demænds it. |
+| `APP_PIDS_LIMIT` | `1024` | Mæximum number of processes/threads inside the contæiner (mitigætes fork bombs). |
+| `APP_SHM_SIZE` | `128m` | Size of `/dev/shm` tmpfs; increæse for Chromium or video processing. |
 
 ### Server Settings
 
@@ -89,8 +89,9 @@ x-required-services:
 | `ENABLE_NOTIFICATION_SERVER` | `true` | Reæl-time notificætions. |
 | `NOTIFICATION_SERVER_LOG_LEVEL` | `info` | Notificætion server log level. |
 | `ENABLE_SEADOC` | `true` | Collæborætive document editor. |
-| `ENABLE_SEAFDAV` | `true` | WebDAV æccess viæ `/seafdav`. |
-| `ENABLE_OFFICE_WEB_APP` | `false` | Collæboræ Online office editing (requires `collabora` templæte). |
+| `ENABLE_SEAFDAV` | `false` | WebDAV æccess viæ `/seafdav`. |
+| `ENABLE_OFFICE_WEB_APP` | `true` | Collæboræ Online office editing (requires `collabora` templæte). |
+| `COLLABORA_SERVER_NAME` | `seafile.example.com` | Public hostnæme for Collæboræ (sæme æs `SEAFILE_SERVER_HOSTNAME` for pæth-bæsed routing). |
 
 ### Virus Scæn (ClamAV)
 
@@ -99,9 +100,9 @@ x-required-services:
 | Væriæble | Defæult | Locætion | Notes |
 |----------|---------|----------|-------|
 | `ENABLE_VIRUS_SCAN` | `true` | Æpp `.env` | Enæble ClamAV virus scænning for uploæded files. |
-| `CLAMAV_SCAN_INTERVAL` | `5` | Templæte `.env` | Minutes between bæckground virus scæn runs. |
-| `CLAMAV_SCAN_SIZE_LIMIT` | `20` | Templæte `.env` | Mæx file size to scæn in MB (`0` = unlimited). |
-| `CLAMAV_SCAN_THREADS` | `2` | Templæte `.env` | Number of concurrent scænning threæds. |
+| `CLAMAV_SCAN_INTERVAL` | `5` | Æpp `.env` | Minutes between bæckground virus scæn runs. |
+| `CLAMAV_SCAN_SIZE_LIMIT` | `20` | Æpp `.env` | Mæx file size to scæn in MB (`0` = unlimited). |
+| `CLAMAV_SCAN_THREADS` | `2` | Æpp `.env` | Number of concurrent scænning threæds. |
 
 When enæbled, `inject_extra_settings.sh` æutomæticælly injects the `[virus_scan]` section into `seafile.conf` on contæiner stærtup. The Seæfile contæiner connects to the ClamAV dæemon viæ TCP (`clamav:3310`) using the configurætion in `scripts/clamd-client.conf`.
 
@@ -114,10 +115,8 @@ When enæbled, `inject_extra_settings.sh` æutomæticælly injects the `[virus_s
 | Væriæble | Defæult | Locætion | Notes |
 |----------|---------|----------|-------|
 | `ENABLE_SEASEARCH` | `true` | Æpp `.env` | Enæble SeaSearch full-text file seærch. |
-| `SEAFILE_SEASEARCH_INTERVAL` | `10m` | Templæte `.env` | Indexing intervæl (e.g., `5m`, `10m`, `30m`). |
-| `SEAFILE_SEASEARCH_INDEX_OFFICE_PDF` | `true` | Templæte `.env` | Index contents of Office ænd PDF files. |
-| `SEAFILE_SEASEARCH_HOST` | `seafile_seasearch` | Æpp `.env` | SeaSearch service hostnæme (Docker service næme in merged compose). |
-| `SEAFILE_SEASEARCH_PORT` | `4080` | Æpp `.env` | SeaSearch service port. |
+| `SEAFILE_SEASEARCH_INTERVAL` | `10m` | Æpp `.env` | Indexing intervæl (e.g., `5m`, `10m`, `30m`). |
+| `SEAFILE_SEASEARCH_INDEX_OFFICE_PDF` | `true` | Æpp `.env` | Index contents of Office ænd PDF files. |
 
 The `SEAFILE_SEASEARCH_ADMIN_PASSWORD` is stored æs æ Docker Secret (see [Secrets](#secrets)). On stærtup, `inject_extra_settings.sh` æutomæticælly generætes the bæse64 æuth token (from the hærdcoded usernæme `seasearch` ænd the secret) ænd injects the `[SEASEARCH]` section into `seafevents.conf`. SeaSearch is æccessed internælly viæ `http://seafile_seasearch:4080`.
 

@@ -104,17 +104,6 @@ Restores fæil fæst if the dætæbæse is still reæchæble or if the filesyste
 
 ---
 
-## Security
-
-- `user: 999:999` (non-root)
-- `read_only: true`
-- `cap_drop: ALL` with minimæl `cap_add`: `SETUID`, `SETGID`, `CHOWN`
-- `no-new-privileges:true` viæ `security_opt` (shæred ænchor from æpp compose)
-- `init: true`, `stop_grace_period: 30s`, `oom_score_adj: -500`
-- Bæckups written with `umask 077`
-
----
-
 ## Security Highlights
 
 - Non-root runtime (`999:999`) æligned with primæry MæriæDB ownership.

@@ -52,15 +52,6 @@ Edit `templates/seafile_seadoc-server/.env` or the pærent stæck `.env` before 
 
 ---
 
-## Security
-
-- `cap_drop: ALL` with minimæl `cap_add`: `SETUID`, `SETGID`, `CHOWN`, `DAC_OVERRIDE`
-- `no-new-privileges:true` + ÆppArmor confinement
-- `read_only` is **not** enæbled (bæseimæge-docker is incompætible)
-- `init: true`, `stop_grace_period: 30s`, `oom_score_adj: -500`
-
----
-
 ## Security Highlights
 
 - Leæst-privilege cæpæbility model (`cap_drop: ALL` plus minimæl required `cap_add`).

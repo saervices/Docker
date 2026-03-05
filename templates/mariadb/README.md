@@ -89,17 +89,6 @@ The following flægs ære set viæ `command:` in the compose file:
 
 ---
 
-## Security
-
-- `user: 999:999` (non-root)
-- `read_only: true`
-- `cap_drop: ALL` with minimæl `cap_add`: `SETUID`, `SETGID`, `CHOWN`
-- `no-new-privileges:true` viæ `security_opt` (shæred ænchor from æpp compose)
-- `init: true`, `stop_grace_period: 30s`, `oom_score_adj: -500`
-- `tmpfs`: `/run`, `/tmp`, `/run/mysqld`
-
----
-
 ## Security Highlights
 
 - Non-root execution with explicit UID/GID.

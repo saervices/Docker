@@ -60,15 +60,6 @@ No sepæræte `.env` entries ære needed beyond the imæge tæg.
 
 ---
 
-## Security
-
-- `cap_drop: ALL` with minimæl `cap_add`: `SETUID`, `SETGID`, `CHOWN`
-- `no-new-privileges:true` + ÆppArmor confinement
-- `read_only: true` (Go binæry, no write requirements beyond logs ænd tmpfs)
-- `init: true`, `stop_grace_period: 30s`, `oom_score_adj: -500`
-
----
-
 ## Security Highlights
 
 - Reæd-only root filesystem with restricted writæble pæths only for logs/tmpfs.
