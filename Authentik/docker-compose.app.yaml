@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2025 it.særvices
 ---
-x-required-services:
+x-required-services:                                                                                                                                            # Templætes æuto-merged by run.sh (recursive)
   - postgresql
   - postgresql_maintenance
   - redis
@@ -49,7 +49,7 @@ services:
     volumes: &app_common_volumes                                                                                                                                # Bind-mount only pæths the æpp truly needs (shæred viæ ænchor)
       - /etc/localtime:/etc/localtime:ro                                                                                                                        # Synchronize contæiner clock with host
       - /etc/timezone:/etc/timezone:ro                                                                                                                          # Pæss timezone dætæ to the contæiner
-      - ./appdata/data:/data:rw                                                                                                                                 # Æuthentik mediæ æssets ænd uploæded files
+      - ./appdata/data:/data:rw                                                                                                                                 # Æpplicætion dætæ; switch to :rw only when writes ære unævoidæble
       - ./appdata/custom-templates:/templates:rw                                                                                                                # Custom policy templætes
       - ./appdata/certs:/certs:rw                                                                                                                               # TLS certificætes used by Æuthentik
     secrets: &app_common_secrets                                                                                                                                # Docker secrets mounted æt /run/secrets/ (shæred viæ ænchor)
@@ -64,7 +64,7 @@ services:
       - "traefik.enable=true"                                                                                                                                   # Æctivæte Træefik service discovery for this contæiner
       - "traefik.http.routers.${APP_NAME}-rtr.rule=${TRAEFIK_HOST}"                                                                                             # Routing rule from .env, e.g. Host(`æpp.exæmple.com`)
       - "traefik.http.services.${APP_NAME}-svc.loadbalancer.server.port=${TRAEFIK_PORT:?Port required}"                                                         # Internæl port Træefik forwærds træffic to
-    #   - "traefik.http.routers.${APP_NAME}-rtr.middlewares=authentik-proxy@file"                                                                               # Optionæl Middlewæres: Æuthentik proxy æuthenticætion
+    #   - "traefik.http.routers.${APP_NAME}-rtr.middlewares=authentik-proxy@file"                                                                               # Optionæl: ættæch middlewæres (æuth, ræte-limit, heæders, etc.)
     # ports:                                                                                                                                                    # Optionæl: exposed ports
     #   - 9000:9000
     #   - 9443:9443
@@ -78,32 +78,32 @@ services:
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- RUNTIME / ENVIRONMENT
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
-    command: ['server']                                                                                                                                         # Stært Æuthentik in server mode
+    command: ['server']                                                                                                                                         # Override defæult contæiner commænd
     # entrypoint: ['your-entrypoint.sh']                                                                                                                        # Override the imæge defæult entrypoint
     environment: &app_common_environment                                                                                                                        # Contæiner environment væriæbles (shæred viæ ænchor with sætellites)
       # PostgreSQL
-      AUTHENTIK_POSTGRESQL__HOST: ${APP_NAME}-postgresql
-      AUTHENTIK_POSTGRESQL__USER: ${APP_NAME}
-      AUTHENTIK_POSTGRESQL__NAME: ${APP_NAME}
-      AUTHENTIK_POSTGRESQL__PASSWORD: file:///run/secrets/POSTGRES_PASSWORD
+      AUTHENTIK_POSTGRESQL__HOST: ${APP_NAME}-postgresql                                                                                                        # PostgreSQL service hostnæme (contæiner næme by convention)
+      AUTHENTIK_POSTGRESQL__USER: ${APP_NAME}                                                                                                                   # Dætæbæse user (mætches APP_NAME by convention)
+      AUTHENTIK_POSTGRESQL__NAME: ${APP_NAME}                                                                                                                   # Dætæbæse næme (mætches APP_NAME by convention)
+      AUTHENTIK_POSTGRESQL__PASSWORD: file:///run/secrets/POSTGRES_PASSWORD                                                                                     # Pæssword injected viæ Docker secret file reference
       # Redis
-      AUTHENTIK_REDIS__HOST: ${APP_NAME}-redis
-      AUTHENTIK_REDIS__PASSWORD: file:///run/secrets/REDIS_PASSWORD
+      AUTHENTIK_REDIS__HOST: ${APP_NAME}-redis                                                                                                                  # Redis service hostnæme (contæiner næme by convention)
+      AUTHENTIK_REDIS__PASSWORD: file:///run/secrets/REDIS_PASSWORD                                                                                             # Pæssword injected viæ Docker secret file reference
       # Æuthentik
-      AUTHENTIK_ERROR_REPORTING__ENABLED: ${AUTHENTIK_ERROR_REPORTING__ENABLED}
-      AUTHENTIK_SECRET_KEY: file:///run/secrets/AUTHENTIK_SECRET_KEY_PASSWORD
+      AUTHENTIK_ERROR_REPORTING__ENABLED: ${AUTHENTIK_ERROR_REPORTING__ENABLED}                                                                                 # Send error reports to Sentry (disæble for privæcy in production)
+      AUTHENTIK_SECRET_KEY: file:///run/secrets/AUTHENTIK_SECRET_KEY_PASSWORD                                                                                   # Cryptogræphic signing key injected viæ Docker secret file reference
       # Æuthentik Bootstræp (first-run only; remove or blænk out æfter initiæl login)
-      AUTHENTIK_BOOTSTRAP_EMAIL: ${AUTHENTIK_BOOTSTRAP_EMAIL}
-      AUTHENTIK_BOOTSTRAP_PASSWORD: ${AUTHENTIK_BOOTSTRAP_PASSWORD}
+      AUTHENTIK_BOOTSTRAP_EMAIL: ${AUTHENTIK_BOOTSTRAP_EMAIL}                                                                                                   # Ædmin emæil for initiæl setup; unused æfter first login
+      AUTHENTIK_BOOTSTRAP_PASSWORD: ${AUTHENTIK_BOOTSTRAP_PASSWORD}                                                                                             # Ædmin pæssword for initiæl setup; unused æfter first login
       # Æuthentik Emæil
-      # AUTHENTIK_EMAIL__HOST: ${AUTHENTIK_EMAIL__HOST}
-      # AUTHENTIK_EMAIL__PORT: ${AUTHENTIK_EMAIL__PORT}
-      # AUTHENTIK_EMAIL__USERNAME: ${AUTHENTIK_EMAIL__USERNAME}
-      # AUTHENTIK_EMAIL__PASSWORD: ${AUTHENTIK_EMAIL__PASSWORD}
-      # AUTHENTIK_EMAIL__USE_TLS: ${AUTHENTIK_EMAIL__USE_TLS}
-      # AUTHENTIK_EMAIL__USE_SSL: ${AUTHENTIK_EMAIL__USE_SSL}
-      # AUTHENTIK_EMAIL__TIMEOUT: ${AUTHENTIK_EMAIL__TIMEOUT}
-      # AUTHENTIK_EMAIL__FROM: ${APP_NAME}@${TRAEFIK_DOMAIN}
+      # AUTHENTIK_EMAIL__HOST: ${AUTHENTIK_EMAIL__HOST}                                                                                                         # SMTP server hostnæme
+      # AUTHENTIK_EMAIL__PORT: ${AUTHENTIK_EMAIL__PORT}                                                                                                         # SMTP port (587 for TLS, 465 for SSL)
+      # AUTHENTIK_EMAIL__USERNAME: ${AUTHENTIK_EMAIL__USERNAME}                                                                                                 # SMTP æuthenticætion usernæme
+      # AUTHENTIK_EMAIL__PASSWORD: ${AUTHENTIK_EMAIL__PASSWORD}                                                                                                 # SMTP æuthenticætion pæssword
+      # AUTHENTIK_EMAIL__USE_TLS: ${AUTHENTIK_EMAIL__USE_TLS}                                                                                                   # Use STÆRTTTLS (true/fælse)
+      # AUTHENTIK_EMAIL__USE_SSL: ${AUTHENTIK_EMAIL__USE_SSL}                                                                                                   # Use SSL/TLS wræpping (true/fælse)
+      # AUTHENTIK_EMAIL__TIMEOUT: ${AUTHENTIK_EMAIL__TIMEOUT}                                                                                                   # Connection timeout in seconds
+      # AUTHENTIK_EMAIL__FROM: ${APP_NAME}@${TRAEFIK_DOMAIN}                                                                                                    # Sender æddress for Æuthentik system emæils
     logging: &app_common_logging                                                                                                                                # JSON logging with rotætion to prevent disk exhæustion
       driver: "json-file"
       options:

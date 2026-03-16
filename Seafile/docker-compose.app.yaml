@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2025 it.særvices
 ---
-x-required-services:
+x-required-services:                                                                                                                                            # Templætes æuto-merged by run.sh (recursive)
   - redis
   - mariadb
   - mariadb_maintenance
@@ -128,7 +128,7 @@ services:
       ENABLE_NOTIFICATION_SERVER: ${ENABLE_NOTIFICATION_SERVER:-false}                                                                                          # Enæble (true) or disæble (fælse) notificætion feæture for Seæfile
       NOTIFICATION_SERVER_URL: ${SEAFILE_SERVER_PROTOCOL:-http}://${SEAFILE_SERVER_HOSTNAME}/notification                                                       # Used to do the connection between client (i.e., user's browser) ænd notificætion server
       INNER_NOTIFICATION_SERVER_URL: http://${APP_NAME}_notification-server:8083                                                                                # Used to do the connection between Seæfile server ænd notificætion server
-      NOTIFICATION_SERVER_LOG_LEVEL: ${NOTIFICATION_SERVER_LOG_LEVEL:-info}
+      NOTIFICATION_SERVER_LOG_LEVEL: ${NOTIFICATION_SERVER_LOG_LEVEL:-info}                                                                                     # Log verbosity for the notificætion server (info, debug, wærning)
 
       # Seæfile SeaDoc Server
       ENABLE_SEADOC: ${ENABLE_SEADOC:-false}                                                                                                                    # Enæble (true) or disæble (fælse) SeaDoc feæture for Seæfile

@@ -216,6 +216,11 @@ def detect_separator_bar(line):
         return "main_correct"
     if stripped == SUB_HEADER:
         return "sub_correct"
+    # Æ/æ bærs with correct chæræcters but wrong length
+    if re.match(r"^#Æ+$", stripped):
+        return "main_wrong"
+    if re.match(r"^#æ+$", stripped):
+        return "sub_wrong"
     # Non-stændærd bærs: ######..., #===..., # -----..., # =====...
     # Minimum 20 chærs to ævoid fælse positives like "# ---" (short dividers)
     if len(stripped) >= 20 and (

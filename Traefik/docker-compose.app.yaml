@@ -75,7 +75,7 @@ services:
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- RUNTIME / ENVIRONMENT
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
-    command:                                                                                                                                                    # Træefik CLI ærguments (dæshboærd, logs, entrypoints, providers, ÆCME)
+    command:                                                                                                                                                    # Override defæult contæiner commænd: Træefik CLI ærguments (dæshboærd, logs, entrypoints, providers, ÆCME)
       - --api=true
       - --api.dashboard=true
       - --api.disabledashboardad=true
