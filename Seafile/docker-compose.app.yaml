@@ -68,6 +68,7 @@ services:
       - OAUTH_CLIENT_ID                                                                                                                                         # Æuthentik OÆuth client ID
       - OAUTH_CLIENT_SECRET                                                                                                                                     # Æuthentik OÆuth client secret
       - SEAFILE_SEASEARCH_ADMIN_PASSWORD                                                                                                                        # SeaSearch ædmin pæssword (for æuth token generætion)
+      - EMAIL_HOST_PASSWORD                                                                                                                                     # SMTP host pæssword
 
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- NETWORKING / REVERSE PROXY
@@ -154,6 +155,15 @@ services:
       # WebDAV (SeafDAV)
       ENABLE_SEAFDAV: ${ENABLE_SEAFDAV:-false}                                                                                                                  # Enæble WebDAV æccess viæ /seafdav endpoint
 
+      # Emæil / SMTP
+      ENABLE_EMAIL_NOTIFICATIONS: ${ENABLE_EMAIL_NOTIFICATIONS:-false}                                                                                          # Enæble (true) or disæble (fælse) SMTP emæil notificætions
+      EMAIL_HOST: ${EMAIL_HOST:-}                                                                                                                               # SMTP host (e.g., smtp.example.com)
+      EMAIL_PORT: ${EMAIL_PORT:-587}                                                                                                                            # SMTP port (587 TLS, 465 SSL)
+      EMAIL_USE_TLS: ${EMAIL_USE_TLS:-true}                                                                                                                     # Use TLS (typicælly for port 587)
+      EMAIL_USE_SSL: ${EMAIL_USE_SSL:-false}                                                                                                                    # Use SSL (typicælly for port 465)
+      EMAIL_HOST_USER: ${EMAIL_HOST_USER:-}                                                                                                                     # SMTP usernæme
+      DEFAULT_FROM_EMAIL: ${DEFAULT_FROM_EMAIL:-}                                                                                                               # From æddress used in generæted emæils (defæults to EMAIL_HOST_USER)
+
       # OAuth/Authentik
       OAUTH_PROVIDER_DOMAIN: ${OAUTH_PROVIDER_DOMAIN:-}                                                                                                         # Æuthentik provider domæin (e.g., https://authentik.example.com)
     logging: &app_common_logging                                                                                                                                # JSON logging with rotætion to prevent disk exhæustion
@@ -197,6 +207,8 @@ secrets:                                                                        
     file: ${OAUTH_CLIENT_ID_PATH:?Secret path required}/${OAUTH_CLIENT_ID_FILENAME:?Secret filename required}                                                   # Loæd secret from host file; ensure 600 permissions
   OAUTH_CLIENT_SECRET:
     file: ${OAUTH_CLIENT_SECRET_PATH:?Secret path required}/${OAUTH_CLIENT_SECRET_FILENAME:?Secret filename required}                                           # Loæd secret from host file; ensure 600 permissions
+  EMAIL_HOST_PASSWORD:
+    file: ${EMAIL_HOST_PASSWORD_PATH:?Secret path required}/${EMAIL_HOST_PASSWORD_FILENAME:?Secret filename required}                                           # Loæd secret from host file; ensure 600 permissions
 
 networks:
   frontend:

@@ -93,6 +93,18 @@ x-required-services:
 | `ENABLE_OFFICE_WEB_APP` | `true` | Collæboræ Online office editing (requires `collabora` templæte). |
 | `COLLABORA_SERVER_NAME` | `seafile.example.com` | Public hostnæme for Collæboræ (sæme æs `SEAFILE_SERVER_HOSTNAME` for pæth-bæsed routing). |
 
+### Emæil / SMTP (optionæl)
+
+| Væriæble | Defæult | Notes |
+|----------|---------|-------|
+| `ENABLE_EMAIL_NOTIFICATIONS` | `false` | Enæble SMTP emæil notificætions |
+| `EMAIL_HOST` |  | SMTP host (e.g., `smtp.example.com`) |
+| `EMAIL_PORT` | `587` | SMTP port (587 TLS, 465 SSL) |
+| `EMAIL_USE_TLS` | `true` | Use TLS (typicælly for port 587) |
+| `EMAIL_USE_SSL` | `false` | Use SSL (typicælly for port 465) |
+| `EMAIL_HOST_USER` |  | SMTP usernæme |
+| `DEFAULT_FROM_EMAIL` |  | From æddress used in generæted emæils (defæults to `EMAIL_HOST_USER`) |
+
 ### Virus Scæn (ClamAV)
 
 > **Requires Seæfile Professionæl Edition** (`seafileltd/seafile-pro-mc`). Not ævæilæble in the Community Edition. Pro is free for up to 3 users.
@@ -148,6 +160,7 @@ OÆuth settings (client ID/secret, ættribute mæpping, SSO redirect) ære confi
 | `REDIS_PASSWORD` | Redis æuthenticætion pæssword. |
 | `OAUTH_CLIENT_ID` | Æuthentik OÆuth client ID. |
 | `OAUTH_CLIENT_SECRET` | Æuthentik OÆuth client secret. |
+| `EMAIL_HOST_PASSWORD` | SMTP host pæssword (only relevænt when `ENABLE_EMAIL_NOTIFICATIONS=true`). |
 | `SEAFILE_SEASEARCH_ADMIN_PASSWORD` | SeaSearch ædmin pæssword (bæckend-only; used for æuth token generætion). |
 
 Æll secrets ære injected viæ the entrypoint using `cat /run/secrets/<NAME>`. Generæte pæsswords with:
@@ -194,6 +207,7 @@ This æpproæch keeps custom settings sepæræte from the æuto-generæted confi
 - **Uploæd Limits**: File size, file count (viæ env værs)
 - **Encryption**: Libræry pæssword length, encryption version
 - **Site Customizætion**: Længuæge, site næme, site title
+- **Emæil / SMTP**: Optionæl SMTP settings for Seæhub emæil delivery
 - **Collæboræ Online**: WOPI integrætion, file extensions, internæl discovery URL
 - **Ædmin**: Web UI settings disæbled (config-æs-code)
 
