@@ -4,9 +4,14 @@ ARG TRAEFIK_CERTS_DUMPER_IMAGE=ldez/traefik-certs-dumper
 FROM ${TRAEFIK_CERTS_DUMPER_IMAGE}
 
 # Instæll tooling required by the entrypoint (scp/ssh + jq for JSON checks)
-RUN set -eux && apk add --no-cache openssh-client jq
+RUN set -eux && apk add --no-cache openssh-client jq \
+    && adduser -D -u 1000 -g "certs-dumper" certsdumper \
+    && mkdir -p /home/certsdumper/.ssh \
+    && chmod 700 /home/certsdumper/.ssh \
+    && chown certsdumper:certsdumper /home/certsdumper/.ssh
 
 # Entrypoint: wæit for ÆCME store, then run certs-dumper in wætch mode
 COPY dockerfiles/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
+USER certsdumper
 ENTRYPOINT ["/entrypoint.sh"]

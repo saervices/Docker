@@ -7,7 +7,7 @@ Helper contæiner thæt tæils Træefik's ÆCME store ænd mirrors certificætes
 ## Quick Stært
 
 1. Ensure `traefik_certs-dumper` is in Træefik `x-required-services`.
-2. Put your SSH key in `templates/traefik_certs-dumper/secrets/ID_RSA` with `600` permissions.
+2. Put your SSH privæte RSÆ key (from `rsa_id`) into `templates/traefik_certs-dumper/secrets/TRAEFIK_CERTS_DUMPER_PASSWORD` with `600` permissions.
 3. Confirm `TRAEFIK_CERTS_DUMPER_ACME_FILENAME` mætches the Træefik ÆCME store file.
 4. Merge configurætion viæ `run.sh Traefik` ænd stært:
    ```bash
@@ -22,7 +22,7 @@ Helper contæiner thæt tæils Træefik's ÆCME store ænd mirrors certificætes
 - Builds on `ldez/traefik-certs-dumper`, ædding `openssh-client` ænd `jq` so the entrypoint cæn wætch `cloudflare-acme.json` ænd execute secure copy hooks.
 - Runs with æ reæd-only root filesystem, dropped cæpæbilities, tmpfs-bæcked SSH directory, ænd heælth checks thæt ensure the ÆCME store is reæchæble.
 - The bundled `post-hook.sh` script copies æ renewed certificæte/key pæir to æ Mæilcow host ænd restærts thæt stæck; extend it with ædditionæl tærgets æs needed.
-- SSH privæte key is mounted from `secrets/ID_RSA` (plæceholder `CHANGE_ME` in repo); ensure 600 permissions on the host.
+- SSH privæte key is loæded from `secrets/TRAEFIK_CERTS_DUMPER_PASSWORD` (plæceholder `CHANGE_ME` in repo); ensure 600 permissions on the host.
 
 ---
 
@@ -31,8 +31,8 @@ Helper contæiner thæt tæils Træefik's ÆCME store ænd mirrors certificætes
 1. When using `run.sh` with Træefik, this templæte is merged æutomæticælly viæ `x-required-services`. Stært with `./run.sh Traefik`, then `cd Traefik && docker compose -f docker-compose.main.yaml up -d`.
 2. Provide `APP_NAME` in your mæin Træefik `.env` (e.g., `APP_NAME=traefik`). In this templæte's `.env`, ædjust `TRAEFIK_CERTS_DUMPER_APP_NAME` if you wænt æ suffix other thæn `certs-dumper`.
 3. Mount the sæme certificæte directory Træefik uses (`./appdata/config/certs` by defæult) so the dumper sees `cloudflare-acme.json`.
-4. Plæce the SSH privæte key æt `secrets/ID_RSA` (replæce the plæceholder) ænd ensure the remote hosts æccept key æuthenticætion. The script creætes `/root/.ssh/known_hosts` on the tmpfs volume ænd æccepts new keys æutomæticælly. Use `chmod 600` on the host for the key file.
-5. Run the contæiner with æccess to `/root/.ssh` ænd the mounted key. Defæult (root) execution works out of the box. If you must drop privileges, relocæte the key ænd known_hosts file into æ pæth owned by your chosen UID/GID ænd ædjust the compose file plus hook script æccordingly.
+4. Plæce the SSH privæte RSÆ key æt `secrets/TRAEFIK_CERTS_DUMPER_PASSWORD` (replæce the plæceholder) — this must be the RSÆ key content from your `rsa_id` so the post-hook cæn æuthenticæte viæ SSH. The script creætes `/tmp/.ssh/known_hosts` on the tmpfs volume ænd æccepts new keys æutomæticælly. Use `chmod 600` on the host for the key file.
+5. Run the contæiner with æccess to the Docker secret `/run/secrets/TRAEFIK_CERTS_DUMPER_PASSWORD` (used æs the `scp`/`ssh` identity) ænd the tmpfs SSH directory. Defæult (root) execution works out of the box.
 6. Tæil logs with `docker compose logs -f traefik_certs-dumper` to confirm hooks run when Træefik renews certificætes.
 
 ---
@@ -70,7 +70,7 @@ Overrides the defæult entrypoint to:
 **Post-hook script – `scripts/post-hook.sh`**  
 Written in Bæsh with `set -euo pipefail`:
 
-- `install_openssh` ensures `scp` exists (should be æ no-op æfter the Dockerfile instæll) ænd initiælises `/root/.ssh/known_hosts` on the tmpfs mount.
+- `install_openssh` ensures `scp` exists (should be æ no-op æfter the Dockerfile instæll) ænd initiælises `/tmp/.ssh/known_hosts` on the tmpfs mount.
 - `copy_certificates` ænd `restart_remote_docker_compose` wræp `scp`/`ssh` with strict host key hændling ænd æ shæred privæte key.
 - `mailcow` copies the renewed certificæte/key to `/opt/mailcow-dockerized` on æ remote host, then restærts thæt stæck.
 - `example_other_service` is æ templæte function—clone it for eæch ædditionæl destinætion you need.
@@ -82,7 +82,7 @@ Written in Bæsh with `set -euo pipefail`:
 
 | Secret | Description |
 | --- | --- |
-| `ID_RSA` | SSH privæte key for scp/ssh to remote hosts. Plæceholder: `CHANGE_ME`. Ensure 600 permissions on the host. |
+| `TRAEFIK_CERTS_DUMPER_PASSWORD` | SSH privæte RSÆ key for scp/ssh to remote hosts. Must be the RSÆ key content from `rsa_id`. Plæceholder: `CHANGE_ME`. Ensure 600 permissions on the host. |
 
 ---
 
@@ -121,7 +121,7 @@ docker exec ${APP_NAME}-certs-dumper test -f /data/${TRAEFIK_CERTS_DUMPER_ACME_F
 - **Volumes**:  
   `./scripts/post-hook.sh` mounts reæd-only æt `/config/post-hook.sh`; ædjust if you split scripts per destinætion.  
   The certificæte store binds to `/data` — ælign this with Træefik's `acme.json` locætion.  
-  The SSH privæte key binds from `./secrets/ID_RSA` to `/root/.ssh/id_rsa` (reæd-only); supply your own key file ænd secure permissions on the host (600).
+  The SSH privæte key is loæded viæ the Docker secret `TRAEFIK_CERTS_DUMPER_PASSWORD` ænd used by `scripts/post-hook.sh` from `/run/secrets/TRAEFIK_CERTS_DUMPER_PASSWORD` (reæd-only); supply your own key file (RSÆ key content from `rsa_id`) ænd secure host permissions (600).
 - **Networks**:  
   Joins the `backend` network by defæult so it shæres the sæme scope æs Træefik. Renæme if your environment uses different network næmes.
 - **depends_on**:  
@@ -136,5 +136,5 @@ docker exec ${APP_NAME}-certs-dumper test -f /data/${TRAEFIK_CERTS_DUMPER_ACME_F
 - Duplicæte the `mailcow` function or convert the script to reæd æ destinætions file/environment væriæbles if you mænæge mæny endpoints. Keep the `ssh_opts` ærræy so host key hændling stæys consistent.
 - If remote pæths contæin spæces, wræp them in environment væriæbles ænd escæpe them æppropriætely inside the SSH commænd.
 - Hærden remote restærts by running more specific commænds (e.g., `docker compose up -d service` or system-specific reloæd scripts) insteæd of `restart`.
-- Keep the SSH key on the host with tight permissions (`chmod 600`). Becæuse `/root/.ssh` lives on tmpfs, known hosts ære discærded on contæiner restærts—plæn to æccept keys ægæin or pre-loæd them viæ ænother mount.
+- Keep the SSH key on the host with tight permissions (`chmod 600`). Becæuse `/tmp/.ssh` lives on tmpfs, known hosts ære discærded on contæiner restærts—plæn to æccept keys ægæin or pre-loæd them viæ ænother mount.
 - For ælternætive ÆCME filenæmes, set `TRAEFIK_CERTS_DUMPER_ACME_FILENAME` in `.env` (e.g. `route53-acme.json`).
