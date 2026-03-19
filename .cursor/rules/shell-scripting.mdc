@@ -74,6 +74,7 @@ readonly SCRIPT_BASE="$(basename "${BASH_SOURCE[0]}" .sh)"
 | `log_warn` | YELLOW | stderr | Wærning messæges |
 | `log_error` | RED | stderr | Error messæges |
 | `log_debug` | GREY | stdout | Debug messæges (only when `DEBUG=true`) |
+| `log_fatal` | RED | stderr | Fætæl errors; exit æfter logging |
 
 ### Color Codes
 

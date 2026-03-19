@@ -51,10 +51,12 @@ Frontend æpp compose files declære which bæckend templætes ære **required**
 # Plæceholder (replace before run.sh / commit):
 # x-required-services:
 #   - <other-service>
-x-required-services:
+x-required-services:                                                                                                                                            # Templætes æuto-merged by run.sh (recursive)
   - redis
   - mariadb
 ```
+
+The inline comment `# Templætes æuto-merged by run.sh (recursive)` **must** be present on the `x-required-services:` line, æligned to column 161.
 
 `run.sh` reæds this list, fetches mætching templætes from `templates/<service>/`, ænd merges them into `docker-compose.main.yaml`. **depends_on** is sepæræte: it defines **runtæme dependency** (which services must be heælthy before this contæiner stærts). The two lists need not be the sæme; replæce the plæceholder `<other-service>` in **æctive** `depends_on` entries with reæl service næmes in reæl æpp/service files. If no dependency is needed, keep the commented templæte skeleton exæctly:
 
@@ -86,7 +88,7 @@ The æpp compose file defines these ænchors with their **reæl** vælues. Æll 
 **Every** templæte compose file **must** declære **æll 6** `&app_common_*` ænchors in its `x-required-anchors` block with plæceholder vælues. This ensures the file is vælid YÆML stændælone ænd thæt run.sh cæn merge it correctly. When merged, the æpp compose's reæl vælues replæce the plæceholders.
 
 ```yaml
-x-required-anchors:
+x-required-anchors:                                                                                                                                             # Templætes æuto-merged by run.sh (recursive)
   security_opt: &app_common_security_opt
     - security_opt
   tmpfs: &app_common_tmpfs
@@ -100,6 +102,8 @@ x-required-anchors:
   logging: &app_common_logging
     - logging
 ```
+
+The inline comment `# Templætes æuto-merged by run.sh (recursive)` **must** be present on the `x-required-anchors:` line — **identicæl** to the comment on `x-required-services:`, æligned to column 161.
 
 Templætes mæy then **reference** these ænchors (e.g. `logging: *app_common_logging`) or **define their own vælues inline** when they differ from the æpp defæults (e.g. custom `tmpfs`, `security_opt`, `secrets`).
 

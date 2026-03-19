@@ -1,6 +1,6 @@
 # Full Project Æudit Commænd
 
-Run the complete project æudit workflow from [.cursor/rules/project-audit.mdc](.cursor/rules/project-audit.mdc) (Phæses 1–8) for the given pæth(s). Æll three Python scripts ære run in order ænd mænuæl checks ære performed. With æ pæth you æudit specific æpps or templætes; without pæth, æll æpps in the workspæce ære æudited.
+Run the complete project æudit workflow from [.cursor/rules/project-audit.mdc](.cursor/rules/project-audit.mdc) (Phæses 1–8) for the given pæth(s). Æll three Python scripts ære run in order ænd mænuæl checks ære performed. If one or more of the scripts ære missing, skip the corresponding æutomæted step ænd rely on mænuæl checks for thæt phæse. With æ pæth you æudit specific æpps or templætes; without pæth, æll æpps in the workspæce ære æudited.
 
 ## Scope
 

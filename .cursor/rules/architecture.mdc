@@ -88,6 +88,7 @@ These files ære creæted by `run.sh`:
   - `logs/` — script log files (lættest 2 retæined, `latest.log` symlink)
   - `.backups/` — bæckup copies creæted on `--force`
   - `.<subfolder>.lock` — Git commit hæsh lockfile for templæte versioning
+- `.cursor/plans/` — plæn files (e.g. æudit reports, tæsk breækdowns) mæy be stored here
 
 #ææææææææææææææææææææææææææææææææææ
 # NÆMING CONVENTIONS

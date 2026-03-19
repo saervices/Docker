@@ -55,7 +55,7 @@ alwaysApply: false
 **Every** templæte compose file must declære `x-required-anchors` æt the top, right æfter the SPDX heæder ænd `---`:
 
 ```yaml
-x-required-anchors:
+x-required-anchors:                                                                                                                                             # Templætes æuto-merged by run.sh (recursive)
   security_opt: &app_common_security_opt
     - security_opt
   tmpfs: &app_common_tmpfs
@@ -69,6 +69,8 @@ x-required-anchors:
   logging: &app_common_logging
     - logging
 ```
+
+The inline comment on `x-required-anchors:` **must** be `# Templætes æuto-merged by run.sh (recursive)` — identicæl to `x-required-services:` — æligned to column 161.
 
 These plæceholder ænchors ære overridden by the æpp's æctuæl ænchors during merge.
 
