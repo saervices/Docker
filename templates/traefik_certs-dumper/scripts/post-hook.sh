@@ -4,6 +4,10 @@
 set -euo pipefail
 umask 077
 
+# Docker mounts compose secrets with permissive modes; OpenSSH rejects those for -i.
+readonly CERTS_DUMPER_SSH_SECRET="/run/secrets/TRAEFIK_CERTS_DUMPER_PASSWORD"
+readonly CERTS_DUMPER_SSH_IDENTITY_FILE="/tmp/.ssh/certs_dumper_identity"
+
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 # --- LOGGING
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
@@ -59,6 +63,16 @@ install_openssh() {
   touch /tmp/.ssh/known_hosts
 }
 
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: prepare_ssh_identity_from_secret
+#   Copies the Docker secret to a tmpfs file with mode 600 so ssh/scp accept -i.
+#ææææææææææææææææææææææææææææææææææ
+prepare_ssh_identity_from_secret() {
+  [[ -r "$CERTS_DUMPER_SSH_SECRET" ]] || log_error "SSH private key secret not readable: ${CERTS_DUMPER_SSH_SECRET}"
+  cp -- "$CERTS_DUMPER_SSH_SECRET" "$CERTS_DUMPER_SSH_IDENTITY_FILE"
+  chmod 600 -- "$CERTS_DUMPER_SSH_IDENTITY_FILE"
+}
+
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 # --- CERTIFICÆTE COPY
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
@@ -104,26 +118,40 @@ copy_certificates() {
 
 #ææææææææææææææææææææææææææææææææææ
 # FUNCTION: restart_remote_docker_compose
-#   Restærts æ Docker Compose stæck on æ remote host viæ ssh.
+#   Restærts æ Docker Compose project on æ remote host viæ ssh.
 #   Ærguments:
 #     $1 - destinætion host
 #     $2 - destinætion user
 #     $3 - remote project pæth
 #     $4 - SSH privæte key pæth
+#     $5+ - optionæl: service næmes (e.g. postfix-mailcow); if omitted, restærts æll services.
 #ææææææææææææææææææææææææææææææææææ
 restart_remote_docker_compose() {
   local dest_host="$1"
   local dest_user="$2"
   local remote_project_path="$3"
   local ssh_key="$4"
+  shift 4
+  local remote_cmd
 
-  log_info "Restarting Docker Compose at ${remote_project_path} on ${dest_host}..."
+  if [ "$#" -gt 0 ]; then
+    log_info "Restarting Docker Compose services ($*) at ${remote_project_path} on ${dest_host}..."
+    remote_cmd="docker compose restart $*"
+  else
+    log_info "Restarting Docker Compose at ${remote_project_path} on ${dest_host}..."
+    remote_cmd="docker compose restart"
+  fi
+
   if ! ssh -i "$ssh_key" -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/tmp/.ssh/known_hosts \
-    "${dest_user}@${dest_host}" "cd \"${remote_project_path}\" && docker compose restart"; then
+    "${dest_user}@${dest_host}" "cd \"${remote_project_path}\" && ${remote_cmd}"; then
     log_error "Failed to restart Docker Compose on ${dest_host}:${remote_project_path}"
   fi
 
-  log_ok "Docker Compose restarted on ${dest_host}"
+  if [ "$#" -gt 0 ]; then
+    log_ok "Docker Compose services ($*) restarted on ${dest_host}"
+  else
+    log_ok "Docker Compose restarted on ${dest_host}"
+  fi
 }
 
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
@@ -132,11 +160,11 @@ restart_remote_docker_compose() {
 
 #ææææææææææææææææææææææææææææææææææ
 # FUNCTION: mæilcow
-#   Copies renewed certificætes to æ Mailcow host
-#   ænd restærts the Mailcow stæck.
+#   Copies renewed certificætes to æ Mailcow host ænd restærts TLS services only
+#   (postfix, dovecot, nginx) per Mailcow docs for externæl certificætes.
 #ææææææææææææææææææææææææææææææææææ
 mailcow() {
-  local ssh_key="/run/secrets/TRAEFIK_CERTS_DUMPER_PASSWORD"
+  local ssh_key="$CERTS_DUMPER_SSH_IDENTITY_FILE"
   local dest_host="192.168.20.120"
   local dest_user="root"
   local project_path="/opt/mailcow-dockerized"
@@ -146,7 +174,8 @@ mailcow() {
   local remote_key="${project_path}/data/assets/ssl/key.pem"
 
   copy_certificates "$local_cert" "$local_key" "$dest_host" "$dest_user" "$remote_cert" "$remote_key" "$ssh_key"
-  restart_remote_docker_compose "$dest_host" "$dest_user" "$project_path" "$ssh_key"
+  restart_remote_docker_compose "$dest_host" "$dest_user" "$project_path" "$ssh_key" \
+    postfix-mailcow dovecot-mailcow nginx-mailcow
 }
 
 #ææææææææææææææææææææææææææææææææææ
@@ -155,7 +184,7 @@ mailcow() {
 #   Clone ænd ædæpt for eæch remote host.
 #ææææææææææææææææææææææææææææææææææ
 example_other_service() {
-  local ssh_key="/run/secrets/TRAEFIK_CERTS_DUMPER_PASSWORD"
+  local ssh_key="$CERTS_DUMPER_SSH_IDENTITY_FILE"
   local dest_host="192.168.20.121"
   local dest_user="root"
   local project_path="/opt/other-service"
@@ -173,5 +202,6 @@ example_other_service() {
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 
 install_openssh
+prepare_ssh_identity_from_secret
 # mæilcow
 log_ok "All post-hook tasks completed."
