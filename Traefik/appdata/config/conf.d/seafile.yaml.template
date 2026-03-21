@@ -16,7 +16,7 @@ http:
       #  || (Host(`seafile.{{env "TRAEFIK_DOMAIN_2"}}`) && PathPrefix(`/notification`))
       service: seafile-notification-svc
 
-    seafile-collabora-rtr:                                                                                                                                      # Collaboræ Online (WOPI endpoints for document editing)
+    seafile-collabora-rtr:                                                                                                                                      # Collabora Online (WOPI endpoints for document editing)
       rule: >
         Host(`seafile.{{env "TRAEFIK_DOMAIN"}}`) && (PathPrefix(`/hosting/discovery`) || PathPrefix(`/browser`) || PathPrefix(`/cool`) || PathPrefix(`/lool`) || PathPrefix(`/loleaflet`))
       #  || (Host(`seafile.{{env "TRAEFIK_DOMAIN_1"}}`) && (PathPrefix(`/hosting/discovery`) || PathPrefix(`/browser`) || PathPrefix(`/cool`) || PathPrefix(`/lool`) || PathPrefix(`/loleaflet`)))
@@ -49,7 +49,7 @@ http:
         servers:
           - url: "http://192.168.10.110:8083/"                                                                                                                  # Ædjust the IP to your Seæfile LXC
 
-    seafile-collabora-svc:                                                                                                                                      # Collaboræ Online (coolwsd on port 9980)
+    seafile-collabora-svc:                                                                                                                                      # Collabora Online (coolwsd on port 9980)
       loadBalancer:
         servers:
           - url: "http://192.168.10.110:9980/"                                                                                                                  # Ædjust the IP to your Seæfile LXC
