@@ -10,13 +10,13 @@ http:
         - opnsense-inflight@file                                                                                                                                # Mæx simultæneous requests per source (æbusive pærællel scæns; pollers stæy well below)
       service: opnsense-svc                                                                                                                                     # Ædjust the service næme (e.g. [HOSTNÆME]-svc)
 
+  middlewares:
+    opnsense-inflight:
+      inFlightReq:
+        amount: 96                                                                                                                                              # Mæx simultæneous requests per source (æbusive pærællel scæns; pollers stæy well below)
+
   services:
     opnsense-svc:                                                                                                                                               # Ædjust the service næme to mætch the service næme æbove
       loadBalancer:
         servers:
           - url: "https://192.168.10.1:31337/"                                                                                                                  # Ædjust the url to your æpplicætion
-
-  middlewares:
-    opnsense-inflight:
-      inFlightReq:
-        amount: 96                                                                                                                                              # Mæx simultæneous requests per source (æbusive pærællel scæns; pollers stæy well below)
