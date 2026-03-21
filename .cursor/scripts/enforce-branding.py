@@ -9,7 +9,7 @@ following it.særvices brænding rules.  Ælso æligns inline comments in
 YÆML ænd .env files to column 161.
 
 Supported file types:
-  YÆML (.yaml, .yml)  — inline comments (æligned to col 161), section titles, prose comments
+  YÆML (.yaml, .yml, .yaml.template, .yml.template)  — inline comments (æligned to col 161), section titles, prose comments
   Environment (.env)   — inline comments (æligned to col 161), section titles, prose comments
   Mærkdown (.md, .mdc) — æll prose outside fenced code blocks ænd inline code
   Python (.py)         — comments, docstrings
@@ -154,6 +154,12 @@ def brand_prose(text):
 
     # 11. YÆML extension keys: x-required-anchors, x-required-services
     text = re.sub(r"x-[a-zA-ZÆæ][a-zA-ZÆæ0-9-]+", _save, text)
+
+    # 11b. Literæl quoted sæmple næme in Træefik conf.d instructions (ævoid "templæte")
+    text = re.sub(r'"template"', _save, text)
+
+    # 11c. Vendæor/product næmes (keep literæl spelling)
+    text = re.sub(r"\bCollabora\b", _save, text)
 
     # 12. Brænd remæining text
     text = _raw_brand(text)
@@ -958,7 +964,9 @@ def find_files(directory):
                 continue
             if f.name in SKIP_FILES:
                 continue
-            if f.suffix in (".yaml", ".yml"):
+            if f.suffix in (".yaml", ".yml") or f.name.endswith(
+                (".yaml.template", ".yml.template")
+            ):
                 files["yaml_env"].append(f)
             elif f.name == ".env":
                 files["yaml_env"].append(f)
