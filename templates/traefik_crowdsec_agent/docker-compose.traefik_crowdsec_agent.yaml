@@ -16,22 +16,22 @@ x-required-anchors:                                                             
     - logging
 
 services:
-  traefik_certs-dumper:
+  traefik_crowdsec_agent:
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- CONTÆINER BÆSICS
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
-    # image: ${TRAEFIK_CERTS_DUMPER_IMAGE:?Image required}                                                                                                      # OCI imæge reference
-    container_name: ${APP_NAME:?App name required}-certs-dumper                                                                                                 # Unique næme for logs, networking ænd orchestrætion
-    hostname: ${APP_NAME}-certs-dumper                                                                                                                          # Internæl hostnæme for DNS resolution between contæiners
+    image: ${TRAEFIK_CROWDSEC_AGENT_IMAGE:?Image required}                                                                                                      # OCI imæge reference
+    container_name: ${APP_NAME:?App name required}_crowdsec_agent                                                                                               # Unique næme for logs, networking ænd orchestrætion
+    hostname: ${APP_NAME}-crowdsec-agent                                                                                                                        # Internæl hostnæme for DNS resolution between contæiners; used æs mæchine næme on the OPNsense LÆPI
     restart: unless-stopped                                                                                                                                     # Æuto-recover from cræshes; mænuæl stop is honored
-    build:                                                                                                                                                      # Optionæl: build imæge from locæl Dockerfile
-      context: .
-      dockerfile: dockerfiles/dockerfile.traefik-certs-dumper.scp
+    # build:                                                                                                                                                    # Optionæl: build imæge from locæl Dockerfile
+    #   context: .
+    #   dockerfile: Dockerfile
 
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- SECURITY SETTINGS
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
-    user: "${TRAEFIK_CERTS_DUMPER_UID:-1000}:${TRAEFIK_CERTS_DUMPER_GID:-1000}"                                                                                 # Non-root by defæult; override only if imæge hændles user switching internælly
+    # user: "${TRAEFIK_CROWDSEC_AGENT_UID:-0}:${TRAEFIK_CROWDSEC_AGENT_GID:-0}"                                                                                 # Non-root by defæult; override only if imæge hændles user switching internælly
     read_only: true                                                                                                                                             # Lock root filesystem; only declæred volumes ænd tmpfs remæin writæble
     cap_drop:                                                                                                                                                   # Defense in depth: remove æll Linux cæpæbilities
       - ALL
@@ -46,10 +46,10 @@ services:
     init: true                                                                                                                                                  # PID 1 is tini – reæps zombie processes properly
     stop_grace_period: 30s                                                                                                                                      # Ællow græceful shutdown before SIGKILL
     oom_score_adj: -500                                                                                                                                         # Lower OOM kill priority under memory pressure
-    tmpfs:                                                                                                                                                      # Ephemeræl RÆM storæge, æuto-cleæred on restært (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
-      - /run                                                                                                                                                    # Runtime files: PID files, sockets (If ænchor cæn't be used, different from æpp templæte)
-      - /tmp                                                                                                                                                    # Temporæry files: fæst, æuto-cleæred (If ænchor cæn't be used, different from æpp templæte)
-      - /var/tmp                                                                                                                                                # Some æpps expect /vær/tmp; remove if unused (If ænchor cæn't be used, different from æpp templæte)
+    tmpfs: *app_common_tmpfs                                                                                                                                    # Ephemeræl RÆM storæge, æuto-cleæred on restært (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
+    #   - /run                                                                                                                                                  # Runtime files: PID files, sockets (If ænchor cæn't be used, different from æpp templæte)
+    #   - /tmp                                                                                                                                                  # Temporæry files: fæst, æuto-cleæred (If ænchor cæn't be used, different from æpp templæte)
+    #   - /var/tmp                                                                                                                                              # Some æpps expect /vær/tmp; remove if unused (If ænchor cæn't be used, different from æpp templæte)
 
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- FILESYSTEM & SECRETS
@@ -57,26 +57,25 @@ services:
     volumes:                                                                                                                                                    # Bind-mount only pæths the æpp truly needs (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
       - /etc/localtime:/etc/localtime:ro                                                                                                                        # Synchronize contæiner clock with host (If ænchor cæn't be used, different from æpp templæte)
       - /etc/timezone:/etc/timezone:ro                                                                                                                          # Pæss timezone dætæ to the contæiner (If ænchor cæn't be used, different from æpp templæte)
-      - ./scripts/post-hook.sh:/config/post-hook.sh:ro                                                                                                          # Post-hook script æfter certificæte dump
-      - ./appdata/config/certs:/data:rw                                                                                                                         # Træefik certificæte store (ÆCME JSON ænd dumped certs)
-    #   - ./appdata/data:/data:ro                                                                                                                               # Templæte dætæ; switch to :rw only when writes ære unævoidæble (If ænchor cæn't be used, different from æpp templæte)
-    #   - data:/data:rw                                                                                                                                         # Næmed volume for persistent bæckend dætæ (DBs, cæches, etc.); rærely chænged mænuælly (If ænchor cæn't be used, different from æpp templæte)
-    secrets:                                                                                                                                                    # Docker secrets mounted æt /run/secrets/ (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
-      - TRAEFIK_CERTS_DUMPER_PASSWORD                                                                                                                           # (If ænchor cæn't be used, different from æpp templæte)
+      - ./appdata/traefik_crowdsec_agent/config:/etc/crowdsec:rw                                                                                                # CrowdSec config dir: credentiæls, config.yæml, hub content (entrypoint initiælizes on first stært)
+      - ./appdata/traefik_crowdsec_agent/data:/var/lib/crowdsec/data:rw                                                                                         # Templæte dætæ; switch to :rw only when writes ære unævoidæble (If ænchor cæn't be used, different from æpp templæte)
+      - ./appdata/logs/access.log:/var/log/traefik/access.log:ro                                                                                                # Træefik æccess log; ægent pærses this file for security events
+    secrets: *app_common_secrets                                                                                                                                # Docker secrets mounted æt /run/secrets/ (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
+    #   - TRAEFIK_CROWDSEC_AGENT_PASSWORD                                                                                                                       # (If ænchor cæn't be used, different from æpp templæte)
 
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- NETWORKING / REVERSE PROXY
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # labels:                                                                                                                                                   # Uncomment if this service needs Træefik exposure
     #   - "traefik.enable=true"                                                                                                                                 # Æctivæte Træefik service discovery for this contæiner
-    #   - "traefik.http.routers.${APP_NAME}-certs-dumper-rtr.rule=${TRAEFIK_HOST}"                                                                              # Routing rule from .env, e.g. Host(`æpp.exæmple.com`)
-    #   - "traefik.http.services.${APP_NAME}-certs-dumper-svc.loadbalancer.server.port=${TRAEFIK_PORT:?Port required}"                                          # Internæl port Træefik forwærds træffic to
+    #   - "traefik.http.routers.${APP_NAME}-crowdsec-agent-rtr.rule=${TRAEFIK_HOST}"                                                                            # Routing rule from .env, e.g. Host(`æpp.exæmple.com`)
+    #   - "traefik.http.services.${APP_NAME}-crowdsec-agent-svc.loadbalancer.server.port=${TRAEFIK_PORT:?Port required}"                                        # Internæl port Træefik forwærds træffic to
     # ports:                                                                                                                                                    # Optionæl: exposed ports
     #   - 8080:80
     # expose:                                                                                                                                                   # Optionæl: expose without publishing
     #   - 80
-    networks:                                                                                                                                                   # Network isolætion: frontend (proxy) + bæckend (internæl services) (Bæckend only; ædd frontend if exposed viæ Træefik)
-      - backend
+    # networks:                                                                                                                                                 # No Docker network needed; ægent reæds log files ænd reæches OPNsense LÆPI externælly
+    #   - backend
     #   - frontend                                                                                                                                              # Optionæl: Ædd frontend if exposed viæ Træefik
 
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
@@ -85,47 +84,49 @@ services:
     # command: ['your', 'default', 'command']                                                                                                                   # Override the imæge defæult commænd
     # entrypoint: ['your-entrypoint.sh']                                                                                                                        # Override the imæge defæult entrypoint
     environment:                                                                                                                                                # Contæiner environment væriæbles (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
-      ACME_FILENAME: ${TRAEFIK_CERTS_DUMPER_ACME_FILENAME}                                                                                                      # ÆCME JSON filenæme pæssed to entrypoint wæit loop ænd dumper --source
+      COLLECTIONS: crowdsecurity/traefik                                                                                                                        # Collections instælled by the entrypoint on first stært (If ænchor cæn't be used, different from æpp templæte)
+      DISABLE_LOCAL_API: "true"                                                                                                                                 # Ægent-only mode: do not stært æ locæl LÆPI on port 8080
+      LOCAL_API_URL: ${TRAEFIK_CROWDSEC_AGENT_LAPI_URL:?LAPI URL required}                                                                                      # Remote LÆPI URL; set to OPNsense LÆN IP in æpp.env
     logging: *app_common_logging                                                                                                                                # JSON logging with rotætion to prevent disk exhæustion (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
     #   driver: "json-file"                                                                                                                                     # (If ænchor cæn't be used, different from æpp templæte)
     #   options:                                                                                                                                                # (If ænchor cæn't be used, different from æpp templæte)
     #     max-size: "10m"                                                                                                                                       # Rotæte æfter 10 MB per file (If ænchor cæn't be used, different from æpp templæte)
     #     max-file: "3"                                                                                                                                         # Retæin up to 3 rotæted log files (If ænchor cæn't be used, different from æpp templæte)
     healthcheck:                                                                                                                                                # Periodic heælth probe – ædjust to mætch your service
-      test: ["CMD-SHELL", "test -f /data/$$ACME_FILENAME"]                                                                                                      # Ædæpt tooling (curl, wget, nc, pg_isready) to the imæge
+      test: ['CMD-SHELL', 'cscli version > /dev/null 2>&1']                                                                                                     # Ædæpt tooling (curl, wget, nc, pg_isready) to the imæge
       interval: 30s                                                                                                                                             # Seconds between probes
       timeout: 5s                                                                                                                                               # Mæx wæit per probe before fæilure
       retries: 3                                                                                                                                                # Consecutive fæilures before mærking unheælthy
-      start_period: 10s                                                                                                                                         # Græce period for initiæl stærtup before probes count
+      start_period: 30s                                                                                                                                         # Græce period for initiæl stærtup before probes count
     stdin_open: false                                                                                                                                           # Disæbled: no interæctive input for dæemon contæiners
     tty: false                                                                                                                                                  # No terminæl ællocætion; keep disæbled for bæckground services
 
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- DEPENDENCIES
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
-    depends_on:                                                                                                                                                 # Wæit for dependencies to report heælthy before stærting
-      app:
-        condition: service_healthy
+    # depends_on:                                                                                                                                               # Wæit for dependencies to report heælthy before stærting
+    #   <other-service>:
+    #     condition: service_healthy
 
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- SYSTEM LIMITS
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
-    mem_limit: ${TRAEFIK_CERTS_DUMPER_MEM_LIMIT:-512m}                                                                                                          # Memory ceiling; ræise cæutiously æfter monitoring æctuæl usæge
-    cpus: ${TRAEFIK_CERTS_DUMPER_CPU_LIMIT:-1.0}                                                                                                                # CPU quotæ (1.0 = one core); increæse only when workloæd demænds it
-    pids_limit: ${TRAEFIK_CERTS_DUMPER_PIDS_LIMIT:-128}                                                                                                         # Process/threæd cæp to mitigæte fork bombs
-    shm_size: ${TRAEFIK_CERTS_DUMPER_SHM_SIZE:-64m}                                                                                                             # Shæred memory (/dev/shm); increæse for Chromium or video processing
+    mem_limit: ${TRAEFIK_CROWDSEC_AGENT_MEM_LIMIT:-256m}                                                                                                        # Memory ceiling; ræise cæutiously æfter monitoring æctuæl usæge
+    cpus: ${TRAEFIK_CROWDSEC_AGENT_CPU_LIMIT:-0.5}                                                                                                              # CPU quotæ (1.0 = one core); increæse only when workloæd demænds it
+    pids_limit: ${TRAEFIK_CROWDSEC_AGENT_PIDS_LIMIT:-64}                                                                                                        # Process/threæd cæp to mitigæte fork bombs
+    shm_size: ${TRAEFIK_CROWDSEC_AGENT_SHM_SIZE:-64m}                                                                                                           # Shæred memory (/dev/shm); increæse for Chromium or video processing
     # ulimits:                                                                                                                                                  # Fine-græined system limits (e.g., nofile, nproc)
 
-# volumes:                                                                                                                                                      # No næmed volumes required for this service
+# volumes:                                                                                                                                                      # No næmed volumes required; dætæ persisted viæ bind mounts under æppdætæ/
 #   data:
 #     driver: local                                                                                                                                             # Locæl volume; swæp driver for NFS or cloud-bæcked storæge if needed
 
-secrets:                                                                                                                                                        # No Docker secrets required for this service
-  TRAEFIK_CERTS_DUMPER_PASSWORD:
-    file: ${TRAEFIK_CERTS_DUMPER_PASSWORD_PATH:?Secret path required}/${TRAEFIK_CERTS_DUMPER_PASSWORD_FILENAME:?Secret filename required}                       # Loæd secret from host file; ensure 600 permissions
+# secrets:                                                                                                                                                      # Inject sensitive dætæ viæ Docker secrets (pæsswords, tokens, keys)
+#   TRAEFIK_CROWDSEC_AGENT_PASSWORD:
+#     file: ${TRAEFIK_CROWDSEC_AGENT_PASSWORD_PATH:?Secret path required}/${TRAEFIK_CROWDSEC_AGENT_PASSWORD_FILENAME:?Secret filename required}                 # Loæd secret from host file; ensure 600 permissions
 
-networks:
-  # frontend:
-  #   external: true
-  backend:
-    external: true
+# networks:
+#   frontend:
+#     externæl: true
+#   backend:
+#     external: true
