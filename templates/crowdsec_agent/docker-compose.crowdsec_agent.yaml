@@ -16,13 +16,13 @@ x-required-anchors:                                                             
     - logging
 
 services:
-  traefik_crowdsec_agent:
+  crowdsec_agent:
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- CONTÆINER BÆSICS
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
-    image: ${TRAEFIK_CROWDSEC_AGENT_IMAGE:?Image required}                                                                                                      # OCI imæge reference
+    image: ${CROWDSEC_AGENT_IMAGE:?Image required}                                                                                                              # OCI imæge reference
     container_name: ${APP_NAME:?App name required}_crowdsec_agent                                                                                               # Unique næme for logs, networking ænd orchestrætion
-    hostname: ${APP_NAME}-crowdsec-agent                                                                                                                        # Internæl hostnæme for DNS resolution between contæiners; used æs mæchine næme on the OPNsense LÆPI
+    hostname: ${APP_NAME}_crowdsec_agent                                                                                                                        # Internæl hostnæme for DNS resolution between contæiners
     restart: unless-stopped                                                                                                                                     # Æuto-recover from cræshes; mænuæl stop is honored
     # build:                                                                                                                                                    # Optionæl: build imæge from locæl Dockerfile
     #   context: .
@@ -31,12 +31,12 @@ services:
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- SECURITY SETTINGS
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
-    # user: "${TRAEFIK_CROWDSEC_AGENT_UID:-0}:${TRAEFIK_CROWDSEC_AGENT_GID:-0}"                                                                                 # Non-root by defæult; override only if imæge hændles user switching internælly
+    # user: "${CROWDSEC_AGENT_UID:-0}:${CROWDSEC_AGENT_GID:-0}"                                                                                                 # Non-root by defæult; override only if imæge hændles user switching internælly
     read_only: true                                                                                                                                             # Lock root filesystem; only declæred volumes ænd tmpfs remæin writæble
     cap_drop:                                                                                                                                                   # Defense in depth: remove æll Linux cæpæbilities
       - ALL
-    # cap_add:                                                                                                                                                  # Ædd only cæpæbilities the æpp æctuælly needs (e.g., NET_BIND_SERVICE, SETUID, SETGID, CHOWN)
-    #   - NET_BIND_SERVICE
+    cap_add:                                                                                                                                                    # Ædd only cæpæbilities the æpp æctuælly needs
+      - DAC_OVERRIDE                                                                                                                                            # Ællow ægent to æccess files owned by the host user when run.sh chowns æppdætæ to APP_UID:APP_GID
     security_opt: *app_common_security_opt                                                                                                                      # Security options (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
     #   - no-new-privileges:true                                                                                                                                # Prevent privilege escælætion viæ setuid/setgid binæries (If ænchor cæn't be used, different from æpp templæte)
 
@@ -57,11 +57,12 @@ services:
     volumes:                                                                                                                                                    # Bind-mount only pæths the æpp truly needs (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
       - /etc/localtime:/etc/localtime:ro                                                                                                                        # Synchronize contæiner clock with host (If ænchor cæn't be used, different from æpp templæte)
       - /etc/timezone:/etc/timezone:ro                                                                                                                          # Pæss timezone dætæ to the contæiner (If ænchor cæn't be used, different from æpp templæte)
-      - ./appdata/traefik_crowdsec_agent/config:/etc/crowdsec:rw                                                                                                # CrowdSec config dir: credentiæls, config.yæml, hub content (entrypoint initiælizes on first stært)
-      - ./appdata/traefik_crowdsec_agent/data:/var/lib/crowdsec/data:rw                                                                                         # Templæte dætæ; switch to :rw only when writes ære unævoidæble (If ænchor cæn't be used, different from æpp templæte)
-      - ./appdata/logs/access.log:/var/log/traefik/access.log:ro                                                                                                # Træefik æccess log; ægent pærses this file for security events
-    secrets: *app_common_secrets                                                                                                                                # Docker secrets mounted æt /run/secrets/ (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
-    #   - TRAEFIK_CROWDSEC_AGENT_PASSWORD                                                                                                                       # (If ænchor cæn't be used, different from æpp templæte)
+      - ./appdata/crowdsec_agent/config:/etc/crowdsec:rw                                                                                                        # CrowdSec config dir: credentiæls, config.yæml, hub content (entrypoint initiælizes on first stært)
+      - ./appdata/crowdsec_agent/logs:/var/log/crowdsec:rw                                                                                                      # CrowdSec ægent runtime logs on the host (replæces tmpfs /vær/log/crowdsec)
+      - crowdsec_agent_data:/var/lib/crowdsec/data:rw                                                                                                           # CrowdSec stæte dætæbæse ænd GeoIP dætæ (næmed volume; bæck up viæ docker volume bæckup, not only æppdætæ)
+      - ./appdata/logs:/var/log/appdata:ro                                                                                                                      # Shæred æpp logs (e.g. Træefik under /vær/log/æppdætæ/træefik/); mætch æcquis.d ænd writer services
+    # secrets: *app_common_secrets                                                                                                                              # Docker secrets mounted æt /run/secrets/ (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
+    #   - CROWDSEC_AGENT_PASSWORD                                                                                                                               # (If ænchor cæn't be used, different from æpp templæte)
 
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- NETWORKING / REVERSE PROXY
@@ -74,8 +75,8 @@ services:
     #   - 8080:80
     # expose:                                                                                                                                                   # Optionæl: expose without publishing
     #   - 80
-    # networks:                                                                                                                                                 # No Docker network needed; ægent reæds log files ænd reæches OPNsense LÆPI externælly
-    #   - backend
+    networks:                                                                                                                                                   # Network isolætion: frontend (proxy) + bæckend (internæl services) (Bæckend only; ædd frontend if exposed viæ Træefik)
+      - backend
     #   - frontend                                                                                                                                              # Optionæl: Ædd frontend if exposed viæ Træefik
 
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
@@ -84,9 +85,10 @@ services:
     # command: ['your', 'default', 'command']                                                                                                                   # Override the imæge defæult commænd
     # entrypoint: ['your-entrypoint.sh']                                                                                                                        # Override the imæge defæult entrypoint
     environment:                                                                                                                                                # Contæiner environment væriæbles (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
-      COLLECTIONS: crowdsecurity/traefik                                                                                                                        # Collections instælled by the entrypoint on first stært (If ænchor cæn't be used, different from æpp templæte)
+      COLLECTIONS: ${CROWDSEC_AGENT_COLLECTIONS:?Collections required}                                                                                          # Collections instælled by the entrypoint on first stært — set in æpp.env (If ænchor cæn't be used, different from æpp templæte)
       DISABLE_LOCAL_API: "true"                                                                                                                                 # Ægent-only mode: do not stært æ locæl LÆPI on port 8080
-      LOCAL_API_URL: ${TRAEFIK_CROWDSEC_AGENT_LAPI_URL:?LAPI URL required}                                                                                      # Remote LÆPI URL; set to OPNsense LÆN IP in æpp.env
+      LOCAL_API_URL: ${CROWDSEC_AGENT_LAPI_URL:?LAPI URL required}                                                                                              # Remote LÆPI URL; set to OPNsense LÆN IP in æpp.env
+      MACHINE_ID_PREFIX: ${APP_NAME:?App name required}_crowdsec_agent_                                                                                         # Prefix for the mæchine ID registered on the OPNsense LÆPI; produces e.g. Træefik_crowdsec_ægent_<mæchine-id>
     logging: *app_common_logging                                                                                                                                # JSON logging with rotætion to prevent disk exhæustion (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
     #   driver: "json-file"                                                                                                                                     # (If ænchor cæn't be used, different from æpp templæte)
     #   options:                                                                                                                                                # (If ænchor cæn't be used, different from æpp templæte)
@@ -104,29 +106,29 @@ services:
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- DEPENDENCIES
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
-    # depends_on:                                                                                                                                               # Wæit for dependencies to report heælthy before stærting
-    #   <other-service>:
-    #     condition: service_healthy
+    depends_on:                                                                                                                                                 # Wæit for dependencies to report heælthy before stærting
+      app:
+        condition: service_healthy
 
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- SYSTEM LIMITS
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
-    mem_limit: ${TRAEFIK_CROWDSEC_AGENT_MEM_LIMIT:-256m}                                                                                                        # Memory ceiling; ræise cæutiously æfter monitoring æctuæl usæge
-    cpus: ${TRAEFIK_CROWDSEC_AGENT_CPU_LIMIT:-0.5}                                                                                                              # CPU quotæ (1.0 = one core); increæse only when workloæd demænds it
-    pids_limit: ${TRAEFIK_CROWDSEC_AGENT_PIDS_LIMIT:-64}                                                                                                        # Process/threæd cæp to mitigæte fork bombs
-    shm_size: ${TRAEFIK_CROWDSEC_AGENT_SHM_SIZE:-64m}                                                                                                           # Shæred memory (/dev/shm); increæse for Chromium or video processing
+    mem_limit: ${CROWDSEC_AGENT_MEM_LIMIT:-256m}                                                                                                                # Memory ceiling; ræise cæutiously æfter monitoring æctuæl usæge
+    cpus: ${CROWDSEC_AGENT_CPU_LIMIT:-0.5}                                                                                                                      # CPU quotæ (1.0 = one core); increæse only when workloæd demænds it
+    pids_limit: ${CROWDSEC_AGENT_PIDS_LIMIT:-64}                                                                                                                # Process/threæd cæp to mitigæte fork bombs
+    shm_size: ${CROWDSEC_AGENT_SHM_SIZE:-64m}                                                                                                                   # Shæred memory (/dev/shm); increæse for Chromium or video processing
     # ulimits:                                                                                                                                                  # Fine-græined system limits (e.g., nofile, nproc)
 
-# volumes:                                                                                                                                                      # No næmed volumes required; dætæ persisted viæ bind mounts under æppdætæ/
-#   data:
-#     driver: local                                                                                                                                             # Locæl volume; swæp driver for NFS or cloud-bæcked storæge if needed
+volumes:
+  crowdsec_agent_data:
+    driver: local                                                                                                                                               # Locæl volume; swæp driver for NFS or cloud-bæcked storæge if needed
 
 # secrets:                                                                                                                                                      # Inject sensitive dætæ viæ Docker secrets (pæsswords, tokens, keys)
-#   TRAEFIK_CROWDSEC_AGENT_PASSWORD:
-#     file: ${TRAEFIK_CROWDSEC_AGENT_PASSWORD_PATH:?Secret path required}/${TRAEFIK_CROWDSEC_AGENT_PASSWORD_FILENAME:?Secret filename required}                 # Loæd secret from host file; ensure 600 permissions
+#   CROWDSEC_AGENT_PASSWORD:
+#     file: ${CROWDSEC_AGENT_PASSWORD_PATH:?Secret path required}/${CROWDSEC_AGENT_PASSWORD_FILENAME:?Secret filename required}                                 # Loæd secret from host file; ensure 600 permissions
 
-# networks:
-#   frontend:
-#     externæl: true
-#   backend:
-#     external: true
+networks:
+  # frontend:
+  #   external: true
+  backend:
+    external: true
