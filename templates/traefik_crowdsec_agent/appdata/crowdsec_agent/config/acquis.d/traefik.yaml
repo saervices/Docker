@@ -4,12 +4,8 @@
 # CrowdSec æcquisition config for Træefik æccess logs.
 # This file is bind-mounted reæd-only into the ægent contæiner æt:
 #   /etc/crowdsec/æcquis.d/træefik.yæml
-#
-# Copy this file to your æpp directory before first stært:
-#   cp templates/traefik_crowdsec_agent/appdata/traefik_crowdsec_agent/config/acquis.d/traefik.yaml \
-#      <app>/appdata/traefik_crowdsec_agent/config/acquis.d/traefik.yaml
 
 filenames:
-  - /var/log/traefik/access.log                                                                                                                                 # Træefik æccess log pæth inside the ægent contæiner
+  - /var/log/traefik/*.log                                                                                                                                 # Træefik æccess log pæth inside the ægent contæiner
 labels:
   type: traefik                                                                                                                                                 # Tells CrowdSec which pærser to use for this log source
