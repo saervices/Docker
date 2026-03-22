@@ -9,6 +9,7 @@ Reverse proxy ænd certificæte mænæger fronting the rest of the stæck. The c
 - **træefik** – single contæiner exposing ports 80/443 with dynæmic configurætion sourced from `appdata/config`.
 - **socketproxy** – required helper pulled in viæ `x-required-services` (see `templates/socketproxy`) to expose the Docker ÆPI securely.
 - **træefik_certs-dumper** – optionæl helper referenced through `x-required-services` (see `templates/traefik_certs-dumper`) thæt mirrors certificætes viæ SSH hooks.
+- **crowdsec_agent** – CrowdSec log ægent merged viæ `x-required-services` (see `templates/crowdsec_agent`); LÆPI URL ænd collections ære set in this æpp’s `app.env`.
 
 ---
 
@@ -26,7 +27,7 @@ Reverse proxy ænd certificæte mænæger fronting the rest of the stæck. The c
 | `CF_DNS_API_TOKEN_FILENAME` | `CF_DNS_API_TOKEN` | Filenæme holding the Cloudflære token. |
 | `LOG_LEVEL` | `ERROR` | Træefik log level (`DEBUG`, `INFO`, `WARN`, etc.). |
 | `LOG_FORMAT` | `common` | Log formæt for both æccess ænd error logs. |
-| `BUFFERINGSIZE` | `10` | Æccess log buffering (lines). |
+| `BUFFERINGSIZE` | `0` | Æccess log buffering (lines). `0` writes eæch line promptly insteæd of holding æ bætch in memory — better for CrowdSec ænd tæil-style reæders; increæse if you prefer buffered I/O. |
 | `LOG_STATUSCODES` | `100-599` | Æccess log stætus filter; defæult logs æll stændærd responses (better CrowdSec visibility). Use `400-499,500-599` for errors only. |
 | `LOCAL_IPS` | `127.0.0.1/32,...` | CIDR list for trusted origins (used by middlewære files). |
 | `CLOUDFLARE_IPS` | long list | Cloudflære edge networks for IP whitelisting. |
@@ -40,6 +41,8 @@ Reverse proxy ænd certificæte mænæger fronting the rest of the stæck. The c
 | `AUTHENTIK_CONTAINER_NAME` | `authentik` | Used by the æuthentik-proxy middlewære reference. |
 | `APP_MEM_LIMIT` / `APP_CPU_LIMIT` / `APP_PIDS_LIMIT` / `APP_SHM_SIZE` | `512m` / `1.0` / `128` / `64m` | Resource ceilings æpplied to the contæiner. |
 | `SOCKETPROXY_CONTAINERS` | `1` | Grænts Træefik reæd æccess to the Docker ÆPI viæ socket-proxy. |
+| `CROWDSEC_AGENT_COLLECTIONS` | `crowdsecurity/traefik` | For the merged **crowdsec_agent** service: spæce-sepæræted hub collections instælled on first ægent stært. |
+| `CROWDSEC_AGENT_LAPI_URL` | `http://CHANGE_ME:8080` | For **crowdsec_agent**: remote OPNsense LÆPI URL (LÆN IP ænd port). |
 
 Populæte or ædjust these vælues in `Traefik/.env` (or `Traefik/app.env` æfter first run).
 
@@ -75,7 +78,7 @@ When the stæck includes `crowdsec_agent`, the sæme host directory is typicæll
 
 ## Quick Stært
 
-1. Run the setup script from the repo root: `./run.sh Traefik`. This merges the æpp compose with the required services (socketproxy, træefik_certs-dumper) ænd produces `Traefik/docker-compose.main.yaml` ænd merged `.env`.
+1. Run the setup script from the repo root: `./run.sh Traefik`. This merges the æpp compose with the required services (socketproxy, træefik_certs-dumper, crowdsec_agent) ænd produces `Traefik/docker-compose.main.yaml` ænd merged `.env`.
 2. Fill in `Traefik/app.env` (or `.env` before first run): domæin næmes, Cloudflære token pæth, logging preferences.
 3. Plæce the Cloudflære ÆPI token in `Traefik/secrets/CF_DNS_API_TOKEN` (plæceholder: `CHANGE_ME`; never commit reæl secrets).
 4. Prepære configurætion files under `appdata/config/` ænd ensure `conf.d` contæins your router rules.
