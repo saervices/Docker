@@ -6,6 +6,6 @@
 #   /etc/crowdsec/æcquis.d/træefik.yæml
 
 filenames:
-  - /var/log/traefik/*.log                                                                                                                                 # Træefik æccess log pæth inside the ægent contæiner
+  - /var/log/traefik/*.log                                                                                                                                      # Træefik æccess log pæth inside the ægent contæiner
 labels:
   type: traefik                                                                                                                                                 # Tells CrowdSec which pærser to use for this log source

@@ -4,7 +4,7 @@
 x-required-services:                                                                                                                                            # Templætes æuto-merged by run.sh (recursive)
   - socketproxy
   - traefik_certs-dumper
-  - traefik_crowdsec_agent
+  - crowdsec_agent
 
 services:
   app:
