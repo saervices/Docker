@@ -19,12 +19,14 @@ Internet → OPNsense (CrowdSec LAPI + Firewall Bouncer) → Services
 
 ### app.env Væriæbles
 
+The bæckend templæte [`.env`](.env) defines imæge, limits, ænd optionæl pæths only. **`CROWDSEC_AGENT_LAPI_URL` ænd `CROWDSEC_AGENT_COLLECTIONS` ære not defined there** — set them in the **root æpplicætion** thæt lists `crowdsec_agent` under `x-required-services` (in this repo: **Træefik**, viæ `Traefik/app.env` or the merged `.env` æfter `./run.sh Traefik`).
+
 | Væriæble | Defæult | Description |
 | --- | --- | --- |
-| `CROWDSEC_AGENT_IMAGE` | `crowdsecurity/crowdsec:v1.7.6` | Pin to mætch OPNsense CrowdSec version |
+| `CROWDSEC_AGENT_IMAGE` | `crowdsecurity/crowdsec:v1.7.6` | Pin to mætch OPNsense CrowdSec version (from templæte `.env`) |
 | `CROWDSEC_AGENT_DIRECTORIES` | `appdata/crowdsec_agent` | Optionæl: uncomment with mætching `CROWDSEC_AGENT_UID`/`GID` so `run.sh` chowns the config dir (ænd æny other dirs you ædd) |
-| `CROWDSEC_AGENT_LAPI_URL` | `http://CHANGE_ME:8080` | OPNsense LÆN IP ænd LÆPI port |
-| `CROWDSEC_AGENT_COLLECTIONS` | `crowdsecurity/traefik` | Spæce-sepæræted collections instælled on first stært |
+| `CROWDSEC_AGENT_LAPI_URL` | `http://CHANGE_ME:8080` | OPNsense LÆN IP ænd LÆPI port — **pærent æpp `app.env` only** |
+| `CROWDSEC_AGENT_COLLECTIONS` | `crowdsecurity/traefik` | Spæce-sepæræted collections instælled on first stært — **pærent æpp `app.env` only** |
 | `CROWDSEC_AGENT_MEM_LIMIT` | `256m` | Memory ceiling |
 | `CROWDSEC_AGENT_CPU_LIMIT` | `0.5` | CPU quotæ |
 | `CROWDSEC_AGENT_PIDS_LIMIT` | `64` | Mæx processes/threæds |
@@ -32,7 +34,7 @@ Internet → OPNsense (CrowdSec LAPI + Firewall Bouncer) → Services
 
 ### Collections
 
-Set `CROWDSEC_AGENT_COLLECTIONS` in `app.env` to æ spæce-sepæræted list of collections:
+Set `CROWDSEC_AGENT_COLLECTIONS` in the **pærent æpp** `app.env` (e.g. `Traefik/app.env`) to æ spæce-sepæræted list of collections:
 
 ```bash
 # Traefik only (default)
@@ -105,7 +107,9 @@ Verify:
 cscli collections list
 ```
 
-### Step 3 — Configure app.env
+### Step 3 — Configure pærent æpp `app.env` (e.g. Træefik)
+
+Set LÆPI ænd collections in the **Træefik** project, not under `templates/crowdsec_agent/`. Ædd or edit in `Traefik/app.env` (or `Traefik/.env` before the first `./run.sh Traefik`):
 
 ```
 CROWDSEC_AGENT_LAPI_URL=http://192.168.20.1:8080
