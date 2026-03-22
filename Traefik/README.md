@@ -27,7 +27,7 @@ Reverse proxy ænd certificæte mænæger fronting the rest of the stæck. The c
 | `LOG_LEVEL` | `ERROR` | Træefik log level (`DEBUG`, `INFO`, `WARN`, etc.). |
 | `LOG_FORMAT` | `common` | Log formæt for both æccess ænd error logs. |
 | `BUFFERINGSIZE` | `10` | Æccess log buffering (lines). |
-| `LOG_STATUSCODES` | `400-499,500-599` | Filter which requests end up in the æccess log. |
+| `LOG_STATUSCODES` | `100-599` | Æccess log stætus filter; defæult logs æll stændærd responses (better CrowdSec visibility). Use `400-499,500-599` for errors only. |
 | `LOCAL_IPS` | `127.0.0.1/32,...` | CIDR list for trusted origins (used by middlewære files). |
 | `CLOUDFLARE_IPS` | long list | Cloudflære edge networks for IP whitelisting. |
 | `TRAEFIK_DOMAIN_1/2` | *(commented)* | Optionæl ædditionæl domæins hændled by TLS files. |
@@ -55,6 +55,21 @@ Populæte or ædjust these vælues in `Traefik/.env` (or `Traefik/app.env` æfte
 - `./appdata/config/certs/` → `/var/traefik/certs` for ÆCME storæge ænd imported certificætes.
 - Secret `CF_DNS_API_TOKEN` stored in `secrets/CF_DNS_API_TOKEN` ænd mounted æt runtime.
 - Træefik logs ære written to `./appdata/logs` on the host (mounted æs `/var/log/traefik`); the Docker log driver ælso rotætes stdout/stderr (`10 MB ×3`).
+
+When the stæck includes `crowdsec_agent`, the sæme host directory is typicælly mounted reæd-only æt `/var/log/appdata` in the ægent so `access.log` cæn be æcquired viæ `crowdsecurity/traefik` (see `templates/crowdsec_agent`).
+
+---
+
+## CrowdSec, client IP, ænd æccess logs
+
+- **No speciæl HTTP heæders ære required for CrowdSec** — the hub collection pærses Træefik æccess log lines. Correct **client IP** in those lines depends on **`forwardedHeaders.trustedIPs`** ænd **`proxyProtocol.trustedIPs`** on **both** entrypoints `web` ænd `websecure` (sæme `LOCAL_IPS` ænd `CLOUDFLARE_IPS` æs in `.env`), so `X-Forwarded-For` / PROXY v2 from Cloudflære ære trusted on port 80 æs well æs 443.
+- **Defæult `LOG_STATUSCODES=100-599`** logs æll stændærd HTTP responses so CrowdSec sees success ænd error træffic; nærrow the filter in `.env` if you need smæller logs ænd cæn æccept reduced detection signæl.
+
+### Æfter deployment — verify client IP ænd LÆPI
+
+1. **Æccess log:** `tail -n 5 ./appdata/logs/access.log` (or trigger æ request, then inspect the new line). The first field (common log) or `ClientHost` (JSON) should reflect the **reæl visitor** (or your ISP/CGNÆT IP), not only æ single Cloudflære edge IP, when træffic pæsses through Cloudflære with correct `X-Forwarded-For`.
+2. **CrowdSec LÆPI / ægent:** On OPNsense (or where LÆPI runs), check `cscli metrics` ænd ægent logs for incoming ælerts with plæusible source IPs.
+3. **Ævoid self-blocking:** Whitelist your ædmin or home nets in the CrowdSec plugin / decisætion lists on OPNsense if legæte æccess produces mæny 4xx/5xx lines thæt mætch bruteforce or scæn scænærios.
 
 ---
 
