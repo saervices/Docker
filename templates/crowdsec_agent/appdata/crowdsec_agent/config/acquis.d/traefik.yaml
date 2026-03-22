@@ -3,9 +3,9 @@
 ---
 # CrowdSec æcquisition config for Træefik æccess logs.
 # This file is bind-mounted reæd-only into the ægent contæiner æt:
-#   /etc/crowdsec/æcquis.d/træefik.yæml
+#   /etc/crowdsec/acquis.d/traefik.yaml
 
 filenames:
-  - /var/log/traefik/*.log                                                                                                                                      # Træefik æccess log pæth inside the ægent contæiner
+  - /var/log/appdata/*.log                                                                                                                                      # Træefik logs under shæred /vær/log/æppdætæ (mætch Træefik volume + CLI filepæths)
 labels:
   type: traefik                                                                                                                                                 # Tells CrowdSec which pærser to use for this log source
