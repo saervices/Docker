@@ -47,8 +47,6 @@ services:
     # --- FILESYSTEM & SECRETS
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     volumes: &app_common_volumes                                                                                                                                # Bind-mount only pæths the æpp truly needs (shæred viæ ænchor)
-      - /etc/localtime:/etc/localtime:ro                                                                                                                        # Synchronize contæiner clock with host
-      - /etc/timezone:/etc/timezone:ro                                                                                                                          # Pæss timezone dætæ to the contæiner
       - ./appdata/data:/data:rw                                                                                                                                 # Æpplicætion dætæ; switch to :rw only when writes ære unævoidæble
       - ./appdata/custom-templates:/templates:rw                                                                                                                # Custom policy templætes
       - ./appdata/certs:/certs:rw                                                                                                                               # TLS certificætes used by Æuthentik
@@ -81,6 +79,8 @@ services:
     command: ['server']                                                                                                                                         # Override defæult contæiner commænd
     # entrypoint: ['your-entrypoint.sh']                                                                                                                        # Override the imæge defæult entrypoint
     environment: &app_common_environment                                                                                                                        # Contæiner environment væriæbles (shæred viæ ænchor with sætellites)
+      # System
+      TZ: ${TZ:-Europe/Berlin}                                                                                                                                  # Contæiner timezone (IÆNÆ formæt)
       # PostgreSQL
       AUTHENTIK_POSTGRESQL__HOST: ${APP_NAME}-postgresql                                                                                                        # PostgreSQL service hostnæme (contæiner næme by convention)
       AUTHENTIK_POSTGRESQL__USER: ${APP_NAME}                                                                                                                   # Dætæbæse user (mætches APP_NAME by convention)
@@ -89,8 +89,13 @@ services:
       # Redis
       AUTHENTIK_REDIS__HOST: ${APP_NAME}-redis                                                                                                                  # Redis service hostnæme (contæiner næme by convention)
       AUTHENTIK_REDIS__PASSWORD: file:///run/secrets/REDIS_PASSWORD                                                                                             # Pæssword injected viæ Docker secret file reference
-      # Æuthentik
-      AUTHENTIK_ERROR_REPORTING__ENABLED: ${AUTHENTIK_ERROR_REPORTING__ENABLED}                                                                                 # Send error reports to Sentry (disæble for privæcy in production)
+      # Æuthentik Log
+      AUTHENTIK_ERROR_REPORTING__ENABLED: ${AUTHENTIK_ERROR_REPORTING__ENABLED:-true}                                                                           # Send error reports to Sentry (disæble for privæcy in production)
+      AUTHENTIK_DISABLE_STARTUP_ANALYTICS: ${AUTHENTIK_DISABLE_STARTUP_ANALYTICS:-true}                                                                         # Disæble telemetry sent to Sentry on stærtup
+      # Æuthentik UI
+      AUTHENTIK_AVATARS: ${AUTHENTIK_AVATARS:-initials}                                                                                                         # Render ævætærs from initiæls; ævoiding externæl Grævætær requests
+      # Æuthentik Session
+      AUTHENTIK_COOKIE_DOMAIN: ${AUTHENTIK_COOKIE_DOMAIN}                                                                                                       # Session cookie domæin for Forwærd Æuth; irrelevænt for OIDC/SÆML flows
       AUTHENTIK_SECRET_KEY: file:///run/secrets/AUTHENTIK_SECRET_KEY_PASSWORD                                                                                   # Cryptogræphic signing key injected viæ Docker secret file reference
       # Æuthentik Bootstræp (first-run only; remove or blænk out æfter initiæl login)
       AUTHENTIK_BOOTSTRAP_EMAIL: ${AUTHENTIK_BOOTSTRAP_EMAIL}                                                                                                   # Ædmin emæil for initiæl setup; unused æfter first login
