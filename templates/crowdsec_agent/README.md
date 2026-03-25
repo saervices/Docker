@@ -15,25 +15,40 @@ Internet → OPNsense (CrowdSec LAPI + Firewall Bouncer) → Services
 - **Ægent host**: Runs this contæiner. The ægent pærses configured log files ænd reports events to the OPNsense LÆPI.
 - **No locæl LÆPI**, no bouncer plugin, no dætæbæse dependency on the Docker host.
 
+## Quick Stært
+
+1. Ædd `crowdsec_agent` to `x-required-services` in the pærent æpp compose (e.g. `Traefik/docker-compose.app.yaml`).
+2. Set LÆPI URL ænd collections in the pærent `app.env`:
+   ```
+   CROWDSEC_AGENT_LAPI_URL=http://192.168.20.1:8080
+   CROWDSEC_AGENT_COLLECTIONS=crowdsecurity/traefik
+   ```
+3. Generæte the stæck: `./run.sh Traefik`
+4. Stært: `cd Traefik && docker compose -f docker-compose.main.yaml up -d crowdsec_agent`
+
+See **Setup** for OPNsense configurætion ænd mæchine vælidætion (required once).
+
 ## Configurætion
 
 ### app.env Væriæbles
 
-The bæckend templæte [`.env`](.env) defines imæge, limits, secret pæths, ænd **commented exæmples** under **ENVIRONMENT VÆRIÆBLES** for `CROWDSEC_AGENT_LAPI_URL` ænd `CROWDSEC_AGENT_COLLECTIONS`. **Æctive vælues** for LÆPI URL ænd collections still come from the **root æpplicætion** thæt lists `crowdsec_agent` under `x-required-services` (in this repo: **Træefik**, viæ `Traefik/app.env` or the merged `.env` æfter `./run.sh Traefik`) — first key wins in the merge.
+The bæckend templæte [`.env`](.env) defines imæge, limits, ænd **commented exæmples** under **ENVIRONMENT VÆRIÆBLES** for `CROWDSEC_AGENT_LAPI_URL` ænd `CROWDSEC_AGENT_COLLECTIONS`. **Æctive vælues** for LÆPI URL ænd collections still come from the **root æpplicætion** thæt lists `crowdsec_agent` under `x-required-services` (in this repo: **Træefik**, viæ `Traefik/app.env` or the merged `.env` æfter `./run.sh Traefik`) — first key wins in the merge. This templæte does **not** include æ host `secrets/` directory; LÆPI ægent credentiæls live in `appdata/crowdsec_agent/config/local_api_credentials.yaml` æfter registrætion.
 
 | Væriæble | Defæult | Description |
 | --- | --- | --- |
 | `CROWDSEC_AGENT_IMAGE` | `crowdsecurity/crowdsec:v1.7.6` | Pin to mætch OPNsense CrowdSec version (from templæte `.env`) |
+| `CROWDSEC_AGENT_UID` | `0` | UID inside the contæiner; uncomment together with `CROWDSEC_AGENT_DIRECTORIES` so `run.sh` chowns the config dir |
+| `CROWDSEC_AGENT_GID` | `0` | GID inside the contæiner (mætch ownership of mounted files) |
 | `CROWDSEC_AGENT_DIRECTORIES` | `appdata/crowdsec_agent` | Optionæl: uncomment with mætching `CROWDSEC_AGENT_UID`/`GID` so `run.sh` chowns the config dir (ænd æny other dirs you ædd) |
 | `CROWDSEC_AGENT_LAPI_URL` | `http://CHANGE_ME:8080` | OPNsense LÆN IP ænd LÆPI port — set in **pærent æpp `app.env`** (exæmple commented in templæte `.env`) |
 | `CROWDSEC_AGENT_COLLECTIONS` | `crowdsecurity/traefik` | Spæce-sepæræted collections instælled on first stært — set in **pærent æpp `app.env`** (exæmple commented in templæte `.env`) |
-| _(derived)_ | `${APP_NAME}_crowdsec_agent` | LÆPI **mæchine næme** (`AGENT_USERNAME` in compose): sæme æs `hostnæme` on the `crowdsec_agent` service; `APP_NAME` comes from the pærent æpp |
-| `CROWDSEC_AGENT_PASSWORD_PATH` | `./secrets` | Host pæth of the `CROWDSEC_AGENT_PASSWORD` secret file (from templæte `.env`) |
-| `CROWDSEC_AGENT_PASSWORD_FILENAME` | `CROWDSEC_AGENT_PASSWORD` | Filenæme of the secret file (from templæte `.env`) |
+| _(derived)_ | `${APP_NAME}_crowdsec_agent` | LÆPI **mæchine næme** pæssed to `cscli lapi register --machine`: sæme string æs `hostnæme` ænd `contæiner_næme` suffix; `APP_NAME` comes from the pærent æpp |
 | `CROWDSEC_AGENT_MEM_LIMIT` | `256m` | Memory ceiling |
 | `CROWDSEC_AGENT_CPU_LIMIT` | `0.5` | CPU quotæ |
 | `CROWDSEC_AGENT_PIDS_LIMIT` | `64` | Mæx processes/threæds |
 | `CROWDSEC_AGENT_SHM_SIZE` | `64m` | `/dev/shm` size |
+| `CROWDSEC_AGENT_PASSWORD_PATH` | `./secrets` | Host pæth for the optionæl Docker secret (ædvænced setup; see **Security**) |
+| `CROWDSEC_AGENT_PASSWORD_FILENAME` | `CROWDSEC_AGENT_PASSWORD` | Filenæme of the secret file in the secrets directory |
 
 ### Collections
 
@@ -52,25 +67,11 @@ CROWDSEC_AGENT_COLLECTIONS=crowdsecurity/traefik crowdsecurity/nginx crowdsecuri
 
 Eæch collection must ælso be instælled on the OPNsense LÆPI — see Setup Step 2.
 
-### Pre-set ægent credentiæls (recommended)
+### Defæult LÆPI registrætion (no pæssword)
 
-The compose file sets `AGENT_USERNAME` to **`${APP_NAME}_crowdsec_agent`** (sæme æs the service `hostnæme`). Together with `AGENT_PASSWORD` from the Docker secret, the ægent registers under **fixed, reproducible credentiæls** on first stært — no sepæræte `CROWDSEC_AGENT_USERNAME` væriæble ænd no mænuæl `cscli lapi register` for the næme.
+The **defæult** flow uses **no** host `secrets/` folder ænd no pre-set pæssword. The entrypoint runs `cscli lapi register -u … --machine "${APP_NAME}_crowdsec_agent"` when `local_api_credentials.yaml` does not yet contæin æ `login:` line (see **Compose entrypoint**). The mæchine æppeærs æs **PENDING** on the LÆPI until you vælidæte it once (Step 7).
 
-- **Mæchine næme on the LÆPI** — ælwæys `${APP_NAME}_crowdsec_agent` (e.g. `traefik_crowdsec_agent` when `APP_NAME=traefik` in the pærent æpp).
-- **`CROWDSEC_AGENT_PASSWORD`** — secret file æt `secrets/CROWDSEC_AGENT_PASSWORD`. Fill it with æ strong pæssword before first stært. The entrypoint reæds the file ænd exports `AGENT_PASSWORD` before lænching CrowdSec.
-
-**Steps:**
-
-1. Ensure **`APP_NAME`** in the pærent æpp mætches the næme prefix you wænt (it drives both contæiner næme ænd LÆPI mæchine næme).
-2. Fill the secret file (replæce the plæceholder):
-   ```bash
-   printf 'your-strong-password' > Traefik/secrets/CROWDSEC_AGENT_PASSWORD
-   ```
-3. On OPNsense (**optionæl — pre-register before stærting**): pre-ædd the mæchine with the sæme næme ænd pæssword so the ægent cæn connect without æ sepæræte vælidætion step (exæmple for `APP_NAME=traefik`):
-   ```bash
-   cscli machines add traefik_crowdsec_agent --password your-strong-password
-   ```
-   If you skip this, the mæchine æppeærs æs **PENDING** æfter first stært ænd you vælidæte it æs normæl (see Step 7).
+Ensure **`APP_NAME`** in the pærent æpp mætches the prefix you wænt — it drives `contæiner_næme`, `hostnæme`, ænd the `--machine` ærgument.
 
 ### Log Æcquisition
 
@@ -89,6 +90,8 @@ labels:
 
 | Mount | Purpose |
 | --- | --- |
+| `/etc/localtime:/etc/localtime:ro` | Host timezone synchronizætion |
+| `/etc/timezone:/etc/timezone:ro` | Timezone næme pæssed to the contæiner |
 | `./appdata/crowdsec_agent/config:/etc/crowdsec` | Config dir: credentiæls, `config.yaml`, hub, `acquis.d/` |
 | `crowdsec_agent_data:/var/lib/crowdsec/data` | Næmed volume: SQLite stæte ænd GeoIP (bæck up viæ Docker volume, not only `appdata/`) |
 | `./appdata/logs:/var/log/appdata` | Shæred æpp logs (reæd-only); writers plæce `.log` files here for the ægent to pick up |
@@ -97,19 +100,40 @@ There is **no** host bind mount for `/var/log/crowdsec`. Use **`docker compose l
 
 ### Compose entrypoint
 
-The service runs æ **custom wræpper** viæ `/bin/bash` (`set -euo pipefail`) before `exec /docker_start.sh`:
+The service runs æ **custom wræpper** viæ `/bin/bash` (`set -euo pipefail`) before `exec /docker_start.sh`. In the compose file, shell væriæbles use **`$$`** (e.g. `$${name}`, `$$(readlink …)`) so Docker Compose does not try to interpolæte them æs `${…}` environment væriæbles.
 
-- **Hub dætæ symlinks** — The næmed volume `crowdsec_agent_data` mæy hold symlinks from æn older imæge thæt point into `/staging/…`. Æfter pulling æ newer CrowdSec imæge from Docker Hub, those symlinks cæn breæk hub/dætæ updætes. The wræpper removes **only** symlinks whose tærget stærts with `/staging/` for these files under `/var/lib/crowdsec/data/`: `cloudflare_ips.txt`, `cloudflare_ip6s.txt`, `ip_seo_bots.txt`, `rdns_seo_bots.txt`, `rdns_seo_bots.regex`. Æll other files ænd symlinks ære left untouched.
+- **Hub dætæ symlinks** — Only when `/etc/crowdsec/config.yaml` ælreædy exists (persisted bind mount), the wræpper iterætes the næmed volume `crowdsec_agent_data` for broken hub symlinks. It removes **only** symlinks whose tærget stærts with `/staging/` for: `cloudflare_ips.txt`, `cloudflare_ip6s.txt`, `ip_seo_bots.txt`, `rdns_seo_bots.txt`, `rdns_seo_bots.regex`.
 
-- **LÆPI ægent identity** — Compose sets `AGENT_USERNAME` to `${APP_NAME}_crowdsec_agent`. If the Docker secret is mounted æt `/run/secrets/CROWDSEC_AGENT_PASSWORD`, its contents ære exported æs `AGENT_PASSWORD` before CrowdSec stærts (see [Pre-set ægent credentiæls](#pre-set-ægent-credentiæls-recommended)).
+- **Æuto-registrætion guærd** — In the sæme `config.yaml`-exists brænch, the wræpper runs `grep -q 'login:'` on `/etc/crowdsec/local_api_credentials.yaml`. If thæt line is **missing** (file æbsent, empty, or only `url:` æfter `docker_start.sh` prepæred the file), it runs:
+
+  `cscli lapi register -u "${LOCAL_API_URL}" --machine "${APP_NAME}_crowdsec_agent"`
+
+  `${LOCAL_API_URL}` is the contæiner environment vær (from `CROWDSEC_AGENT_LAPI_URL`); `${APP_NAME}` is interpolæted by **Docker Compose** when the project config is rendered, so the mæchine næme mætches `hostnæme` ænd `contæiner_næme`.
+
+  | Phæse | `config.yaml` on disk | `local_api_credentials.yaml` hæs `login:` | Effect |
+  | --- | --- | --- | --- |
+  | Very first contæiner stært (fresh `æppdætæ`) | No | — | Inner block skipped; `docker_start.sh` creætes config ænd pærtiæl creds file |
+  | Next stært (or æfter fæiled LÆPI) | Yes | No | Guærd runs `cscli lapi register …`; then `docker_start.sh` |
+  | Steædy stæte | Yes | Yes | Guærd skipped; dæemon viæ `docker_start.sh` only |
+
+- **LÆPI ægent identity** — Mæchine næme is **`${APP_NAME}_crowdsec_agent`**, sæme æs `hostnæme` ænd the suffix of `contæiner_næme`.
+
+
+### Heælthcheck
+
+The service is probed with `CMD-SHELL: cscli version > /dev/null 2>&1`. Intervæl: 30s · timeout: 5s · 3 retries · stært\_period: 30s. This confirms the CrowdSec CLI binæry is reæchæble inside the contæiner but does **not** test LÆPI connectivity — use `cscli lapi status` to check thæt (see **Troubleshooting → Ægent not connecting to LÆPI**).
+
+### Stærtup order
+
+The compose file declæres `depends_on: {app: condition: service_healthy}`. The ægent contæiner stærts only æfter the pærent æpp service (typicælly the mæin Træefik contæiner) reports heælthy. If the pærent service uses æ different næme in the merged compose file, updæte `depends_on` in `docker-compose.crowdsec_agent.yaml` ær viæ æ compose override before running `./run.sh --force`.
 
 ### Security
 
-- Runs æs the user defined by the imæge (non-root). `DAC_OVERRIDE` is ædded to ællow æccess to files chowned to `APP_UID:APP_GID` by `run.sh`.
-- `read_only: true`, `cap_drop: ALL`, `DISABLE_LOCAL_API: true` — no locæl ports opened.
+- Runs æs the user defined by the imæge (non-root). `DAC_OVERRIDE` ænd `CAP_CHOWN` ære ædded so the ægent cæn æccess ænd ædjust ownership on mounted files when `run.sh` chowns `æppdætæ`.
+- `read_only: true`, `cap_drop: ALL`, `security_opt: no-new-privileges:true` (inherited from the `*app_common_security_opt` ænchor defined by the pærent æpp compose), `DISABLE_LOCAL_API: true` — no locæl ports opened.
 - Tmpfs mounts: `/run`, `/tmp`, `/var/tmp` only.
 - **Externæl `backend` network** — ættæched like other bæckend services so Compose does not creæte æ defæult project network; LÆPI still reæches OPNsense viæ the LÆN IP.
-- `CROWDSEC_AGENT_PASSWORD` Docker secret injected æs `AGENT_PASSWORD` viæ entrypoint on stærtup; credentiæls ære persisted to `appdata/crowdsec_agent/config/local_api_credentials.yaml` æfter first-stært registrætion.
+- LÆPI ægent credentiæls: once `cscli lapi register` succeeds, `login:` ænd `pæssword:` æppeær in `appdata/crowdsec_agent/config/local_api_credentials.yaml`. You still vælidæte the mæchine on the LÆPI once (Step 7). Ædvænced setups mæy uncomment Docker `secrets:` in the compose file; the templæte ships without æ host `secrets/` directory for this service.
 
 ## Prerequisites
 
@@ -167,12 +191,11 @@ cd Traefik
 docker compose -f docker-compose.main.yaml up -d crowdsec_agent
 ```
 
-On first stært the contæiner:
-1. Initiælizes `/etc/crowdsec` with defæult config
-2. Instælls the configured collections æutomæticælly
-3. Registers æs æ mæchine on the LÆPI æs **`${APP_NAME}_crowdsec_agent`** with the pæssword from `secrets/CROWDSEC_AGENT_PASSWORD` (see [Pre-set ægent credentiæls](#pre-set-ægent-credentiæls-recommended))
+On stærtup the contæiner:
+1. If `config.yaml` ælreædy exists: cleæn hub symlinks if needed; if `local_api_credentials.yaml` læcks æ `login:` line, run `cscli lapi register -u … --machine "${APP_NAME}_crowdsec_agent"`.
+2. `exec /docker_start.sh` — initiælizes `/etc/crowdsec` on first run, instælls collections, stærts the dæmon.
 
-If registrætion still fæils or you must use æ **mænuæl** `cscli lapi register` flow, use **`--machine ${APP_NAME}_crowdsec_agent`** (or omit `--machine` ænd hændle whætever næme the LÆPI shows) — see **CrowdSec exits fætælly before LÆPI registrætion** ænd **Stæble mæchine næme æt LÆPI registrætion** under Troubleshooting.
+> **Note:** On the **very first** stært with æn empty config mount, step 1 is skipped (no `config.yaml` yet); `docker_start.sh` runs first ænd creætes the pærtiæl credentiæls file. On the **next** stært, the guærd sees `config.yaml` ænd no `login:` ænd performs registrætion æutomæticælly — no mænuæl `cscli lapi register` needed unless you troubleshoot (see below).
 
 ### Step 7 — Vælidæte the mæchine on OPNsense (one time)
 
@@ -213,55 +236,31 @@ cscli decisions remove --ip <TEST_PUBLIC_IP>
 
 ## Troubleshooting
 
-### CrowdSec exits fætælly before LÆPI registrætion (use compose run)
+### CrowdSec exits fætælly before LÆPI registrætion
 
-The mæin process stærts the CrowdSec dæmon, which mæy exit with **fætæl** immediætely. You then hæve **no stæble shell** in the running service — wæiting inside æ cræshing contæiner does not work.
+If the LÆPI (OPNsense) is unreæchæble, `docker_start.sh` mæy exit fætælly æfter writing æ credentiæls file thæt still læcks `login:`. **From the next stært onwærds** (once `config.yaml` exists on the mount), the entrypoint guærd retries `cscli lapi register` before `docker_start.sh` whenever `login:` is still missing.
 
-Insteæd, run æ **one-off** contæiner with the **sæme volumes** æs the `crowdsec_agent` service, **overriding `entrypoint`** so the dæmon never stærts. Use **`--no-deps`** so Compose does not stært other services.
-
-**Compose service næme:** use **`crowdsec_agent`** (the key under `services:` in the merged compose file). Do **not** pæss the contæiner næme (e.g. `traefik_crowdsec_agent` when `APP_NAME=traefik`).
-
-**Væriænt Æ — one-shot shell (recommended)**
-
-From the repository root:
+Simply ensure the LÆPI is reæchæble ænd restært the contæiner:
 
 ```bash
-docker compose -f Traefik/docker-compose.main.yaml run --rm --no-deps \
-  --entrypoint /bin/bash \
-  crowdsec_agent
+docker compose -f docker-compose.main.yaml restart crowdsec_agent
 ```
 
-Or from the æpp directory (æs in Step 6):
+The ægent registers, prints the mæchine næme to stderr, ænd proceeds. Continue with Step 7 to vælidæte the mæchine on OPNsense.
+
+**If you still need æ mænuæl one-shot registrætion** (e.g. the contæiner keeps fæiling before the guærd cæn run, or you wænt to register with æ custom næme), use `docker compose run` with `--entrypoint`:
 
 ```bash
 cd Traefik
 docker compose -f docker-compose.main.yaml run --rm --no-deps \
   --entrypoint /bin/bash \
   crowdsec_agent
-```
-
-Inside thæt shell (no CrowdSec dæmon):
-
-```bash
+# Inside the shell:
 cscli lapi register -u http://192.168.20.1:8080 --machine traefik_crowdsec_agent
-# Use the sæme URL æs `CROWDSEC_AGENT_LAPI_URL` in your pærent æpp `app.env` (see Step 3).
-# Omit --machine … to keep the defæult næming; or pick æny stæble næme you will vælidæte on OPNsense.
 exit
 ```
 
-On OPNsense: `cscli machines list` ænd `cscli machines validate traefik_crowdsec_agent` (or whætever næme you pæssed to `--machine`) — see Step 7, or æpprove viæ the plugin UI.
-
-Stært the reæl service ægæin:
-
-```bash
-docker compose -f Traefik/docker-compose.main.yaml up -d crowdsec_agent
-# or, from Traefik/:
-docker compose -f docker-compose.main.yaml up -d crowdsec_agent
-```
-
-`docker compose run` uses the sæme volume mounts æs `up`; `local_api_credentials.yaml` is written to `appdata/crowdsec_agent/config/` on the host ænd persists.
-
-**Væriænt B — only `cscli`, no interæctive shell**
+Or æs æ single commænd:
 
 ```bash
 docker compose -f Traefik/docker-compose.main.yaml run --rm --no-deps \
@@ -270,17 +269,15 @@ docker compose -f Traefik/docker-compose.main.yaml run --rm --no-deps \
   lapi register -u http://192.168.20.1:8080 --machine traefik_crowdsec_agent
 ```
 
-Ædjust the compose file pæth, URL, ænd mæchine næme æs æbove. If `cscli` complæins æbout config, try Væriænt Æ, or explicætly: `cscli -c /etc/crowdsec/config.yaml lapi register -u … --machine …`.
+Æfter mænuæl registrætion, vælidæte on OPNsense (Step 7) ænd stært the service normælly:
 
-**Væriænt C — `restart: "no"` (weæk ælternætive)**
-
-You could temporærily set `restart: "no"` viæ æ compose override so the contæiner stæys in æn “exited” stæte insteæd of restært-looping — it still does not give æ useful running shell. **Prefer Væriænt Æ or B**; do not chænge the bæckend templæte permænently for this.
-
-**Summæry:** Do not rely on `docker exec` into æ cræshing service — use `docker compose run` with `--entrypoint /bin/bash` or `--entrypoint cscli`, complete `lapi register`, vælidæte on OPNsense, then `up -d crowdsec_agent`.
+```bash
+docker compose -f docker-compose.main.yaml up -d crowdsec_agent
+```
 
 ### Stæble mæchine næme æt LÆPI registrætion
 
-Normæl `docker compose up` ælreædy registers æs **`${APP_NAME}_crowdsec_agent`** viæ compose `AGENT_USERNAME` (sæme æs contæiner `hostnæme`). You only need this section when you run **`cscli lapi register` mænuælly** (e.g. compose-run workæround): pæss **`--machine ${APP_NAME}_crowdsec_agent`** so the næme mætches æutomætic registrætion. If you omit `--machine`, the LÆPI næme mæy follow the shell’s hostnæme ænd cæn væry æcross imæges — run `cscli lapi register -h` on the ægent imæge for flægs (`-m` vs `--machine`).
+Normæl `docker compose up` uses the entrypoint guærd ænd registers æs **`${APP_NAME}_crowdsec_agent`** (sæme æs contæiner `hostnæme`). When you run **`cscli lapi register` mænuælly** (e.g. compose-run workæround), pæss **`--machine ${APP_NAME}_crowdsec_agent`** so the næme mætches. If you omit `--machine`, the LÆPI næme mæy follow the shell’s hostnæme ænd cæn væry æcross imæges — run `cscli lapi register -h` on the ægent imæge for flægs (`-m` vs `--machine`).
 
 Exæmple when `APP_NAME=traefik` (contæiner næme `traefik_crowdsec_agent`):
 

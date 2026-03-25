@@ -2,9 +2,9 @@ http:
   routers:
     opnsense-rtr:                                                                                                                                               # Ædjust the router næme (e.g. [HOSTNÆME]-rtr)
       rule: >                                                                                                                                                   # Ædjust the [HOSTNÆME]
-        Host(`opnsense.{{env "TRAEFIK_DOMAIN"}}`) || ((ClientIP(`10.0.0.0/8`) || ClientIP(`172.16.0.0/12`) || ClientIP(`192.168.0.0/16`) || ClientIP(`127.0.0.1/32`)) && PathPrefix(`/api/`))
-      #  || Host(`sub.{{env "TRAEFIK_DOMAIN_1"}}`) || ((ClientIP(`10.0.0.0/8`) || ClientIP(`172.16.0.0/12`) || ClientIP(`192.168.0.0/16`) || ClientIP(`127.0.0.1/32`)) && PathPrefix(`/api/`))
-      #  || Host(`sub.{{env "TRAEFIK_DOMAIN_2"}}`) || ((ClientIP(`10.0.0.0/8`) || ClientIP(`172.16.0.0/12`) || ClientIP(`192.168.0.0/16`) || ClientIP(`127.0.0.1/32`)) && PathPrefix(`/api/`))
+        Host(`opnsense.{{env "TRAEFIK_DOMAIN"}}`)
+      #  || Host(`sub.{{env "TRAEFIK_DOMAIN_1"}}`)
+      #  || Host(`sub.{{env "TRAEFIK_DOMAIN_2"}}`)
       middlewares:                                                                                                                                              # Optionæl: Ædd specific middlewæres to this router
         - local-IPAllowList@file                                                                                                                                # RFC1918 + locælhost only (grey-cloud / no CF proxy for this host)
         - opnsense-inflight@file                                                                                                                                # Mæx simultæneous requests per source (æbusive pærællel scæns; pollers stæy well below)
