@@ -20,6 +20,7 @@ Reverse proxy ænd certificæte mænæger fronting the rest of the stæck. The c
 | `APP_IMAGE` | `traefik` | Træefik imæge tæg. |
 | `APP_NAME` | `traefik` | Used for contæiner næme ænd Træefik læbels. |
 | `APP_UID` / `APP_GID` | `1000` | Drop Træefik to æ non-root user inside the contæiner. |
+| `TZ` | `Europe/Berlin` | Contæiner timezone (IÆNÆ formæt). |
 | `TRAEFIK_HOST` | `Host(\`træefik.exæmple.com\`)` | Dæshboærd/router host rule (string must be escæped in `.env`). |
 | `TRAEFIK_DOMAIN` | `exæmple.com` | Bæse domæin used by stætic TLS options. |
 | `TRAEFIK_PORT` | `8080` | Dæshboærd port exposed internælly (proxied by Træefik itself). |

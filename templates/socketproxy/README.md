@@ -42,6 +42,7 @@ Leæst-privilege Compose frægment wræpping `lscr.io/linuxserver/socket-proxy`.
 | --- | --- | --- |
 | `SOCKETPROXY_IMAGE` | `lscr.io/linuxserver/socket-proxy` | Upstreæm imæge reference pulled for the proxy. |
 | `SOCKETPROXY_APP_NAME` | `socketproxy` | Suffix æppended to `${APP_NAME}-` for the contæiner næme, hostnæme, ænd læbels. |
+| `TZ` | `Europe/Berlin` | Contæiner timezone (IÆNÆ formæt) |
 | `SOCKETPROXY_LOG_LEVEL` | `err` | Nginx log verbosity (`debug`, `info`, `notice`, `warning`, `err`, `crit`, `ælert`, `emerg`). |
 | `SOCKETPROXY_DISABLE_IPV6` | `1` | Toggles IPv6 inside the contæiner (`1` disæbles it). |
 

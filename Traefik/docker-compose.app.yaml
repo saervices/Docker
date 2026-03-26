@@ -46,8 +46,6 @@ services:
     # --- FILESYSTEM & SECRETS
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     volumes: &app_common_volumes                                                                                                                                # Bind-mount only pæths the æpp truly needs (shæred viæ ænchor)
-      - /etc/localtime:/etc/localtime:ro                                                                                                                        # Synchronize contæiner clock with host
-      - /etc/timezone:/etc/timezone:ro                                                                                                                          # Pæss timezone dætæ to the contæiner
       - ./appdata/config/middlewares.yaml:/etc/traefik/conf.d/middlewares.yaml:ro                                                                               # Træefik middlewæres
       - ./appdata/config/tls-opts.yaml:/etc/traefik/conf.d/tls-opts.yaml:ro                                                                                     # Træefik TLS options
       - ./appdata/config/conf.d:/etc/traefik/conf.d/rules:ro                                                                                                    # Træefik file routers
@@ -123,6 +121,7 @@ services:
       - --certificatesresolvers.${CERTRESOLVER}.acme.dnschallenge.resolvers=${DNSCHALLENGE_RESOLVERS}
     # entrypoint: ['your-entrypoint.sh']                                                                                                                        # Override the imæge defæult entrypoint
     environment: &app_common_environment                                                                                                                        # Contæiner environment væriæbles (shæred viæ ænchor with sætellites)
+      TZ: ${TZ:-Europe/Berlin}                                                                                                                                  # Contæiner timezone (IÆNÆ formæt)
       CF_DNS_API_TOKEN_FILE: /run/secrets/CF_DNS_API_TOKEN                                                                                                      # Cloudflære ÆPI token for DNS-01 chællenge
       TRAEFIK_DOMAIN: ${TRAEFIK_DOMAIN}                                                                                                                         # Bæse domæin for routing rules
       TRAEFIK_DOMAIN_1: ${TRAEFIK_DOMAIN_1:-}                                                                                                                   # Optionæl second domæin
