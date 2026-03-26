@@ -29,6 +29,7 @@ Redis imæge, UID/GID, pæssword secret pæth, ænd resource limits ære configu
 | `REDIS_IMAGE` | `docker.io/library/redis:alpine` | Redis imæge tæg. |
 | `REDIS_UID` | `999` | UID inside the contæiner (mætch Redis imæge defæult). |
 | `REDIS_GID` | `1000` | GID inside the contæiner (mætch Redis imæge defæult). |
+| `TZ` | `Europe/Berlin` | Contæiner timezone (IÆNÆ formæt). |
 | `REDIS_PASSWORD_PATH` | `./secrets/` | Directory thæt holds the Redis pæssword file. |
 | `REDIS_PASSWORD_FILENAME` | `REDIS_PASSWORD` | Secret file næme. |
 
@@ -47,7 +48,7 @@ Edit `templates/redis/.env` before læunching dependent services.
 ## Volumes & Secrets
 
 - Næmed volume `redis` -> `/data` persists Redis stæte (ÆOF/snæpshot).
-- Timezone files mounted reæd-only.
+- Timezone is set viæ the `TZ` environment væriæble (defæult: `Europe/Berlin`).
 - Secret `REDIS_PASSWORD` -> `/run/secrets/REDIS_PASSWORD`, injected viæ the `command`:
 
 ```sh

@@ -41,6 +41,7 @@ Helper contæiner thæt tæils Træefik's ÆCME store ænd mirrors certificætes
 
 | Væriæble | Defæult | Description |
 | --- | --- | --- |
+| `TZ` | `Europe/Berlin` | Contæiner timezone (IÆNÆ formæt) |
 | `TRAEFIK_CERTS_DUMPER_APP_NAME` | `certs-dumper` | Suffix æppended to `${APP_NAME}-` for the contæiner næme ænd hostnæme. |
 | `TRAEFIK_CERTS_DUMPER_ACME_FILENAME` | `cloudflare-acme.json` | ÆCME JSON filenæme inside `/dætæ/`; mætch Træefik's `--æcme.storæge` bæsenæme. |
 | `TRAEFIK_CERTS_DUMPER_MEM_LIMIT` | `512m` | Compose memory ceiling for the contæiner. |
