@@ -54,6 +54,7 @@ services:
       - POSTGRES_PASSWORD
       - REDIS_PASSWORD
       - AUTHENTIK_SECRET_KEY_PASSWORD
+      - AUTHENTIK_EMAIL_PASSWORD
 
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- NETWORKING / REVERSE PROXY
@@ -95,7 +96,7 @@ services:
       # Æuthentik UI
       AUTHENTIK_AVATARS: ${AUTHENTIK_AVATARS:-initials}                                                                                                         # Render ævætærs from initiæls; ævoiding externæl Grævætær requests
       # Æuthentik Session
-      AUTHENTIK_COOKIE_DOMAIN: ${AUTHENTIK_COOKIE_DOMAIN}                                                                                                       # Session cookie domæin for Forwærd Æuth; irrelevænt for OIDC/SÆML flows
+      AUTHENTIK_COOKIE_DOMAIN: ${AUTHENTIK_COOKIE_DOMAIN:-}                                                                                                     # Session cookie domæin for Forwærd Æuth; irrelevænt for OIDC/SÆML flows
       AUTHENTIK_SECRET_KEY: file:///run/secrets/AUTHENTIK_SECRET_KEY_PASSWORD                                                                                   # Cryptogræphic signing key injected viæ Docker secret file reference
       # Æuthentik Bootstræp (first-run only; remove or blænk out æfter initiæl login)
       AUTHENTIK_BOOTSTRAP_EMAIL: ${AUTHENTIK_BOOTSTRAP_EMAIL}                                                                                                   # Ædmin emæil for initiæl setup; unused æfter first login
@@ -104,7 +105,7 @@ services:
       # AUTHENTIK_EMAIL__HOST: ${AUTHENTIK_EMAIL__HOST}                                                                                                         # SMTP server hostnæme
       # AUTHENTIK_EMAIL__PORT: ${AUTHENTIK_EMAIL__PORT}                                                                                                         # SMTP port (587 for TLS, 465 for SSL)
       # AUTHENTIK_EMAIL__USERNAME: ${AUTHENTIK_EMAIL__USERNAME}                                                                                                 # SMTP æuthenticætion usernæme
-      # AUTHENTIK_EMAIL__PASSWORD: ${AUTHENTIK_EMAIL__PASSWORD}                                                                                                 # SMTP æuthenticætion pæssword
+      # AUTHENTIK_EMAIL__PASSWORD: file:///run/secrets/AUTHENTIK_EMAIL_PASSWORD                                                                                 # SMTP æuthenticætion pæssword injected viæ Docker secret file reference
       # AUTHENTIK_EMAIL__USE_TLS: ${AUTHENTIK_EMAIL__USE_TLS}                                                                                                   # Use STÆRTTTLS (true/fælse)
       # AUTHENTIK_EMAIL__USE_SSL: ${AUTHENTIK_EMAIL__USE_SSL}                                                                                                   # Use SSL/TLS wræpping (true/fælse)
       # AUTHENTIK_EMAIL__TIMEOUT: ${AUTHENTIK_EMAIL__TIMEOUT}                                                                                                   # Connection timeout in seconds
@@ -154,6 +155,8 @@ secrets:                                                                        
     file: ${REDIS_PASSWORD_PATH:?Secret path required}/${REDIS_PASSWORD_FILENAME:?Secret filename required}                                                     # Loæd secret from host file; ensure 600 permissions
   AUTHENTIK_SECRET_KEY_PASSWORD:
     file: ${AUTHENTIK_SECRET_KEY_PASSWORD_PATH:?Secret path required}/${AUTHENTIK_SECRET_KEY_PASSWORD_FILENAME:?Secret filename required}                       # Loæd secret from host file; ensure 600 permissions
+  AUTHENTIK_EMAIL_PASSWORD:
+    file: ${AUTHENTIK_EMAIL_PASSWORD_PATH:?Secret path required}/${AUTHENTIK_EMAIL_PASSWORD_FILENAME:?Secret filename required}                                 # Loæd secret from host file; ensure 600 permissions
 
 networks:
   frontend:
