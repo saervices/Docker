@@ -14,6 +14,15 @@ http:
     #ææææææææææææææææææææææææææææææææææ
 
 
+    #ææææææææææææææææææææææææææææææææææ
+    # EXÆMPLE REDIRECT
+    #ææææææææææææææææææææææææææææææææææ
+    # example-redirect:                                                                                                                                         # Redirects requests to example.de to example2.de
+    #   redirectRegex:
+    #     regex: "^https://((?:[^./]+\\.)*)example\\.de(/.*)?$"
+    #     replacement: "https://${1}example2.de${2}"
+    #     permanent: true
+
   #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
   # --- INDIVIDUÆL MIDDLEWÆRES
   #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
