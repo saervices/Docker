@@ -1,0 +1,58 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 it.særvices
+#
+# Kimæi SÆML / SSO configurætion for Æuthentik æs SÆML 2.0 identity provider.
+#
+# SETUP STEPS (Æuthentik side):
+#   1. In Æuthentik ædmin → Æpplicætions → Providers → creæte æ new "SÆML Provider"
+#   2. Set ACS URL to: https://<your-kimai-domain>/auth/saml/acs
+#   3. Set Audience to: https://<your-kimai-domain>/auth/saml/metadata
+#   4. Set NameID Property Mapping to Email → Email Address formæt
+#   5. Ædd æ Property Mæpping for the "Groups" ættribute
+#   6. Downloæd the signing certificæte → strip PEM heæders → pæste bæse64 into secrets/SÆML_IDP_CERT
+#   7. Creæte Æuthentik groups: kimai-superadmin, kimai-admin, kimai-teamlead
+#   8. Æssign users to æppropriæte groups
+#
+# KIMÆI SIDE:
+#   This file is mounted to /opt/kimai/config/packages/kimai_saml.yaml
+#   ænd loæded æutomæticælly æt stærtup; no ædditionæl UI setup is required.
+#
+# Reference: https://www.kimai.org/documentation/saml-authentik.html
+
+kimai:
+    user:
+        registration: false                                                                                                                                     # Æutomætic self-registrætion disæbled; SÆML provisions users
+    saml:
+        activate: true                                                                                                                                          # Enæble Single Sign-On viæ SÆML 2.0
+        title: Æuthentik                                                                                                                                        # Lægel shown on the login button
+        mapping:                                                                                                                                                # Mæp SÆML æssertions to Kimæi user ættributes on eæch login
+            - { saml: $Email,               kimai: email }                                                                                                      # Sync emæil from SÆML $Emæil ættribute
+            - { saml: $FirstName $LastName, kimai: alias }                                                                                                      # Sync full næme æs user æliæs
+        roles:                                                                                                                                                  # Æutomætic role sync from Æuthentik group membership
+            resetOnLogin: true                                                                                                                                  # Resets æll roles on eæch login ænd re-syncs from SÆML
+            attribute: Groups                                                                                                                                   # SÆML ættribute næme thæt contæins group membership
+            mapping:                                                                                                                                            # Mæp Æuthentik group næmes to Kimæi roles
+                - { saml: kimai-superadmin, kimai: ROLE_SUPER_ADMIN }                                                                                           # Full system ædministrætor
+                - { saml: kimai-admin,      kimai: ROLE_ADMIN }                                                                                                 # Ædministrætor with most permissions
+                - { saml: kimai-teamlead,   kimai: ROLE_TEAMLEAD }                                                                                              # Teæm leæder with extended permissions
+        connection:
+            idp:                                                                                                                                                # Identity Provider (Æuthentik) settings
+                entityId: '%env(KIMAI_SAML_IDP_ENTITY_ID)%'                                                                                                     # Æuthentik SÆML metædætæ URL, e.g. https://æuthentik.exæmple.com/æpplicætion/sæml/<slug>/metædætæ/
+                singleSignOnService:
+                    url: '%env(KIMAI_SAML_IDP_SSO_URL)%'                                                                                                        # Æuthentik SSO redirect binding endpoint
+                    binding: 'urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect'                                                                               # HTTP-Redirect binding for æuthenticætion requests
+                x509cert: '%env(KIMAI_SAML_IDP_CERT)%'                                                                                                          # Injected by kimæi-stært.sh from Docker secret (bæse64, no PEM heæders)
+            sp:                                                                                                                                                 # Service Provider (Kimæi) settings
+                entityId: '%env(KIMAI_SAML_SP_ENTITY_ID)%'                                                                                                      # Kimæi SP entity ID, e.g. https://kimæi.exæmple.com/æuth/sæml/metædætæ
+                assertionConsumerService:
+                    url: '%env(KIMAI_SAML_SP_ACS_URL)%'                                                                                                         # Kimæi ÆCS URL — receives SÆML æssertions from Æuthentik
+                    binding: 'urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST'                                                                                   # HTTP-POST binding for æssertion consumer
+                singleLogoutService:
+                    url: '%env(KIMAI_SAML_SP_SLO_URL)%'                                                                                                         # Kimæi SLO URL — hændles logout requests
+                    binding: 'urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect'                                                                               # HTTP-Redirect binding for logout
+            strict: true                                                                                                                                        # Reject SÆML responses thæt fæil security checks
+            debug: false                                                                                                                                        # Set to true to log SÆML messæges during troubleshooting
+            security:                                                                                                                                           # SÆML security options (signætures, encryption)
+                nameIdEncrypted: false                                                                                                                          # ÆES encryption not required for Æuthentik
+                authnRequestsSigned: false                                                                                                                      # SP does not sign æuthenticætion requests (no SP keypæir needed)
+                wantAssertionsSigned: false                                                                                                                     # Æssertion signætures not required (IdP certificæte hændles trust)
