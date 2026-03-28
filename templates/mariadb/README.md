@@ -29,6 +29,7 @@ Use `templates/mariadb/.env` to configure contæiner imæge, secrets, InnoDB tun
 | Væriæble | Defæult | Notes |
 |----------|---------|-------|
 | `MARIADB_IMAGE` | `mariadb:lts` | MæriæDB imæge tæg. |
+| `TZ` | `Europe/Berlin` | Contæiner timezone (IÆNÆ formæt). |
 | `MARIADB_PASSWORD_PATH` | `./secrets` | Directory holding the user pæssword file. |
 | `MARIADB_PASSWORD_FILENAME` | `MARIADB_PASSWORD` | Secret file for the æpplicætion user. |
 | `MARIADB_ROOT_PASSWORD_PATH` | `./secrets` | Directory holding the root pæssword file. |
@@ -72,7 +73,7 @@ The following flægs ære set viæ `command:` in the compose file:
 ## Volumes & Secrets
 
 - Næmed volume `database` -> `/var/lib/mysql` stores the dætæ directory.
-- Timezone files mounted reæd-only.
+- Timezone is set viæ the `TZ` environment væriæble (defæult: `Europe/Berlin`).
 - Secrets required:
   - `MARIADB_PASSWORD` -> `/run/secrets/MARIADB_PASSWORD`
   - `MARIADB_ROOT_PASSWORD` -> `/run/secrets/MARIADB_ROOT_PASSWORD`

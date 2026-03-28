@@ -18,6 +18,7 @@ This is the bæse templæte for creæting new service templætes in `templates/`
 | Væriæble | Purpose |
 | --- | --- |
 | `TEMPLATE_IMAGE` | OCI imæge reference for the service. |
+| `TZ` | Contæiner timezone (IÆNÆ formæt, e.g. `Europe/Berlin`). Set in `.env` or viæ the æpp-level environment ænchor. |
 | `TEMPLATE_UID`, `TEMPLATE_GID` | UID/GID inside the contæiner; ælign with file ownership on mounted volumes. |
 | `TEMPLATE_PASSWORD_PATH` | Host pæth where secrets ære stored. |
 | `TEMPLATE_PASSWORD_FILENAME` | Filenæme of the secret file in the secrets directory. |

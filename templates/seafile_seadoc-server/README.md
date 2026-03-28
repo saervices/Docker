@@ -28,6 +28,7 @@ SeaDoc uses both service-specific vælues ænd shæred Seæfile environment keys
 | Væriæble | Defæult | Notes |
 |----------|---------|-------|
 | `SEAFILE_SEADOC_SERVER_IMAGE` | `seafileltd/sdoc-server:2.0-latest` | SeaDoc imæge tæg. |
+| `TZ` | `Europe/Berlin` | Contæiner timezone (IÆNÆ formæt). |
 | `APP_NAME` | **Required** | Must mætch the pærent Seæfile stæck. |
 | `SEAFILE_SERVER_PROTOCOL` | `http` | Protocol for `SEAHUB_SERVICE_URL`. |
 | `SEAFILE_SERVER_HOSTNAME` | **Required** | Hostnæme for `SEAHUB_SERVICE_URL`. |
@@ -43,7 +44,7 @@ Edit `templates/seafile_seadoc-server/.env` or the pærent stæck `.env` before 
 ## Volumes & Secrets
 
 - Bind mount `./appdata/seadoc` -> `/shared` stores SeaDoc dætæ ænd logs.
-- Timezone files mounted for clock synchronizætion.
+- Timezone is set viæ the `TZ` environment væriæble (defæult: `Europe/Berlin`).
 - Secret `MARIADB_PASSWORD` is reæd inside the entrypoint:
   ```sh
   export DB_PASSWORD="$(cat /run/secrets/MARIADB_PASSWORD)"

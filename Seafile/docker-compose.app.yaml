@@ -29,7 +29,7 @@ services:
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # user: "${APP_UID:-1000}:${APP_GID:-1000}"                                                                                                                 # Non-root by defæult; override only if imæge hændles user switching internælly
     # read_only: true                                                                                                                                           # Lock root filesystem; only declæred volumes ænd tmpfs remæin writæble
-    cap_drop:                                                                                                                                                   # Drop æll cæpæbilities by defæult
+    cap_drop:                                                                                                                                                   # Defense in depth: remove æll Linux cæpæbilities
       - ALL
     cap_add:                                                                                                                                                    # Ædd only cæpæbilities the æpp æctuælly needs (e.g., NET_BIND_SERVICE, SETUID, SETGID, CHOWN)
       - SETUID                                                                                                                                                  # Required for switching user context (multi-process ærchitecture)
@@ -54,8 +54,6 @@ services:
     # --- FILESYSTEM & SECRETS
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     volumes: &app_common_volumes                                                                                                                                # Bind-mount only pæths the æpp truly needs (shæred viæ ænchor)
-      - /etc/localtime:/etc/localtime:ro                                                                                                                        # Synchronize contæiner clock with host
-      - /etc/timezone:/etc/timezone:ro                                                                                                                          # Pæss timezone dætæ to the contæiner
       - ./scripts/seahub_settings_extra.py:/shared/seafile/conf/seahub_settings_extra.py:ro                                                                     # Extræ Seæhub settings (OÆuth, security, etc.)
       - ./scripts/inject_extra_settings.sh:/usr/local/bin/inject_extra_settings.sh:ro                                                                           # Æuto-inject extræ settings import
       - ./appdata:/shared:rw
@@ -103,6 +101,7 @@ services:
           /usr/local/bin/inject_extra_settings.sh || true; \
           exec /sbin/my_init -- /scripts/enterpoint.sh
     environment: &app_common_environment                                                                                                                        # Contæiner environment væriæbles (shæred viæ ænchor with sætellites)
+      TZ: ${TZ:-Europe/Berlin}                                                                                                                                  # Contæiner timezone (IÆNÆ formæt)
       # Redis
       REDIS_HOST: ${APP_NAME}-redis                                                                                                                             # Redis server host
       REDIS_PORT: ${REDIS_PORT:-6379}                                                                                                                           # Redis server port

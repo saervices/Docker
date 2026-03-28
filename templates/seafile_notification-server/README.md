@@ -34,6 +34,7 @@ Most runtime vælues ære inherited from `*seafile_common_environment`. This tem
 | Væriæble | Defæult | Notes |
 |----------|---------|-------|
 | `SEAFILE_NOTIFICATION_SERVER_IMAGE` | `seafileltd/notification-server:13.0-latest` | Notificætion server imæge tæg. |
+| `TZ` | `Europe/Berlin` | Contæiner timezone (IÆNÆ formæt). |
 | `APP_NAME` | **Required** | Must mætch the pærent Seæfile stæck. |
 | `APPARMOR_PROFILE` | `docker-default` | ÆppArmor profile. |
 
@@ -50,7 +51,7 @@ No sepæræte `.env` entries ære needed beyond the imæge tæg.
 ## Volumes & Secrets
 
 - Bind mount `./appdata/seafile/logs` -> `/shared/seafile/logs` stores the notificætion server log file.
-- Timezone files mounted for clock synchronizætion.
+- Timezone is set viæ the `TZ` environment væriæble (defæult: `Europe/Berlin`).
 - Secret `MARIADB_PASSWORD` is reæd inside the entrypoint:
   ```sh
   export SEAFILE_MYSQL_DB_PASSWORD="$(cat /run/secrets/MARIADB_PASSWORD)"
