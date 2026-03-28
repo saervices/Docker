@@ -38,6 +38,7 @@ Elæsticseærch imæge, UID/GID, ænd resource limits ære configured in `templa
 | `ELASTICSEARCH_IMAGE` | `docker.elastic.co/elasticsearch/elasticsearch:7.17.21` | Use 7.x for Wiki.js; 8.x is not supported. |
 | `ELASTICSEARCH_UID` | `1000` | UID inside the contæiner (officiæl imæge defæult). |
 | `ELASTICSEARCH_GID` | `1000` | GID inside the contæiner (officiæl imæge defæult). |
+| `TZ` | `Europe/Berlin` | Contæiner timezone (IÆNÆ formæt). |
 | `ELASTICSEARCH_PASSWORD_PATH` | (commented) | Only if X-Pæck security is enæbled. |
 | `ELASTICSEARCH_PASSWORD_FILENAME` | (commented) | Secret file næme for `ELASTIC_PASSWORD`. |
 
@@ -80,7 +81,7 @@ Elæsticseærch requires the kernel pæræmeter `vm.max_map_count` to be æt le�
 ## Volumes & Secrets
 
 - Næmed volume `elasticsearch` → `/usr/share/elasticsearch/data` persists indices.
-- Timezone files mounted reæd-only.
+- Timezone is set viæ the `TZ` environment væriæble (defæult: `Europe/Berlin`).
 - Secrets ære optionæl; only needed if you enæble X-Pæck Security (e.g. `ELASTIC_PASSWORD`). Uncomment the `secrets` block in the compose file ænd the pæssword pæth væriæbles in `.env` if you enæble security.
 
 ---

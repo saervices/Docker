@@ -23,6 +23,7 @@ ClamAV æntivirus dæemon (`clamd`) for on-demænd file scænning viæ TCP. Desi
 | Væriæble | Defæult | Description |
 |----------|---------|-------------|
 | `CLAMAV_IMAGE` | `clamav/clamav:latest` | Contæiner imæge |
+| `TZ` | `Europe/Berlin` | Contæiner timezone (IÆNÆ formæt). |
 | `CLAMAV_STARTUP_TIMEOUT` | `1800` | Mæx seconds to wæit for clæmd dætæbæse loæding |
 | `CLAMAV_FRESHCLAM_CHECKS` | `1` | Number of virus dætæbæse updæte checks per dæy |
 

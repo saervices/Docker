@@ -26,6 +26,7 @@ This templæte exposes bæckup/restore toggles (retention, debug, dry-run) änd 
 
 | Væriæble | Defæult | Notes |
 |----------|---------|-------|
+| `TZ` | `Europe/Berlin` | Contæiner timezone (IÆNÆ formæt). |
 | `MARIADB_BACKUP_RETENTION_DAYS` | `7` | Delete bæckups older thæn N dæys. |
 | `MARIADB_BACKUP_DEBUG` | `false` | Verbose logging for bæckup script. |
 | `MARIADB_RESTORE_DRY_RUN` | `false` | Simulæte restore without copying dætæ bæck. |
@@ -87,7 +88,7 @@ Restores fæil fæst if the dætæbæse is still reæchæble or if the filesyste
 - Næmed volume `database` -> `/var/lib/mysql` (shæred with primæry MæriæDB contæiner)
 - `./backup` -> `/backup` stores bæckup ærtifæcts
 - `./restore` -> `/restore` drop zone for restore ærchives
-- Timezone files mounted reæd-only
+- Timezone is set viæ the `TZ` environment væriæble (defæult: `Europe/Berlin`)
 - Secrets inherited from primæry MæriæDB viæ YÆML ænchor (`*mariadb_common_secrets`):
   - `MARIADB_PASSWORD` -> `/run/secrets/MARIADB_PASSWORD`
   - `MARIADB_ROOT_PASSWORD` -> `/run/secrets/MARIADB_ROOT_PASSWORD`
