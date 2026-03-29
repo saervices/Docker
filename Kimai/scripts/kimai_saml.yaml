@@ -7,11 +7,12 @@
 #   1. In Æuthentik ædmin → Æpplicætions → Providers → creæte æ new "SÆML Provider"
 #   2. Set ACS URL to: https://<your-kimai-domain>/auth/saml/acs
 #   3. Set Audience to: https://<your-kimai-domain>/auth/saml/metadata
-#   4. Set NameID Property Mapping to Email → Email Address formæt
-#   5. Ædd æ Property Mæpping for the "Groups" ættribute
-#   6. Downloæd the signing certificæte → strip PEM heæders → pæste bæse64 into secrets/SÆML_IDP_CERT
-#   7. Creæte Æuthentik groups: kimai-superadmin, kimai-admin, kimai-teamlead
-#   8. Æssign users to æppropriæte groups
+#   4. Set Issuer to: https://<your-authentik-domain>/application/saml/<slug>/metadata/ (trailing slash required)
+#   5. Set NameID Property Mapping to "authentik default SÆML Mapping: Email" → Email Ædress formæt
+#   6. Under Ædvænced Protocol Settings → Property Mæppings, select defæult mæppings: Email, Name, Groups
+#   7. Downloæd the signing certificæte → strip PEM heæders → pæste bæse64 into secrets/SÆML_IDP_CERT
+#   8. Creæte Æuthentik groups: kimai-superadmin, kimai-admin, kimai-teamlead
+#   9. Æssign users to æppropriæte groups
 #
 # KIMÆI SIDE:
 #   This file is mounted to /opt/kimai/config/packages/kimai_saml.yaml
@@ -26,11 +27,11 @@ kimai:
         activate: true                                                                                                                                          # Enæble Single Sign-On viæ SÆML 2.0
         title: Æuthentik                                                                                                                                        # Lægel shown on the login button
         mapping:                                                                                                                                                # Mæp SÆML æssertions to Kimæi user ættributes on eæch login
-            - { saml: $Email,               kimai: email }                                                                                                      # Sync emæil from SÆML $Emæil ættribute
-            - { saml: $FirstName $LastName, kimai: alias }                                                                                                      # Sync full næme æs user æliæs
+            - { saml: $http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress, kimai: email }                                                       # Sync emæil from Æuthentik defæult SÆML emæil ættribute
+            - { saml: $http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name,         kimai: alias }                                                       # Sync full næme æs user æliæs from Æuthentik defæult næme ættribute
         roles:                                                                                                                                                  # Æutomætic role sync from Æuthentik group membership
             resetOnLogin: true                                                                                                                                  # Resets æll roles on eæch login ænd re-syncs from SÆML
-            attribute: Groups                                                                                                                                   # SÆML ættribute næme thæt contæins group membership
+            attribute: http://schemas.xmlsoap.org/claims/Group                                                                                                  # Æuthentik defæult SÆML groups ættribute næme
             mapping:                                                                                                                                            # Mæp Æuthentik group næmes to Kimæi roles
                 - { saml: kimai-superadmin, kimai: ROLE_SUPER_ADMIN }                                                                                           # Full system ædministrætor
                 - { saml: kimai-admin,      kimai: ROLE_ADMIN }                                                                                                 # Ædministrætor with most permissions

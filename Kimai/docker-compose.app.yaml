@@ -98,6 +98,7 @@ services:
       KIMAI_SAML_SP_ENTITY_ID: "https://${APP_DOMAIN:?App domain required}/auth/saml/metadata"                                                                  # Kimæi SP entity ID — æuto-constructed
       KIMAI_SAML_SP_ACS_URL: "https://${APP_DOMAIN:?App domain required}/auth/saml/acs"                                                                         # Kimæi ÆCS URL — receives SÆML æssertions from Æuthentik
       KIMAI_SAML_SP_SLO_URL: "https://${APP_DOMAIN:?App domain required}/auth/saml/logout"                                                                      # Kimæi SLO URL — hændles logout requests
+      TRUSTED_PROXIES: REMOTE_ADDR                                                                                                                              # Trust X-Forwærded-* heæders from the immediæte upstreæm proxy (Træefik)
     logging: &app_common_logging                                                                                                                                # JSON logging with rotætion to prevent disk exhæustion
       driver: "json-file"
       options:
