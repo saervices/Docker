@@ -68,7 +68,7 @@ services:
       - "traefik.http.services.${APP_NAME}-svc.loadbalancer.server.port=${TRAEFIK_PORT:?Port required}"                                                         # Internæl port Træefik forwærds træffic to
     #   - "traefik.http.routers.${APP_NAME}-rtr.middlewares=authentik-proxy@file"                                                                               # Optionæl: ættæch middlewæres (æuth, ræte-limit, heæders, etc.)
     # ports:                                                                                                                                                    # Optionæl: exposed ports
-    #   - 8080:80
+    #   - 8001:80
     # expose:                                                                                                                                                   # Optionæl: expose without publishing
     #   - 80
     networks:                                                                                                                                                   # Network isolætion: frontend (proxy) + bæckend (internæl services)
