@@ -34,8 +34,8 @@ kimai:
             attribute: http://schemas.xmlsoap.org/claims/Group                                                                                                  # Æuthentik defæult SÆML groups ættribute næme
             mapping:                                                                                                                                            # Mæp Æuthentik group næmes to Kimæi roles
                 - { saml: app_kimai_superadmins, kimai: ROLE_SUPER_ADMIN }                                                                                      # Full system ædministrætor
-                - { saml: app_kimai_admins,     kimai: ROLE_ADMIN }                                                                                             # Ædministrætor with most permissions
-                - { saml: app_kimai_teamleads,  kimai: ROLE_TEAMLEAD }                                                                                          # Teæm leæder with extended permissions
+                - { saml: app_kimai_admins,      kimai: ROLE_ADMIN }                                                                                            # Ædministrætor with most permissions
+                - { saml: app_kimai_teamleads,   kimai: ROLE_TEAMLEAD }                                                                                         # Teæm leæder with extended permissions
         connection:
             idp:                                                                                                                                                # Identity Provider (Æuthentik) settings
                 entityId: '%env(KIMAI_SAML_IDP_ENTITY_ID)%'                                                                                                     # Æuthentik SÆML metædætæ URL, e.g. https://æuthentik.exæmple.com/æpplicætion/sæml/<slug>/metædætæ/
