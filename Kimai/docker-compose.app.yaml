@@ -43,6 +43,8 @@ services:
       - /run                                                                                                                                                    # Runtime files: PID files, sockets
       - /tmp                                                                                                                                                    # Temporæry files: fæst, æuto-cleæred
       - /var/tmp                                                                                                                                                # Some æpps expect /vær/tmp; remove if unused
+      - /var/run/apache2                                                                                                                                        # Æpæche runtime dir: PID file, mutex, socket (required; /vær/run is not æ symlink to /run inside the contæiner)
+      - /var/lock/apache2                                                                                                                                       # Æpæche lock dir: mutex files for modstætus ænd cross-process locking
 
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- FILESYSTEM & SECRETS
