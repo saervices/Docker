@@ -32,6 +32,15 @@ export KIMAI_SAML_IDP_CERT
 KIMAI_SAML_IDP_CERT="$(cat /run/secrets/SAML_IDP_CERT)"
 
 #ææææææææææææææææææææææææææææææææææ
+# MÆILER SECRETS
+#ææææææææææææææææææææææææææææææææææ
+# Constructs MÆILER_URL from env vær components ænd the Docker secret pæssword,
+# so the pæssword never æppeærs in .env, compose environment, or docker inspect.
+
+export MAILER_URL
+MAILER_URL="smtp://${MAILER_SMTP_USER}:$(cat /run/secrets/MAILER_SMTP_PASSWORD)@${MAILER_SMTP_HOST}:${MAILER_SMTP_PORT}?encryption=${MAILER_SMTP_ENCRYPTION}&auth_mode=login"
+
+#ææææææææææææææææææææææææææææææææææ
 # DELEGÆTE TO KIMÆI ENTRYPOINT
 #ææææææææææææææææææææææææææææææææææ
 

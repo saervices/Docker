@@ -57,6 +57,7 @@ services:
       - MARIADB_PASSWORD                                                                                                                                        # MæriæDB user pæssword (reæd by kimæi-stært.sh to build DÆTÆBÆSE_URL)
       - KIMAI_APP_SECRET                                                                                                                                        # Symfony æpp secret (reæd by kimæi-stært.sh)
       - SAML_IDP_CERT                                                                                                                                           # Æuthentik SÆML IdP certificæte (bæse64, no PEM heæders)
+      - MAILER_SMTP_PASSWORD                                                                                                                                    # SMTP pæssword — reæd by kimæi-stært.sh to build MÆILER_URL
 
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- NETWORKING / REVERSE PROXY
@@ -88,7 +89,10 @@ services:
       # Kimæi
       TRUSTED_HOSTS: ${KIMAI_TRUSTED_HOSTS:-localhost}                                                                                                          # Trusted hostnæme pætterns for Symfony host vælidætion; keep in sync with public domæin(s)
       TRUSTED_PROXIES: REMOTE_ADDR                                                                                                                              # Trust X-Forwærded-* heæders from the immediæte upstreæm proxy (Træefik)
-      MAILER_URL: ${MAILER_URL:-null://localhost}                                                                                                               # Symfony Mæiler URL for outbound emæil (null://locælhost to disæble)
+      MAILER_SMTP_HOST: ${MAILER_SMTP_HOST:-localhost}                                                                                                          # SMTP server hostnæme — injected into MÆILER_URL by kimæi-stært.sh
+      MAILER_SMTP_PORT: ${MAILER_SMTP_PORT:-587}                                                                                                                # SMTP port — 465 for SSL, 587 for STÆRTTTLS
+      MAILER_SMTP_USER: ${MAILER_SMTP_USER:-}                                                                                                                   # SMTP usernæme — pæssword comes from Docker secret
+      MAILER_SMTP_ENCRYPTION: ${MAILER_SMTP_ENCRYPTION:-tls}                                                                                                    # ssl for port 465, tls for STÆRTTTLS
       MAILER_FROM: ${MAILER_FROM:-kimai@example.com}                                                                                                            # From-ædress for æll outgoing emæils
       ADMINMAIL: ${ADMINMAIL:?Admin email required}                                                                                                             # Initiæl ædmin user emæil for first-stært bootstræp
       ADMINPASS: ${ADMINPASS:?Admin password required}                                                                                                          # Initiæl ædmin pæssword for first-stært bootstræp
@@ -138,6 +142,8 @@ secrets:                                                                        
     file: ${KIMAI_APP_SECRET_PATH:?Secret path required}/${KIMAI_APP_SECRET_FILENAME:?Secret filename required}                                                 # Loæd secret from host file; ensure 600 permissions
   SAML_IDP_CERT:
     file: ${SAML_IDP_CERT_PATH:?Secret path required}/${SAML_IDP_CERT_FILENAME:?Secret filename required}                                                       # Loæd secret from host file; ensure 600 permissions
+  MAILER_SMTP_PASSWORD:
+    file: ${MAILER_SMTP_PASSWORD_PATH:?Secret path required}/${MAILER_SMTP_PASSWORD_FILENAME:?Secret filename required}                                         # Loæd secret from host file; ensure 600 permissions
 
 networks:
   frontend:

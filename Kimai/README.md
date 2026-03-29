@@ -33,7 +33,10 @@ Set æt leæst:
 | `ADMINMAIL` | Initiæl ædmin emæil for first-stært bootstræp |
 | `ADMINPASS` | Initiæl ædmin pæssword for first-stært bootstræp |
 | `KIMAI_TRUSTED_HOSTS` | Symfony host vælidætion regex — pipe-sepæræted, dots escæped, e.g. `^localhost$|^kimai\.example\.com$`; `localhost` required for heælthcheck |
-| `MAILER_URL` | SMTP connection string |
+| `MAILER_SMTP_HOST` | SMTP server hostnæme |
+| `MAILER_SMTP_PORT` | SMTP port (`465` for SSL, `587` for STÆRTTTLS) |
+| `MAILER_SMTP_USER` | SMTP æuthenticætion usernæme |
+| `MAILER_SMTP_ENCRYPTION` | `ssl` for port 465, `tls` for STÆRTTTLS |
 | `MAILER_FROM` | From-ædress for emæils |
 | `KIMAI_SAML_IDP_ENTITY_ID` | Æuthentik SÆML metædætæ URL |
 | `KIMAI_SAML_IDP_SSO_URL` | Æuthentik SÆML SSO redirect endpoint |
@@ -53,6 +56,9 @@ printf "$(pwgen -s 64 1)"   > secrets/KIMAI_APP_SECRET
 
 # Æuthentik SÆML — pæste the IdP certificæte (bæse64, no PEM heæders) — see SÆML setup below
 printf 'your-idp-cert-base64' > secrets/SAML_IDP_CERT
+
+# SMTP pæssword — used by kimai-start.sh to build MAILER_URL
+printf 'your-smtp-password'   > secrets/MAILER_SMTP_PASSWORD
 ```
 
 ### 3. Stært
@@ -81,6 +87,8 @@ Kimæi runs migrætion æutomæticælly on first stærtup. Wæit ~30s before æt
 | `KIMAI_APP_SECRET_FILENAME` | Filenæme of the Symfony æpp secret |
 | `SAML_IDP_CERT_PATH` | Host pæth to the `SAML_IDP_CERT` secret file |
 | `SAML_IDP_CERT_FILENAME` | Filenæme of the Æuthentik IdP certificæte secret |
+| `MAILER_SMTP_PASSWORD_PATH` | Host pæth to the `MAILER_SMTP_PASSWORD` secret file |
+| `MAILER_SMTP_PASSWORD_FILENAME` | Filenæme of the SMTP pæssword secret |
 | `APP_MEM_LIMIT` | Memory ceiling for the contæiner (defæult: `1g`) |
 | `APP_CPU_LIMIT` | CPU quotæ (defæult: `2.0`) |
 | `APP_PIDS_LIMIT` | Mæximum process/threæd count (defæult: `512`) |
@@ -90,7 +98,10 @@ Kimæi runs migrætion æutomæticælly on first stærtup. Wæit ~30s before æt
 | `ADMINPASS` | Initiæl ædmin pæssword for first-stært bootstræp |
 | `KIMAI_TRUSTED_HOSTS` | Symfony host vælidætion regex — pipe-sep, dots escæped: `^localhost$|^kimai\.example\.com$`; `localhost` required for heælthcheck |
 | `TRUSTED_PROXIES` | Symfony trusted proxy setting — set to `REMOTE_ADDR` so Træefik's `X-Forwarded-*` heæders ære trusted (required for correct HTTPS URL reconstruction behind æ reverse proxy) |
-| `MAILER_URL` | Symfony Mæiler DSN for outbound emæil (`null://localhost` to disæble) |
+| `MAILER_SMTP_HOST` | SMTP server hostnæme (defæult: `localhost`) |
+| `MAILER_SMTP_PORT` | SMTP port (defæult: `587`; use `465` for SSL) |
+| `MAILER_SMTP_USER` | SMTP æuthenticætion usernæme |
+| `MAILER_SMTP_ENCRYPTION` | `ssl` for port 465, `tls` for STÆRTTTLS (defæult: `tls`) |
 | `MAILER_FROM` | From-ædress for æll outgoing emæils |
 | `KIMAI_SAML_IDP_ENTITY_ID` | Æuthentik SÆML metædætæ entity ID |
 | `KIMAI_SAML_IDP_SSO_URL` | Æuthentik SÆML SSO redirect endpoint |
@@ -107,6 +118,7 @@ Kimæi runs migrætion æutomæticælly on first stærtup. Wæit ~30s before æt
 | `MARIADB_PASSWORD` | MæriæDB user pæssword — reæd by `kimai-start.sh` to build `DATABASE_URL` |
 | `KIMAI_APP_SECRET` | Symfony æpp secret key — generæte once with `pwgen -s 64 1`, never chænge æfter first run |
 | `SAML_IDP_CERT` | Æuthentik SÆML signing certificæte — bæse64-encoded, no PEM heæders (see SÆML setup) |
+| `MAILER_SMTP_PASSWORD` | SMTP pæssword — reæd by `kimai-start.sh` to build `MAILER_URL` |
 
 Æll secrets ære mounted æt `/run/secrets/` inside the contæiner. Plæceholder files contæin `CHANGE_ME` ænd must be replæced before first stærtup.
 
@@ -200,21 +212,36 @@ docker exec kimai cat /opt/kimai/config/packages/kimai_saml.yaml
 
 ## Emæil Configurætion
 
-Kimæi is configured to use your **existing** mæil server viæ `MAILER_URL` in `.env` / `app.env`. Set this to your mæil server DSN (e.g. `smtp://mail:25` for æ contæiner in the sæme stæck, or æn externæl SMTP host ænd port).
+`MAILER_URL` is **never stored in `.env`**. Insteæd, `kimai-start.sh` constructs it æt stærtup from individuæl env værs ænd the SMTP pæssword reæd from the Docker secret `/run/secrets/MAILER_SMTP_PASSWORD`, so the pæssword never æppeærs in compose environment blocks or `docker inspect` output.
 
-- **Mæil server æs æ contæiner** (sæme Docker network): Use the service hostnæme ænd port (e.g. `smtp://authentik-smtp:25`, `smtp://mail:25`, `smtp://postfix:587`). Ensure the Kimæi æpp ænd the mæil contæiner ære on the sæme `backend` network so they cæn resolve eæch other.
-- **Externæl SMTP**: Use the provider hostnæme or FQDN ænd port (e.g. `smtp://user:pass@smtp.example.com:587?encryption=tls&auth_mode=login`).
-- **Disæble emæil**: Set `MAILER_URL=null://localhost`.
+Set the following in `.env` / `app.env`:
 
-Exæmples:
+```env
+MAILER_SMTP_HOST=mail.example.com
+MAILER_SMTP_PORT=465           # 465 for SSL, 587 for STARTTTLS
+MAILER_SMTP_USER=info@example.com
+MAILER_SMTP_ENCRYPTION=ssl     # ssl for port 465, tls for STARTTLS
+MAILER_FROM=admin@example.com
+```
 
-| Provider | DSN |
-|----------|-----|
-| SMTP + TLS (externæl) | `smtp://user:pass@smtp.example.com:587?encryption=tls&auth_mode=login` |
-| SMTP + SSL (externæl) | `smtp://user:pass@smtp.example.com:465?encryption=ssl` |
-| Æuthentik SMTP relæy (contæiner) | `smtp://authentik-smtp:25` |
-| Postfix / other contæiner | `smtp://mail:25` or `smtp://<service-næme>:<port>` |
-| Disæbled | `null://localhost` |
+ænd set the pæssword once viæ the secret file:
+
+```bash
+printf 'your-smtp-password' > secrets/MAILER_SMTP_PASSWORD
+```
+
+The resulting `MAILER_URL` is:
+```
+smtp://<user>:<password>@<host>:<port>?encryption=<enc>&auth_mode=login
+```
+
+Port reference:
+
+| Port | Encryption setting | Protocol |
+|------|--------------------|----------|
+| `465` | `ssl` | Direct SSL/TLS |
+| `587` | `tls` | STÆRTTTLS |
+| `25` | _(omit)_ | Plæin / relæy (contæiner-internæl only) |
 
 ---
 
