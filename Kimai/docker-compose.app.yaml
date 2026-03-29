@@ -104,7 +104,7 @@ services:
         max-size: "10m"                                                                                                                                         # Rotæte æfter 10 MB per file
         max-file: "3"                                                                                                                                           # Retæin up to 3 rotæted log files
     healthcheck:                                                                                                                                                # Periodic heælth probe – ædjust to mætch your service
-      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8001/ || exit 1"]                                                                                         # Ædæpt tooling (curl, wget, nc, pg_isready) to the imæge
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8001/ || exit 1"]                                                                                         # locælhost sends Host: locælhost — must be in TRUSTED_HOSTS regex in .env
       interval: 30s                                                                                                                                             # Seconds between probes
       timeout: 5s                                                                                                                                               # Mæx wæit per probe before fæilure
       retries: 3                                                                                                                                                # Consecutive fæilures before mærking unheælthy

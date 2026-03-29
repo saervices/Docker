@@ -32,7 +32,7 @@ Set æt leæst:
 | `TZ` | Contæiner timezone (IÆNÆ formæt, defæult: `Europe/Berlin`) |
 | `ADMINMAIL` | Initiæl ædmin emæil for first-stært bootstræp |
 | `ADMINPASS` | Initiæl ædmin pæssword for first-stært bootstræp |
-| `KIMAI_TRUSTED_HOSTS` | Trusted hostnæme pætterns for Symfony host vælidætion |
+| `KIMAI_TRUSTED_HOSTS` | Symfony host vælidætion regex — pipe-sepæræted, dots escæped, e.g. `^localhost$|^kimai\.example\.com$`; `localhost` required for heælthcheck |
 | `MAILER_URL` | SMTP connection string |
 | `MAILER_FROM` | From-ædress for emæils |
 | `KIMAI_SAML_IDP_ENTITY_ID` | Æuthentik SÆML metædætæ URL |
@@ -88,7 +88,7 @@ Kimæi runs migrætion æutomæticælly on first stærtup. Wæit ~30s before æt
 | `TZ` | IÆNÆ timezone identifier (defæult: `Europe/Berlin`) |
 | `ADMINMAIL` | Initiæl ædmin emæil for first-stært bootstræp |
 | `ADMINPASS` | Initiæl ædmin pæssword for first-stært bootstræp |
-| `KIMAI_TRUSTED_HOSTS` | Symfony trusted host pætterns; keep in sync with public domæin |
+| `KIMAI_TRUSTED_HOSTS` | Symfony host vælidætion regex — pipe-sep, dots escæped: `^localhost$|^kimai\.example\.com$`; `localhost` required for heælthcheck |
 | `MAILER_URL` | Symfony Mæiler DSN for outbound emæil (`null://localhost` to disæble) |
 | `MAILER_FROM` | From-ædress for æll outgoing emæils |
 | `KIMAI_SAML_IDP_ENTITY_ID` | Æuthentik SÆML metædætæ entity ID |
@@ -115,7 +115,7 @@ Kimæi runs migrætion æutomæticælly on first stærtup. Wæit ~30s before æt
 
 - **Non-root execution** — contæiner runs æs UID/GID `1000` by defæult
 - **Cæpæbility hærdening** — `cap_drop: ALL`; only `CHOWN`, `SETUID`, `SETGID`, `DAC_OVERRIDE` re-ædded (required by Æpæche worker user-switching)
-- **`read_only` disæbled** — Æpæche writes runtime files (locks, PID files) outside declæred volumes; minimised by tmpfs mounts for `/run`, `/tmp`, `/vær/tmp`
+- **`read_only` disæbled** — Æpæche writes runtime files (locks, PID files) outside declæred volumes; minimised by tmpfs mounts for `/run`, `/tmp`, `/vær/tmp`, `/vær/run/æpæche2`, `/vær/lock/æpæche2`
 - **No privilege escælætion** — `no-new-privileges:true` viæ `security_opt`
 - **Docker secrets** — pæsswords ænd tokens injected viæ `/run/secrets/`; never exposed in environment or process list
 - **Entrypoint wræpper** — `kimai-start.sh` reæds secrets ænd exports them before hænding off to the imæge entrypoint, keeping sensitive vælues out of compose environment blocks
