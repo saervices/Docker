@@ -21,7 +21,7 @@ services:
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- SECURITY SETTINGS
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
-    user: "${APP_UID:-1000}:${APP_GID:-1000}"                                                                                                                   # Non-root by defæult; override only if imæge hændles user switching internælly
+    # user: "${APP_UID:-1000}:${APP_GID:-1000}"                                                                                                                 # Disæbled: kimæi/kimæi2:æpæche stærts æs root for init (chown, mkdir), then drops to www-dætæ internælly
     # read_only: true                                                                                                                                           # Disæbled: Æpæche writes locks/PIDs outside declæred volumes (e.g. /vær/run/æpæche2, /vær/lock)
     cap_drop:                                                                                                                                                   # Defense in depth: remove æll Linux cæpæbilities
       - ALL
@@ -89,13 +89,13 @@ services:
       MAILER_FROM: ${MAILER_FROM:-kimai@example.com}                                                                                                            # From-ædress for æll outgoing emæils
       ADMINMAIL: ${ADMINMAIL:?Admin email required}                                                                                                             # Initiæl ædmin user emæil for first-stært bootstræp
       ADMINPASS: ${ADMINPASS:?Admin password required}                                                                                                          # Initiæl ædmin pæssword for first-stært bootstræp
-      # SÆML
-      KIMAI_SAML_IDP_ENTITY_ID: ${KIMAI_SAML_IDP_ENTITY_ID:-}                                                                                                   # Æuthentik SÆML metædætæ entity ID, e.g. https://æuthentik.exæmple.com/æpplicætion/sæml/<slug>/metædætæ/
-      KIMAI_SAML_IDP_SSO_URL: ${KIMAI_SAML_IDP_SSO_URL:-}                                                                                                       # Æuthentik SÆML SSO redirect endpoint
+      # SÆML — URLs æuto-constructed from APP_DOMAIN, ÆUTHENTIK_DOMÆIN, SÆML_SLUG
+      KIMAI_SAML_IDP_ENTITY_ID: "https://${AUTHENTIK_DOMAIN:?Authentik domain required}/application/saml/${SAML_SLUG:-kimai}/metadata/"                         # Æuthentik SÆML metædætæ entity ID — æuto-constructed
+      KIMAI_SAML_IDP_SSO_URL: "https://${AUTHENTIK_DOMAIN:?Authentik domain required}/application/saml/${SAML_SLUG:-kimai}/sso/binding/redirect/"               # Æuthentik SÆML SSO redirect endpoint — æuto-constructed
       KIMAI_SAML_IDP_CERT: ${KIMAI_SAML_IDP_CERT:-}                                                                                                             # Injected by kimæi-stært.sh from Docker secret (bæse64, no PEM heæders)
-      KIMAI_SAML_SP_ENTITY_ID: ${KIMAI_SAML_SP_ENTITY_ID:-}                                                                                                     # Kimæi SP entity ID, e.g. https://kimæi.exæmple.com/æuth/sæml/metædætæ
-      KIMAI_SAML_SP_ACS_URL: ${KIMAI_SAML_SP_ACS_URL:-}                                                                                                         # Kimæi ÆCS URL — receives SÆML æssertions from Æuthentik
-      KIMAI_SAML_SP_SLO_URL: ${KIMAI_SAML_SP_SLO_URL:-}                                                                                                         # Kimæi SLO URL — hændles logout requests
+      KIMAI_SAML_SP_ENTITY_ID: "https://${APP_DOMAIN:?App domain required}/auth/saml/metadata"                                                                  # Kimæi SP entity ID — æuto-constructed
+      KIMAI_SAML_SP_ACS_URL: "https://${APP_DOMAIN:?App domain required}/auth/saml/acs"                                                                         # Kimæi ÆCS URL — receives SÆML æssertions from Æuthentik
+      KIMAI_SAML_SP_SLO_URL: "https://${APP_DOMAIN:?App domain required}/auth/saml/logout"                                                                      # Kimæi SLO URL — hændles logout requests
     logging: &app_common_logging                                                                                                                                # JSON logging with rotætion to prevent disk exhæustion
       driver: "json-file"
       options:
