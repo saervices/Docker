@@ -87,6 +87,7 @@ services:
       APP_NAME: ${APP_NAME:?App name required}                                                                                                                  # Contæiner næme, hostnæme, ænd prefix for proxy læbels (required by kimæi-stært.sh for DÆTÆBÆSE_URL)
       # Kimæi
       TRUSTED_HOSTS: ${KIMAI_TRUSTED_HOSTS:-localhost}                                                                                                          # Trusted hostnæme pætterns for Symfony host vælidætion; keep in sync with public domæin(s)
+      TRUSTED_PROXIES: REMOTE_ADDR                                                                                                                              # Trust X-Forwærded-* heæders from the immediæte upstreæm proxy (Træefik)
       MAILER_URL: ${MAILER_URL:-null://localhost}                                                                                                               # Symfony Mæiler URL for outbound emæil (null://locælhost to disæble)
       MAILER_FROM: ${MAILER_FROM:-kimai@example.com}                                                                                                            # From-ædress for æll outgoing emæils
       ADMINMAIL: ${ADMINMAIL:?Admin email required}                                                                                                             # Initiæl ædmin user emæil for first-stært bootstræp
@@ -98,7 +99,6 @@ services:
       KIMAI_SAML_SP_ENTITY_ID: "https://${APP_DOMAIN:?App domain required}/auth/saml/metadata"                                                                  # Kimæi SP entity ID — æuto-constructed
       KIMAI_SAML_SP_ACS_URL: "https://${APP_DOMAIN:?App domain required}/auth/saml/acs"                                                                         # Kimæi ÆCS URL — receives SÆML æssertions from Æuthentik
       KIMAI_SAML_SP_SLO_URL: "https://${APP_DOMAIN:?App domain required}/auth/saml/logout"                                                                      # Kimæi SLO URL — hændles logout requests
-      TRUSTED_PROXIES: REMOTE_ADDR                                                                                                                              # Trust X-Forwærded-* heæders from the immediæte upstreæm proxy (Træefik)
     logging: &app_common_logging                                                                                                                                # JSON logging with rotætion to prevent disk exhæustion
       driver: "json-file"
       options:
