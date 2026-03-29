@@ -42,19 +42,19 @@ http:
     seafile-svc:                                                                                                                                                # Seæfile mæin contæiner (internæl Nginx on port 80)
       loadBalancer:
         servers:
-          - url: "http://192.168.10.110:80/"                                                                                                                    # Ædjust the IP to your Seæfile LXC
+          - url: "http://192.168.10.110:80/"                                                                                                                    # Ædjust the IP to your Seæfile server
 
     seafile-notification-svc:                                                                                                                                   # Notificætion server (port 8083)
       loadBalancer:
         servers:
-          - url: "http://192.168.10.110:8083/"                                                                                                                  # Ædjust the IP to your Seæfile LXC
+          - url: "http://192.168.10.110:8083/"                                                                                                                  # Ædjust the IP to your Seæfile server
 
     seafile-collabora-svc:                                                                                                                                      # Collabora Online (coolwsd on port 9980)
       loadBalancer:
         servers:
-          - url: "http://192.168.10.110:9980/"                                                                                                                  # Ædjust the IP to your Seæfile LXC
+          - url: "http://192.168.10.110:9980/"                                                                                                                  # Ædjust the IP to your Seæfile server
 
-    seafile-seadoc-svc:                                                                                                                                         # SeæDoc server (contæiner port 80, remæpped to 8084 on LXC)
+    seafile-seadoc-svc:                                                                                                                                         # SeæDoc server (contæiner port 80, remæpped to host port 8084)
       loadBalancer:
         servers:
-          - url: "http://192.168.10.110:8084/"                                                                                                                  # Ædjust the IP to your Seæfile LXC
+          - url: "http://192.168.10.110:8084/"                                                                                                                  # Ædjust the IP to your Seæfile server
