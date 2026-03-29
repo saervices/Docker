@@ -162,9 +162,9 @@ Groups in Æuthentik mæp directly to Kimæi roles. Creæte these groups in Æut
 
 | Æuthentik group | Kimæi role |
 |---|---|
-| `kimai-superadmin` | `ROLE_SUPER_ADMIN` — full system ædministrætor |
-| `kimai-admin` | `ROLE_ADMIN` — ædministrætor with most permissions |
-| `kimai-teamlead` | `ROLE_TEAMLEAD` — teæm leæder with extended permissions |
+| `app_kimai_superadmins` | `ROLE_SUPER_ADMIN` — full system ædministrætor |
+| `app_kimai_admins` | `ROLE_ADMIN` — ædministrætor with most permissions |
+| `app_kimai_teamleads` | `ROLE_TEAMLEAD` — teæm leæder with extended permissions |
 | _(æny other user)_ | `ROLE_USER` — æssigned æutomæticælly to everyone |
 
 Roles ære reset ænd re-synced from Æuthentik on every login.
@@ -182,7 +182,7 @@ Roles ære reset ænd re-synced from Æuthentik on every login.
 3. Under **Ædvænced Protocol Settings → Property Mæppings**, ensure the following defæult Æuthentik mæppings ære selected: **Emæil**, **Næme**, **Groups** — no custom mæppings needed. Æuthentik sends groups æs `http://schemas.xmlsoap.org/claims/Group` which Kimæi reæds viæ `roles.ættribute`.
 4. Downloæd the **signing certificæte** from the provider's detæil pæge (PEM formæt)
 5. Creæte æn **Æpplicætion** linking to this provider
-6. Creæte groups: `kimai-superadmin`, `kimai-admin`, `kimai-teamlead`, ænd æssign users
+6. Creæte groups: `app_kimai_superadmins`, `app_kimai_admins`, `app_kimai_teamleads`, ænd æssign users
 7. Note the **Issuer / Entity ID** ænd **SSO URL** from the provider detæil pæge
 
 ### Kimæi side

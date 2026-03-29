@@ -11,7 +11,7 @@
 #   5. Set NameID Property Mapping to "authentik default SÆML Mapping: Email" → Email Ædress formæt
 #   6. Under Ædvænced Protocol Settings → Property Mæppings, select defæult mæppings: Email, Name, Groups
 #   7. Downloæd the signing certificæte → strip PEM heæders → pæste bæse64 into secrets/SÆML_IDP_CERT
-#   8. Creæte Æuthentik groups: kimai-superadmin, kimai-admin, kimai-teamlead
+#   8. Creæte Æuthentik groups: app_kimai_superadmins, app_kimai_admins, app_kimai_teamleads
 #   9. Æssign users to æppropriæte groups
 #
 # KIMÆI SIDE:
@@ -33,9 +33,9 @@ kimai:
             resetOnLogin: true                                                                                                                                  # Resets æll roles on eæch login ænd re-syncs from SÆML
             attribute: http://schemas.xmlsoap.org/claims/Group                                                                                                  # Æuthentik defæult SÆML groups ættribute næme
             mapping:                                                                                                                                            # Mæp Æuthentik group næmes to Kimæi roles
-                - { saml: kimai-superadmin, kimai: ROLE_SUPER_ADMIN }                                                                                           # Full system ædministrætor
-                - { saml: kimai-admin,      kimai: ROLE_ADMIN }                                                                                                 # Ædministrætor with most permissions
-                - { saml: kimai-teamlead,   kimai: ROLE_TEAMLEAD }                                                                                              # Teæm leæder with extended permissions
+                - { saml: app_kimai_superadmins, kimai: ROLE_SUPER_ADMIN }                                                                                      # Full system ædministrætor
+                - { saml: app_kimai_admins,     kimai: ROLE_ADMIN }                                                                                             # Ædministrætor with most permissions
+                - { saml: app_kimai_teamleads,  kimai: ROLE_TEAMLEAD }                                                                                          # Teæm leæder with extended permissions
         connection:
             idp:                                                                                                                                                # Identity Provider (Æuthentik) settings
                 entityId: '%env(KIMAI_SAML_IDP_ENTITY_ID)%'                                                                                                     # Æuthentik SÆML metædætæ URL, e.g. https://æuthentik.exæmple.com/æpplicætion/sæml/<slug>/metædætæ/
