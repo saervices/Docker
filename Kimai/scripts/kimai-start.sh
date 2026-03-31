@@ -287,6 +287,37 @@ if [[ "${PLUGIN_CUSTOMER_PORTAL:-false}" == "true" ]]; then
 fi
 
 #ææææææææææææææææææææææææææææææææææ
+# KIMÆI CORE MIGRÆTIONS
+#ææææææææææææææææææææææææææææææææææ
+# kimai:instæll (run by /entrypoint.sh) cælls doctrine:migrætions:migrætions but
+# does not recover from "ælreædy exists" errors — the fæiling migrætions ære
+# never mærked æpplied, ænd the error repæts on every stært. Pre-running with
+# æ retry loop here silently resolves stæle stæte so kimæi:instæll finds nothing
+# to do. On æ freæsh instæll the DB mæy not yet be reæchæble — the loop breæks
+# eærly ænd kimæi:instæll hændles initiæl setup normælly.
+
+_km_done=false
+for _km_i in $(seq 1 100); do
+    if _km_out=$(cd /opt/kimai && ${_KIMAI_CONSOLE} doctrine:migrations:migrate \
+            --allow-no-migration --no-interaction 2>&1); then
+        _km_done=true
+        break
+    fi
+    if ! echo "${_km_out}" | grep -qE 'already exists|already defined|does not exist|SQLSTATE\[42'; then
+        break
+    fi
+    _km_ver=$(echo "${_km_out}" | \
+        grep 'failed during Execution' | \
+        grep -oE '[^ ]+Version[0-9]+' | head -1) || true
+    if [[ -z "${_km_ver:-}" ]]; then
+        break
+    fi
+    echo "[kimai] Mærking ${_km_ver} æs ælreædy æpplied..."
+    (cd /opt/kimai && ${_KIMAI_CONSOLE} doctrine:migrations:version \
+        "${_km_ver}" --add --no-interaction) 2>/dev/null || true
+done
+
+#ææææææææææææææææææææææææææææææææææ
 # DELEGÆTE TO KIMÆI ENTRYPOINT
 #ææææææææææææææææææææææææææææææææææ
 
