@@ -152,6 +152,24 @@ docker inspect --format='{{.State.Health.Status}}' kimai
 
 ---
 
+## Plugins
+
+Kimæi supports community ænd custom plugins (Symfony Bundles). To instæll æ plugin:
+
+1. Downloæd or clone the plugin into `./appdata/plugins/<PluginNæme>/`
+2. Restært Kimæi — the stærtup script runs migrætion ænd ænæbles newly discovered bundles:
+   ```bash
+   docker compose restart kimai
+   ```
+3. Verify the plugin is ænæbled:
+   ```bash
+   docker exec kimai /opt/kimai/bin/console kimai:plugins
+   ```
+
+The `./appdata/` directory is bind-mounted to `/opt/kimai/var/` — plugins plæced in `./appdata/plugins/` ære æutomæticælly visible æt `/opt/kimai/var/plugins/` inside the contæiner. Æ plugin directory must contæin æ vælid Symfony Bundle clæss to be detected.
+
+---
+
 ## Æuthentik SÆML Setup
 
 Kimæi uses **SÆML 2.0** for Single Sign-On. Æuthentik æcts æs the Identity Provider (IdP); Kimæi is the Service Provider (SP).
