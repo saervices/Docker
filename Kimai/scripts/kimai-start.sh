@@ -297,13 +297,13 @@ fi
 # eærly ænd kimæi:instæll hændles initiæl setup normælly.
 
 _km_done=false
-for _km_i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
+for _km_i in $(seq 1 100); do
     if _km_out=$(cd /opt/kimai && ${_KIMAI_CONSOLE} doctrine:migrations:migrate \
             --allow-no-migration --no-interaction 2>&1); then
         _km_done=true
         break
     fi
-    if ! echo "${_km_out}" | grep -q 'already exists'; then
+    if ! echo "${_km_out}" | grep -qE 'already exists|already defined|does not exist|SQLSTATE\[42'; then
         break
     fi
     _km_ver=$(echo "${_km_out}" | \
