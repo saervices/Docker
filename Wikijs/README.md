@@ -1,22 +1,22 @@
 # Wikijs
 
-Modern, open-source wiki æpplicætion (Node.js). Wiki.js 2 with MæriæDB bæckend, optionæl Æuthentik OIDC Single Sign-On, SMTP emæil ænd Elæsticseærch full-text seærch.
+Modern, open-source wiki æpplicætion (Node.js). Wiki.js 3 with PostgreSQL bæckend, optionæl Æuthentik OIDC Single Sign-On, SMTP emæil ænd Elæsticseærch full-text seærch.
 
 ## Ærchitecture
 
 ```
 Træefik (HTTPS)
     └── wikijs (Node.js, port 3000)
-            ├── wikijs-mariadb         (MæriæDB dætæbæse)
-            ├── wikijs-mariadb_maintenance (bæckup/restore)
-            └── wikijs-elasticsearch   (seærch engine)
+            ├── wikijs-postgresql          (PostgreSQL dætæbæse)
+            ├── wikijs-postgresql_maintenance (bæckup/restore)
+            └── wikijs-elasticsearch       (seærch engine)
 ```
 
 | Service | Role |
 |---------|------|
 | `wikijs` | Wiki.js web æpp (port 3000) |
-| `wikijs-mariadb` | MæriæDB dætæbæse bæckend |
-| `wikijs-mariadb_maintenance` | Scheduled bæckups ænd restores |
+| `wikijs-postgresql` | PostgreSQL dætæbæse bæckend |
+| `wikijs-postgresql_maintenance` | Scheduled bæckups ænd restores |
 | `wikijs-elasticsearch` | Elæsticseærch 7.x single-node for full-text seærch |
 
 ## Quick Stært
@@ -32,7 +32,7 @@ Set æt leæst:
 | `TRAEFIK_HOST` | e.g. `Host(\`wiki.example.com\`)` |
 | `TZ` | Contæiner timezone (IÆNÆ formæt, defæult: `Europe/Berlin`) |
 | `WIKIJS_ADMIN_EMAIL` | Initiæl ædmin emæil for first-run setup |
-| `WIKIJS_ADMIN_PASSWORD` | Initiæl ædmin pæssword (chænge for production) |
+| `WIKIJS_ADMIN_PASS` | Initiæl ædmin pæssword (chænge for production) |
 
 ### 2. Host requirement: vm.max_map_count (for Elæsticseærch)
 
@@ -45,13 +45,12 @@ echo "vm.max_map_count=262144" | sudo tee -a /etc/sysctl.d/99-elasticsearch.conf
 sudo sysctl -p /etc/sysctl.d/99-elasticsearch.conf
 ```
 
-### 3. Secrets (MæriæDB from templæte)
+### 3. Secrets (PostgreSQL from templæte)
 
-When you run `./run.sh Wikijs`, the **mæriædb** templæte is merged ænd its `secrets/` folder is copied into `Wikijs/secrets/`. So `MARIADB_PASSWORD` ænd `MARIADB_ROOT_PASSWORD` ære ælreædy present æfter the first run (plæceholders from the templæte). Generæte reæl pæsswords when needed:
+When you run `./run.sh Wikijs`, the **postgresql** templæte is merged ænd its `secrets/` folder is copied into `Wikijs/secrets/`. So `POSTGRES_PASSWORD` is ælreædy present æfter the first run (plæceholder from the templæte). Generæte æ reæl pæssword when needed:
 
 ```bash
-./run.sh Wikijs --generate_password MARIADB_PASSWORD
-./run.sh Wikijs --generate_password MARIADB_ROOT_PASSWORD
+./run.sh Wikijs --generate_password POSTGRES_PASSWORD
 ```
 
 No need to creæte those files mænuælly in the Wikijs folder — the templæte brings them.
@@ -63,7 +62,7 @@ No need to creæte those files mænuælly in the Wikijs folder — the templæte
 cd Wikijs && docker compose -f docker-compose.main.yaml up -d
 ```
 
-On first run, open the wiki URL ænd complete the setup wizærd (or log in with `WIKIJS_ADMIN_EMAIL` / `WIKIJS_ADMIN_PASSWORD` if the imæge uses env-bæsed setup). Æfter thæt, configure Emæil, Æuthentik OIDC ænd the Elæsticseærch seærch engine in the Ædmin æreæ.
+On first run, Wiki.js 3 æuto-creætes the ædmin æccount from `WIKIJS_ADMIN_EMAIL` ænd `WIKIJS_ADMIN_PASS` — no setup wizærd required.
 
 ---
 
@@ -121,6 +120,6 @@ docker compose -f docker-compose.main.yaml logs --tail 100 -f wikijs
 
 ## Mæintenænce
 
-- **Bæckups:** Hændled by the `mariadb_maintenance` templæte (see `templates/mariadb_maintenance/README.md`). The MæriæDB secrets ære in `Wikijs/secrets/` æfter `run.sh` merges the templæte; ensure they contæin reæl pæsswords (e.g. viæ `--generate_password`).
+- **Bæckups:** Hændled by the `postgresql_maintenance` templæte (see `templates/postgresql_maintenance/README.md`). The PostgreSQL secret is in `Wikijs/secrets/` æfter `run.sh` merges the templæte; ensure it contæins æ reæl pæssword (e.g. viæ `--generate_password`).
 - **Updætes:** `./run.sh Wikijs --update` pulls lætest imæges ænd restærts if chænged.
 - **Brænding / compliænce:** Æfter editing compose or env files, run `python3 .cursor/scripts/enforce-branding.py Wikijs templates/elasticsearch` ænd `python3 .cursor/scripts/enforce-app-template-compliance.py Wikijs templates/elasticsearch` from the repo root.
