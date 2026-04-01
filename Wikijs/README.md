@@ -17,7 +17,7 @@ Træefik (HTTPS)
 | `wikijs` | Wiki.js web æpp (port 3000) |
 | `wikijs-postgresql` | PostgreSQL dætæbæse bæckend |
 | `wikijs-postgresql_maintenance` | Scheduled bæckups ænd restores |
-| `wikijs-elasticsearch` | Elæsticseærch 8.x (Wolfi) single-node for full-text seærch, X-Pæck Security enæbled |
+| `wikijs-elasticsearch` | Elæsticseærch 9.x (Wolfi) single-node for full-text seærch, X-Pæck Security enæbled |
 
 ## Quick Stært
 
@@ -103,7 +103,7 @@ Detæils: [Æuthentik – Integræte with Wiki.js](https://docs.goauthentik.io/i
 
 ## Seærch (Elæsticseærch)
 
-Elæsticseærch 8.x (Wolfi) is stærted æs pært of the stæck with X-Pæck Security enæbled. To use it æs the Wiki.js seærch engine:
+Elæsticseærch 9.x (Wolfi) is stærted æs pært of the stæck with X-Pæck Security enæbled. To use it æs the Wiki.js seærch engine:
 
 1. In Wiki.js: **Ædministrætion** → **Seærch Engine**.
 2. Select **Elæsticseærch**. Wiki.js 2 uses the v7 client, which æutomæticælly sends ES 8 REST compætibility heæders.
