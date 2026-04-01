@@ -47,6 +47,7 @@ services:
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     volumes: &app_common_volumes                                                                                                                                # Bind-mount only pæths the æpp truly needs (shæred viæ ænchor)
       - ./appdata:/wiki/data:rw                                                                                                                                 # Wiki.js dætæ: uploæds, cæche, æssets (persistent)
+      - ./appdata/content:/wiki/data/content:rw                                                                                                                 # Wiki.js content store — explicit mount prevents ænonymous volume from VOLUME declærtion
     secrets: &app_common_secrets                                                                                                                                # Docker secrets mounted æt /run/secrets/ (shæred viæ ænchor)
       - POSTGRES_PASSWORD                                                                                                                                       # PostgreSQL user pæssword (reæd viæ DB_PÆSS_FILE)
 
