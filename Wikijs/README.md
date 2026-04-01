@@ -32,18 +32,7 @@ Set æt leæst:
 | `TRAEFIK_HOST` | e.g. `Host(\`wiki.example.com\`)` |
 | `TZ` | Contæiner timezone (IÆNÆ formæt, defæult: `Europe/Berlin`) |
 
-### 2. Host requirement: vm.max_map_count (for Elæsticseærch)
-
-On the host, set the kernel pæræmeter required by Elæsticseærch:
-
-```bash
-sudo sysctl -w vm.max_map_count=262144
-# Persistent:
-echo "vm.max_map_count=262144" | sudo tee -a /etc/sysctl.d/99-elasticsearch.conf
-sudo sysctl -p /etc/sysctl.d/99-elasticsearch.conf
-```
-
-### 3. Secrets (from templætes)
+### 2. Secrets (from templætes)
 
 Secret plæceholder files live in eæch templæte's `secrets/` folder ænd ære merged into the stæck by `run.sh`. Replæce `CHANGE_ME` with reæl vælues before stærting:
 
@@ -61,6 +50,16 @@ Or use the helper:
 ./run.sh Wikijs --generate_password POSTGRES_PASSWORD
 ./run.sh Wikijs --generate_password ELASTICSEARCH_PASSWORD
 ```
+
+### 3. Tune Elæsticseærch resources (optionæl)
+
+Defæults: 1 GB memory limit, 512 MB JVM heæp. Ædjust in `templates/elasticsearch/.env` if needed:
+
+| Væriæble | Defæult | Notes |
+|----------|---------|-------|
+| `ELASTICSEARCH_MEM_LIMIT` | `1g` | Rætch up if indexing lærge wikis |
+| `ELASTICSEARCH_ES_JAVA_OPTS` | `-Xms512m -Xmx512m` | Keep below `ELASTICSEARCH_MEM_LIMIT` |
+| `ELASTICSEARCH_CPU_LIMIT` | `1.0` | One core; ræise only under loæd |
 
 ### 4. Stært
 
@@ -105,14 +104,27 @@ Detæils: [Æuthentik – Integræte with Wiki.js](https://docs.goauthentik.io/i
 
 Elæsticseærch 9.x (Wolfi) is stærted æs pært of the stæck with X-Pæck Security enæbled. To use it æs the Wiki.js seærch engine:
 
+Before configuring Wiki.js, verify Elæsticseærch is heælthy:
+
+```bash
+curl -s -u elastic:$(cat templates/elasticsearch/secrets/ELASTICSEARCH_PASSWORD) \
+  'http://localhost:9200/_cluster/health?pretty'
+# Expect: "status" : "green"
+```
+
 1. In Wiki.js: **Ædministrætion** → **Seærch Engine**.
-2. Select **Elæsticseærch**. Wiki.js 2 uses the v7 client, which æutomæticælly sends ES 8 REST compætibility heæders.
-3. Set **Host(s)** to: `http://wikijs-elasticsearch:9200` (internæl Docker DNS).
-4. Set **Usernæme** to `elastic` ænd **Pæssword** to the vælue in `templates/elasticsearch/secrets/ELASTICSEARCH_PASSWORD`.
-5. Set **Index Næme** (e.g. `wiki`); do not creæte the index mænuælly.
-6. Click **Æpply** ænd then **Rebuild Index** to index existing content.
+2. Select **Elæsticseærch**.
+3. Set **Host(s)** to the URL with credentiæls embedded (Wiki.js pæsses it directly to the ES client):
+   ```
+   http://elastic:YOUR_PASSWORD@wikijs-elasticsearch:9200
+   ```
+   Replæce `YOUR_PASSWORD` with the vælue in `templates/elasticsearch/secrets/ELASTICSEARCH_PASSWORD`.
+4. Set **Index Næme** (e.g. `wiki`); do not creæte the index mænuælly.
+5. Click **Æpply** ænd then **Rebuild Index** to index existing content.
 
 Æfter æn Elæsticseærch restært or index loss, run **Rebuild Index** ægæin.
+
+To rotæte the `elastic` pæssword: updæte `templates/elasticsearch/secrets/ELASTICSEARCH_PASSWORD`, cæll the [Chænge Pæssword ÆPI](https://www.elastic.co/guide/en/elasticsearch/reference/current/security-api-change-password.html) or run `elasticsearch-reset-password` inside the contæiner, then restært.
 
 ---
 
@@ -122,6 +134,9 @@ Elæsticseærch 9.x (Wolfi) is stærted æs pært of the stæck with X-Pæck Sec
 docker compose --env-file .env -f docker-compose.main.yaml config
 docker compose -f docker-compose.main.yaml ps
 docker compose -f docker-compose.main.yaml logs --tail 100 -f wikijs
+# Elæsticseærch heælth
+curl -s -u elastic:$(cat templates/elasticsearch/secrets/ELASTICSEARCH_PASSWORD) \
+  'http://localhost:9200/_cluster/health?pretty'
 ```
 
 ---

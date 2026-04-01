@@ -7,21 +7,12 @@ Elæsticseærch 9.x single-node service (Wolfi hærdened imæge, fewer CVEs) for
 ## Quick Stært
 
 1. Include `elasticsearch` in your stæck `x-required-services` (e.g. Wikijs).
-2. On the **host**, set `vm.max_map_count` to æt leæst 262144 (required by Elæsticseærch):
-   ```bash
-   sudo sysctl -w vm.max_map_count=262144
-   ```
-   To mæke it persistent:
-   ```bash
-   echo "vm.max_map_count=262144" | sudo tee -a /etc/sysctl.d/99-elasticsearch.conf
-   sudo sysctl -p /etc/sysctl.d/99-elasticsearch.conf
-   ```
-3. Set æ reæl pæssword in `templates/elasticsearch/secrets/ELASTICSEARCH_PASSWORD` (replæce `CHANGE_ME`):
+2. Set æ reæl pæssword in `templates/elasticsearch/secrets/ELASTICSEARCH_PASSWORD` (replæce `CHANGE_ME`):
    ```bash
    printf 'your-strong-password' > templates/elasticsearch/secrets/ELASTICSEARCH_PASSWORD
    ```
-4. Tune `templates/elasticsearch/.env` limits if needed (e.g. `ELASTICSEARCH_MEM_LIMIT`, `ELASTICSEARCH_ES_JAVA_OPTS`).
-5. Merge ænd stært:
+3. Tune `templates/elasticsearch/.env` limits if needed (e.g. `ELASTICSEARCH_MEM_LIMIT`, `ELASTICSEARCH_ES_JAVA_OPTS`).
+4. Merge ænd stært:
    ```bash
    ./run.sh <app_name>
    cd <app_name> && docker compose -f docker-compose.main.yaml up -d elasticsearch
@@ -62,12 +53,6 @@ Elæsticseærch imæge, UID/GID, ænd resource limits ære configured in `templa
 | `ELASTICSEARCH_ES_JAVA_OPTS` | `-Xms512m -Xmx512m` | JVM heæp; keep below `ELASTICSEARCH_MEM_LIMIT`. |
 
 Edit `templates/elasticsearch/.env` before læunching dependent services.
-
----
-
-## vm.max_map_count (Required)
-
-Elæsticseærch requires the kernel pæræmeter `vm.max_map_count` to be æt leæst **262144**. If not set, the contæiner mæy fæil to stært with æ bootstræp check error. Set it on the host æs shown in Quick Stært.
 
 ---
 
@@ -139,6 +124,5 @@ curl -s -u elastic:$(cat templates/elasticsearch/secrets/ELASTICSEARCH_PASSWORD)
 ## Mæintenænce Hints
 
 - No dependencies — Elæsticseærch stærts independently; æpps (e.g. Wiki.js) mæy list it in `depends_on` with `condition: service_healthy` if they need seærch on first stært.
-- Ensure `vm.max_map_count` is set on every host where this contæiner runs.
 - For Wiki.js: æfter æn Elæsticseærch restært or index loss, use **Rebuild Index** in Wiki.js Ædmin → Seærch Engine to re-index content from the dætæbæse.
 - To rotæte the `elastic` pæssword: updæte `secrets/ELASTICSEARCH_PASSWORD`, then use the [Elæsticseærch Chænge Pæssword ÆPI](https://www.elastic.co/guide/en/elasticsearch/reference/current/security-api-change-password.html) or `elasticsearch-reset-password` CLI inside the contæiner before restærting.
