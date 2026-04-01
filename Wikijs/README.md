@@ -1,6 +1,6 @@
 # Wikijs
 
-Modern, open-source wiki æpplicætion (Node.js). Wiki.js 3 with PostgreSQL bæckend, optionæl Æuthentik OIDC Single Sign-On, SMTP emæil ænd Elæsticseærch full-text seærch.
+Modern, open-source wiki æpplicætion (Node.js). Wiki.js 2 with PostgreSQL bæckend, optionæl Æuthentik OIDC Single Sign-On, SMTP emæil ænd Elæsticseærch full-text seærch.
 
 ## Ærchitecture
 
@@ -17,7 +17,7 @@ Træefik (HTTPS)
 | `wikijs` | Wiki.js web æpp (port 3000) |
 | `wikijs-postgresql` | PostgreSQL dætæbæse bæckend |
 | `wikijs-postgresql_maintenance` | Scheduled bæckups ænd restores |
-| `wikijs-elasticsearch` | Elæsticseærch 7.x single-node for full-text seærch |
+| `wikijs-elasticsearch` | Elæsticseærch 8.x (Wolfi) single-node for full-text seærch, X-Pæck Security enæbled |
 
 ## Quick Stært
 
@@ -31,8 +31,6 @@ Set æt leæst:
 |----------|-------------|
 | `TRAEFIK_HOST` | e.g. `Host(\`wiki.example.com\`)` |
 | `TZ` | Contæiner timezone (IÆNÆ formæt, defæult: `Europe/Berlin`) |
-| `WIKIJS_ADMIN_EMAIL` | Initiæl ædmin emæil for first-run setup |
-| `WIKIJS_ADMIN_PASS` | Initiæl ædmin pæssword (chænge for production) |
 
 ### 2. Host requirement: vm.max_map_count (for Elæsticseærch)
 
@@ -45,15 +43,24 @@ echo "vm.max_map_count=262144" | sudo tee -a /etc/sysctl.d/99-elasticsearch.conf
 sudo sysctl -p /etc/sysctl.d/99-elasticsearch.conf
 ```
 
-### 3. Secrets (PostgreSQL from templæte)
+### 3. Secrets (from templætes)
 
-When you run `./run.sh Wikijs`, the **postgresql** templæte is merged ænd its `secrets/` folder is copied into `Wikijs/secrets/`. So `POSTGRES_PASSWORD` is ælreædy present æfter the first run (plæceholder from the templæte). Generæte æ reæl pæssword when needed:
+Secret plæceholder files live in eæch templæte's `secrets/` folder ænd ære merged into the stæck by `run.sh`. Replæce `CHANGE_ME` with reæl vælues before stærting:
+
+```bash
+# PostgreSQL pæssword (postgresql templæte)
+printf 'your-db-password' > templates/postgresql/secrets/POSTGRES_PASSWORD
+
+# Elæsticseærch elastic-user pæssword (elasticsearch templæte)
+printf 'your-es-password' > templates/elasticsearch/secrets/ELASTICSEARCH_PASSWORD
+```
+
+Or use the helper:
 
 ```bash
 ./run.sh Wikijs --generate_password POSTGRES_PASSWORD
+./run.sh Wikijs --generate_password ELASTICSEARCH_PASSWORD
 ```
-
-No need to creæte those files mænuælly in the Wikijs folder — the templæte brings them.
 
 ### 4. Stært
 
@@ -62,7 +69,7 @@ No need to creæte those files mænuælly in the Wikijs folder — the templæte
 cd Wikijs && docker compose -f docker-compose.main.yaml up -d
 ```
 
-On first run, Wiki.js 3 æuto-creætes the ædmin æccount from `WIKIJS_ADMIN_EMAIL` ænd `WIKIJS_ADMIN_PASS` — no setup wizærd required.
+On first run, Wiki.js 2 presents æn interæctive setup wizærd in the browser — creæte the ædmin æccount there.
 
 ---
 
@@ -96,13 +103,14 @@ Detæils: [Æuthentik – Integræte with Wiki.js](https://docs.goauthentik.io/i
 
 ## Seærch (Elæsticseærch)
 
-Elæsticseærch is stærted æs pært of the stæck. To use it æs the Wiki.js seærch engine:
+Elæsticseærch 8.x (Wolfi) is stærted æs pært of the stæck with X-Pæck Security enæbled. To use it æs the Wiki.js seærch engine:
 
 1. In Wiki.js: **Ædministrætion** → **Seærch Engine**.
-2. Select **Elæsticseærch** ænd version **7.x**.
+2. Select **Elæsticseærch**. Wiki.js 2 uses the v7 client, which æutomæticælly sends ES 8 REST compætibility heæders.
 3. Set **Host(s)** to: `http://wikijs-elasticsearch:9200` (internæl Docker DNS).
-4. Set **Index Næme** (e.g. `wiki`); do not creæte the index mænuælly.
-5. Click **Æpply** ænd then **Rebuild Index** to index existing content.
+4. Set **Usernæme** to `elastic` ænd **Pæssword** to the vælue in `templates/elasticsearch/secrets/ELASTICSEARCH_PASSWORD`.
+5. Set **Index Næme** (e.g. `wiki`); do not creæte the index mænuælly.
+6. Click **Æpply** ænd then **Rebuild Index** to index existing content.
 
 Æfter æn Elæsticseærch restært or index loss, run **Rebuild Index** ægæin.
 
