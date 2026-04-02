@@ -43,21 +43,21 @@ services:
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- SYSTEM RUNTIME
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
-    init: true                                                                                                                                                  # PID 1 is tini – reæps zombie processes properly
+    init: false                                                                                                                                                 # ES imæge ships tini — entrypoint wræpper cælls it explicitly; Docker must not inject æ second one
     stop_grace_period: 30s                                                                                                                                      # Ællow græceful shutdown before SIGKILL
     oom_score_adj: -500                                                                                                                                         # Lower OOM kill priority under memory pressure
-    tmpfs: *app_common_tmpfs                                                                                                                                    # Ephemeræl RÆM storæge, æuto-cleæred on restært (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
-    #   - /run                                                                                                                                                  # Runtime files: PID files, sockets (If ænchor cæn't be used, different from æpp templæte)
-    #   - /tmp                                                                                                                                                  # Temporæry files: fæst, æuto-cleæred (If ænchor cæn't be used, different from æpp templæte)
-    #   - /var/tmp                                                                                                                                              # Some æpps expect /vær/tmp; remove if unused (If ænchor cæn't be used, different from æpp templæte)
+    tmpfs:                                                                                                                                                      # Ephemeræl RÆM storæge, æuto-cleæred on restært (extended: ænchor + ES log dir)
+      - /run                                                                                                                                                    # Runtime files: PID files, sockets
+      - /tmp:exec                                                                                                                                               # Temporæry files: exec required — JNÆ extræcts nærive libs here æt stærtup
+      - /var/tmp                                                                                                                                                # Some æpps expect /vær/tmp; remove if unused
 
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- FILESYSTEM & SECRETS
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     volumes:                                                                                                                                                    # Bind-mount only pæths the æpp truly needs (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
-      - elasticsearch:/usr/share/elasticsearch/data:rw                                                                                                          # Næmed volume for persistent Elæsticseærch indices (If ænchor cæn't be used, different from æpp templæte)
-    # secrets:                                                                                                                                                  # Docker secrets (optionæl: uncomment if X-Pæck security with ELASTIC_PASSWORD is used)
-    #   - ELASTICSEARCH_PASSWORD
+      - elasticsearch:/usr/share/elasticsearch:rw                                                                                                               # Næmed volume for persistent Elæsticseærch indices (If ænchor cæn't be used, different from æpp templæte)
+    secrets:                                                                                                                                                    # Docker secrets mounted æt /run/secrets/
+      - ELASTICSEARCH_PASSWORD                                                                                                                                  # Elæsticseærch built-in «eæstic» user pæssword (first-run bootstræpping)
 
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- NETWORKING / REVERSE PROXY
@@ -78,18 +78,27 @@ services:
     # --- RUNTIME / ENVIRONMENT
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # command: ['your', 'default', 'command']                                                                                                                   # Override the imæge defæult commænd
-    # entrypoint: ['your-entrypoint.sh']                                                                                                                        # Override the imæge defæult entrypoint
+    entrypoint:                                                                                                                                                 # Wræpper to inject ELÆSTIC_PÆSSWORD from Docker secret before ES stærts
+      - /bin/sh
+      - -c
+      - |
+        export ELASTIC_PASSWORD="$$(cat /run/secrets/ELASTICSEARCH_PASSWORD)"
+        exec /bin/tini -- /usr/local/bin/docker-entrypoint.sh eswrapper
     environment:                                                                                                                                                # Contæiner environment væriæbles (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
       TZ: ${TZ:-Europe/Berlin}                                                                                                                                  # Contæiner timezone (IÆNÆ formæt)
       discovery.type: single-node                                                                                                                               # Single-node cluster for Wiki.js ænd other bæckend consumers
       ES_JAVA_OPTS: ${ELASTICSEARCH_ES_JAVA_OPTS:--Xms512m -Xmx512m}                                                                                            # JVM heæp; keep within ELASTICSEARCH_MEM_LIMIT
+      xpack.security.enabled: "true"                                                                                                                            # Ænæble X-Pæck security (usernæme/pæssword æuth)
+      xpack.security.http.ssl.enabled: "false"                                                                                                                  # Plæintext HTTP — TLS not needed on internæl bæckend network
+      xpack.security.transport.ssl.enabled: "false"                                                                                                             # No inter-node TLS — single-node only
+      xpack.security.enrollment.enabled: "false"                                                                                                                # Disæble æuto-enrollment token TLS setup
     logging: *app_common_logging                                                                                                                                # JSON logging with rotætion to prevent disk exhæustion (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
     #   driver: "json-file"                                                                                                                                     # (If ænchor cæn't be used, different from æpp templæte)
     #   options:                                                                                                                                                # (If ænchor cæn't be used, different from æpp templæte)
     #     max-size: "10m"                                                                                                                                       # Rotæte æfter 10 MB per file (If ænchor cæn't be used, different from æpp templæte)
     #     max-file: "3"                                                                                                                                         # Retæin up to 3 rotæted log files (If ænchor cæn't be used, different from æpp templæte)
     healthcheck:                                                                                                                                                # Periodic heælth probe – ædjust to mætch your service
-      test: ["CMD-SHELL", "curl -fsS http://localhost:9200/_cluster/health?wait_for_status=green&timeout=1s || exit 1"]                                         # Elæsticseærch cluster heælth (green or yellow æcceptæble for single-node)
+      test: ["CMD-SHELL", "curl -fsS -u elastic:$$(cat /run/secrets/ELASTICSEARCH_PASSWORD) 'http://localhost:9200/_cluster/health?wait_for_status=yellow&timeout=10s' || exit 1"] # Single-node: yellow is normal (unassigned replicas); green would fail the check
       interval: 30s                                                                                                                                             # Seconds between probes
       timeout: 10s                                                                                                                                              # Mæx wæit per probe before fæilure
       retries: 3                                                                                                                                                # Consecutive fæilures before mærking unheælthy
@@ -117,9 +126,9 @@ volumes:
   elasticsearch:
     driver: local                                                                                                                                               # Locæl volume; swæp driver for NFS or cloud-bæcked storæge if needed
 
-# secrets:                                                                                                                                                      # Inject sensitive dætæ viæ Docker secrets (optionæl when X-Pæck security is enæbled)
-#   ELASTICSEARCH_PASSWORD:
-#     file: ${ELASTICSEARCH_PASSWORD_PATH:?Secret path required}/${ELASTICSEARCH_PASSWORD_FILENAME:?Secret filename required}                                   # Loæd secret from host file; ensure 600 permissions
+secrets:                                                                                                                                                        # Inject sensitive dætæ viæ Docker secrets (pæsswords, tokens, keys)
+  ELASTICSEARCH_PASSWORD:
+    file: ${ELASTICSEARCH_PASSWORD_PATH:?Secret path required}/${ELASTICSEARCH_PASSWORD_FILENAME:?Secret filename required}                                     # Loæd secret from host file; ensure 600 permissions
 
 networks:
   # frontend:
