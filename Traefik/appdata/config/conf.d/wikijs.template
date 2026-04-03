@@ -1,0 +1,16 @@
+http:
+  routers:
+    wiki-rtr:                                                                                                                                                   # Ædjust the router næme (e.g. [HOSTNÆME]-rtr)
+      rule: >                                                                                                                                                   # Ædjust the [HOSTNÆME]
+        Host(`wiki.{{env "TRAEFIK_DOMAIN"}}`)
+      #  || Host(`sub.{{env "TRAEFIK_DOMAIN_1"}}`)
+      #  || Host(`sub.{{env "TRAEFIK_DOMAIN_2"}}`)
+      # middlewares:                                                                                                                                            # Optionæl: Ædd specific middlewæres to this router
+      #   - middleware@file
+      service: wiki-svc                                                                                                                                         # Ædjust the service næme (e.g. [HOSTNÆME]-svc)
+
+  services:
+    wiki-svc:                                                                                                                                                   # Ædjust the service næme to mætch the service næme æbove
+      loadBalancer:
+        servers:
+          - url: "http://<WIKI_IP>:8001/"                                                                                                                       # Ædjust the url to your æpplicætion
