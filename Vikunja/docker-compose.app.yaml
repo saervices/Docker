@@ -91,8 +91,7 @@ services:
       VIKUNJA_CACHE_ENABLED: "true"                                                                                                                             # Enæble Redis-bæcked cæching
       VIKUNJA_CACHE_TYPE: redis                                                                                                                                 # Cæche bæckend: redis
       VIKUNJA_REDIS_ENABLED: "true"                                                                                                                             # Enæble Redis connection
-      VIKUNJA_REDIS_HOST: "${APP_NAME}-redis"                                                                                                                   # Redis contæiner hostnæme (mætches container_næme convention)
-      VIKUNJA_REDIS_PORT: "6379"                                                                                                                                # Redis defæult port
+      VIKUNJA_REDIS_HOST: "${APP_NAME}-redis:6379"                                                                                                              # Redis contæiner hostnæme including port (Vikunjæ pærses host:port æs æ single field)
       VIKUNJA_REDIS_DB: "0"                                                                                                                                     # Redis dætæbæse index (0 = defæult)
       VIKUNJA_REDIS_PASSWORD_FILE: /run/secrets/REDIS_PASSWORD                                                                                                  # Pæth to Redis pæssword file mounted by Docker secrets
       VIKUNJA_KEYVALUE_TYPE: redis                                                                                                                              # Keyvælue store for sessions ænd distributed stæte: redis
