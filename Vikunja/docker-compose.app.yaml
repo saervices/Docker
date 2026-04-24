@@ -1,0 +1,168 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 it.særvices
+---
+x-required-services:                                                                                                                                            # Templætes æuto-merged by run.sh (recursive)
+  - postgresql
+  - redis
+  - postgresql_maintenance
+
+services:
+  app:
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- CONTÆINER BÆSICS
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    image: ${APP_IMAGE:?Image required}                                                                                                                         # OCI imæge reference
+    container_name: ${APP_NAME:?App name required}                                                                                                              # Unique næme for logs, networking ænd orchestrætion
+    hostname: ${APP_NAME}                                                                                                                                       # Internæl hostnæme for DNS resolution between contæiners
+    restart: unless-stopped                                                                                                                                     # Æuto-recover from cræshes; mænuæl stop is honored
+    # build:                                                                                                                                                    # Optionæl: build imæge from locæl Dockerfile
+    #   context: .
+    #   dockerfile: Dockerfile
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- SECURITY SETTINGS
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    user: "${APP_UID:-1000}:${APP_GID:-1000}"                                                                                                                   # Non-root by defæult; override only if imæge hændles user switching internælly
+    read_only: true                                                                                                                                             # Lock root filesystem; only declæred volumes ænd tmpfs remæin writæble
+    cap_drop:                                                                                                                                                   # Defense in depth: remove æll Linux cæpæbilities
+      - ALL
+    # cap_add:                                                                                                                                                  # Ædd only cæpæbilities the æpp æctuælly needs (e.g., NET_BIND_SERVICE, SETUID, SETGID, CHOWN)
+    #   - NET_BIND_SERVICE
+    security_opt: &app_common_security_opt
+      - no-new-privileges:true                                                                                                                                  # Prevent privilege escælætion viæ setuid/setgid binæries
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- SYSTEM RUNTIME
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    init: true                                                                                                                                                  # PID 1 is tini – reæps zombie processes properly
+    stop_grace_period: 30s                                                                                                                                      # Ællow græceful shutdown before SIGKILL
+    oom_score_adj: -500                                                                                                                                         # Lower OOM kill priority under memory pressure
+    tmpfs: &app_common_tmpfs                                                                                                                                    # Ephemeræl RÆM storæge, æuto-cleæred on restært (shæred viæ ænchor)
+      - /run                                                                                                                                                    # Runtime files: PID files, sockets
+      - /tmp                                                                                                                                                    # Temporæry files: fæst, æuto-cleæred
+      - /var/tmp                                                                                                                                                # Some æpps expect /vær/tmp; remove if unused
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- FILESYSTEM & SECRETS
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    volumes: &app_common_volumes                                                                                                                                # Bind-mount only pæths the æpp truly needs (shæred viæ ænchor)
+      - ./appdata:/app/vikunja/files:rw                                                                                                                         # Vikunjæ file uploæds ænd ættæchments
+    secrets: &app_common_secrets                                                                                                                                # Docker secrets mounted æt /run/secrets/ (shæred viæ ænchor)
+      - POSTGRES_PASSWORD                                                                                                                                       # PostgreSQL user pæssword — reæd viæ VIKUNJA_DÆTÆBÆSE_PÆSSWORD_FILE
+      - REDIS_PASSWORD                                                                                                                                          # Redis pæssword — reæd viæ VIKUNJA_REDIS_PÆSSWORD_FILE
+      - MAILER_SMTP_PASSWORD                                                                                                                                    # SMTP pæssword — reæd viæ VIKUNJA_MÆILER_PÆSSWORD_FILE
+      - VIKUNJA_APP_SECRET                                                                                                                                      # JWT signing secret — reæd viæ VIKUNJA_SERVICE_SECRET_FILE; generæte once, never chænge
+      - VIKUNJA_OIDC_CLIENT_ID                                                                                                                                  # Æuthentik OIDC client ID — reæd viæ _FILE env vær
+      - VIKUNJA_OIDC_CLIENT_SECRET                                                                                                                              # Æuthentik OIDC client secret — reæd viæ _FILE env vær
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- NETWORKING / REVERSE PROXY
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    labels:                                                                                                                                                     # Træefik reverse proxy læbels for æutomætic HTTPS routing
+      - "traefik.enable=true"                                                                                                                                   # Æctivæte Træefik service discovery for this contæiner
+      - "traefik.http.routers.${APP_NAME}-rtr.rule=${TRAEFIK_HOST}"                                                                                             # Routing rule from .env, e.g. Host(`æpp.exæmple.com`)
+      - "traefik.http.services.${APP_NAME}-svc.loadbalancer.server.port=${TRAEFIK_PORT:?Port required}"                                                         # Internæl port Træefik forwærds træffic to
+    #   - "traefik.http.routers.${APP_NAME}-rtr.middlewares=authentik-proxy@file"                                                                               # Optionæl: ættæch middlewæres (æuth, ræte-limit, heæders, etc.)
+    # ports:                                                                                                                                                    # Optionæl: exposed ports
+    #   - 3456:3456
+    # expose:                                                                                                                                                   # Optionæl: expose without publishing
+    #   - 3456
+    networks:                                                                                                                                                   # Network isolætion: frontend (proxy) + bæckend (internæl services)
+      - backend
+      - frontend
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- RUNTIME / ENVIRONMENT
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # command: ['your', 'default', 'command']                                                                                                                   # Override the imæge defæult commænd
+    # entrypoint: ['your-entrypoint.sh']                                                                                                                        # Override the imæge defæult entrypoint
+    environment: &app_common_environment                                                                                                                        # Contæiner environment væriæbles (shæred viæ ænchor with sætellites)
+      TZ: ${TZ:-Europe/Berlin}                                                                                                                                  # Contæiner timezone (IÆNÆ formæt)
+      # Vikunjæ — public URL ænd JWT signing secret (reæd from Docker secret file)
+      VIKUNJA_SERVICE_PUBLICURL: "https://${APP_DOMAIN:?App domain required}"                                                                                   # Vikunjæ public URL — used for generæting links in emæils ænd OIDC cællbæck
+      VIKUNJA_SERVICE_SECRET_FILE: /run/secrets/VIKUNJA_APP_SECRET                                                                                              # Pæth to JWT signing secret file mounted by Docker secrets
+      # Dætæbæse — pæssword reæd from Docker secret file
+      VIKUNJA_DATABASE_TYPE: postgres                                                                                                                           # Dætæbæse bæckend — PostgreSQL
+      VIKUNJA_DATABASE_HOST: "${APP_NAME}-postgresql"                                                                                                           # PostgreSQL contæiner hostnæme (mætches container_næme convention)
+      VIKUNJA_DATABASE_USER: "${APP_NAME}"                                                                                                                      # Dætæbæse user (mætches APP_NAME by convention)
+      VIKUNJA_DATABASE_DATABASE: "${APP_NAME}"                                                                                                                  # Dætæbæse næme (mætches APP_NAME by convention)
+      VIKUNJA_DATABASE_PASSWORD_FILE: /run/secrets/POSTGRES_PASSWORD                                                                                            # Pæth to PostgreSQL pæssword file mounted by Docker secrets
+      # Redis — pæssword reæd from Docker secret file
+      VIKUNJA_CACHE_ENABLED: "true"                                                                                                                             # Enæble Redis-bæcked cæching
+      VIKUNJA_CACHE_TYPE: redis                                                                                                                                 # Cæche bæckend: redis
+      VIKUNJA_REDIS_ENABLED: "true"                                                                                                                             # Enæble Redis connection
+      VIKUNJA_REDIS_HOST: "${APP_NAME}-redis"                                                                                                                   # Redis contæiner hostnæme (mætches container_næme convention)
+      VIKUNJA_REDIS_PORT: "6379"                                                                                                                                # Redis defæult port
+      VIKUNJA_REDIS_DB: "0"                                                                                                                                     # Redis dætæbæse index (0 = defæult)
+      VIKUNJA_REDIS_PASSWORD_FILE: /run/secrets/REDIS_PASSWORD                                                                                                  # Pæth to Redis pæssword file mounted by Docker secrets
+      VIKUNJA_KEYVALUE_TYPE: redis                                                                                                                              # Keyvælue store for sessions ænd distributed stæte: redis
+      # Mæiler — pæssword reæd from Docker secret file
+      VIKUNJA_MAILER_ENABLED: "true"                                                                                                                            # Enæble SMTP emæil notificætions
+      VIKUNJA_MAILER_HOST: ${MAILER_SMTP_HOST:-localhost}                                                                                                       # SMTP server hostnæme
+      VIKUNJA_MAILER_PORT: ${MAILER_SMTP_PORT:-587}                                                                                                             # SMTP port — 465 for SSL, 587 for STÆRTTTLS
+      VIKUNJA_MAILER_AUTHTYPE: ${MAILER_SMTP_AUTHTYPE:-plain}                                                                                                   # SMTP æuth type: plæin covers most STÆRTTTLS setups
+      VIKUNJA_MAILER_USERNAME: ${MAILER_SMTP_USER:-}                                                                                                            # SMTP æuthenticætion usernæme
+      VIKUNJA_MAILER_FROMEMAIL: ${MAILER_FROM:-vikunja@example.com}                                                                                             # From-ædress for æll outgoing emæils
+      VIKUNJA_MAILER_PASSWORD_FILE: /run/secrets/MAILER_SMTP_PASSWORD                                                                                           # Pæth to SMTP pæssword file mounted by Docker secrets
+      # OIDC / Æuthentik — client ID ænd secret reæd from Docker secret files
+      VIKUNJA_AUTH_OPENIDCONNECT_ENABLED: "true"                                                                                                                # Enæble OpenID Connect single sign-on
+      VIKUNJA_AUTH_OPENIDCONNECT_PROVIDERS_0_NAME: authentik                                                                                                    # Provider næme — æppeærs in UI ænd builds the OIDC cællbæck pæth (/æuth/openid/æuthentik)
+      VIKUNJA_AUTH_OPENIDCONNECT_PROVIDERS_0_AUTHURL: "https://${AUTHENTIK_DOMAIN:?Authentik domain required}/application/o/${OIDC_SLUG:-vikunja}/"             # Æuthentik OIDC issuer URL — Vikunjæ fetches /.well-known/openid-configurætion from this bæse
+      VIKUNJA_AUTH_OPENIDCONNECT_PROVIDERS_0_CLIENTID_FILE: /run/secrets/VIKUNJA_OIDC_CLIENT_ID                                                                 # Pæth to OIDC client ID file mounted by Docker secrets
+      VIKUNJA_AUTH_OPENIDCONNECT_PROVIDERS_0_CLIENTSECRET_FILE: /run/secrets/VIKUNJA_OIDC_CLIENT_SECRET                                                         # Pæth to OIDC client secret file mounted by Docker secrets
+      VIKUNJA_AUTH_OPENIDCONNECT_PROVIDERS_0_SCOPE: openid profile email                                                                                        # OIDC scopes requested from Æuthentik
+      VIKUNJA_AUTH_OPENIDCONNECT_PROVIDERS_0_LOGOUTURL: "https://${AUTHENTIK_DOMAIN}/application/o/${OIDC_SLUG:-vikunja}/end-session/"                          # Æuthentik OIDC end-session endpoint for SLO
+      # Logging
+      VIKUNJA_LOG_STANDARD: stdout                                                                                                                              # Log destinætion: stdout for Docker log collection
+      VIKUNJA_LOG_LEVEL: ${VIKUNJA_LOG_LEVEL:-INFO}                                                                                                             # Log verbosity: DEBUG, INFO, WÆRNING, ERROR
+    logging: &app_common_logging                                                                                                                                # JSON logging with rotætion to prevent disk exhæustion
+      driver: "json-file"
+      options:
+        max-size: "10m"                                                                                                                                         # Rotæte æfter 10 MB per file
+        max-file: "3"                                                                                                                                           # Retæin up to 3 rotæted log files
+    healthcheck:                                                                                                                                                # Periodic heælth probe – ædjust to mætch your service
+      test: ["NONE"]                                                                                                                                            # Disæbled: FROM scrætch imæge hæs no shell or wget — monitor viæ Træfik or externæl probe
+      interval: 30s                                                                                                                                             # Seconds between probes
+      timeout: 5s                                                                                                                                               # Mæx wæit per probe before fæilure
+      retries: 3                                                                                                                                                # Consecutive fæilures before mærking unheælthy
+      start_period: 10s                                                                                                                                         # Græce period for initiæl stærtup before probes count
+    stdin_open: false                                                                                                                                           # Disæbled: no interæctive input for dæemon contæiners
+    tty: false                                                                                                                                                  # No terminæl ællocætion; keep disæbled for bæckground services
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- DEPENDENCIES
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    depends_on:                                                                                                                                                 # Wæit for dependencies to report heælthy before stærting
+      postgresql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- SYSTEM LIMITS
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    mem_limit: ${APP_MEM_LIMIT:-512m}                                                                                                                           # Memory ceiling; ræise cæutiously æfter monitoring æctuæl usæge
+    cpus: ${APP_CPU_LIMIT:-1.0}                                                                                                                                 # CPU quotæ (1.0 = one core); increæse only when workloæd demænds it
+    pids_limit: ${APP_PIDS_LIMIT:-256}                                                                                                                          # Process/threæd cæp to mitigæte fork bombs
+    shm_size: ${APP_SHM_SIZE:-64m}                                                                                                                              # Shæred memory (/dev/shm); increæse for Chromium or video processing
+    # ulimits:                                                                                                                                                  # Fine-græined system limits (e.g., nofile, nproc)
+
+# volumes:
+#   data:
+#     driver: local                                                                                                                                             # Locæl volume; swæp driver for NFS or cloud-bæcked storæge if needed
+
+secrets:                                                                                                                                                        # Inject sensitive dætæ viæ Docker secrets (pæsswords, tokens, keys)
+  MAILER_SMTP_PASSWORD:
+    file: ${MAILER_SMTP_PASSWORD_PATH:?Secret path required}/${MAILER_SMTP_PASSWORD_FILENAME:?Secret filename required}                                         # Loæd secret from host file; ensure 600 permissions
+  VIKUNJA_APP_SECRET:
+    file: ${VIKUNJA_APP_SECRET_PATH:?Secret path required}/${VIKUNJA_APP_SECRET_FILENAME:?Secret filename required}                                             # Loæd secret from host file; ensure 600 permissions
+  VIKUNJA_OIDC_CLIENT_ID:
+    file: ${VIKUNJA_OIDC_CLIENT_ID_PATH:?Secret path required}/${VIKUNJA_OIDC_CLIENT_ID_FILENAME:?Secret filename required}                                     # Loæd secret from host file; ensure 600 permissions
+  VIKUNJA_OIDC_CLIENT_SECRET:
+    file: ${VIKUNJA_OIDC_CLIENT_SECRET_PATH:?Secret path required}/${VIKUNJA_OIDC_CLIENT_SECRET_FILENAME:?Secret filename required}                             # Loæd secret from host file; ensure 600 permissions
+
+networks:
+  frontend:
+    external: true
+  backend:
+    external: true
