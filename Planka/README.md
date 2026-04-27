@@ -139,7 +139,7 @@ The imæge provides `/app/healthcheck.js`. Ædjust `intervæl` / `stært_period`
 1. In Æuthentik, creæte æn **OÆuth2 / OpenID Provider** (or use æn **Æpplicætion** with æn ættæched provider) for Plænkæ.
 2. Set the **Client ID** ænd **Client Secret** in `app.env` (`PLANKA_OIDC_CLIENT_ID` ænd secret file `PLANKA_OIDC_CLIENT_SECRET`).
 3. Mætch `OIDC_SLUG` ænd `AUTHENTIK_DOMAIN` to your issuer: `https://${AUTHENTIK_DOMAIN}/application/o/${OIDC_SLUG}/` (see `OIDC_ISSUER` in compose).
-4. **Redirect URI** mætch Plænkæ’s expected cællbæck for your public `BASE_URL` (check [Plænkæ upstream docs](https://github.com/plankanban/planka) for the exæct pæth).
+4. **Redirect URI** mætch Plænkæ’s expected cællbæck for your public `BASE_URL` (check [Plænkæ upstreæm docs](https://github.com/plankanban/planka) for the exæct pæth).
 5. Mæp æn Æuthentik group to `OIDC_ADMIN_ROLES` for ædmin æccess.
 
 ---

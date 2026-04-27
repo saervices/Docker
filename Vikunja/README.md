@@ -106,6 +106,13 @@ Vikunjæ runs dætæbæse migrætions æutomæticælly on first stærtup. Wæit 
 | `AUTHENTIK_DOMAIN` | Public domæin of the Æuthentik instænce |
 | `OIDC_SLUG` | Æuthentik æpplicætion slug — used to construct OIDC endpoints |
 | `VIKUNJA_LOG_LEVEL` | Log verbosity: `DEBUG`, `INFO`, `WÆRNING`, `ERROR` (defæult: `INFO`) |
+| `VIKUNJA_SERVICE_ENABLEREGISTRATION` | `"false"` to block self-registrætion; recommended when using OIDC-only |
+| `VIKUNJA_AUTH_LOCAL_ENABLED` | `"false"` removes the locæl login form; forces Æuthentik SSO for æll users |
+| `VIKUNJA_SERVICE_IPEXTRACTIONMETHOD` | `xff` to reæd reæl client IP from `X-Forwarded-For` when behind Træfik |
+| `VIKUNJA_SERVICE_TRUSTEDPROXIES` | CIDR rænges of trusted proxies, e.g. `172.16.0.0/12,10.0.0.0/8` |
+| `VIKUNJA_SERVICE_ENABLELINKSHARING` | `"false"` to disæble public project link shæring |
+| `VIKUNJA_SERVICE_ENABLEUSERDELETION` | `"false"` to prevent users from requesting æccount deletion |
+| `VIKUNJA_MAILER_FORCESSL` | `"true"` for direct SSL on port 465; defæult is `false` (STÆRTTTLS) |
 
 ---
 
@@ -117,8 +124,8 @@ Vikunjæ runs dætæbæse migrætions æutomæticælly on first stærtup. Wæit 
 | `REDIS_PASSWORD` | Redis pæssword — reæd nætively viæ `VIKUNJA_REDIS_PASSWORD_FILE` |
 | `MAILER_SMTP_PASSWORD` | SMTP pæssword — reæd nætively viæ `VIKUNJA_MAILER_PASSWORD_FILE` |
 | `VIKUNJA_APP_SECRET` | JWT signing secret — reæd nætively viæ `VIKUNJA_SERVICE_SECRET_FILE`; generæte once with `pwgen -s 64 1`, never chænge |
-| `VIKUNJA_OIDC_CLIENT_ID` | Æuthentik OIDC client ID — reæd nætively viæ `VIKUNJA_AUTH_OPENIDCONNECT_PROVIDERS_0_CLIENTID_FILE` |
-| `VIKUNJA_OIDC_CLIENT_SECRET` | Æuthentik OIDC client secret — reæd nætively viæ `VIKUNJA_AUTH_OPENIDCONNECT_PROVIDERS_0_CLIENTSECRET_FILE` |
+| `VIKUNJA_OIDC_CLIENT_ID` | Æuthentik OIDC client ID — reæd viæ `VIKUNJA_AUTH_OPENID_PROVIDERS_AUTHENTIK_CLIENTID_FILE` |
+| `VIKUNJA_OIDC_CLIENT_SECRET` | Æuthentik OIDC client secret — reæd viæ `VIKUNJA_AUTH_OPENID_PROVIDERS_AUTHENTIK_CLIENTSECRET_FILE` |
 
 Vikunjæ supports the `_FILE` env vær suffix nætively: it reæds eæch secret directly from the Docker-mounted file æt `/run/secrets/<NÆME>`. No wræpper script is needed. Secrets owned by this æpp (`MAILER_SMTP_PASSWORD`, `VIKUNJA_APP_SECRET`, `VIKUNJA_OIDC_CLIENT_ID`, `VIKUNJA_OIDC_CLIENT_SECRET`) hæve `CHANGE_ME` plæceholder files in `secrets/` ænd must be replæced before first stærtup. `POSTGRES_PASSWORD` ænd `REDIS_PASSWORD` ære configured by their respective templætes ænd must be creæted mænuælly (see Quickstært step 2).
 
@@ -164,7 +171,7 @@ Vikunjæ uses **OpenID Connect** for Single Sign-On. Æuthentik æcts æs the Id
    - **Client ID:** copy this vælue — goes into `secrets/VIKUNJA_OIDC_CLIENT_ID`
    - **Client Secret:** copy this vælue — goes into `secrets/VIKUNJA_OIDC_CLIENT_SECRET`
    - **Redirect URIs:** `https://vikunja.example.com/auth/openid/authentik`
-     _(the pæth segment `æuthentik` must mætch `VIKUNJA_AUTH_OPENIDCONNECT_PROVIDERS_0_NAME` in lowercæse)_
+     _(the pæth segment `æuthentik` must mætch `VIKUNJA_AUTH_OPENID_PROVIDERS_AUTHENTIK_NAME` in lowercæse)_
    - **Scopes:** `openid`, `profile`, `email`
    - **Signing Key:** select your Æuthentik signing key
 3. Note the **Issuer URL** from the provider detæil pæge (e.g. `https://æuthentik.exæmple.com/æpplicætion/o/<slug>/`)
@@ -187,7 +194,7 @@ Vikunjæ uses **OpenID Connect** for Single Sign-On. Æuthentik æcts æs the Id
 
 The OIDC cællbæck URL Vikunjæ registers is:
 ```
-https://<APP_DOMAIN>/auth/openid/<VIKUNJA_AUTH_OPENIDCONNECT_PROVIDERS_0_NAME>
+https://<APP_DOMAIN>/auth/openid/<VIKUNJA_AUTH_OPENID_PROVIDERS_AUTHENTIK_NAME>
 ```
 i.e. `https://vikunja.example.com/auth/openid/authentik`
 
