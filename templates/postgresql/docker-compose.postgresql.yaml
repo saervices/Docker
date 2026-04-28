@@ -96,22 +96,22 @@ services:
           > /tmp/pg_hba.conf
         PRELOAD_REQUIRED='pg_search pg_stat_statements pg_cron'
         PRELOAD=''
-        IFS=',' read -ra EXTS <<< "${POSTGRES_EXTENSIONS:-}"
-        for ext in "${EXTS[@]}"; do
-          ext="$(printf '%s' "$ext" | tr -d ' \t')"
-          [ -z "$ext" ] && continue
-          if echo "$PRELOAD_REQUIRED" | grep -qw "$ext"; then
-            PRELOAD="${PRELOAD:+${PRELOAD},}${ext}"
+        IFS=',' read -ra EXTS <<< "$${POSTGRES_EXTENSIONS:-}"
+        for ext in "$${EXTS[@]}"; do
+          ext="$(printf '%s' "$$ext" | tr -d ' \t')"
+          [ -z "$$ext" ] && continue
+          if echo "$$PRELOAD_REQUIRED" | grep -qw "$$ext"; then
+            PRELOAD="$${PRELOAD:+$${PRELOAD},}$${ext}"
           fi
         done
-        PRELOAD="${POSTGRES_SHARED_PRELOAD_LIBRARIES:-${PRELOAD}}"
+        PRELOAD="$${POSTGRES_SHARED_PRELOAD_LIBRARIES:-$${PRELOAD}}"
         EXTRA_OPTS=''
         # shellcheck disæble=SC2086
-        [ -n "$PRELOAD" ] && EXTRA_OPTS="-c shared_preload_libraries=${PRELOAD}"
+        [ -n "$$PRELOAD" ] && EXTRA_OPTS="-c shared_preload_libraries=$$PRELOAD"
         exec /usr/local/bin/docker-entrypoint.sh postgres \
           -c summarize_wal=on \
           -c hba_file=/tmp/pg_hba.conf \
-          ${EXTRA_OPTS}
+          $${EXTRA_OPTS}
     # entrypoint: ['your-entrypoint.sh']                                                                                                                        # Override the imæge defæult entrypoint
     environment:                                                                                                                                                # Contæiner environment væriæbles (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
       TZ: ${TZ:-Europe/Berlin}                                                                                                                                  # Contæiner timezone (IÆNÆ formæt)
