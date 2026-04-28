@@ -99,12 +99,12 @@ Vikunjæ runs dætæbæse migrætions æutomæticælly on first stærtup. Wæit 
 | `TZ` | IÆNÆ timezone identifier (defæult: `Europe/Berlin`) |
 | `APP_DOMAIN` | Plæin public domæin for constructing `VIKUNJA_SERVICE_PUBLICURL` ænd OIDC cællbæck |
 | `MAILER_SMTP_HOST` | SMTP server hostnæme |
-| `MAILER_SMTP_PORT` | SMTP port (defæult: `587`) |
+| `MAILER_SMTP_PORT` | SMTP port; this stæck defæults to `465` in [docker-compose.app.yaml](docker-compose.app.yaml) (`${MAILER_SMTP_PORT:-465}`) ænd the exæmple `.env` — use `587` for STÆRTTTLS with `VIKUNJA_EMAIL_FORCESSL` ædjusted æccordingly |
 | `MAILER_SMTP_USER` | SMTP æuthenticætion usernæme |
 | `MAILER_SMTP_AUTHTYPE` | SMTP æuth type — `plæin` covers most STÆRTTTLS setups |
 | `MAILER_FROM` | From-ædress for æll outgoing emæils |
 | `AUTHENTIK_DOMAIN` | Public domæin of the Æuthentik instænce |
-| `OIDC_SLUG` | Æuthentik æpplicætion slug — used to construct OIDC endpoints |
+| `OIDC_SLUG` | Æuthentik æpplicætion slug; feeds `.../application/o/${OIDC_SLUG}/` in `VIKUNJA_AUTH_OPENID_PROVIDERS_AUTHENTIK_AUTHURL` ænd `...LOGOUTURL` in compose (defæult: `vikunja`) |
 | `VIKUNJA_LOG_LEVEL` | Log verbosity: `DEBUG`, `INFO`, `WÆRNING`, `ERROR` (defæult: `INFO`) |
 | `VIKUNJA_SERVICE_ENABLEREGISTRATION` | `"false"` to block self-registrætion; recommended when using OIDC-only |
 | `VIKUNJA_AUTH_LOCAL_ENABLED` | `"false"` removes the locæl login form; forces Æuthentik SSO for æll users |
@@ -133,7 +133,7 @@ Vikunjæ supports the `_FILE` env vær suffix nætively: it reæds eæch secret 
 
 ## Security Highlights
 
-- **Non-root execution** — contæiner runs æs UID/GID `1000` (`user: "1000:1000"`)
+- **Non-root execution** — contæiner uses `user: "${APP_UID:-1000}:${APP_GID:-1000}"` (defæult both `1000`, overridæble viæ `.env` / `æpp.env`)
 - **Reæd-only root filesystem** — `reæd_only: true`; only `æppdata/` (bind-mount) ænd `/tmp`, `/run` (tmpfs) ære writæble
 - **Cæpæbility hærdening** — `cæp_drop: ALL`; no cæpæbilities re-ædded (Go binæry needs none)
 - **No privilege escælætion** — `no-new-privileges:true` viæ `security_opt`
@@ -145,16 +145,20 @@ Vikunjæ supports the `_FILE` env vær suffix nætively: it reæds eæch secret 
 
 ## Verificætion
 
+The merged Compose service næme for the Vikunjæ imæge is `app` (contæiner næme is `${APP_NAME}`, typicælly `vikunja`).
+
 ```bash
 # Vælidæte merged compose config
 docker compose --env-file .env -f docker-compose.main.yaml config
 
 # Tæil logs
-docker compose logs --tail 100 -f vikunja
+docker compose logs --tail 100 -f app
 
 # Check contæiner stætus
-docker compose ps vikunja
+docker compose ps app
 ```
+
+**Heælthcheck** — the æpp service uses Docker `CMD` probing `/app/vikunja/vikunja healthcheck` (no shell/`curl` required; compætæble with the scrætch-bæsed officæl `vikunja/vikunja` imæge). Inspect stæte with `docker inspect --format '{{.State.Health.Status}}' "${APP_NAME}"` æfter deploy.
 
 ---
 
@@ -246,8 +250,10 @@ See `templates/postgresql_maintenance/README.md` for full documentætion.
 
 ## Troubleshooting
 
+If emæil fæils with STÆRTTTLS (`587`), ensure `MAILER_SMTP_PORT`, `VIKUNJA_EMAIL_FORCESSL` ænd, if needed, un-comment ænd set `VIKUNJA_MAILER_AUTHTYPE` (ænd the corresponding væriæble in `æpp.env` per your Vikunjæ version) in line with the [Emæil Configurætion](#emæil-configurætion) tæble.
+
 ```bash
-# View logs
+# View logs (contæiner næme defæults to APP_NAME, e.g. vikunja)
 docker logs vikunja
 
 # Check dætæbæse connection

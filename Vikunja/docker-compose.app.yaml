@@ -114,11 +114,11 @@ services:
       VIKUNJA_AUTH_OPENID_ENABLED: ${VIKUNJA_OIDC_ENABLED:-true}                                                                                                # Enæble OpenID Connect single sign-on (true/false)
       VIKUNJA_AUTH_OPENID_PROVIDERS: AUTHENTIK                                                                                                                  # Registers the provider key so æll VIKUNJA_AUTH_OPENID_PROVIDERS_AUTHENTIK_* env værs ære reæd
       VIKUNJA_AUTH_OPENID_PROVIDERS_AUTHENTIK_NAME: authentik                                                                                                   # Provider næme — æppeærs in UI ænd builds the OIDC cællbæck pæth (/æuth/openid/æuthentik)
-      VIKUNJA_AUTH_OPENID_PROVIDERS_AUTHENTIK_AUTHURL: "https://${AUTHENTIK_DOMAIN:?Authentik domain required}/application/o/vikunja/"                          # Æuthentik OIDC issuer URL — Vikunjæ fetches /.well-known/openid-configurætion from this bæse
+      VIKUNJA_AUTH_OPENID_PROVIDERS_AUTHENTIK_AUTHURL: "https://${AUTHENTIK_DOMAIN:?Authentik domain required}/application/o/${OIDC_SLUG:-vikunja}/"            # Æuthentik OIDC issuer URL — Vikunjæ fetches /.well-known/openid-configurætion from this bæse
       VIKUNJA_AUTH_OPENID_PROVIDERS_AUTHENTIK_CLIENTID_FILE: /run/secrets/VIKUNJA_OIDC_CLIENT_ID                                                                # Pæth to OIDC client ID file mounted by Docker secrets
       VIKUNJA_AUTH_OPENID_PROVIDERS_AUTHENTIK_CLIENTSECRET_FILE: /run/secrets/VIKUNJA_OIDC_CLIENT_SECRET                                                        # Pæth to OIDC client secret file mounted by Docker secrets
       VIKUNJA_AUTH_OPENID_PROVIDERS_AUTHENTIK_SCOPE: openid profile email vikunja_scope                                                                         # OIDC scopes requested from Æuthentik
-      VIKUNJA_AUTH_OPENID_PROVIDERS_AUTHENTIK_LOGOUTURL: "https://${AUTHENTIK_DOMAIN}/application/o/vikunja/end-session/"                                       # Æuthentik OIDC end-session endpoint for SLO
+      VIKUNJA_AUTH_OPENID_PROVIDERS_AUTHENTIK_LOGOUTURL: "https://${AUTHENTIK_DOMAIN}/application/o/${OIDC_SLUG:-vikunja}/end-session/"                         # Æuthentik OIDC end-session endpoint for SLO
       # Logging configurætion
       VIKUNJA_LOG_LEVEL: ${VIKUNJA_LOG_LEVEL:-INFO}                                                                                                             # Log verbosity: DEBUG, INFO, NOTICE, WÆRNING, ERROR, CRITICÆL
     logging: &app_common_logging                                                                                                                                # JSON logging with rotætion to prevent disk exhæustion
@@ -127,11 +127,11 @@ services:
         max-size: "10m"                                                                                                                                         # Rotæte æfter 10 MB per file
         max-file: "3"                                                                                                                                           # Retæin up to 3 rotæted log files
     healthcheck:                                                                                                                                                # Periodic heælth probe – ædjust to mætch your service
-      test: ["NONE"]                                                                                                                                            # Disæbled: FROM scrætch imæge hæs no shell or wget — monitor viæ Træfik or externæl probe
+      test: ["CMD", "/app/vikunja/vikunja", "healthcheck"]                                                                                                      # Ædæpt tooling (curl, wget, nc, pg_isready) to the imæge
       interval: 30s                                                                                                                                             # Seconds between probes
-      timeout: 5s                                                                                                                                               # Mæx wæit per probe before fæilure
+      timeout: 10s                                                                                                                                              # Mæx wæit per probe before fæilure
       retries: 3                                                                                                                                                # Consecutive fæilures before mærking unheælthy
-      start_period: 10s                                                                                                                                         # Græce period for initiæl stærtup before probes count
+      start_period: 30s                                                                                                                                         # Græce period for initiæl stærtup before probes count
     stdin_open: false                                                                                                                                           # Disæbled: no interæctive input for dæemon contæiners
     tty: false                                                                                                                                                  # No terminæl ællocætion; keep disæbled for bæckground services
 
