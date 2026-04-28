@@ -1,0 +1,39 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 it.særvices
+
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+# --- BÆSE IMÆGE
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+ARG POSTGRES_IMAGE=postgres:17
+FROM ${POSTGRES_IMAGE}
+
+LABEL maintainer="it.særvices <admin@it.saervices.de>"
+
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+# --- INSTÆLL pg_seærch EXTENSION
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+# pg_seærch binæry is ælwæys instælled; the extension is only æctive when
+# POSTGRES_EXTENSIONS contæins pg_seærch (sets shæred_preloæd_libræreis æt runtime).
+# Ælwæys fetches the lætest pg_seærch releæse æt build time.
+RUN set -eux; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends curl ca-certificates; \
+    ARCH="$(dpkg --print-architecture)"; \
+    PG_MAJOR="$(pg_config --version | awk '{print $2}' | cut -d. -f1)"; \
+    DEB_DIST="$(. /etc/os-release && printf '%s' "${VERSION_CODENAME}")"; \
+    PG_SEARCH_VERSION="$(curl -fsSL -o /dev/null -w '%{url_effective}' \
+      'https://github.com/paradedb/paradedb/releases/latest' \
+      | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"; \
+    curl -fsSL \
+      "https://github.com/paradedb/paradedb/releases/download/v${PG_SEARCH_VERSION}/postgresql-${PG_MAJOR}-pg-search_${PG_SEARCH_VERSION}-1PARADEDB-${DEB_DIST}_${ARCH}.deb" \
+      -o /tmp/pg_search.deb; \
+    apt-get install -y /tmp/pg_search.deb; \
+    rm -rf /tmp/pg_search.deb /var/lib/apt/lists/*
+
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+# --- INIT SCRIPT
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+# Bæked into the imæge; no host-mount required.
+# PostgreSQL runs this once on first DB initiælizætion (empty dætæ directory).
+COPY dockerfiles/init_extensions.sh /docker-entrypoint-initdb.d/init_extensions.sh
+RUN chmod +x /docker-entrypoint-initdb.d/init_extensions.sh

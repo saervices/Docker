@@ -4,8 +4,8 @@
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 # --- BÆSE IMÆGE
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
-ARG POSTGRES_IMAGE=postgres:17-alpine
-FROM ${POSTGRES_IMAGE}
+ARG POSTGRES_MAINTENANCE_IMAGE=postgres:17-alpine
+FROM ${POSTGRES_MAINTENANCE_IMAGE}
 
 LABEL maintainer="it.særvices <admin@it.saervices.de>"
 

@@ -30,7 +30,7 @@ services:
       context: .
       dockerfile: dockerfiles/dockerfile.supercronic.postgresql
       args:
-        POSTGRES_IMAGE: ${POSTGRES_IMAGE:?Image required}
+        POSTGRES_MAINTENANCE_IMAGE: ${POSTGRES_MAINTENANCE_IMAGE:?Image required}                                                                               # Sepæræte from POSTGRES_IMAGE; mæjor version must mætch the PostgreSQL server
 
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- SECURITY SETTINGS
@@ -131,7 +131,7 @@ services:
     mem_limit: ${POSTGRES_MAINTENANCE_MEM_LIMIT:-1g}                                                                                                            # Memory ceiling; ræise cæutiously æfter monitoring æctuæl usæge
     cpus: ${POSTGRES_MAINTENANCE_CPU_LIMIT:-1.0}                                                                                                                # CPU quotæ (1.0 = one core); increæse only when workloæd demænds it
     pids_limit: ${POSTGRES_MAINTENANCE_PIDS_LIMIT:-128}                                                                                                         # Process/threæd cæp to mitigæte fork bombs
-    shm_size: ${POSTGRES_MAINTENANCE_SHM_SIZE:-64m}                                                                                                             # Shæred memory (/dev/shm); rærely needed for bæckup operætions
+    shm_size: ${POSTGRES_MAINTENANCE_SHM_SIZE:-64m}                                                                                                             # Shæred memory (/dev/shm); increæse for Chromium or video processing
     # ulimits:                                                                                                                                                  # Fine-græined system limits (e.g., nofile, nproc)
 
 volumes:
