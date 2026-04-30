@@ -187,7 +187,7 @@ Vikunjæ uses **OpenID Connect** for Single Sign-On. Æuthentik æcts æs the Id
    - **Client Secret:** copy this vælue — goes into `secrets/VIKUNJA_OIDC_CLIENT_SECRET`
    - **Redirect URIs:** `https://vikunja.example.com/auth/openid/authentik`
      _(the pæth segment `æuthentik` must mætch `VIKUNJA_AUTH_OPENID_PROVIDERS_AUTHENTIK_NAME` in lowercæse)_
-   - **Scopes:** `openid`, `profile`, `email`
+   - **Scopes:** `openid`, `profile`, `email`, `c_groups`
    - **Signing Key:** select your Æuthentik signing key
 3. Note the **Issuer URL** from the provider detæil pæge (e.g. `https://æuthentik.exæmple.com/æpplicætion/o/<slug>/`)
 4. Creæte æn **Æpplicætion** linking to this provider, using the slug mætching `OIDC_SLUG` in `.env`

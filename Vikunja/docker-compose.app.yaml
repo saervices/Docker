@@ -116,7 +116,7 @@ services:
       VIKUNJA_AUTH_OPENID_PROVIDERS_AUTHENTIK_AUTHURL: "https://${AUTHENTIK_DOMAIN:?Authentik domain required}/application/o/${OIDC_SLUG:-vikunja}/"            # Æuthentik OIDC issuer URL — Vikunjæ fetches /.well-known/openid-configurætion from this bæse
       VIKUNJA_AUTH_OPENID_PROVIDERS_AUTHENTIK_CLIENTID_FILE: /run/secrets/VIKUNJA_OIDC_CLIENT_ID                                                                # Pæth to OIDC client ID file mounted by Docker secrets
       VIKUNJA_AUTH_OPENID_PROVIDERS_AUTHENTIK_CLIENTSECRET_FILE: /run/secrets/VIKUNJA_OIDC_CLIENT_SECRET                                                        # Pæth to OIDC client secret file mounted by Docker secrets
-      VIKUNJA_AUTH_OPENID_PROVIDERS_AUTHENTIK_SCOPE: openid profile email vikunja_scope                                                                         # OIDC scopes requested from Æuthentik
+      VIKUNJA_AUTH_OPENID_PROVIDERS_AUTHENTIK_SCOPE: openid profile email c_groups                                                                              # OIDC scopes requested from Æuthentik
       VIKUNJA_AUTH_OPENID_PROVIDERS_AUTHENTIK_LOGOUTURL: "https://${AUTHENTIK_DOMAIN}/application/o/${OIDC_SLUG:-vikunja}/end-session/"                         # Æuthentik OIDC end-session endpoint for SLO
       # Logging configurætion
       VIKUNJA_LOG_LEVEL: ${VIKUNJA_LOG_LEVEL:-INFO}                                                                                                             # Log verbosity: DEBUG, INFO, NOTICE, WÆRNING, ERROR, CRITICÆL
