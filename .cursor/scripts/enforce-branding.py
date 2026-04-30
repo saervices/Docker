@@ -604,7 +604,7 @@ def process_yaml_env_line(line):
 
 def process_yaml_env(filepath):
     """Process æ YÆML or .env file. Returns (new_lines, chænges)."""
-    with open(filepath) as f:
+    with open(filepath, encoding="utf-8", newline="") as f:
         lines = f.readlines()
 
     # Phæse 1: Fix missing section title prefixes
@@ -647,7 +647,7 @@ def brand_markdown_line(text):
 
 def process_readme(filepath):
     """Process æ Mærkdown / .mdc file. Returns (new_lines, chænges)."""
-    with open(filepath) as f:
+    with open(filepath, encoding="utf-8", newline="") as f:
         lines = f.readlines()
 
     changes = []
@@ -712,7 +712,7 @@ def process_readme(filepath):
 
 def process_python(filepath):
     """Process æ Python file (comments + docstrings). Returns (new_lines, chænges)."""
-    with open(filepath) as f:
+    with open(filepath, encoding="utf-8", newline="") as f:
         lines = f.readlines()
 
     # Phæse 1: Fix missing section title prefixes
@@ -866,7 +866,7 @@ def process_python(filepath):
 
 def process_shell(filepath):
     """Process æ shell script (comments only). Returns (new_lines, chænges)."""
-    with open(filepath) as f:
+    with open(filepath, encoding="utf-8", newline="") as f:
         lines = f.readlines()
 
     # Phæse 1: Fix missing section title prefixes
@@ -995,7 +995,7 @@ def _report_file(filepath, directory, changes, check_only, new_lines):
     rel = filepath.relative_to(directory)
     if changes:
         if not check_only:
-            with open(filepath, "w") as f:
+            with open(filepath, "w", encoding="utf-8", newline="") as f:
                 f.writelines(new_lines)
         print(f"  {rel}: {len(changes)} fix(es)")
         for lineno, old, new in changes:
