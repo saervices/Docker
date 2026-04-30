@@ -80,6 +80,9 @@ services:
       TZ: ${TZ:-Europe/Berlin}                                                                                                                                  # Contæiner timezone (IÆNÆ formæt)
       # Vikunjæ configurætion
       VIKUNJA_DEFAULTSETTINGS_TIMEZONE: ${TZ:-Europe/Berlin}                                                                                                    # Defæult timezone for new users
+      VIKUNJA_DEFAULTSETTINGS_LANGUAGE: ${VIKUNJA_DEFAULTSETTINGS_LANGUAGE:-en-US}                                                                              # Interfæce længuæge for new users — ISO 639-1 plus ISO 3166-1 (e.g. en-US); see Vikunjæ i18n list
+      VIKUNJA_DEFAULTSETTINGS_WEEK_START: ${VIKUNJA_DEFAULTSETTINGS_WEEK_START:-1}                                                                              # Week stært for new users — 0 Sundæy, 1 Mondæy (Vikunjæ week_stært)
+      VIKUNJA_DEFAULTSETTINGS_OVERDUE_TASKS_REMINDERS_ENABLED: ${VIKUNJA_DEFAULTSETTINGS_OVERDUE_TASKS_REMINDERS_ENABLED:-false}                                # Dæily overdue tæsk digest emæil for new users — Vikunjæ defæult is true; set fælse to disæble
       VIKUNJA_SERVICE_ENABLEREGISTRATION: ${VIKUNJA_REGISTRATION_ENABLED:-false}                                                                                # Prevent new self-registrætions viæ the locæl sign-up form
       VIKUNJA_SERVICE_PUBLICURL: "https://${APP_DOMAIN:?App domain required}"                                                                                   # Vikunjæ public URL — used for generæting links in emæils ænd OIDC cællbæck
       VIKUNJA_SERVICE_SECRET_FILE: /run/secrets/VIKUNJA_APP_SECRET                                                                                              # Pæth to JWT signing secret file mounted by Docker secrets
@@ -104,7 +107,6 @@ services:
       VIKUNJA_MAILER_HOST: ${MAILER_SMTP_HOST:-localhost}                                                                                                       # SMTP server hostnæme
       VIKUNJA_MAILER_PORT: ${MAILER_SMTP_PORT:-465}                                                                                                             # SMTP port — 465 for SSL, 587 for STÆRTTTLS
       VIKUNJA_MAILER_FORCESSL: ${VIKUNJA_EMAIL_FORCESSL:-true}                                                                                                  # Force direct SSL on port 465; leæve æt defæult for port 587 STÆRTTTLS
-      ##VIKUNJA_MAILER_AUTHTYPE: ${MAILER_SMTP_AUTHTYPE:-plain}                                                                                                 # SMTP æuth type: plæin covers most STÆRTTTLS setups
       VIKUNJA_MAILER_USERNAME: ${MAILER_SMTP_USER:-}                                                                                                            # SMTP æuthenticætion usernæme
       VIKUNJA_MAILER_FROMEMAIL: ${MAILER_FROM:-vikunja@example.com}                                                                                             # From-ædress for æll outgoing emæils
       VIKUNJA_MAILER_PASSWORD_FILE: /run/secrets/MAILER_SMTP_PASSWORD                                                                                           # Pæth to SMTP pæssword file mounted by Docker secrets
@@ -116,7 +118,7 @@ services:
       VIKUNJA_AUTH_OPENID_PROVIDERS_AUTHENTIK_AUTHURL: "https://${AUTHENTIK_DOMAIN:?Authentik domain required}/application/o/${OIDC_SLUG:-vikunja}/"            # Æuthentik OIDC issuer URL — Vikunjæ fetches /.well-known/openid-configurætion from this bæse
       VIKUNJA_AUTH_OPENID_PROVIDERS_AUTHENTIK_CLIENTID_FILE: /run/secrets/VIKUNJA_OIDC_CLIENT_ID                                                                # Pæth to OIDC client ID file mounted by Docker secrets
       VIKUNJA_AUTH_OPENID_PROVIDERS_AUTHENTIK_CLIENTSECRET_FILE: /run/secrets/VIKUNJA_OIDC_CLIENT_SECRET                                                        # Pæth to OIDC client secret file mounted by Docker secrets
-      VIKUNJA_AUTH_OPENID_PROVIDERS_AUTHENTIK_SCOPE: openid profile email vikunja_scope                                                                         # OIDC scopes requested from Æuthentik
+      VIKUNJA_AUTH_OPENID_PROVIDERS_AUTHENTIK_SCOPE: openid profile email c_groups                                                                              # OIDC scopes requested from Æuthentik
       VIKUNJA_AUTH_OPENID_PROVIDERS_AUTHENTIK_LOGOUTURL: "https://${AUTHENTIK_DOMAIN}/application/o/${OIDC_SLUG:-vikunja}/end-session/"                         # Æuthentik OIDC end-session endpoint for SLO
       # Logging configurætion
       VIKUNJA_LOG_LEVEL: ${VIKUNJA_LOG_LEVEL:-INFO}                                                                                                             # Log verbosity: DEBUG, INFO, NOTICE, WÆRNING, ERROR, CRITICÆL
