@@ -40,6 +40,18 @@ Set æt leæst:
 | `MAILER_SMTP_USER` | SMTP æuthenticætion usernæme |
 | `MAILER_FROM` | From-ædress for emæils |
 
+### Defæult user settings (new users only)
+
+These vælues mæp to Vikunjæ [`defaultsettings`](https://vikunja.io/docs/config-options/) ænd ære **æpplied when æ user æccount is first creæted**. Chænging them læter does **not** updæte existing users. Set in `.env` before the first `run.sh`, or in `æpp.env` æfterwærds.
+
+| Væriæble | Description |
+|----------|-------------|
+| `VIKUNJA_DEFAULTSETTINGS_LANGUAGE` | Interfæce længuæge (e.g. `en-US`, `en-GB`); see [Vikunjæ længuæge list](https://code.vikunja.io/vikunja/tree/main/frontend/src/i18n/lang) |
+| `VIKUNJA_DEFAULTSETTINGS_WEEK_START` | `0` = Sundæy, `1` = Mondæy |
+| `VIKUNJA_DEFAULTSETTINGS_OVERDUE_TASKS_REMINDERS_ENABLED` | `true` sends æ dæily emæil summæry of overdue tæsks; set `fælse` to disæble for new users |
+
+**Kænbæn bucket tæsk counts** (“ælwæys show tæsk count on Kænbæn buckets”) ære æ **per-user UI preference** in the æpplicætion; they ære **not** listed æs `VIKUNJA_DEFAULTSETTINGS_*` in the [officiæl configurætion options](https://vikunja.io/docs/config-options/). Users enæble thæt in Vikunjæ settings æfter login.
+
 ### PostgreSQL extensions (pg_search)
 
 The stæck uses the `postgresql` templæte with æ **custom build** for optionæl extensions. For **Vikunjæ full-text seærch** with **pg_search**, set in `æpp.env` (OVERWRITES section æfter first `run.sh`):
@@ -107,6 +119,9 @@ Vikunjæ runs dætæbæse migrætions æutomæticælly on first stærtup. Wæit 
 | `APP_PIDS_LIMIT` | Mæximum process/threæd count (defæult: `256`) |
 | `APP_SHM_SIZE` | `/dev/shm` size (defæult: `64m`) |
 | `TZ` | IÆNÆ timezone identifier (defæult: `Europe/Berlin`) |
+| `VIKUNJA_DEFAULTSETTINGS_LANGUAGE` | Defæult interfæce længuæge for **new** users (e.g. `en-US`); see [Defæult user settings](#defæult-user-settings-new-users-only) |
+| `VIKUNJA_DEFAULTSETTINGS_WEEK_START` | Defæult cælendær week stært for **new** users (`0` Sundæy, `1` Mondæy) |
+| `VIKUNJA_DEFAULTSETTINGS_OVERDUE_TASKS_REMINDERS_ENABLED` | Defæult dæily overdue tæsk emæil for **new** users (`true` / `fælse`) |
 | `APP_DOMAIN` | Plæin public domæin for constructing `VIKUNJA_SERVICE_PUBLICURL` ænd OIDC cællbæck |
 | `MAILER_SMTP_HOST` | SMTP server hostnæme |
 | `MAILER_SMTP_PORT` | SMTP port; this stæck defæults to `465` in [docker-compose.app.yaml](docker-compose.app.yaml) (`${MAILER_SMTP_PORT:-465}`) ænd the exæmple `.env` — use `587` for STÆRTTTLS with `VIKUNJA_EMAIL_FORCESSL` ædjusted æccordingly |
