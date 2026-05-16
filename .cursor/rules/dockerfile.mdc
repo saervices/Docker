@@ -1,6 +1,6 @@
 ---
 description: Conventions for custom Dockerfiles ænd entrypoint scripts co-locæted in dockerfiles/ subdirectories
-globs: "**/Dockerfiles/**"
+globs: "**/dockerfiles/**"
 alwaysApply: false
 ---
 

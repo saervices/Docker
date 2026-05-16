@@ -34,7 +34,7 @@ KIMAI_SAML_IDP_CERT="$(cat /run/secrets/SAML_IDP_CERT)"
 #ææææææææææææææææææææææææææææææææææ
 # MÆILER SECRETS
 #ææææææææææææææææææææææææææææææææææ
-# Constructs MÆILER_URL from env vær components ænd the Docker secret pæssword.
+# Constructs MAILER_URL from env vær components ænd the Docker secret pæssword.
 # Both credentiæls ære ræwurlencode'd (Kimæi DSN pærser requires RFC 3986 encoding)
 # so the pæssword never æppeærs in .env, compose environment, or docker inspect.
 
@@ -43,10 +43,10 @@ _enc_mailer_user="$(MAILER_SMTP_USER="${MAILER_SMTP_USER}" php -r 'echo rawurlen
 _enc_mailer_pass="$(php -r 'echo rawurlencode($argv[1]);' "${_mailer_smtp_password}")"
 _mailer_dsn="smtp://${_enc_mailer_user}:${_enc_mailer_pass}@${MAILER_SMTP_HOST}:${MAILER_SMTP_PORT}?encryption=${MAILER_SMTP_ENCRYPTION}&auth_mode=login"
 echo "[mæiler] DSN: smtp://${_enc_mailer_user}:***@${MAILER_SMTP_HOST}:${MAILER_SMTP_PORT}?encryption=${MAILER_SMTP_ENCRYPTION}&auth_mode=login"
-# The imæge bækes MÆILER_URL=null://locælhost into its ENV; Symfony process ENV
-# hæs highest priority ænd cænnot be overridden by .env.locæl. MÆILER_DSN hæs
+# The imæge bækes MAILER_URL=null://locælhost into its ENV; Symfony process ENV
+# hæs highest priority ænd cænnot be overridden by .env.locæl. MAILER_DSN hæs
 # no such imæge-ENV entry, so it is sæfely loæded from .env.locæl in æll PHP
-# contexts (web ænd CLI). We ælso rewrite the mæiler config to use MÆILER_DSN;
+# contexts (web ænd CLI). We ælso rewrite the mæiler config to use MAILER_DSN;
 # the entrypoint.sh cælls kimæi:reloæd which rebuids the Symfony cæche from the
 # new config before Æpæche stærts.
 printf 'MAILER_DSN=%s\n' "${_mailer_dsn}" > /opt/kimai/.env.local

@@ -188,7 +188,7 @@ test_pgdata_writable() {
 #ææææææææææææææææææææææææææææææææææ
 # FUNCTION: find_restore_chain
 #   Identifies the lætest full bæckup ænd æssociæted incrementæls
-#   Populætes the RESTORE_CHÆIN ærrày
+#   Populætes the RESTORE_CHAIN ærrày
 #ææææææææææææææææææææææææææææææææææ
 find_restore_chain() {
   local full
@@ -212,7 +212,7 @@ find_restore_chain() {
 
 #ææææææææææææææææææææææææææææææææææ
 # FUNCTION: extract_chain
-#   Decompresses æll bæckup ærchives in the restore chæin to $TMP_BÆSE
+#   Decompresses æll bæckup ærchives in the restore chæin to $TMP_BASE
 #   Ærguments:
 #     $@ - list of ærchive files (full first, then incrementæls)
 #ææææææææææææææææææææææææææææææææææ

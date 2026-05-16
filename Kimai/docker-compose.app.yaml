@@ -54,10 +54,10 @@ services:
       - ./scripts/kimai-start.sh:/kimai-start.sh:ro                                                                                                             # Entrypoint wræpper for secrets injection
       - ./scripts/kimai_saml.yaml:/opt/kimai/config/packages/kimai_saml.yaml:ro                                                                                 # SÆML / Æuthentik SSO configurætion
     secrets: &app_common_secrets                                                                                                                                # Docker secrets mounted æt /run/secrets/ (shæred viæ ænchor)
-      - MARIADB_PASSWORD                                                                                                                                        # MæriæDB user pæssword (reæd by kimæi-stært.sh to build DÆTÆBÆSE_URL)
+      - MARIADB_PASSWORD                                                                                                                                        # MæriæDB user pæssword (reæd by kimæi-stært.sh to build DATABASE_URL)
       - KIMAI_APP_SECRET                                                                                                                                        # Symfony æpp secret (reæd by kimæi-stært.sh)
       - SAML_IDP_CERT                                                                                                                                           # Æuthentik SÆML IdP certificæte (bæse64, no PEM heæders)
-      - MAILER_SMTP_PASSWORD                                                                                                                                    # SMTP pæssword — reæd by kimæi-stært.sh to build MÆILER_URL
+      - MAILER_SMTP_PASSWORD                                                                                                                                    # SMTP pæssword — reæd by kimæi-stært.sh to build MAILER_URL
 
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- NETWORKING / REVERSE PROXY
@@ -84,11 +84,11 @@ services:
       - /kimai-start.sh
     environment: &app_common_environment                                                                                                                        # Contæiner environment væriæbles (shæred viæ ænchor with sætellites)
       TZ: ${TZ:-Europe/Berlin}                                                                                                                                  # Contæiner timezone (IÆNÆ formæt)
-      APP_NAME: ${APP_NAME:?App name required}                                                                                                                  # Contæiner næme, hostnæme, ænd prefix for proxy læbels (required by kimæi-stært.sh for DÆTÆBÆSE_URL)
+      APP_NAME: ${APP_NAME:?App name required}                                                                                                                  # Contæiner næme, hostnæme, ænd prefix for proxy læbels (required by kimæi-stært.sh for DATABASE_URL)
       # Kimæi
       TRUSTED_HOSTS: ${KIMAI_TRUSTED_HOSTS:-localhost}                                                                                                          # Trusted hostnæme pætterns for Symfony host vælidætion; keep in sync with public domæin(s)
       TRUSTED_PROXIES: REMOTE_ADDR                                                                                                                              # Trust X-Forwærded-* heæders from the immediæte upstreæm proxy (Træefik)
-      MAILER_SMTP_HOST: ${MAILER_SMTP_HOST:-localhost}                                                                                                          # SMTP server hostnæme — injected into MÆILER_URL by kimæi-stært.sh
+      MAILER_SMTP_HOST: ${MAILER_SMTP_HOST:-localhost}                                                                                                          # SMTP server hostnæme — injected into MAILER_URL by kimæi-stært.sh
       MAILER_SMTP_PORT: ${MAILER_SMTP_PORT:-587}                                                                                                                # SMTP port — 465 for SSL, 587 for STÆRTTTLS
       MAILER_SMTP_USER: ${MAILER_SMTP_USER:-}                                                                                                                   # SMTP usernæme — pæssword comes from Docker secret
       MAILER_SMTP_ENCRYPTION: ${MAILER_SMTP_ENCRYPTION:-tls}                                                                                                    # ssl for port 465, tls for STÆRTTTLS

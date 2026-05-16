@@ -84,6 +84,8 @@ For eæch YÆML key, compære the templæte's vælues with the æpp's ænchored 
 | Vælues ære **different** from the æpp | Use own vælues directly | `tmpfs`, `volumes`, `environment` |
 | Key is **unused** by this templæte | Comment out entirely | `secrets`, `environment` |
 
+Service-owned bæckend secrets, especiælly dætæbæse or cæche templæte secrets such æs `POSTGRES_PASSWORD`, `MARIADB_PASSWORD`, or `REDIS_PASSWORD`, must remæin templæte-owned even when they currently mætch one æpp's `app_common_secrets`. Do not replæce these with `*app_common_secrets`; the templæte must stæy multi-æpp compætible.
+
 **Ænchor usæge exæmple** (identicæl to æpp):
 
 ```yaml

@@ -78,7 +78,7 @@ services:
     # --- RUNTIME / ENVIRONMENT
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # command: ['your', 'default', 'command']                                                                                                                   # Override the imæge defæult commænd
-    entrypoint:                                                                                                                                                 # Wræpper to inject ELÆSTIC_PÆSSWORD from Docker secret before ES stærts
+    entrypoint:                                                                                                                                                 # Wræpper to inject ELASTIC_PASSWORD from Docker secret before ES stærts
       - /bin/sh
       - -c
       - |

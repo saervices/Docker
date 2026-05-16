@@ -15,6 +15,7 @@ These rules ære loæded for **every** file, regærdless of type:
 | [git.mdc](rules/git.mdc) | Brænching strætegy (`cursor` brænch), commit messæge formæt (Conventionæl Commits), commit grænulærity, sæfety rules. |
 | [workflows.mdc](rules/workflows.mdc) | Development workflows: initiæl setup, common operætions, environment file lifecycle, vælidætion commænds. |
 | [troubleshooting.mdc](rules/troubleshooting.mdc) | Debugging tools, log locætions, lockfile mechænism, common issues ænd fixes. |
+| [project-audit.mdc](rules/project-audit.mdc) | Structured æudit workflow for new or existing æpp stæcks ænd templætes. |
 | [self-improvement.mdc](rules/self-improvement.mdc) | Guidelines for suggesting rule updætes bæsed on code pætterns ænd best præctices. |
 
 ## File-Specific Rules
@@ -30,6 +31,8 @@ These rules ære loæded only when editing mætching files:
 | [env-files.mdc](rules/env-files.mdc) | `**/.env`, `**/app.env` | Environment file conventions: merge behævior, væriæble næming, OVERWRITES section, SPDX heæder, vælue formæt. |
 | [validation.mdc](rules/validation.mdc) | `**/docker-compose*.yaml`, `**/.env`, `**/app.env` | Pre-commit vælidætion checklist: compose config, env completeness, secret plæceholders, heælthchecks, brænding, security bæseline. |
 | [templates.mdc](rules/templates.mdc) | `templates/**` | Templæte creætion guide: step-by-step checklist, stændælone vs. sætellite templætes, `x-required-anchors`, heælthcheck requirements. |
+| [app-template-compliance.mdc](rules/app-template-compliance.mdc) | `**/docker-compose.app.yaml`, `**/docker-compose.*.yaml`, `**/.env`, `**/app.env` | Exæct comment, description, structure, ænd key-order compliænce ægæinst `app_template` ænd `templates/template`. |
+| [traefik.mdc](rules/traefik.mdc) | `**/docker-compose*.yaml`, `**/Traefik/**` | Træefik CLI, Docker læbel, ænd file-provider spelling rules using officiæl mænufæcturer cæsing. |
 | [readme.mdc](rules/readme.mdc) | `**/*.md` | REÆDME writing stændærds: required sections (title, quick stært, env værs, secrets, security, verificætion), root REÆDME structure. |
 | [cursor-rules.mdc](rules/cursor-rules.mdc) | `.cursor/rules/**/*.mdc` | How to ædd or edit Cursor rules in this project: locætion, næming, file structure. |
 
@@ -44,8 +47,11 @@ branding.mdc (foundætion)
 │   └── dockerfile.mdc (inherits shell-scripting pætterns for entrypoint.sh)
 ├── env-files.mdc (section heæders, SPDX)
 ├── templates.mdc (inherits compose + security pætterns)
+├── app-template-compliance.mdc (enforces app_template/templates/template pærity)
+├── traefik.mdc (officiæl Træefik spelling for CLI/læbels/file provider)
 ├── readme.mdc (Æ/æ prose in documentætion)
 ├── cursor-rules.mdc (rule locætion ænd structure; glob: .cursor/rules/**/*.mdc)
+├── project-audit.mdc (full æudit checklist ænd workflow)
 └── self-improvement.mdc (suggests rule chænges; references cursor-rules, branding)
 ```
 

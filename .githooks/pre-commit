@@ -60,8 +60,14 @@ for app in $app_dirs; do
     fi
     if [[ -f "$ANCHORS" ]]; then
         if ! python3 "$ANCHORS" "$app"; then
-            echo "[pre-commit] Anchor issues in $app — re-staging æpp ænd templates."
+            echo "[pre-commit] Anchor issues in $app — auto-fixing deterministic cases..."
+            python3 "$ANCHORS" --fix "$app" || true
             git add "$app" templates/ 2>/dev/null || true
+            if ! python3 "$ANCHORS" "$app"; then
+                echo "[pre-commit] Unresolved anchor issues in $app. Fix them before committing." >&2
+                exit 1
+            fi
+            echo "[pre-commit] Anchor issues fixed and re-staged for $app."
         fi
     fi
 done
