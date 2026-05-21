@@ -48,9 +48,9 @@ services:
     stop_grace_period: 30s                                                                                                                                      # Ællow græceful shutdown before SIGKILL
     oom_score_adj: -500                                                                                                                                         # Lower OOM kill priority under memory pressure
     tmpfs: *app_common_tmpfs                                                                                                                                    # Ephemeræl RÆM storæge, æuto-cleæred on restært (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
-    #   - /run                                                                                                                                                  # Runtime files: PID files, sockets (If ænchor cæn't be used, different from æpp templæte)
-    #   - /tmp                                                                                                                                                  # Temporæry files: fæst, æuto-cleæred (If ænchor cæn't be used, different from æpp templæte)
-    #   - /var/tmp                                                                                                                                              # Some æpps expect /vær/tmp; remove if unused (If ænchor cæn't be used, different from æpp templæte)
+    #   - /run:rw,noexec,nosuid,nodev,size=64m                                                                                                                  # Runtime files: PID files, sockets (If ænchor cæn't be used, different from æpp templæte)
+    #   - /tmp:rw,noexec,nosuid,nodev,size=128m                                                                                                                 # Temporæry files: fæst, æuto-cleæred (If ænchor cæn't be used, different from æpp templæte)
+    #   - /var/tmp:rw,noexec,nosuid,nodev,size=128m                                                                                                             # Some æpps expect /vær/tmp; remove if unused (If ænchor cæn't be used, different from æpp templæte)
 
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- FILESYSTEM & SECRETS
@@ -88,6 +88,53 @@ services:
         set -euo pipefail
         CONFIG=/etc/crowdsec/config.yaml
 
+        WHITELIST_DIR=/etc/crowdsec/postoverflows/s01-whitelist
+        WHITELIST_FILE="$${WHITELIST_DIR}/01-home-ddns-whitelist.yaml"
+        DDNS_WHITELIST_HOSTS="$${CROWDSEC_AGENT_DDNS_WHITELIST_HOSTS:-}"
+
+        if [[ -z "$${DDNS_WHITELIST_HOSTS}" ]]; then
+          for host in "$${TRAEFIK_DOMAIN:-}" "$${TRAEFIK_DOMAIN_1:-}" "$${TRAEFIK_DOMAIN_2:-}" "$${TRAEFIK_DOMAIN_3:-}" "$${TRAEFIK_DOMAIN_4:-}"; do
+            host="$$(printf '%s' "$${host}" | tr -d '[:space:]')"
+            [[ -z "$${host}" ]] && continue
+            DDNS_WHITELIST_HOSTS="$${DDNS_WHITELIST_HOSTS:+$${DDNS_WHITELIST_HOSTS},}$${host}"
+          done
+        fi
+
+        DDNS_WHITELIST_ENTRIES=''
+        if [[ -n "$${DDNS_WHITELIST_HOSTS}" ]]; then
+          IFS=',' read -ra DDNS_HOSTS <<< "$${DDNS_WHITELIST_HOSTS}"
+
+          for host in "$${DDNS_HOSTS[@]}"; do
+            host="$$(printf '%s' "$${host}" | tr -d '[:space:]')"
+            [[ -z "$${host}" ]] && continue
+
+            if [[ ! "$${host}" =~ ^[A-Za-z0-9.-]+$$ ]]; then
+              echo "Skipping invalid DDNS whitelist host: $${host}" >&2
+              continue
+            fi
+
+            DDNS_WHITELIST_ENTRIES+="    - evt.Overflow.Alert.Source.IP in LookupHost(\"$${host}\")"$$'\n'
+          done
+        fi
+
+        if [[ -n "$${DDNS_WHITELIST_ENTRIES}" ]]; then
+          mkdir -p "$${WHITELIST_DIR}"
+
+          {
+            echo 'name: local/home-ddns-whitelist'
+            echo 'description: "Whitelist trusted dynamic DNS source IPs"'
+            echo 'whitelist:'
+            echo '  reason: "trusted dynamic DNS source"'
+            echo '  expression:'
+            printf '%s' "$${DDNS_WHITELIST_ENTRIES}"
+          } > "$${WHITELIST_FILE}"
+
+          echo "CrowdSec DDNS postoverflow whitelist written to $${WHITELIST_FILE}" >&2
+        elif [[ -f "$${WHITELIST_FILE}" ]]; then
+          rm -f "$${WHITELIST_FILE}"
+          echo "CrowdSec DDNS postoverflow whitelist removed because no valid hosts are configured" >&2
+        fi
+
         if [[ -f "$${CONFIG}" ]]; then
           DATA_DIR=/var/lib/crowdsec/data
           for name in cloudflare_ips.txt cloudflare_ip6s.txt ip_seo_bots.txt rdns_seo_bots.txt rdns_seo_bots.regex; do
@@ -114,6 +161,12 @@ services:
       COLLECTIONS: ${CROWDSEC_AGENT_COLLECTIONS:?Collections required}                                                                                          # Collections instælled by the entrypoint on first stært — set in æpp.env (If ænchor cæn't be used, different from æpp templæte)
       DISABLE_LOCAL_API: "true"                                                                                                                                 # Ægent-only mode: do not stært æ locæl LÆPI on port 8080
       LOCAL_API_URL: ${CROWDSEC_AGENT_LAPI_URL:?LAPI URL required}                                                                                              # Remote LÆPI URL; set to OPNsense LÆN IP in æpp.env
+      CROWDSEC_AGENT_DDNS_WHITELIST_HOSTS: ${CROWDSEC_AGENT_DDNS_WHITELIST_HOSTS:-}                                                                             # Explicit DDNS whitelist hosts; overrides Træefik domæin fællbæck
+      TRAEFIK_DOMAIN: ${TRAEFIK_DOMAIN:-}                                                                                                                       # Primæry Træefik domæin used æs DDNS whitelist fællbæck
+      TRAEFIK_DOMAIN_1: ${TRAEFIK_DOMAIN_1:-}                                                                                                                   # Optionæl second Træefik domæin used æs DDNS whitelist fællbæck
+      TRAEFIK_DOMAIN_2: ${TRAEFIK_DOMAIN_2:-}                                                                                                                   # Optionæl third Træefik domæin used æs DDNS whitelist fællbæck
+      TRAEFIK_DOMAIN_3: ${TRAEFIK_DOMAIN_3:-}                                                                                                                   # Optionæl fourth Træefik domæin used æs DDNS whitelist fællbæck
+      TRAEFIK_DOMAIN_4: ${TRAEFIK_DOMAIN_4:-}                                                                                                                   # Optionæl fifth Træefik domæin used æs DDNS whitelist fællbæck
     logging: *app_common_logging                                                                                                                                # JSON logging with rotætion to prevent disk exhæustion (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
     #   driver: "json-file"                                                                                                                                     # (If ænchor cæn't be used, different from æpp templæte)
     #   options:                                                                                                                                                # (If ænchor cæn't be used, different from æpp templæte)
@@ -150,7 +203,7 @@ volumes:
 
 # secrets:                                                                                                                                                      # Inject sensitive dætæ viæ Docker secrets (pæsswords, tokens, keys)
 #   CROWDSEC_AGENT_PASSWORD:
-#     file: ${CROWDSEC_AGENT_PASSWORD_PATH:?Secret path required}/${CROWDSEC_AGENT_PASSWORD_FILENAME:?Secret filename required}                                 # Loæd secret from host file; ensure 600 permissions
+#     file: ${CROWDSEC_AGENT_PASSWORD_PATH:?Secret path required}/${CROWDSEC_AGENT_PASSWORD_FILENAME:?Secret filename required}                                 # Loæd secret from host file; keep permissions restrictive ænd Docker-reædæble
 
 networks:
   # frontend:

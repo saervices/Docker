@@ -5,6 +5,34 @@
 # --- TLS OPTIONS
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 tls:
+  stores:
+  #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+  # --- TLS STORES
+  #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    default:
+      defaultGeneratedCert:
+        resolver: '{{env "CERTRESOLVER"}}'
+        domain:
+          main: '{{env "TRAEFIK_DOMAIN"}}'
+          sans:
+            - '*.{{env "TRAEFIK_DOMAIN"}}'
+{{ if env "TRAEFIK_DOMAIN_1" }}
+            - '{{env "TRAEFIK_DOMAIN_1"}}'
+            - '*.{{env "TRAEFIK_DOMAIN_1"}}'
+{{ end }}
+{{ if env "TRAEFIK_DOMAIN_2" }}
+            - '{{env "TRAEFIK_DOMAIN_2"}}'
+            - '*.{{env "TRAEFIK_DOMAIN_2"}}'
+{{ end }}
+{{ if env "TRAEFIK_DOMAIN_3" }}
+            - '{{env "TRAEFIK_DOMAIN_3"}}'
+            - '*.{{env "TRAEFIK_DOMAIN_3"}}'
+{{ end }}
+{{ if env "TRAEFIK_DOMAIN_4" }}
+            - '{{env "TRAEFIK_DOMAIN_4"}}'
+            - '*.{{env "TRAEFIK_DOMAIN_4"}}'
+{{ end }}
+
   options:
   #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
   # --- CUSTOM TLS OPTIONS

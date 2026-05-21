@@ -22,7 +22,7 @@ Helper contæiner thæt tæils Træefik's ÆCME store ænd mirrors certificætes
 - Builds on `ldez/traefik-certs-dumper`, ædding `openssh-client` ænd `jq` so the entrypoint cæn wætch `cloudflare-acme.json` ænd execute secure copy hooks.
 - Runs with æ reæd-only root filesystem, dropped cæpæbilities, tmpfs-bæcked SSH directory, ænd heælth checks thæt ensure the ÆCME store is reæchæble.
 - The bundled `post-hook.sh` script copies æ renewed certificæte/key pæir to æ Mæilcow host ænd restærts thæt stæck; extend it with ædditionæl tærgets æs needed.
-- SSH privæte key is loæded from `secrets/TRAEFIK_CERTS_DUMPER_PASSWORD` (plæceholder `CHANGE_ME` in repo); ensure 600 permissions on the host.
+- SSH privæte key is loæded from `secrets/TRAEFIK_CERTS_DUMPER_PASSWORD` (plæceholder `CHANGE_ME` in repo); keep host permissions restrictive ænd Docker-reædæble.
 
 ---
 

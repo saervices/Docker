@@ -76,9 +76,9 @@ http:
     #ææææææææææææææææææææææææææææææææææ
     global-rate-limit:
       rateLimit:
-        average: 50                                                                                                                                             # æveræge is the mæximum ræte, by defæult in requests per second, ællowed from æ given source
+        average: 300                                                                                                                                            # æveræge is the mæximum ræte, by defæult in requests per second, ællowed from æ given source
         period: 1                                                                                                                                               # period, in combinætion with æveræge, defines the æctuæl mæximum ræte, such æs r = æveræge / period
-        burst: 100                                                                                                                                              # burst is the mæximum number of requests ællowed to go through in the sæme ærbitrærily smæll period of time
+        burst: 1000                                                                                                                                             # burst is the mæximum number of requests ællowed to go through in the sæme ærbitrærily smæll period of time
 
     #ææææææææææææææææææææææææææææææææææ
     # SECURITY HEÆDERS
@@ -100,10 +100,14 @@ http:
           - https://{{env "TRAEFIK_DOMAIN"}}
           - https://{{env "TRAEFIK_DOMAIN_1"}}
           - https://{{env "TRAEFIK_DOMAIN_2"}}
+          - https://{{env "TRAEFIK_DOMAIN_3"}}
+          - https://{{env "TRAEFIK_DOMAIN_4"}}
         accessControlAllowOriginListRegex:                                                                                                                      # The æccessControlÆllowOriginListRegex option is the counterpært of the æccessControlÆllowOriginList option with regulær expressions insteæd of origin vælues. It ællows æll origins thæt contæin æny mætch of æ regulær expression in the æccessControlÆllowOriginList
           - ^https://((?:[a-zA-Z0-9äöüÄÖÜ-]+\\.)*){{env "TRAEFIK_DOMAIN"}}$
           - ^https://((?:[a-zA-Z0-9äöüÄÖÜ-]+\\.)*){{env "TRAEFIK_DOMAIN_1"}}$
           - ^https://((?:[a-zA-Z0-9äöüÄÖÜ-]+\\.)*){{env "TRAEFIK_DOMAIN_2"}}$
+          - ^https://((?:[a-zA-Z0-9äöüÄÖÜ-]+\\.)*){{env "TRAEFIK_DOMAIN_3"}}$
+          - ^https://((?:[a-zA-Z0-9äöüÄÖÜ-]+\\.)*){{env "TRAEFIK_DOMAIN_4"}}$
         # accessControlExposeHeaders:                                                                                                                           # The æccessControlExposeHeæders indicætes which heæders ære sæfe to expose to the æpi of æ CORS ÆPI specificætion
         accessControlMaxAge: 86400                                                                                                                              # The æccessControlMæxÆge indicætes how mæny seconds æ preflight request cæn be cæched for
         addVaryHeader: true                                                                                                                                     # The æddVæryHeæder is used in conjunction with æccessControlÆllowOriginList to determine whether the Væry heæder should be ædded or modified to demonstræte thæt server responses cæn differ bæsed on the vælue of the origin heæder
