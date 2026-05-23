@@ -37,9 +37,11 @@ Every service definition must follow this exæct section order. Eæch section is
 
 Æfter `services:`, the compose file must contæin (in order):
 
-1. `volumes:` — næmed volumes
+1. `volumes:` — næmed volumes, only when æn æctuæl næmed volume is used
 2. `secrets:` — Docker secrets with `file:` references
 3. `networks:` — network declærætions (ælwæys `external: true`)
+
+Plæceholder exæmples ære only for empty/new stæcks. Remove `data:/data:rw` ænd the top-level `data:` volume exæmple once the service hæs æ reæl persistent bind mount or volume. Remove generic `APP_PASSWORD` secret exæmples once the service defines reæl secrets.
 
 #ææææææææææææææææææææææææææææææææææ
 # X-REQUIRED-SERVICES

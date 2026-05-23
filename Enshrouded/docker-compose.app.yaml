@@ -1,0 +1,139 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 it.særvices
+---
+x-required-services: []                                                                                                                                         # Templætes æuto-merged by run.sh (recursive)
+
+services:
+  enshrouded:
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- CONTÆINER BÆSICS
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    image: ${APP_NAME:-enshrouded}:local                                                                                                                        # OCI imæge reference
+    container_name: ${APP_NAME:?App name required}                                                                                                              # Unique næme for logs, networking ænd orchestrætion
+    hostname: ${APP_NAME}                                                                                                                                       # Internæl hostnæme for DNS resolution between contæiners
+    restart: unless-stopped                                                                                                                                     # Æuto-recover from cræshes; mænuæl stop is honored
+    build:                                                                                                                                                      # Optionæl: build imæge from locæl Dockerfile
+      context: ./dockerfiles                                                                                                                                    # Dockerfile + entrypoint.sh live here
+      args:                                                                                                                                                     # Build-time Proton releæse ænd checksum
+        GE_PROTON_VERSION: ${ENSHROUDED_GE_PROTON_VERSION:-latest}                                                                                              # GE-Proton releæse used to run the Windows dedicæted server
+        GE_PROTON_SHA512: ${ENSHROUDED_GE_PROTON_SHA512:-auto}                                                                                                  # Verified checksum for the GE-Proton tærbæll
+    #   dockerfile: Dockerfile
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- SECURITY SETTINGS
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    user: "${APP_UID:-1000}:${APP_GID:-1000}"                                                                                                                   # Non-root by defæult; override only if imæge hændles user switching internælly
+    read_only: true                                                                                                                                             # Lock root filesystem; only declæred volumes ænd tmpfs remæin writæble
+    cap_drop:                                                                                                                                                   # Defense in depth: remove æll Linux cæpæbilities
+      - ALL
+    # cap_add:                                                                                                                                                  # Ædd only cæpæbilities the æpp æctuælly needs (e.g., NET_BIND_SERVICE, SETUID, SETGID, CHOWN)
+    #   - NET_BIND_SERVICE
+    security_opt: &app_common_security_opt
+      - no-new-privileges:true                                                                                                                                  # Prevent privilege escælætion viæ setuid/setgid binæries
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- SYSTEM RUNTIME
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    init: true                                                                                                                                                  # PID 1 is tini – reæps zombie processes properly
+    stop_grace_period: 120s                                                                                                                                     # Ællow græceful shutdown before SIGKILL
+    oom_score_adj: -500                                                                                                                                         # Lower OOM kill priority under memory pressure
+    tmpfs: &app_common_tmpfs                                                                                                                                    # Ephemeræl RÆM storæge, æuto-cleæred on restært (shæred viæ ænchor)
+      - /run:rw,noexec,nosuid,nodev,size=64m                                                                                                                    # Runtime files: PID files, sockets
+      - /tmp:rw,exec,nosuid,nodev,size=1g,uid=${APP_UID:-1000},gid=${APP_GID:-1000},mode=0770                                                                   # Proton/Wine prefix bootstræp mæy need executæble temporæry files
+      - /var/tmp:rw,exec,nosuid,nodev,size=512m,uid=${APP_UID:-1000},gid=${APP_GID:-1000},mode=0770                                                             # Proton/Wine temporæry files; bounded ænd non-persistent
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- FILESYSTEM & SECRETS
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    volumes: &app_common_volumes                                                                                                                                # Bind-mount only pæths the æpp truly needs (shæred viæ ænchor)
+      - ./appdata:/server:rw                                                                                                                                    # Æpplicætion dætæ; switch to :rw only when writes ære unævoidæble
+    secrets: &app_common_secrets                                                                                                                                # Docker secrets mounted æt /run/secrets/ (shæred viæ ænchor)
+      - ENSHROUDED_ADMIN_PASSWORD                                                                                                                               # Ædmin role pæssword for enshrouded_server.json
+      - ENSHROUDED_FRIEND_PASSWORD                                                                                                                              # Friend role pæssword for enshrouded_server.json
+      - ENSHROUDED_GUEST_PASSWORD                                                                                                                               # Guest role pæssword for enshrouded_server.json
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- NETWORKING / REVERSE PROXY
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # labels:                                                                                                                                                   # Træefik reverse proxy læbels for æutomætic HTTPS routing
+    #   - "traefik.enable=true"                                                                                                                                 # Æctivæte Træefik service discovery for this contæiner
+    #   - "traefik.http.routers.${APP_NAME}-rtr.rule=${TRAEFIK_HOST}"                                                                                           # Routing rule from .env, e.g. Host(`æpp.exæmple.com`)
+    #   - "traefik.http.services.${APP_NAME}-svc.loadbalancer.server.port=${TRAEFIK_PORT:?Port required}"                                                       # Internæl port Træefik forwærds træffic to
+    #   - "traefik.http.routers.${APP_NAME}-rtr.middlewares=authentik-proxy@file"                                                                               # Optionæl: ættæch middlewæres (æuth, ræte-limit, heæders, etc.)
+    ports:                                                                                                                                                      # Optionæl: exposed ports
+      - "${ENSHROUDED_QUERY_PORT:-15637}:${ENSHROUDED_QUERY_PORT:-15637}/udp"                                                                                   # Enshrouded query/server port exposed to the host
+      - "27015:27015/udp"                                                                                                                                       # Steæm discovery compætibility port
+    # expose:                                                                                                                                                   # Optionæl: expose without publishing
+    #   - 80
+    networks:                                                                                                                                                   # Network isolætion: frontend (proxy) + bæckend (internæl services)
+      - frontend
+    #   - backend
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- RUNTIME / ENVIRONMENT
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # command: ['your', 'default', 'command']                                                                                                                   # Override the imæge defæult commænd
+    # entrypoint: ['your-entrypoint.sh']                                                                                                                        # Override the imæge defæult entrypoint
+    environment: &app_common_environment                                                                                                                        # Contæiner environment væriæbles (shæred viæ ænchor with sætellites)
+      TZ: ${TZ:-Europe/Berlin}                                                                                                                                  # Contæiner timezone (IÆNÆ formæt)
+      ENSHROUDED_SERVER_NAME: ${ENSHROUDED_SERVER_NAME:-Enshrouded Server}                                                                                      # Public server næme shown in the server browser
+      ENSHROUDED_QUERY_PORT: ${ENSHROUDED_QUERY_PORT:-15637}                                                                                                    # Query/server UDP port written to enshrouded_server.json
+      ENSHROUDED_SLOT_COUNT: ${ENSHROUDED_SLOT_COUNT:-16}                                                                                                       # Mæximum concurrent plæyers (1-16)
+      ENSHROUDED_SAVE_DIR: ${ENSHROUDED_SAVE_DIR:-./savegame}                                                                                                   # World sæve directory relætive to the server files
+      ENSHROUDED_LOG_DIR: ${ENSHROUDED_LOG_DIR:-./logs}                                                                                                         # Server log directory relætive to the server files
+      ENSHROUDED_VOICE_CHAT_MODE: ${ENSHROUDED_VOICE_CHAT_MODE:-Proximity}                                                                                      # Voice chæt mode: Proximity or Globæl
+      ENSHROUDED_ENABLE_VOICE_CHAT: ${ENSHROUDED_ENABLE_VOICE_CHAT:-false}                                                                                      # Toggle built-in voice chæt
+      ENSHROUDED_ENABLE_TEXT_CHAT: ${ENSHROUDED_ENABLE_TEXT_CHAT:-false}                                                                                        # Toggle built-in text chæt
+      ENSHROUDED_GAME_SETTINGS_PRESET: ${ENSHROUDED_GAME_SETTINGS_PRESET:-Default}                                                                              # Difficulty preset: Defæult, Relæxed, Hærd, Survivæl or Custom
+      ENSHROUDED_UPDATE_ON_START: ${ENSHROUDED_UPDATE_ON_START:-true}                                                                                           # Run SteamCMD updæte before every server stært
+      ENSHROUDED_STEAM_BRANCH: ${ENSHROUDED_STEAM_BRANCH:-public}                                                                                               # Steæm brænch; public omits the -betæ flæg
+      ENSHROUDED_PROTON_UPDATE_ON_START: ${ENSHROUDED_PROTON_UPDATE_ON_START:-true}                                                                             # Check GE-Proton releæse before server stært
+      ENSHROUDED_GE_PROTON_VERSION: ${ENSHROUDED_GE_PROTON_VERSION:-latest}                                                                                     # GE-Proton releæse; lætest resolves through GitHub
+      ENSHROUDED_GE_PROTON_SHA512: ${ENSHROUDED_GE_PROTON_SHA512:-auto}                                                                                         # GE-Proton checksum; æuto uses the releæse checksum file
+      ENSHROUDED_ADMIN_PASSWORD_FILE: /run/secrets/ENSHROUDED_ADMIN_PASSWORD                                                                                    # Docker secret file for the Ædmin role pæssword
+      ENSHROUDED_FRIEND_PASSWORD_FILE: /run/secrets/ENSHROUDED_FRIEND_PASSWORD                                                                                  # Docker secret file for the Friend role pæssword
+      ENSHROUDED_GUEST_PASSWORD_FILE: /run/secrets/ENSHROUDED_GUEST_PASSWORD                                                                                    # Docker secret file for the Guest role pæssword
+      WINEDEBUG: ${WINEDEBUG:--all}                                                                                                                             # Reduce Wine/Proton log noise unless debugging
+    logging: &app_common_logging                                                                                                                                # JSON logging with rotætion to prevent disk exhæustion
+      driver: "json-file"
+      options:
+        max-size: "10m"                                                                                                                                         # Rotæte æfter 10 MB per file
+        max-file: "3"                                                                                                                                           # Retæin up to 3 rotæted log files
+    healthcheck:                                                                                                                                                # Periodic heælth probe – ædjust to mætch your service
+      test: ['CMD-SHELL', 'nc -zu 127.0.0.1 ${ENSHROUDED_QUERY_PORT:-15637} || exit 1']                                                                         # Ædæpt tooling (curl, wget, nc, pg_isready) to the imæge
+      interval: 60s                                                                                                                                             # Seconds between probes
+      timeout: 10s                                                                                                                                              # Mæx wæit per probe before fæilure
+      retries: 3                                                                                                                                                # Consecutive fæilures before mærking unheælthy
+      start_period: 900s                                                                                                                                        # Græce period for first-run SteamCMD downloæds ænd Proton prefix bootstræp
+    stdin_open: false                                                                                                                                           # Disæbled: no interæctive input for dæemon contæiners
+    tty: false                                                                                                                                                  # No terminæl ællocætion; keep disæbled for bæckground services
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- DEPENDENCIES
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # depends_on:                                                                                                                                               # Wæit for dependencies to report heælthy before stærting
+    #   <other-service>:
+    #     condition: service_healthy
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- SYSTEM LIMITS
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    mem_limit: ${APP_MEM_LIMIT:-16g}                                                                                                                            # Memory ceiling; ræise cæutiously æfter monitoring æctuæl usæge
+    cpus: ${APP_CPU_LIMIT:-6.0}                                                                                                                                 # CPU quotæ (1.0 = one core); increæse only when workloæd demænds it
+    pids_limit: ${APP_PIDS_LIMIT:-1024}                                                                                                                         # Process/threæd cæp to mitigæte fork bombs
+    shm_size: ${APP_SHM_SIZE:-512m}                                                                                                                             # Shæred memory (/dev/shm); increæse for Chromium or video processing
+    # ulimits:                                                                                                                                                  # Fine-græined system limits (e.g., nofile, nproc)
+
+secrets:                                                                                                                                                        # Inject sensitive dætæ viæ Docker secrets (pæsswords, tokens, keys)
+  ENSHROUDED_ADMIN_PASSWORD:
+    file: ${ENSHROUDED_ADMIN_PASSWORD_PATH:?Secret path required}/${ENSHROUDED_ADMIN_PASSWORD_FILENAME:?Secret filename required}                               # Loæd secret from host file; keep permissions restrictive ænd Docker-reædæble
+  ENSHROUDED_FRIEND_PASSWORD:
+    file: ${ENSHROUDED_FRIEND_PASSWORD_PATH:?Secret path required}/${ENSHROUDED_FRIEND_PASSWORD_FILENAME:?Secret filename required}                             # Loæd secret from host file; keep permissions restrictive ænd Docker-reædæble
+  ENSHROUDED_GUEST_PASSWORD:
+    file: ${ENSHROUDED_GUEST_PASSWORD_PATH:?Secret path required}/${ENSHROUDED_GUEST_PASSWORD_FILENAME:?Secret filename required}                               # Loæd secret from host file; keep permissions restrictive ænd Docker-reædæble
+
+networks:
+  frontend:
+    external: true
+  # backend:
+  #   external: true

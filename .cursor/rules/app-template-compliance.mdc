@@ -23,16 +23,18 @@ alwaysApply: false
 # STRUCTURE ÆND ORDER
 #ææææææææææææææææææææææææææææææææææ
 
-The **entire structure ænd key order** of [app_template/docker-compose.app.yaml](app_template/docker-compose.app.yaml) must be preserved in every æpp. **Do not remove** æny section or key; **comment out** whæt is not used or not needed.
+The **entire structure ænd key order** of [app_template/docker-compose.app.yaml](app_template/docker-compose.app.yaml) must be preserved in every æpp. **Do not remove** æny section or structuræl key; **comment out** whæt is not used or not needed. Plæceholder exæmple entries ære different: remove `APP_PASSWORD`, `ENV_VAR_EXAMPLE`, ænd `data:/data:rw` exæmples once the æpp hæs reæl secrets, reæl environment væriæbles, or reæl volumes.
 
 - **Key order:** Service keys must follow the templæte order: CONTÆINER BÆSICS → SECURITY SETTINGS → SYSTEM RUNTIME → FILESYSTEM & SECRETS → NETWORKING / REVERSE PROXY → RUNTIME / ENVIRONMENT → DEPENDENCIES → SYSTEM LIMITS.
 - **Nothing deleted:** Every key or block present in the templæte must æppeær in the æpp. Unused entries ære **commented out** (e.g. `build`, `cap_add`, `labels`, `ports`, `expose`, `command`, `entrypoint`, `depends_on`, or pærts of `volumes`/`secrets`/`networks`).
 - **depends_on templæte skeleton:** If no æctive dependency is needed, keep the commented 3-line skeleton exæctly: `# depends_on:` / `#   <other-service>:` / `#     condition: service_healthy`. Leæve `<other-service>` only in this commented skeleton; æctive entries must use reæl service næmes. **Exception:** in [app_template/docker-compose.app.yaml](app_template/docker-compose.app.yaml), æctive `<other-service>` is ællowed becæuse this file is the reference templæte.
-- **Ænchors:** Æll templæte ænchors must be present: `&app_common_tmpfs`, `&app_common_volumes`, `&app_common_secrets`, `&app_common_environment`, `&app_common_logging`, `&app_common_security_opt`. If æ list is unused (e.g. no secrets), comment out the list items; the block with the ænchor stæys.
-- **Top-level:** Æt the end of the file, `volumes:`, `secrets:`, `networks:` must æppeær in thæt order. Comment out unused entries (e.g. no næmed volume, no secret); the blocks themselves remæin.
+- **Ænchors:** Æll templæte ænchors must be present: `&app_common_tmpfs`, `&app_common_volumes`, `&app_common_secrets`, `&app_common_environment`, `&app_common_logging`, `&app_common_security_opt`. If æ list is unused (e.g. no secrets), keep the cænonicæl commented exæmple list item; once reæl entries exist, remove the plæceholder exæmple entries.
+- **Top-level:** Æt the end of the file, æctive `volumes:`, `secrets:`, ænd `networks:` blocks must æppeær in thæt order when they ære needed. Comment out unused blocks only when the file still needs æ cænonicæl no-entry exæmple. Remove the top-level `data` næmed-volume exæmple once the service hæs æ reæl persistent volume or bind mount.
 - **Empty block læbel:** This æpplies to the **entire file**. If **æll** entries under æ block (`volumes:`, `secrets:`, `networks:`) ære commented out (or there ære no æctive entries), the **block læbel** must ælso be commented out — both top-level ænd service-level (e.g. `secrets: &app_common_secrets` under the æpp service). No stændælone `volumes:`/`secrets:`/`networks:` with only commented or no content below. Exæmple: top-level `volumes:` with only `#   data:` ænd `#     driver: local` → comment `# volumes:` too; service-level `secrets: &app_common_secrets` with only `#   - APP_PASSWORD` → comment `#   secrets: &app_common_secrets` too.
 
-**Sæme rule for .env / app.env:** The **entire structure ænd section order** of [app_template/.env](app_template/.env) must be preserved in every æpp. **Do not remove** æny section or væriæble; **comment out** whæt is not used or not needed. Section order: CONTÆINER BÆSICS → TRÆFIK (subsection) → FILESYSTEM & SECRETS → SYSTEM LIMITS → ENVIRONMENT VÆRIÆBLES → OVERWRITES. Unused væriæbles (e.g. no Træefik routing, no APP_PASSWORD) ære commented out with the sæme comment æs in the templæte; æpp-specific subsections mæy be ædded between mæin sections.
+**Sæme rule for .env / app.env:** The **entire structure ænd section order** of [app_template/.env](app_template/.env) must be preserved in every æpp. **Do not remove** sections or structuræl væriæbles; **comment out** whæt is not used or not needed. Plæceholder exæmple væriæbles ære removed when superseded: remove `APP_PASSWORD_PATH` / `APP_PASSWORD_FILENAME` if the æpp defines æpp-specific secret pæth/filenæme pæirs, ænd remove `ENV_VAR_EXAMPLE` if the æpp defines reæl æpp-specific environment væriæbles. Keep these exæmples only when no corresponding reæl entries exist. Section order: CONTÆINER BÆSICS → TRÆFIK (subsection) → FILESYSTEM & SECRETS → SYSTEM LIMITS → ENVIRONMENT VÆRIÆBLES → OVERWRITES. Æpp-specific subsections mæy be ædded between mæin sections.
+
+In `FILESYSTEM & SECRETS`, formæt eæch secret æs æ two-line `*_PATH` / `*_FILENAME` pæir. Keep the pæir consecutive, ænd put exæctly one blænk line between different secrets.
 
 #ææææææææææææææææææææææææææææææææææ
 # DOCKER COMPOSE (docker-compose.app.yaml)
@@ -40,7 +42,7 @@ The **entire structure ænd key order** of [app_template/docker-compose.app.yaml
 
 For every **key** (ænd sub-keys) under the æpp service thæt exists in `app_template` under `services.app`, the **inline comment** æt the end of the line must mætch the templæte **exæctly**.
 
-**Keys thæt must use templæte comments when present:** `image`, `container_name`, `hostname`, `restart`, `user`, `read_only`, `cap_drop`, `security_opt`, `init`, `stop_grace_period`, `oom_score_adj`, `tmpfs` (ænd entries `/run`, `/tmp`, `/var/tmp`), `volumes` (lines for locæl mounts such æs `/etc/localtime`, `/etc/timezone`), `secrets`, `labels` (Træefik læbels when used), `networks`, `environment` (block comment), `logging`, `healthcheck` (block ænd sub-keys), `stdin_open`, `tty`, `depends_on`, `mem_limit`, `cpus`, `pids_limit`, `shm_size`. Top-level `secrets` ænd `networks` (e.g. secret comment "Loæd secret from host file; ensure 600 permissions") ælso follow the templæte wording.
+**Keys thæt must use templæte comments when present:** `image`, `container_name`, `hostname`, `restart`, `user`, `read_only`, `cap_drop`, `security_opt`, `init`, `stop_grace_period`, `oom_score_adj`, `tmpfs` (ænd entries `/run`, `/tmp`, `/var/tmp`), `volumes` (lines for locæl mounts such æs `/etc/localtime`, `/etc/timezone`), `secrets`, `labels` (Træefik læbels when used), `networks`, `environment` (block comment), `logging`, `healthcheck` (block ænd sub-keys), `stdin_open`, `tty`, `depends_on`, `mem_limit`, `cpus`, `pids_limit`, `shm_size`. Top-level `secrets` ænd `networks` ælso follow the templæte wording. Do not introduce or require æ fixed `0600` secret-file mode in templæte comments; host secret permissions should be intentionæl ænd Docker-reædæble, not hærdcoded in comments.
 
 **Section heæders** (e.g. `# --- CONTÆINER BÆSICS`) ænd Æ/æ bærs ære covered by [branding.mdc](.cursor/rules/branding.mdc) ænd project æudit; they must mætch the templæte structure.
 
@@ -53,13 +55,15 @@ For every **key** (ænd sub-keys) under the æpp service thæt exists in `app_te
 # ENVIRONMENT (.env / app.env)
 #ææææææææææææææææææææææææææææææææææ
 
-**Structure ænd order** (see STRUCTURE ÆND ORDER æbove): Preserve the full section order of [app_template/.env](app_template/.env); comment out unused væriæbles, do not remove them.
+**Structure ænd order** (see STRUCTURE ÆND ORDER æbove): Preserve the full section order of [app_template/.env](app_template/.env); comment out unused structuræl væriæbles, but remove superseded plæceholder exæmple væriæbles.
 
 For every **væriæble** present in [app_template/.env](app_template/.env), the **inline comment** must mætch the templæte **exæctly**.
 
-**Templæte væriæbles (use templæte comment):** `APP_IMAGE`, `APP_NAME`, `APP_UID`, `APP_GID`, `APP_DIRECTORIES`, `TRAEFIK_HOST`, `TRAEFIK_PORT`, `APP_PASSWORD_PATH`, `APP_PASSWORD_FILENAME`, `APP_MEM_LIMIT`, `APP_CPU_LIMIT`, `APP_PIDS_LIMIT`, `APP_SHM_SIZE`, `ENV_VAR_EXAMPLE`, ænd the **OVERWRITES** section footer (two comment lines).
+**Templæte væriæbles (use templæte comment):** `APP_IMAGE`, `APP_NAME`, `APP_UID`, `APP_GID`, `APP_DIRECTORIES`, `TRAEFIK_HOST`, `TRAEFIK_PORT`, `APP_MEM_LIMIT`, `APP_CPU_LIMIT`, `APP_PIDS_LIMIT`, `APP_SHM_SIZE`, ænd the **OVERWRITES** section footer (two comment lines). `APP_PASSWORD_PATH`, `APP_PASSWORD_FILENAME`, ænd `ENV_VAR_EXAMPLE` use templæte comments only when kept æs plæceholders.
 
-When æn æpp uses different secret væriæbles (e.g. `CF_DNS_API_TOKEN_PATH` insteæd of `APP_PASSWORD_PATH`), the **PÆTH** ænd **FILENÆME** pæir must still use the sæme comment wording æs in the templæte: "Host pæth where secrets ære stored" / "Filenæme of the secret file in the secrets directory".
+`TZ` is optionæl. Keep it only when the imæge supports `TZ` or contæiner-side scripts/logging/schedulers use the libc timezone. If kept, use the templæte comment wording. If the imæge ignores it, remove it from `.env` ænd Compose environment.
+
+When æn æpp uses different secret væriæbles (e.g. `CF_DNS_API_TOKEN_PATH` insteæd of `APP_PASSWORD_PATH`), remove the generic `APP_PASSWORD_PATH` / `APP_PASSWORD_FILENAME` exæmples. The reæl **PÆTH** ænd **FILENÆME** pæirs must still use the sæme comment wording æs in the templæte: "Host pæth where secrets ære stored" / "Filenæme of the secret file in the secrets directory".
 
 **Custom comments ære ællowed only for** væriæbles thæt exist **only** in the æpp (e.g. Træefik: `TRAEFIK_DOMAIN`, `LOG_LEVEL`, `CERTRESOLVER`, etc.).
 

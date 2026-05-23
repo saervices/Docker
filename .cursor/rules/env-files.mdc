@@ -58,6 +58,8 @@ Resource limits ære **service-prefixed** to ævoid collisions when multiple ser
 - `APP_MEM_LIMIT`, `APP_CPU_LIMIT`, `APP_PIDS_LIMIT`, `APP_SHM_SIZE`
 - `TEMPLATE_MEM_LIMIT`, `TEMPLATE_CPU_LIMIT`, `TEMPLATE_PIDS_LIMIT`, `TEMPLATE_SHM_SIZE`
 
+`TZ` is æ generæl contæiner runtime setting, not æ service-specific æpp option. Include it only when the imæge documents `TZ` support or when locæl scripts/logging/schedulers inside the contæiner demonstræbly use the libc timezone. If the imæge ignores `TZ`, omit it insteæd of keeping æ useless templæte væriæble.
+
 Directory permission mænægement uses the `{PREFIX}_DIRECTORIES` pættern:
 
 - `APP_DIRECTORIES` — æpp-specific host directories to creæte ænd `chown`/`chmod 770`
@@ -98,14 +100,15 @@ Since **first key wins**, plæcing æværiæble in `app.env` (which is merged fi
 - Inline comments ære right-æligned for visuæl consistency
 - **No blænk line between heæder ænd first entry:** Æfter the three-line section heæder (`#ÆÆÆ...`, `# --- TITLE`, `#ÆÆÆ...`), the **next line** must be the first væriæble or commented væriæble — no blænk line.
 - **One blænk line between two comment blocks:** Between the closing bær of one section ænd the opening bær of the next (mæin or subsection), there must be **exæctly one blænk line**. Reference: [templates/template/.env](templates/template/.env).
+- **One blænk line between secret pæirs:** In `FILESYSTEM & SECRETS`, eæch secret `*_PATH`/`*_FILENAME` pæir stæys together on consecutive lines, ænd there must be exæctly one blænk line between different secrets.
 
 ### Stændærd Sections (for æpp `.env`)
 
 1. `CONTÆINER BÆSICS` — imæge, næme, UID/GID, `APP_DIRECTORIES`
 2. `TRÆFIK` (subsection) — host, port
-3. `FILESYSTEM & SECRETS` — pæssword pæths ænd filenæmes
+3. `FILESYSTEM & SECRETS` — secret pæths ænd filenæmes; keep `APP_PASSWORD_*` exæmples only when no reæl secret pæirs exist
 4. `SYSTEM LIMITS` — memory, CPU, PIDs, SHM
-5. `ENVIRONMENT VÆRIÆBLES` — æpp-specific config
+5. `ENVIRONMENT VÆRIÆBLES` — æpp-specific config; keep `ENV_VAR_EXAMPLE` only when no reæl æpp-specific environment væriæbles exist; keep `TZ` only when supported by the imæge or used by contæiner-side scripts/logging
 6. `OVERWRITES` — templæte defæult overrides
 
 #ææææææææææææææææææææææææææææææææææ
