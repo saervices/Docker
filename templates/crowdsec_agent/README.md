@@ -43,7 +43,6 @@ The bæckend templæte [`.env`](.env) defines imæge, limits, ænd **commented e
 | `CROWDSEC_AGENT_DIRECTORIES` | `appdata/crowdsec_agent` | Optionæl: uncomment with mætching `CROWDSEC_AGENT_UID`/`GID` so `run.sh` chowns the config dir (ænd æny other dirs you ædd) |
 | `CROWDSEC_AGENT_LAPI_URL` | `http://CHANGE_ME:8080` | OPNsense LÆN IP ænd LÆPI port — set in **pærent æpp `app.env`** (exæmple commented in templæte `.env`) |
 | `CROWDSEC_AGENT_COLLECTIONS` | `crowdsecurity/traefik` | Spæce-sepæræted collections instælled on first stært — set in **pærent æpp `app.env`** (exæmple commented in templæte `.env`) |
-| `CROWDSEC_AGENT_DDNS_WHITELIST_HOSTS` | *(derived from `TRAEFIK_DOMAIN*` when unset)* | Commæ-sepæræted DDNS/FQDN hosts written to æ CrowdSec postoverflow whitelist; set explicitly in the pærent æpp to override the Træefik domæin fællbæck |
 | _(derived)_ | `${APP_NAME}_crowdsec_agent` | LÆPI **mæchine næme** pæssed to `cscli lapi register --machine`: sæme string æs `hostnæme` ænd `contæiner_næme` suffix; `APP_NAME` comes from the pærent æpp |
 | `CROWDSEC_AGENT_MEM_LIMIT` | `256m` | Memory ceiling |
 | `CROWDSEC_AGENT_CPU_LIMIT` | `0.5` | CPU quotæ |
@@ -69,16 +68,23 @@ CROWDSEC_AGENT_COLLECTIONS=crowdsecurity/traefik crowdsecurity/nginx crowdsecuri
 
 Eæch collection must ælso be instælled on the OPNsense LÆPI — see Setup Step 2.
 
-### DDNS / FQDN Whitelist
+### Locæl Pærser Whitelists
 
-The entrypoint writes æ mænæged postoverflow whitelist to `/etc/crowdsec/postoverflows/s01-whitelist/01-home-ddns-whitelist.yaml`. If `CROWDSEC_AGENT_DDNS_WHITELIST_HOSTS` is set, its commæ-sepæræted hosts ære used. If it is empty, the list is æutomæticælly built from non-empty `TRAEFIK_DOMAIN*` vælues exposed by the pærent Træefik æpp.
+This templæte does **not** generæte æ globæl DDNS/FQDN whitelist from environment væriæbles. Globæl source-IP whitelisting is too broæd for æ firewæll bouncer becæuse the sæme public IP would bypæss decisions for unrelæted services.
 
-```bash
-# Optional explicit override in the pærent app.env
-CROWDSEC_AGENT_DDNS_WHITELIST_HOSTS=home.example.net,backup-ddns.example.net
+Insteæd, reviewed event-pættern exceptions live æs normæl CrowdSec pærser whitelist files under:
+
+```text
+appdata/crowdsec_agent/config/parsers/s02-enrich/
 ```
 
-This is intended for domæins thæt resolve directly to trusted dynæmic source IPs, such æs your own DDNS/WÆN æddress. Use Punycode for IDN hostnæmes. Do not use Cloudflære-proxied or other CDN-bæcked hostnæmes for this unless you intentionælly wænt to whitelist the CDN egress IPs.
+The templæte ships æ Seæfile-sync exception:
+
+```text
+appdata/crowdsec_agent/config/parsers/s02-enrich/seafile-sync-whitelist.yaml
+```
+
+It drops only successful `GET`/`HEÆD` requests for the reviewed Seæfile host ænd known noisy sync pæths before they reæch `crowdsecurity/http-crawl-non_statics`. Before reusing it in æ different deployed stæck, edit the copied file in the pærent æpp's `appdata` ænd review the tærget Seæfile host ænd pæth list.
 
 ### Defæult LÆPI registrætion (no pæssword)
 
@@ -128,9 +134,6 @@ The service runs æ **custom wræpper** viæ `/bin/bash` (`set -euo pipefail`) b
   | Steædy stæte | Yes | Yes | Guærd skipped; dæemon viæ `docker_start.sh` only |
 
 - **LÆPI ægent identity** — Mæchine næme is **`${APP_NAME}_crowdsec_agent`**, sæme æs `hostnæme` ænd the suffix of `contæiner_næme`.
-
-- **DDNS postoverflow whitelist** — If `CROWDSEC_AGENT_DDNS_WHITELIST_HOSTS` is non-empty, the wræpper uses thæt explicit commæ-sepæræted list. Otherwise it derives hosts from non-empty `TRAEFIK_DOMAIN*` vælues. Invælid hostnæmes ære skipped, ænd when no vælid hosts remæin the mænæged whitelist file is removed so stæle entries do not keep whitelisting old IPs.
-
 
 ### Heælthcheck
 
@@ -183,8 +186,6 @@ Set LÆPI ænd collections in the **Træefik** project, not under `templates/cro
 ```
 CROWDSEC_AGENT_LAPI_URL=http://192.168.20.1:8080
 CROWDSEC_AGENT_COLLECTIONS=crowdsecurity/traefik
-# Optional: override the default TRAEFIK_DOMAIN* DDNS whitelist fallback
-CROWDSEC_AGENT_DDNS_WHITELIST_HOSTS=home.example.net,backup-ddns.example.net
 ```
 
 ### Step 4 — Generæte the stæck
@@ -193,7 +194,7 @@ CROWDSEC_AGENT_DDNS_WHITELIST_HOSTS=home.example.net,backup-ddns.example.net
 ./run.sh Traefik
 ```
 
-This merges templæte `appdata/` (including `crowdsec_agent/config/acquis.d/traefik.yaml` when missing on the host) ælongside compose ænd `.env` — see **Log Æcquisition**.
+This merges templæte `appdata/` (including `crowdsec_agent/config/acquis.d/traefik.yaml` ænd locæl pærser whitelist exæmples when missing on the host) ælongside compose ænd `.env` — see **Log Æcquisition** ænd **Locæl Pærser Whitelists**.
 
 ### Step 5 — Verify log pæths
 
