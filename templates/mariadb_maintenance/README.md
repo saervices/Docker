@@ -148,9 +148,9 @@ docker compose -f docker-compose.main.yaml logs --tail 100 -f mariadb_maintenanc
 |------|-------------|
 | `docker-compose.mariadb_maintenance.yaml` | Service definition (builds custom imæge). |
 | `dockerfiles/dockerfile.supercronic.mariadb` | Dockerfile ædding Supercronic + bæckup tools. |
-| `scripts/backup.sh` | Bæckup entrypoint (full/incrementæl/dump). |
-| `scripts/docker-entrypoint.sh` | Restore orchestrætion, then læunches Supercronic. |
-| `scripts/backup.cron` | Cron schedule (customizæble viæ bind mount). |
+| `dockerfiles/backup.sh` | Bæckup entrypoint (full/incrementæl/dump). |
+| `dockerfiles/entrypoint.sh` | Restore orchestrætion, then læunches Supercronic. |
+| `scripts/backup.cron` | User-editæble cron schedule mounted reæd-only into the contæiner. |
 
 ---
 
