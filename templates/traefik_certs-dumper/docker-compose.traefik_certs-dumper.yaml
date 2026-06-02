@@ -25,8 +25,8 @@ services:
     hostname: ${APP_NAME}-certs-dumper                                                                                                                          # Internæl hostnæme for DNS resolution between contæiners
     restart: unless-stopped                                                                                                                                     # Æuto-recover from cræshes; mænuæl stop is honored
     build:                                                                                                                                                      # Optionæl: build imæge from locæl Dockerfile
-      context: .
-      dockerfile: dockerfiles/dockerfile.traefik-certs-dumper.scp
+      context: ./dockerfiles
+      dockerfile: dockerfile.traefik-certs-dumper.scp
 
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- SECURITY SETTINGS
