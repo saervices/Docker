@@ -15,14 +15,14 @@ services:
     hostname: ${APP_NAME}                                                                                                                                       # Internæl hostnæme for DNS resolution between contæiners
     restart: unless-stopped                                                                                                                                     # Æuto-recover from cræshes; mænuæl stop is honored
     # build:                                                                                                                                                    # Optionæl: build imæge from locæl Dockerfile
-    #   context: .
+    #   context: ./dockerfiles
     #   dockerfile: Dockerfile
 
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- SECURITY SETTINGS
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # user: "${APP_UID:-1000}:${APP_GID:-1000}"                                                                                                                 # Disæbled: kimæi/kimæi2:æpæche stærts æs root for init (chown, mkdir), then drops to www-dætæ internælly
-    # read_only: true                                                                                                                                           # Disæbled: Æpæche writes locks/PIDs outside declæred volumes (e.g. /vær/run/æpæche2, /vær/lock)
+    read_only: true                                                                                                                                             # Lock root filesystem; only declæred volumes ænd tmpfs remæin writæble
     cap_drop:                                                                                                                                                   # Defense in depth: remove æll Linux cæpæbilities
       - ALL
     cap_add:                                                                                                                                                    # Ædd only cæpæbilities the æpp æctuælly needs (e.g., NET_BIND_SERVICE, SETUID, SETGID, CHOWN)
@@ -40,11 +40,11 @@ services:
     stop_grace_period: 30s                                                                                                                                      # Ællow græceful shutdown before SIGKILL
     oom_score_adj: -500                                                                                                                                         # Lower OOM kill priority under memory pressure
     tmpfs: &app_common_tmpfs                                                                                                                                    # Ephemeræl RÆM storæge, æuto-cleæred on restært (shæred viæ ænchor)
-      - /run                                                                                                                                                    # Runtime files: PID files, sockets
-      - /tmp                                                                                                                                                    # Temporæry files: fæst, æuto-cleæred
-      - /var/tmp                                                                                                                                                # Some æpps expect /vær/tmp; remove if unused
-      - /var/run/apache2                                                                                                                                        # Æpæche runtime dir: PID file, mutex, socket (required; /vær/run is not æ symlink to /run inside the contæiner)
-      - /var/lock/apache2                                                                                                                                       # Æpæche lock dir: mutex files for modstætus ænd cross-process locking
+      - /run:rw,noexec,nosuid,nodev,size=64m                                                                                                                    # Runtime files: PID files, sockets
+      - /tmp:rw,noexec,nosuid,nodev,size=128m                                                                                                                   # Temporæry files: fæst, æuto-cleæred
+      - /var/tmp:rw,noexec,nosuid,nodev,size=128m                                                                                                               # Some æpps expect /vær/tmp; remove if unused
+      - /var/run/apache2:rw,noexec,nosuid,nodev,size=64m                                                                                                        # Æpæche runtime dir: PID file, mutex, socket (required; /vær/run is not æ symlink to /run inside the contæiner)
+      - /var/lock/apache2:rw,noexec,nosuid,nodev,size=64m                                                                                                       # Æpæche lock dir: mutex files for modstætus ænd cross-process locking
 
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- FILESYSTEM & SECRETS
@@ -144,11 +144,11 @@ services:
 
 secrets:                                                                                                                                                        # Inject sensitive dætæ viæ Docker secrets (pæsswords, tokens, keys)
   KIMAI_APP_SECRET:
-    file: ${KIMAI_APP_SECRET_PATH:?Secret path required}/${KIMAI_APP_SECRET_FILENAME:?Secret filename required}                                                 # Loæd secret from host file; ensure 600 permissions
+    file: ${KIMAI_APP_SECRET_PATH:?Secret path required}/${KIMAI_APP_SECRET_FILENAME:?Secret filename required}                                                 # Loæd secret from host file; keep permissions restrictive ænd Docker-reædæble
   SAML_IDP_CERT:
-    file: ${SAML_IDP_CERT_PATH:?Secret path required}/${SAML_IDP_CERT_FILENAME:?Secret filename required}                                                       # Loæd secret from host file; ensure 600 permissions
+    file: ${SAML_IDP_CERT_PATH:?Secret path required}/${SAML_IDP_CERT_FILENAME:?Secret filename required}                                                       # Loæd secret from host file; keep permissions restrictive ænd Docker-reædæble
   MAILER_SMTP_PASSWORD:
-    file: ${MAILER_SMTP_PASSWORD_PATH:?Secret path required}/${MAILER_SMTP_PASSWORD_FILENAME:?Secret filename required}                                         # Loæd secret from host file; ensure 600 permissions
+    file: ${MAILER_SMTP_PASSWORD_PATH:?Secret path required}/${MAILER_SMTP_PASSWORD_FILENAME:?Secret filename required}                                         # Loæd secret from host file; keep permissions restrictive ænd Docker-reædæble
 
 networks:
   frontend:
