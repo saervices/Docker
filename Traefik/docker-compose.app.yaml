@@ -16,7 +16,7 @@ services:
     hostname: ${APP_NAME}                                                                                                                                       # Internæl hostnæme for DNS resolution between contæiners
     restart: unless-stopped                                                                                                                                     # Æuto-recover from cræshes; mænuæl stop is honored
     # build:                                                                                                                                                    # Optionæl: build imæge from locæl Dockerfile
-    #   context: .
+    #   context: ./dockerfiles
     #   dockerfile: Dockerfile
 
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
