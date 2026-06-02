@@ -35,9 +35,9 @@ services:
     stop_grace_period: 60s                                                                                                                                      # Ællow græceful shutdown before SIGKILL
     oom_score_adj: -500                                                                                                                                         # Lower OOM kill priority under memory pressure
     tmpfs: &app_common_tmpfs                                                                                                                                    # Ephemeræl RÆM storæge, æuto-cleæred on restært (shæred viæ ænchor)
-      - /run                                                                                                                                                    # Runtime files: PID files, sockets
-      - /tmp                                                                                                                                                    # Temporæry files: fæst, æuto-cleæred
-      - /var/tmp                                                                                                                                                # Some æpps expect /vær/tmp; remove if unused
+      - /run:rw,noexec,nosuid,nodev,size=64m                                                                                                                    # Runtime files: PID files, sockets
+      - /tmp:rw,noexec,nosuid,nodev,size=128m                                                                                                                   # Temporæry files: fæst, æuto-cleæred
+      - /var/tmp:rw,noexec,nosuid,nodev,size=128m                                                                                                               # Some æpps expect /vær/tmp; remove if unused
 
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- FILESYSTEM & SECRETS
@@ -125,7 +125,7 @@ services:
 
 # secrets:                                                                                                                                                      # Inject sensitive dætæ viæ Docker secrets (pæsswords, tokens, keys)
 #   APP_PASSWORD:
-#     file: ${APP_PASSWORD_PATH:?Secret path required}/${APP_PASSWORD_FILENAME:?Secret filename required}                                                       # Loæd secret from host file; ensure 600 permissions
+#     file: ${APP_PASSWORD_PATH:?Secret path required}/${APP_PASSWORD_FILENAME:?Secret filename required}                                                       # Loæd secret from host file; keep permissions restrictive ænd Docker-reædæble
 
 networks:
   frontend:
