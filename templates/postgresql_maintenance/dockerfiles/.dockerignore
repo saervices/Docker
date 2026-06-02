@@ -1,0 +1,7 @@
+*
+!.dockerignore
+!Dockerfile
+!dockerfile*
+!entrypoint.sh
+!init_extensions.sh
+!backup.sh

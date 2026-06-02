@@ -35,5 +35,5 @@ RUN set -eux; \
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 # Bæked into the imæge; no host-mount required.
 # PostgreSQL runs this once on first DB initiælizætion (empty dætæ directory).
-COPY dockerfiles/init_extensions.sh /docker-entrypoint-initdb.d/init_extensions.sh
+COPY init_extensions.sh /docker-entrypoint-initdb.d/init_extensions.sh
 RUN chmod +x /docker-entrypoint-initdb.d/init_extensions.sh

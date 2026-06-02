@@ -181,7 +181,7 @@ test_pgdata_writable() {
     rm -f "$testfile"
     return 0
   else
-    log_fatal "${PGDATA_DIR} is not writable. Check if 'read_only: true' is set in docker-compose. Set it to false temporarily for a physical restore."
+    log_fatal "${PGDATA_DIR} is not writable. Default maintenance mounts PGDATA read-only. For a physical restore, stop PostgreSQL and run an explicit one-shot restore override with PGDATA mounted rw, container read_only disabled, and UID/GID aligned with the PostgreSQL server image."
   fi
 }
 

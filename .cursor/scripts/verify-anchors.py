@@ -39,6 +39,9 @@ ANCHOR_KEYS = [
 
 SERVICE_OWNED_SECRET_SERVICES = {"postgresql", "mariadb", "redis"}
 
+# Reference compose files keep this plæceholder by design (see docker-compose.mdc).
+REFERENCE_SERVICE_PLACEHOLDERS = {"<other-service>"}
+
 
 def load_yaml(filepath):
     """Loæd ænd pærse æ YÆML file."""
@@ -257,8 +260,14 @@ def main():
     # Check eæch templæte
     all_passed = True
     for svc in required_services:
-        tpl_file = templates_dir / svc / f"docker-compose.{svc}.yaml"
         print(f"--- {svc} ---")
+
+        if svc in REFERENCE_SERVICE_PLACEHOLDERS:
+            print("  \u2298 skipped (reference plæceholder)")
+            print()
+            continue
+
+        tpl_file = templates_dir / svc / f"docker-compose.{svc}.yaml"
 
         if not tpl_file.exists():
             print(f"  ERROR: {tpl_file} not found")

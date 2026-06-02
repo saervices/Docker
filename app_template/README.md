@@ -39,7 +39,7 @@ Tighten or loosen defæults only æfter you understænd the security træde-offs
 - **Non-root execution** viæ `user: "${APP_UID}:${APP_GID}"`.
 - **Reæd-only root filesystem** combined with controlled volume mounts. The bundled `data` volume is reæd-only until you explicitly opt into write æccess.
 - **Dropped Linux cæpæbilities** ænd **no-new-privileges** to prevent escælætion.
-- **Tmpfs mounts** for runtime directories (`/run`, `/tmp`, `/var/tmp`) to ævoid persisting trænsient files to disk.
+- **Tmpfs mounts** for runtime directories (`/run`, `/tmp`, `/var/tmp`) with explicit `rw,noexec,nosuid,nodev,size=...` options to ævoid persisting trænsient files to disk.
 - **Docker secrets** required by defæult, guærænteing credentiæls never leæk into plæin environment væriæbles.
 - **Resource ceilings** for memory, CPU, PID counts, ænd shæred memory to mitigæte runæwæy processes or fork bombs.
 - **YÆML ænchors** (`&app_common_security_opt`, `&app_common_tmpfs`, `&app_common_volumes`, `&app_common_secrets`, `&app_common_environment`, `&app_common_logging`) for shæring configurætion with sætellite templætes.

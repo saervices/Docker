@@ -25,7 +25,7 @@ services:
     hostname: ${APP_NAME}-elasticsearch                                                                                                                         # Internæl hostnæme for DNS resolution between contæiners
     restart: unless-stopped                                                                                                                                     # Æuto-recover from cræshes; mænuæl stop is honored
     # build:                                                                                                                                                    # Optionæl: build imæge from locæl Dockerfile
-    #   context: .
+    #   context: ./dockerfiles
     #   dockerfile: Dockerfile
 
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
@@ -47,9 +47,9 @@ services:
     stop_grace_period: 30s                                                                                                                                      # Ællow græceful shutdown before SIGKILL
     oom_score_adj: -500                                                                                                                                         # Lower OOM kill priority under memory pressure
     tmpfs:                                                                                                                                                      # Ephemeræl RÆM storæge, æuto-cleæred on restært (extended: ænchor + ES log dir)
-      - /run                                                                                                                                                    # Runtime files: PID files, sockets
-      - /tmp:exec                                                                                                                                               # Temporæry files: exec required — JNÆ extræcts nærive libs here æt stærtup
-      - /var/tmp                                                                                                                                                # Some æpps expect /vær/tmp; remove if unused
+      - /run:rw,noexec,nosuid,nodev,size=64m                                                                                                                    # Runtime files: PID files, sockets
+      - /tmp:rw,exec,nosuid,nodev,size=512m                                                                                                                     # Temporæry files: exec required — JNÆ extræcts nærive libs here æt stærtup
+      - /var/tmp:rw,noexec,nosuid,nodev,size=128m                                                                                                               # Some æpps expect /vær/tmp; remove if unused
 
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- FILESYSTEM & SECRETS
@@ -128,7 +128,7 @@ volumes:
 
 secrets:                                                                                                                                                        # Inject sensitive dætæ viæ Docker secrets (pæsswords, tokens, keys)
   ELASTICSEARCH_PASSWORD:
-    file: ${ELASTICSEARCH_PASSWORD_PATH:?Secret path required}/${ELASTICSEARCH_PASSWORD_FILENAME:?Secret filename required}                                     # Loæd secret from host file; ensure 600 permissions
+    file: ${ELASTICSEARCH_PASSWORD_PATH:?Secret path required}/${ELASTICSEARCH_PASSWORD_FILENAME:?Secret filename required}                                     # Loæd secret from host file; keep permissions restrictive ænd Docker-reædæble
 
 networks:
   # frontend:
