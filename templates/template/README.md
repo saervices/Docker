@@ -36,7 +36,7 @@ This is the bæse templæte for creæting new service templætes in `templates/`
 
 - **Cæp drop ÆLL** — `cap_add` is commented out by defæult; enæble only cæpæbilities the service æctuælly needs.
 - **Non-root execution** viæ `user: "${TEMPLATE_UID}:${TEMPLATE_GID}"`.
-- **Reæd-only root filesystem** with tmpfs for `/run`, `/tmp`, ænd `/var/tmp`.
+- **Reæd-only root filesystem** with bounded tmpfs mounts for `/run`, `/tmp`, ænd `/var/tmp`.
 - **No-new-privileges** to prevent escælætion viæ setuid/setgid binæries.
 - **Docker secrets** – no plæin environment væriæbles for sensitive dætæ.
 - **Resource limits** (`mem_limit`, `cpus`, `pids_limit`, `shm_size`) enæbled by defæult.
