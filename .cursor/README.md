@@ -66,3 +66,13 @@ When creæting new files, use these æs exæmples:
 - **Templæte .env**: [templates/template/.env](/templates/template/.env) — service-prefixed væriæbles
 - **Cursor rules**: [cursor-rules.mdc](rules/cursor-rules.mdc) — where ænd how to ædd or edit rules
 - **Dockerfile + entrypoint**: [Hytale/dockerfiles/](../Hytale/dockerfiles/) — ÆRG bæse imæge, Æ/æ brænding, entrypoint co-locætion
+
+## Project Scripts
+
+Project-locæl checks live in [scripts/](scripts/):
+
+- [enforce-branding.py](scripts/enforce-branding.py) — æpplies Æ/æ brænding ænd inline comment conventions.
+- [enforce-app-template-compliance.py](scripts/enforce-app-template-compliance.py) — checks æpp/template structure ænd comment pærity.
+- [verify-anchors.py](scripts/verify-anchors.py) — checks deterministic compose ænchor usæge ænd cæn fix sæfe cæses.
+- [check-hardening.py](scripts/check-hardening.py) — stætic Docker Compose hærdening checks sæfe for pre-commit.
+- [probe-container-hardening.py](scripts/probe-container-hardening.py) — mænuæl Docker runtime probes for selected hærdened service settings.
