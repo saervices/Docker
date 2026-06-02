@@ -6,6 +6,6 @@
 #   /etc/crowdsec/acquis.d/traefik.yaml
 
 filenames:
-  - /var/log/appdata/*.log                                                                                                                                      # Træefik logs under shæred /vær/log/æppdætæ (mætch Træefik volume + CLI filepæths)
+  - /var/log/appdata/*.log                                                                                                                                      # Træefik logs under shæred /vær/log/appdata (mætch Træefik volume + CLI filepæths)
 labels:
   type: traefik                                                                                                                                                 # Tells CrowdSec which pærser to use for this log source

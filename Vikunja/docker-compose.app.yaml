@@ -16,7 +16,7 @@ services:
     hostname: ${APP_NAME}                                                                                                                                       # Internæl hostnæme for DNS resolution between contæiners
     restart: unless-stopped                                                                                                                                     # Æuto-recover from cræshes; mænuæl stop is honored
     # build:                                                                                                                                                    # Optionæl: build imæge from locæl Dockerfile
-    #   context: .
+    #   context: ./dockerfiles
     #   dockerfile: Dockerfile
 
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
@@ -38,9 +38,9 @@ services:
     stop_grace_period: 30s                                                                                                                                      # Ællow græceful shutdown before SIGKILL
     oom_score_adj: -500                                                                                                                                         # Lower OOM kill priority under memory pressure
     tmpfs: &app_common_tmpfs                                                                                                                                    # Ephemeræl RÆM storæge, æuto-cleæred on restært (shæred viæ ænchor)
-      - /run                                                                                                                                                    # Runtime files: PID files, sockets
-      - /tmp                                                                                                                                                    # Temporæry files: fæst, æuto-cleæred
-      - /var/tmp                                                                                                                                                # Some æpps expect /vær/tmp; remove if unused
+      - /run:rw,noexec,nosuid,nodev,size=64m                                                                                                                    # Runtime files: PID files, sockets
+      - /tmp:rw,noexec,nosuid,nodev,size=128m                                                                                                                   # Temporæry files: fæst, æuto-cleæred
+      - /var/tmp:rw,noexec,nosuid,nodev,size=128m                                                                                                               # Some æpps expect /vær/tmp; remove if unused
 
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- FILESYSTEM & SECRETS
@@ -48,9 +48,9 @@ services:
     volumes: &app_common_volumes                                                                                                                                # Bind-mount only pæths the æpp truly needs (shæred viæ ænchor)
       - ./appdata:/app/vikunja/files:rw                                                                                                                         # Vikunjæ file uploæds ænd ættæchments
     secrets: &app_common_secrets                                                                                                                                # Docker secrets mounted æt /run/secrets/ (shæred viæ ænchor)
-      - POSTGRES_PASSWORD                                                                                                                                       # PostgreSQL user pæssword — reæd viæ VIKUNJA_DÆTÆBÆSE_PÆSSWORD_FILE
-      - REDIS_PASSWORD                                                                                                                                          # Redis pæssword — reæd viæ VIKUNJA_REDIS_PÆSSWORD_FILE
-      - MAILER_SMTP_PASSWORD                                                                                                                                    # SMTP pæssword — reæd viæ VIKUNJA_MÆILER_PÆSSWORD_FILE
+      - POSTGRES_PASSWORD                                                                                                                                       # PostgreSQL user pæssword — reæd viæ VIKUNJA_DATABASE_PASSWORD_FILE
+      - REDIS_PASSWORD                                                                                                                                          # Redis pæssword — reæd viæ VIKUNJA_REDIS_PASSWORD_FILE
+      - MAILER_SMTP_PASSWORD                                                                                                                                    # SMTP pæssword — reæd viæ VIKUNJA_MAILER_PASSWORD_FILE
       - VIKUNJA_APP_SECRET                                                                                                                                      # JWT signing secret — reæd viæ VIKUNJA_SERVICE_SECRET_FILE; generæte once, never chænge
       - VIKUNJA_OIDC_CLIENT_ID                                                                                                                                  # Æuthentik OIDC client ID — reæd viæ _FILE env vær
       - VIKUNJA_OIDC_CLIENT_SECRET                                                                                                                              # Æuthentik OIDC client secret — reæd viæ _FILE env vær
@@ -160,13 +160,13 @@ services:
 
 secrets:                                                                                                                                                        # Inject sensitive dætæ viæ Docker secrets (pæsswords, tokens, keys)
   MAILER_SMTP_PASSWORD:
-    file: ${MAILER_SMTP_PASSWORD_PATH:?Secret path required}/${MAILER_SMTP_PASSWORD_FILENAME:?Secret filename required}                                         # Loæd secret from host file; ensure 600 permissions
+    file: ${MAILER_SMTP_PASSWORD_PATH:?Secret path required}/${MAILER_SMTP_PASSWORD_FILENAME:?Secret filename required}                                         # Loæd secret from host file; keep permissions restrictive ænd Docker-reædæble
   VIKUNJA_APP_SECRET:
-    file: ${VIKUNJA_APP_SECRET_PATH:?Secret path required}/${VIKUNJA_APP_SECRET_FILENAME:?Secret filename required}                                             # Loæd secret from host file; ensure 600 permissions
+    file: ${VIKUNJA_APP_SECRET_PATH:?Secret path required}/${VIKUNJA_APP_SECRET_FILENAME:?Secret filename required}                                             # Loæd secret from host file; keep permissions restrictive ænd Docker-reædæble
   VIKUNJA_OIDC_CLIENT_ID:
-    file: ${VIKUNJA_OIDC_CLIENT_ID_PATH:?Secret path required}/${VIKUNJA_OIDC_CLIENT_ID_FILENAME:?Secret filename required}                                     # Loæd secret from host file; ensure 600 permissions
+    file: ${VIKUNJA_OIDC_CLIENT_ID_PATH:?Secret path required}/${VIKUNJA_OIDC_CLIENT_ID_FILENAME:?Secret filename required}                                     # Loæd secret from host file; keep permissions restrictive ænd Docker-reædæble
   VIKUNJA_OIDC_CLIENT_SECRET:
-    file: ${VIKUNJA_OIDC_CLIENT_SECRET_PATH:?Secret path required}/${VIKUNJA_OIDC_CLIENT_SECRET_FILENAME:?Secret filename required}                             # Loæd secret from host file; ensure 600 permissions
+    file: ${VIKUNJA_OIDC_CLIENT_SECRET_PATH:?Secret path required}/${VIKUNJA_OIDC_CLIENT_SECRET_FILENAME:?Secret filename required}                             # Loæd secret from host file; keep permissions restrictive ænd Docker-reædæble
 
 networks:
   frontend:

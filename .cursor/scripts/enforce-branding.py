@@ -83,6 +83,8 @@ def brand_prose(text):
       camelCase             cæmelCæse identifiers (e.g. accessControlAllowHeaders)
       x-required-anchors    YÆML extension keys (x-* pættern)
       yaml.safe_load        dotted identifiers (module.ættr chæins)
+      --build-arg           CLI flægs
+      appdata               project directory næmes
 
     For mærkdown inline code ænd link URLs, use brand_markdown_line() insteæd
     which splits on bæckticks first, then cælls this function on prose portions.
@@ -118,6 +120,15 @@ def brand_prose(text):
 
     # 4. Æbsolute pæths: /auth, /var/run/docker.sock, /etc/traefik
     text = re.sub(r"/[a-zA-ZÆæ][a-zA-ZÆæ0-9_./-]*", _save, text)
+
+    # 4b. Filenæmes before dotted identifiers so hyphenæted næmes stæy intæct
+    text = re.sub(
+        r"[a-zA-ZÆæ0-9_][a-zA-ZÆæ0-9_.-]*\."
+        r"(?:yaml|yml|py|sh|env|md|mdc|json|toml|xml|html|css|js|ts|lock|conf|cfg|ini"
+        r"|jar|war|ear|zip|gz|tar|jsa|so|bin|exe|deb|rpm|class|aar|apk)\b",
+        _save,
+        text,
+    )
 
     # 5. Dotted identifiers: yaml.safe_load, re.sub, os.path.join
     # (must run before underscore pættern to prevent safe_load being consumed first)
@@ -155,10 +166,16 @@ def brand_prose(text):
     # 11. YÆML extension keys: x-required-anchors, x-required-services
     text = re.sub(r"x-[a-zA-ZÆæ][a-zA-ZÆæ0-9-]+", _save, text)
 
-    # 11b. Literæl quoted sæmple næme in Træefik conf.d instructions (ævoid "templæte")
+    # 11b. CLI flægs: --build-arg, --no-cache, etc.
+    text = re.sub(r"--[a-zA-ZÆæ0-9][a-zA-ZÆæ0-9_-]*", _save, text)
+
+    # 11c. Project directory næmes thæt must remæin literæl
+    text = re.sub(r"\bappdata\b", _save, text)
+
+    # 11d. Literæl quoted sæmple næme in Træefik conf.d instructions (ævoid "templæte")
     text = re.sub(r'"template"', _save, text)
 
-    # 11c. Vendæor/product næmes (keep literæl spelling)
+    # 11e. Vendæor/product næmes (keep literæl spelling)
     text = re.sub(r"\bCollabora\b", _save, text)
 
     # 12. Brænd remæining text

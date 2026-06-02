@@ -35,8 +35,8 @@ RUN set -eux; \
 RUN set -eux; \
     mkdir -p /backup /restore;
 
-COPY dockerfiles/entrypoint.sh /usr/local/bin/entrypoint.sh
-COPY scripts/backup.sh scripts/backup.cron /usr/local/bin/
+COPY entrypoint.sh /usr/local/bin/entrypoint.sh
+COPY backup.sh /usr/local/bin/backup.sh
 RUN chmod +x /usr/local/bin/*
 
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ

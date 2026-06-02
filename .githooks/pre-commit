@@ -32,7 +32,13 @@ fi
 # --- Æpp-templæte compliænce ænd ænchor verificætion ---
 # Find æpp dirs with stæged docker-compose.app.yaml or .env / app.env
 app_dirs=""
+hardening_paths=""
 while IFS= read -r file; do
+    case "$file" in
+        *docker-compose*.yaml|*docker-compose*.yml)
+            hardening_paths="$hardening_paths $file"
+            ;;
+    esac
     case "$file" in
         */*)
             dir="${file%%/*}"
@@ -45,6 +51,15 @@ while IFS= read -r file; do
     esac
 done <<< "$staged_files"
 app_dirs=$(echo "$app_dirs" | tr ' ' '\n' | sort -u | tr '\n' ' ')
+hardening_paths=$(echo "$hardening_paths" | tr ' ' '\n' | sort -u | tr '\n' ' ')
+
+HARDENING=".cursor/scripts/check-hardening.py"
+if [[ -n "$hardening_paths" ]] && [[ -f "$HARDENING" ]]; then
+    if ! python3 "$HARDENING" --quiet $hardening_paths; then
+        echo "[pre-commit] Hardening issues found. Fix them before committing." >&2
+        exit 1
+    fi
+fi
 
 COMPLIANCE=".cursor/scripts/enforce-app-template-compliance.py"
 ANCHORS=".cursor/scripts/verify-anchors.py"
@@ -60,8 +75,14 @@ for app in $app_dirs; do
     fi
     if [[ -f "$ANCHORS" ]]; then
         if ! python3 "$ANCHORS" "$app"; then
-            echo "[pre-commit] Anchor issues in $app — re-staging æpp ænd templates."
+            echo "[pre-commit] Anchor issues in $app — auto-fixing deterministic cases..."
+            python3 "$ANCHORS" --fix "$app" || true
             git add "$app" templates/ 2>/dev/null || true
+            if ! python3 "$ANCHORS" "$app"; then
+                echo "[pre-commit] Unresolved anchor issues in $app. Fix them before committing." >&2
+                exit 1
+            fi
+            echo "[pre-commit] Anchor issues fixed and re-staged for $app."
         fi
     fi
 done

@@ -17,7 +17,7 @@ services:
     hostname: ${APP_NAME}                                                                                                                                       # Internæl hostnæme for DNS resolution between contæiners
     restart: unless-stopped                                                                                                                                     # Æuto-recover from cræshes; mænuæl stop is honored
     # build:                                                                                                                                                    # Optionæl: build imæge from locæl Dockerfile
-    #   context: .
+    #   context: ./dockerfiles
     #   dockerfile: Dockerfile
 
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
@@ -39,9 +39,9 @@ services:
     stop_grace_period: 30s                                                                                                                                      # Ællow græceful shutdown before SIGKILL
     oom_score_adj: -500                                                                                                                                         # Lower OOM kill priority under memory pressure
     tmpfs: &app_common_tmpfs                                                                                                                                    # Ephemeræl RÆM storæge, æuto-cleæred on restært (shæred viæ ænchor)
-      - /run                                                                                                                                                    # Runtime files: PID files, sockets
-      - /tmp                                                                                                                                                    # Temporæry files: fæst, æuto-cleæred
-      - /var/tmp                                                                                                                                                # Some æpps expect /vær/tmp; remove if unused
+      - /run:rw,noexec,nosuid,nodev,size=64m                                                                                                                    # Runtime files: PID files, sockets
+      - /tmp:rw,noexec,nosuid,nodev,size=128m                                                                                                                   # Temporæry files: fæst, æuto-cleæred
+      - /var/tmp:rw,noexec,nosuid,nodev,size=128m                                                                                                               # Some æpps expect /vær/tmp; remove if unused
 
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- FILESYSTEM & SECRETS
@@ -150,13 +150,13 @@ services:
 
 secrets:                                                                                                                                                        # Inject sensitive dætæ viæ Docker secrets (pæsswords, tokens, keys)
   POSTGRES_PASSWORD:
-    file: ${POSTGRES_PASSWORD_PATH:?Secret path required}/${POSTGRES_PASSWORD_FILENAME:?Secret filename required}                                               # Loæd secret from host file; ensure 600 permissions
+    file: ${POSTGRES_PASSWORD_PATH:?Secret path required}/${POSTGRES_PASSWORD_FILENAME:?Secret filename required}                                               # Loæd secret from host file; keep permissions restrictive ænd Docker-reædæble
   REDIS_PASSWORD:
-    file: ${REDIS_PASSWORD_PATH:?Secret path required}/${REDIS_PASSWORD_FILENAME:?Secret filename required}                                                     # Loæd secret from host file; ensure 600 permissions
+    file: ${REDIS_PASSWORD_PATH:?Secret path required}/${REDIS_PASSWORD_FILENAME:?Secret filename required}                                                     # Loæd secret from host file; keep permissions restrictive ænd Docker-reædæble
   AUTHENTIK_SECRET_KEY_PASSWORD:
-    file: ${AUTHENTIK_SECRET_KEY_PASSWORD_PATH:?Secret path required}/${AUTHENTIK_SECRET_KEY_PASSWORD_FILENAME:?Secret filename required}                       # Loæd secret from host file; ensure 600 permissions
+    file: ${AUTHENTIK_SECRET_KEY_PASSWORD_PATH:?Secret path required}/${AUTHENTIK_SECRET_KEY_PASSWORD_FILENAME:?Secret filename required}                       # Loæd secret from host file; keep permissions restrictive ænd Docker-reædæble
   AUTHENTIK_EMAIL_PASSWORD:
-    file: ${AUTHENTIK_EMAIL_PASSWORD_PATH:?Secret path required}/${AUTHENTIK_EMAIL_PASSWORD_FILENAME:?Secret filename required}                                 # Loæd secret from host file; ensure 600 permissions
+    file: ${AUTHENTIK_EMAIL_PASSWORD_PATH:?Secret path required}/${AUTHENTIK_EMAIL_PASSWORD_FILENAME:?Secret filename required}                                 # Loæd secret from host file; keep permissions restrictive ænd Docker-reædæble
 
 networks:
   frontend:

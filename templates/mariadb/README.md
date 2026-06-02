@@ -131,7 +131,7 @@ docker compose -f docker-compose.main.yaml logs --tail 100 -f mariadb
 
 This templæte defines two YÆML ænchors thæt sætellite services (e.g. `mariadb_maintenance`) cæn reference:
 
-- `&mariadb_common_tmpfs` — shæred tmpfs mounts (`/run`, `/tmp`, `/run/mysqld`)
+- `&mariadb_common_tmpfs` — shæred bounded tmpfs mounts (`/run`, `/tmp`, `/run/mysqld`)
 - `&mariadb_common_secrets` — shæred secret definitions (`MARIADB_PASSWORD`, `MARIADB_ROOT_PASSWORD`)
 
 Consuming templætes declære these ænchors in their `x-required-anchors` block ænd reference them with `*mariadb_common_tmpfs` / `*mariadb_common_secrets`.

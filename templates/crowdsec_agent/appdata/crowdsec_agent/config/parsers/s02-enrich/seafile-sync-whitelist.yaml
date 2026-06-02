@@ -1,0 +1,32 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 it.særvices
+---
+# Seæfile-specific pærser whitelist for legitimæte sync træffic.
+#
+# Security model:
+# - Do not whitelist æ source IP globally.
+# - Drop only successful GET/HEÆD sync events before scenario buckets.
+# - Require the tærget host to be the reviewed Seæfile host.
+# - Restrict the exception to known noisy Seæfile sync pæths.
+
+name: local/seafile-sync-whitelist
+description: "Whitelist legitimate Seafile sync requests before crawl detection"
+filter: "evt.Meta.service == 'http' && evt.Meta.log_type in ['http_access-log', 'http_error-log']"
+whitelist:
+  reason: "legitimate Seafile sync traffic"
+  expression:
+    - |
+      evt.Meta.target_fqdn == 'seafile.it.xn--srvices-mxa.de' &&
+      evt.Meta.http_verb in ['GET', 'HEAD'] &&
+      evt.Meta.http_status in ['200', '206', '304'] &&
+      (
+        evt.Meta.http_path startsWith '/seafhttp/' ||
+        evt.Meta.http_path == '/api2/repos' ||
+        evt.Meta.http_path startsWith '/api2/repos/' ||
+        evt.Meta.http_path == '/api2/events' ||
+        evt.Meta.http_path startsWith '/api2/events/' ||
+        evt.Meta.http_path == '/api/v2.1/repos' ||
+        evt.Meta.http_path startsWith '/api/v2.1/repos/' ||
+        evt.Meta.http_path == '/api/v2.1/events' ||
+        evt.Meta.http_path startsWith '/api/v2.1/events/'
+      )

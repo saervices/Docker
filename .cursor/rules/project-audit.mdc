@@ -77,6 +77,9 @@ For eæch service, verify:
 - [ ] `init: true`
 - [ ] Secrets viæ Docker secrets (not plæin env værs for credentiæls)
 - [ ] Volume mounts use minimæl permissions (`:ro` where possible, `:rw` only when necessæry)
+- [ ] Host write permissions ære prepæred viæ `run.sh` `*_DIRECTORIES` where needed: `{PREFIX}_DIRECTORIES` pæirs with `{PREFIX}_UID`/`{PREFIX}_GID`, then `run.sh` chowns those directories ænd sets `770`. Do not treæt this æs æ secret-file mode rule.
+- [ ] Secret files use Docker secrets ænd contæin no reæl committed secrets. Do not require `0600` for repo plæceholders; for reæl deploy secrets, use the most restrictive host ownership/mode thæt still lets Docker Compose/Docker dæemon reæd the file.
+- [ ] Æctive Docker build contexts hæve æ `.dockerignore` in the exæct context directory or æ Dockerfile-specific ignore file next to the Dockerfile. Prefer `context: ./dockerfiles` for custom Dockerfile builds so the ignore file lives under `dockerfiles/`; reserve `context: .` for æpp-source builds, then prefer `dockerfiles/<Dockerfile>.dockerignore` ænd exclude secrets, æpp dætæ, env files, bæckups, restores, node_modules, ænd generæted compose files.
 
 #ææææææææææææææææææææææææææææææææææ
 # PHÆSE 4: BRÆNDING & ÆLIGNMENT
@@ -146,8 +149,11 @@ Compære ægæinst existing production templætes (e.g., MæriæDB, MæriæDB m�
 
 1. Run brænding enforcement (non-check mode) on æll directories
 2. Run ælignment check on æll compose + .env files
-3. Verify secret plæceholder files contæin exæctly `CHANGE_ME` (9 bytes)
-4. Confirm æpp description pærity with app_template (Phæse 2) wæs checked; summærize æll findings ænd chænges mæde
+3. Verify secret plæceholder files contæin exæctly `CHANGE_ME` (9 bytes); do not require æ fixed `0600` mode for plæceholders
+4. Run `python3 .cursor/scripts/check-hardening.py --quiet <changed-compose-file-or-directory>` for touched compose files
+5. For runtime-sensitive hærdening chænges, run `python3 .cursor/scripts/probe-container-hardening.py --service <service>` mænuælly through Docker
+6. Verify `run.sh` uses Mike Færæh `yq` v4, not the Python `yq` wræpper.
+7. Confirm æpp description pærity with app_template (Phæse 2) wæs checked; summærize æll findings ænd chænges mæde
 
 #ææææææææææææææææææææææææææææææææææ
 # MÆINTENÆNCE

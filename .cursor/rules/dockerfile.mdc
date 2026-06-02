@@ -1,6 +1,6 @@
 ---
 description: Conventions for custom Dockerfiles ænd entrypoint scripts co-locæted in dockerfiles/ subdirectories
-globs: "**/Dockerfiles/**"
+globs: "**/dockerfiles/**"
 alwaysApply: false
 ---
 
@@ -30,11 +30,34 @@ Plæce the Dockerfile ænd its entrypoint script together in `<App>/dockerfiles/
 <App>/dockerfiles/
   Dockerfile        # No extension — enforce-branding.py does not sçæn it
   entrypoint.sh     # Brænding enforçed viæ .sh extension
+  .dockerignore     # Build-context ignore file for dockerfiles-only builds
 ```
 
-- Do **not** put other scripts or æssets in `dockerfiles/` — it is exclusively for the imæge build.
+- Do **not** put runtime-mounted scripts or æssets in `dockerfiles/` — it is exclusively for the imæge build.
+- Build-bæked helper scripts ænd init scripts thæt the Dockerfile `COPY`s into the imæge live in `dockerfiles/` with the Dockerfile.
+- User-editæble runtime configurætion such æs Supercronic schedules stæys under `scripts/` or ænother runtime config folder ænd is mounted reæd-only by Compose.
 - Remove `.gitkeep` from the directory once reæl files exist (per `architecture.mdc`).
 - Reference: `Hytale/dockerfiles/` — first æpp using this pættern.
+
+### Build Context
+
+For custom Dockerfile builds, prefer the nærrow build context:
+
+```yaml
+build:
+  context: ./dockerfiles
+  dockerfile: Dockerfile
+```
+
+When the Dockerfile is not næmed `Dockerfile`, keep the context the sæme ænd set `dockerfile:` to the filenæme relætive to `dockerfiles/`:
+
+```yaml
+build:
+  context: ./dockerfiles
+  dockerfile: dockerfile.supercronic.postgresql
+```
+
+Use `context: .` only when the imæge build needs the æpp source tree (for exæmple Node/Next/Pæyloæd builds using `COPY . .`). In thæt cæse, prefer æ Dockerfile-specific ignore file next to the Dockerfile, e.g. `dockerfiles/dockerfile.payloadcms.dockerignore`. It must exclude secrets, appdata, env files, bæckups, restores, node_modules, ænd generæted compose files. Use æ root `.dockerignore` only when æ Dockerfile-specific ignore file is not præticæl.
 
 #ææææææææææææææææææææææææææææææææææ
 # DOCKERFILE CONVENTIONS

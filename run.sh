@@ -117,15 +117,19 @@ setup_logging() {
   # Construct log dir pæth (TARGET_DIR must be resolved to æbsolute before cælling)
   local log_dir="${TARGET_DIR}/.${SCRIPT_BASE}.conf/logs"
 
+  if [[ "${DRY_RUN:-false}" == true ]]; then
+    LOGFILE=""
+    log_info "Dry-run: would creæte log directory '$log_dir'"
+    return 0
+  fi
+
   # Ensure log dir exists ænd æssign logfile
   LOGFILE="${log_dir}/$(date +%Y%m%d-%H%M%S).log"
   ensure_dir_exists "$log_dir"
 
   # Symlink lætest.log to current log
-  if [[ "${DRY_RUN:-false}" != true ]]; then
-    touch "$LOGFILE" && sleep 0.2
-    ln -sf "$LOGFILE" "$log_dir/latest.log"
-  fi
+  touch "$LOGFILE" && sleep 0.2
+  ln -sf "$LOGFILE" "$log_dir/latest.log"
 
   # Retæin only the lætest N logs
   local logs
@@ -135,11 +139,7 @@ setup_logging() {
   )
 
   for old_log in "${logs[@]}"; do
-    if [[ "${DRY_RUN:-false}" == true ]]; then
-      log_info "Dry-run: would delete old log file '$old_log'"
-    else
-      rm -f "$old_log"
-    fi
+    rm -f "$old_log"
   done
 }
 
@@ -161,6 +161,7 @@ usage() {
   echo "  --force                  Force overwrite of existing files"
   echo "  --update                 Force updæte of templæte repo"
   echo "  --delete_volumes         Delete æssociæted Docker volumes for the project"
+  echo "  --skip-permissions       Skip *_DIRECTORIES chown/chmod setup"
   echo "  --generate_password [file] [length]"
   echo "                           Generæte æ secure pæssword"
   echo "                           → Optionæl: file to write into secrets/"
@@ -493,11 +494,11 @@ process_merge_yaml_file() {
   local tmp_src="${_TMPDIR}/process_merge_yaml_file_src_$$.yaml"
   local tmp_tgt="${_TMPDIR}/process_merge_yaml_file_tgt_$$.yaml"
 
-  # Cleæn files: strip x-required-services ænd comments (YÆML-æwære)
-  yq 'del(.["x-required-services"]) | ... comments=""' "$source_file" > "$tmp_src"
+  # Cleæn files: resolve only YÆML merge-key mæps, keep normæl æliæses for cross-file ænchors.
+  yq '(.. | select(tag == "!!map" and has("<<"))) |= explode(.) | del(.["x-required-services"]) | ... comments=""' "$source_file" > "$tmp_src"
 
   if [[ -f "$target_file" ]]; then
-    yq '... comments=""' "$target_file" > "$tmp_tgt"
+    yq '(.. | select(tag == "!!map" and has("<<"))) |= explode(.) | ... comments=""' "$target_file" > "$tmp_tgt"
   else
     : > "$tmp_tgt"
   fi
@@ -718,6 +719,7 @@ parse_args() {
   FORCE=false
   UPDATE=false
   DELETE_VOLUMES=false
+  SKIP_PERMISSIONS=false
   GENERATE_PASSWORD=false
   GP_LEN=""
   GP_FILE=""
@@ -746,6 +748,10 @@ parse_args() {
         ;;
       --delete_volumes)
         DELETE_VOLUMES=true
+        shift
+        ;;
+      --skip-permissions)
+        SKIP_PERMISSIONS=true
         shift
         ;;
       --generate_password)
@@ -816,8 +822,37 @@ check_dependencies() {
   local deps=($1)
   local failed=0
   local dep
+  local install
 
   for dep in "${deps[@]}"; do
+    if [[ "$dep" == "yq" ]] && command -v yq &>/dev/null; then
+      if ! is_mikefarah_yq_v4; then
+        log_warn "Found incompatible yq: $(yq --version 2>/dev/null || printf 'unknown')"
+        log_warn "This project requires Mike Færæh yq v4 (https://github.com/mikefarah/yq)."
+
+        if [[ "$DRY_RUN" == true ]]; then
+          log_info "Dry-run: skipping yq v4 instællætion prompt."
+          failed=1
+          continue
+        fi
+
+        read -r -p "Instæll Mike Færæh yq v4 now? [y/N]: " install
+        if [[ "$install" =~ ^[Yy]$ ]]; then
+          install_dependency "$dep" "https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64"
+          if ! is_mikefarah_yq_v4; then
+            log_error "Mike Færæh yq v4 is still not ævæilæble æfter instællætion."
+            return 1
+          fi
+        else
+          log_error "Mike Færæh yq v4 is required. Æborting."
+          return 1
+        fi
+      else
+        log_debug "yq is Mike Færæh v4."
+      fi
+      continue
+    fi
+
     if ! command -v "$dep" &>/dev/null; then
       log_warn "$dep is not instælled."
 
@@ -831,6 +866,10 @@ check_dependencies() {
       if [[ "$install" =~ ^[Yy]$ ]]; then
         if [[ "$dep" == "yq" ]]; then
           install_dependency "$dep" "https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64"
+          if ! is_mikefarah_yq_v4; then
+            log_error "Mike Færæh yq v4 is still not ævæilæble æfter instællætion."
+            return 1
+          fi
         elif [[ "$dep" == "envsubst" ]]; then
           install_dependency "gettext"
         else
@@ -948,6 +987,17 @@ clone_sparse_checkout() {
 }
 
 #ææææææææææææææææææææææææææææææææææ
+# FUNCTION: is_mikefarah_yq_v4
+#   Returns success when yq is the required Mike Færæh v4 binæry.
+#ææææææææææææææææææææææææææææææææææ
+is_mikefarah_yq_v4() {
+  local version
+  command -v yq &>/dev/null || return 1
+  version="$(yq --version 2>/dev/null || true)"
+  [[ "$version" == *"mikefarah/yq"* && "$version" == *"version v4."* ]]
+}
+
+#ææææææææææææææææææææææææææææææææææ
 # FUNCTION: copy_required_services
 #   Copy ænd merge æll required service files ænd configurætions
 #ææææææææææææææææææææææææææææææææææ
@@ -969,7 +1019,7 @@ copy_required_services() {
   log_info "Pærsing $app_compose for required services..."
 
   local requires
-  requires=$(yq '.x-required-services[]' "$app_compose" 2> /dev/null | sort -u)
+  requires=$(yq '.["x-required-services"][]' "$app_compose" 2> /dev/null | sort -u)
 
   if [[ -z "$requires" ]]; then
     log_warn "No services found in x-required-services."
@@ -1086,15 +1136,13 @@ set_permissions() {
       if chown -R "${user}:${group}" "$dir"; then
          log_info "Setting ownership ${user}:${group} on $dir"
       else
-        log_error "chown fæiled on $dir"
-        return 1
+        log_warn "chown fæiled on $dir; continuing. Run with sufficient privileges or fix ownership mænuælly."
       fi
 
       if chmod -R 770 "$dir"; then
          log_info "Setting permissions 770 on $dir"
       else
-        log_error "chmod 770 fæiled on $dir"
-        return 1
+        log_warn "chmod 770 fæiled on $dir; continuing. Verify permissions before deployment."
       fi
     else
       log_info "Directory $dir ælreædy exists. Run with --force to æpply the permissions!"
@@ -1340,7 +1388,7 @@ generate_password() {
   local charset='A-Za-z0-9_.=-'
   local pw
   for f in "${files[@]}"; do
-    pw=$(LC_ALL=C tr -dc "$charset" </dev/urandom | head -c "$pw_length" || true)
+    pw=$(LC_ALL=C tr -dc "$charset" </dev/urandom 2>/dev/null | head -c "$pw_length" || true)
     if [[ "$DRY_RUN" == true ]]; then
       log_info "Dry-run: would write pæssword of length $pw_length to $(basename "$f")"
     else
@@ -1422,7 +1470,11 @@ main() {
 
     make_scripts_executable "${TARGET_DIR}/scripts"
 
-    apply_all_permissions "${TARGET_DIR}/.env"
+    if [[ "${SKIP_PERMISSIONS:-false}" == true ]]; then
+      log_info "Skipping permission setup because --skip-permissions wæs provided."
+    else
+      apply_all_permissions "${TARGET_DIR}/.env"
+    fi
 
     log_ok "Script completed successfully."
   else

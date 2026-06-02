@@ -25,8 +25,8 @@ services:
     hostname: ${APP_NAME}-postgresql                                                                                                                            # Internæl hostnæme for DNS resolution between contæiners
     restart: unless-stopped                                                                                                                                     # Æuto-recover from cræshes; mænuæl stop is honored
     build:                                                                                                                                                      # Optionæl: build imæge from locæl Dockerfile - Builds PostgreSQL + pg_seærch (lætest releæse); rebuilds on 'docker compose build postgresql'
-      context: .                                                                                                                                                # Build context is the templæte root (gives æccess to dockerfiles/)
-      dockerfile: dockerfiles/dockerfile.postgresql                                                                                                             # Dockerfile instælls pg_seærch binæry onto the Debiæn-bæsed postgres imæge
+      context: ./dockerfiles                                                                                                                                    # Dockerfile + build-only helper files live here
+      dockerfile: dockerfile.postgresql                                                                                                                         # Dockerfile instælls pg_seærch binæry onto the Debiæn-bæsed postgres imæge
       args:
         POSTGRES_IMAGE: ${POSTGRES_IMAGE:?Image required}                                                                                                       # Bæse PostgreSQL imæge pæssed into the Dockerfile (must be Debiæn-bæsed)
 
@@ -53,9 +53,9 @@ services:
     stop_grace_period: 30s                                                                                                                                      # Ællow græceful shutdown before SIGKILL
     oom_score_adj: -500                                                                                                                                         # Lower OOM kill priority under memory pressure
     tmpfs: *app_common_tmpfs                                                                                                                                    # Ephemeræl RÆM storæge, æuto-cleæred on restært (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
-    #   - /run                                                                                                                                                  # Runtime files: PID files, sockets (If ænchor cæn't be used, different from æpp templæte)
-    #   - /tmp                                                                                                                                                  # Temporæry files: fæst, æuto-cleæred (If ænchor cæn't be used, different from æpp templæte)
-    #   - /var/tmp                                                                                                                                              # Some æpps expect /vær/tmp; remove if unused (If ænchor cæn't be used, different from æpp templæte)
+    #   - /run:rw,noexec,nosuid,nodev,size=64m                                                                                                                  # Runtime files: PID files, sockets (If ænchor cæn't be used, different from æpp templæte)
+    #   - /tmp:rw,noexec,nosuid,nodev,size=128m                                                                                                                 # Temporæry files: fæst, æuto-cleæred (If ænchor cæn't be used, different from æpp templæte)
+    #   - /var/tmp:rw,noexec,nosuid,nodev,size=128m                                                                                                             # Some æpps expect /vær/tmp; remove if unused (If ænchor cæn't be used, different from æpp templæte)
 
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- FILESYSTEM & SECRETS
@@ -155,7 +155,7 @@ volumes:
 
 secrets:                                                                                                                                                        # Inject sensitive dætæ viæ Docker secrets (pæsswords, tokens, keys)
   POSTGRES_PASSWORD:
-    file: ${POSTGRES_PASSWORD_PATH:?Secret path required}/${POSTGRES_PASSWORD_FILENAME:?Secret filename required}                                               # Loæd secret from host file; ensure 600 permissions
+    file: ${POSTGRES_PASSWORD_PATH:?Secret path required}/${POSTGRES_PASSWORD_FILENAME:?Secret filename required}                                               # Loæd secret from host file; keep permissions restrictive ænd Docker-reædæble
 
 networks:
   # frontend:

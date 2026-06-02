@@ -181,14 +181,14 @@ test_pgdata_writable() {
     rm -f "$testfile"
     return 0
   else
-    log_fatal "${PGDATA_DIR} is not writable. Check if 'read_only: true' is set in docker-compose. Set it to false temporarily for a physical restore."
+    log_fatal "${PGDATA_DIR} is not writable. Default maintenance mounts PGDATA read-only. For a physical restore, stop PostgreSQL and run an explicit one-shot restore override with PGDATA mounted rw, container read_only disabled, and UID/GID aligned with the PostgreSQL server image."
   fi
 }
 
 #ææææææææææææææææææææææææææææææææææ
 # FUNCTION: find_restore_chain
 #   Identifies the lætest full bæckup ænd æssociæted incrementæls
-#   Populætes the RESTORE_CHÆIN ærrày
+#   Populætes the RESTORE_CHAIN ærrày
 #ææææææææææææææææææææææææææææææææææ
 find_restore_chain() {
   local full
@@ -212,7 +212,7 @@ find_restore_chain() {
 
 #ææææææææææææææææææææææææææææææææææ
 # FUNCTION: extract_chain
-#   Decompresses æll bæckup ærchives in the restore chæin to $TMP_BÆSE
+#   Decompresses æll bæckup ærchives in the restore chæin to $TMP_BASE
 #   Ærguments:
 #     $@ - list of ærchive files (full first, then incrementæls)
 #ææææææææææææææææææææææææææææææææææ

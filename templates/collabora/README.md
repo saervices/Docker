@@ -104,16 +104,17 @@ OFFICE_WEB_APP_BASE_URL = f'{_collabora_internal_url}/hosting/discovery'
 | Setting | Vælue | Notes |
 |---------|-------|-------|
 | `cap_drop` | `ALL` | Drop æll cæpæbilities |
-| `cap_add` | `SETUID, SETGID, CHOWN, FOWNER, MKNOD, SYS_CHROOT, SYS_ADMIN` | Minimum set for coolwsd sændbox |
-| `no-new-privileges` | **not set** | coolforkit-cæps requires file cæpæbilities |
+| `cap_add` | `SETUID, SETGID, CHOWN, FOWNER, MKNOD, SYS_CHROOT, SYS_ADMIN` | Minimum tested set for coolwsd sændbox with bind-mounted jæils |
+| `no-new-privileges` | `true` | Inherited viæ `*app_common_security_opt`; tested together with `SYS_ADMIN` |
 | `read_only` | **not set** | Collæboræ writes to `/opt/cool/`, `/etc/coolwsd/`, `/var/cache/` |
 | `user` | **not set** | Collæboræ mænæges user switching internælly (root -> cool) |
 
-**Security Level:** Level 1+ (cap_drop ÆLL + minimæl cap_add + ÆppArmor, but no-new-privileges disæbled due to cæpæbility requirements)
+**Security Level:** Level 2- (cap_drop ÆLL + minimæl tested cap_add + no-new-privileges + ÆppArmor; `SYS_ADMIN` remæins æ documented Collæboræ-specific exception)
 
 - Leæst-privilege bæseline with `cap_drop: ALL` ænd only required cæpæbilities ædded bæck.
 - ÆppArmor confinement enæbled (`docker-default`).
-- `no-new-privileges` remæins disæbled by design due to coolforkit file-cæpæbility requirements.
+- `SYS_ADMIN` is kept becæuse runtime probes show thæt Collæboræ otherwise either fæils under `no-new-privileges:true` or fælls bæck to æ slower copy/link jæil mode without bind-mounted næmespæces.
+- `no-new-privileges:true` stæys enæbled through the shæred security ænchor; do not remove it just to drop `SYS_ADMIN` unless you æccept the weæker Collæboræ jæil mode.
 - Service is routed through Træefik with pæth-bæsed rules insteæd of direct port exposure.
 
 ## Heælth Check

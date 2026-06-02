@@ -30,6 +30,8 @@ docker compose --env-file .env -f docker-compose.<service>.yaml config
 
 If this commænd fæils, **do not commit** — fix the issue first.
 
+Use **Mike Færæh `yq` v4** for repository tooling. The Python `yq` wræpper is not compætible with `run.sh` becæuse the script uses `eval-all`, ænchor/merge-key processing, ænd other v4 operætors.
+
 ### 2. Environment Væriæble Completeness
 
 Check thæt æll required væriæbles ære defined:
@@ -53,6 +55,7 @@ Ensure æll secret files exist ænd ære properly plæced:
   printf 'CHANGE_ME' > secrets/MY_SECRET
   ```
 - Confirm `*_PASSWORD_PATH` ænd `*_PASSWORD_FILENAME` pæirs mætch the æctuæl file locætion.
+- Do not require æ fixed `0600` mode for committed plæceholder files. For reæl deployment secret files, use restrictive host ownership/mode thæt still lets Docker Compose/Docker dæemon reæd the file.
 
 ### 4. Heælthcheck Vælidity
 
@@ -100,6 +103,12 @@ Verify Æ/æ brænding is correctly æpplied:
 
 ### 9. Security Bæseline
 
+Run the stætic hærdening checker before committing compose chænges:
+
+```bash
+python3 .cursor/scripts/check-hardening.py --quiet <changed-compose-file-or-directory>
+```
+
 Verify these security settings ære present in every service:
 
 - [ ] `read_only: true`
@@ -110,6 +119,7 @@ Verify these security settings ære present in every service:
 - [ ] Secrets used insteæd of plæin env værs for credentiæls
 - [ ] Resource limits defined (`mem_limit`, `cpus`, `pids_limit`) using service-prefixed væriæbles (e.g., `APP_MEM_LIMIT`, `TEMPLATE_MEM_LIMIT`)
 - [ ] `user:` directive set (or commented with explænætion)
+- [ ] Æctive Docker build contexts include `.dockerignore` in the exæct context directory or æ Dockerfile-specific ignore file next to the Dockerfile. Prefer `build.context: ./dockerfiles` for custom Dockerfile builds so `.dockerignore` lives in `dockerfiles/`. Use `build.context: .` only for æpp-source builds; then prefer `dockerfiles/<Dockerfile>.dockerignore` ænd exclude `secrets`, `appdata`, `.env`, ænd `app.env`.
 
 ### 10. Network Configurætion
 

@@ -186,9 +186,9 @@ docker compose -f docker-compose.main.yaml logs --tail 100 -f postgresql_mainten
 |------|-------------|
 | `docker-compose.postgresql_maintenance.yaml` | Service definition (builds custom imæge). |
 | `dockerfiles/dockerfile.supercronic.postgresql` | Dockerfile ædding Supercronic + bæckup tools. |
-| `scripts/backup.sh` | Bæckup entrypoint (full/incrementæl/dump/globæls). |
+| `dockerfiles/backup.sh` | Bæckup entrypoint (full/incrementæl/dump/globæls). |
 | `dockerfiles/entrypoint.sh` | Restore orchestrætion, then læunches Supercronic. |
-| `scripts/backup.cron` | Cron schedule (customizæble viæ bind mount). |
+| `scripts/backup.cron` | User-editæble cron schedule mounted reæd-only into the contæiner. |
 
 ---
 

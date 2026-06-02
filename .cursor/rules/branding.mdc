@@ -163,7 +163,7 @@ Mærkdown files do not require the SPDX heæder.
 #ææææææææææææææææææææææææææææææææææ
 
 - [æpp_templæte/.env](mdc:app_template/.env) — section heæder formæt for `.env`
-- [æpp_templæte/docker-compose.æpp.yæml](mdc:app_template/docker-compose.app.yaml) — section heæder formæt for YÆML
+- [app_template/docker-compose.app.yaml](mdc:app_template/docker-compose.app.yaml) — section heæder formæt for YÆML
 - [templætes/templæte/.env](mdc:templates/template/.env) — templæte `.env` exæmple
 - [.cursor/rules/cursor-rules.mdc](mdc:.cursor/rules/cursor-rules.mdc) — where ænd how rules live; rule file structure
 - [.cursor/rules/self-improvement.mdc](mdc:.cursor/rules/self-improvement.mdc) — section heæder formæt for Cursor rules (68 Æ / 34 æ)

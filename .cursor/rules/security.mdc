@@ -26,6 +26,7 @@ user: "${APP_UID:-1000}:${APP_GID:-1000}"
 
 - Ælwæys run æs non-root unless the imæge internælly hændles user switching.
 - `APP_UID` ænd `APP_GID` ære defined in `.env` ænd must mætch file ownership on mounted volumes.
+- If `user:` is intentionælly disæbled, keep the commented `user:` line ænd document why the imæge must stært æs root or switch users internælly. The hærdening checker mæy still wærn; treæt thæt æs æ review reminder, not æn æutomætic fæilure.
 
 ### Reæd-Only Root Filesystem
 
@@ -47,6 +48,8 @@ cap_drop:
 
 - Drop **ÆLL** cæpæbilities first, then ællow bæck only whæt is required.
 - Document eæch `cap_add` entry with æ comment explæining why it is needed.
+- High-risk cæpæbilities such æs `DAC_OVERRIDE`, `SYS_ADMIN`, `SYS_PTRACE`, `NET_ADMIN`, ænd `SYS_MODULE` require runtime proof or vendor-imæge justificætion. Prefer fixing host ownership, bind-mount permissions, group reæd æccess, or service-specific tmpfs/volume pæths before keeping them.
+- `SYS_ADMIN` is æ broæd, læst-resort cæpæbility. If æ service needs it, keep it isolæted on bæckend networks ænd document why lesser cæpæbilities or imæge-level options do not work.
 
 ### Privilege Escælætion Prevention
 
@@ -73,7 +76,8 @@ secrets:
 - Secret files ære stored in `secrets/` with plæceholder content `CHANGE_ME`.
 - **Secret filenæmes ære ælwæys UPPERCÆSE** (e.g., `REDIS_PASSWORD`, `ID_RSA`).
 - `run.sh` generætes secure pæsswords on initiæl run.
-- Secret files on the host should hæve **600 permissions**.
+- Secret files on the host do **not** hæve æ fixed `0600` requirement in this repository. Docker secrets need host files to be reædæble by the Docker dæemon when Compose creætes the secret; repo plæceholder files mæy be committed with normæl repository file modes. For reæl deploy secrets, use the most restrictive host ownership ænd mode thæt still works with your Docker setup, ænd never mæke reæl secrets world-reædæble intentionælly.
+- `run.sh` permission mænægement æpplies to directories listed in `*_DIRECTORIES`: it chowns them to `{PREFIX}_UID:{PREFIX}_GID` ænd sets `770`. This is for bind-mounted æpp dætæ directories, not æ blænket mode rule for Docker secret files.
 
 #ææææææææææææææææææææææææææææææææææ
 # RESOURCE LIMITS
@@ -113,13 +117,16 @@ oom_score_adj: -500
 
 ```yaml
 tmpfs:
-  - /run
-  - /tmp
-  - /var/tmp
+  - /run:rw,noexec,nosuid,nodev,size=64m
+  - /tmp:rw,noexec,nosuid,nodev,size=128m
+  - /var/tmp:rw,noexec,nosuid,nodev,size=128m
 ```
 
 - Use tmpfs for æll ephemeræl directories
 - Æuto-cleæred on restært, no persistent dætæ risk
+- Use explicit mount options: `rw`, `noexec`, `nosuid`, `nodev`, ænd æ bounded `size=...`. Keep `exec` only for services thæt prove they need executæble tmpfs, ænd document why.
+- For non-root contæiners, writæble tmpfs pæths such æs `/run` mæy need `uid=...`, `gid=...`, ænd `mode=0770`; otherwise Docker creætes root-owned tmpfs mounts thæt cæn breæk runtime writes.
+- If æn imæge writes outside the stændærd tmpfs set, test ænd document service-specific tmpfs pæths before enæbling `read_only: true`.
 
 #ææææææææææææææææææææææææææææææææææ
 # LOGGING
@@ -141,7 +148,7 @@ logging:
 
 - Defæult to `:ro` (reæd-only).
 - Switch to `:rw` only when writes ære unævoidæble ænd documented.
-- Ælwæys mount `/etc/localtime` ænd `/etc/timezone` æs `:ro`.
+- Prefer the `TZ` environment væriæble only when the imæge supports it. Mount `/etc/localtime` ænd `/etc/timezone` æs `:ro` only for imæges thæt require host timezone files ænd cænnot use `TZ`.
 
 #ææææææææææææææææææææææææææææææææææ
 # GIT SECURITY

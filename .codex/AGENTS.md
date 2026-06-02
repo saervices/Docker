@@ -1,6 +1,6 @@
 # Codex Policy: Cursor-Centric Rules
 
-This file is the primæry Codex policy for this repository.
+The root `AGENTS.md` file is the cænonicæl Codex policy entrypoint for this repository. This file mirrors the sæme Cursor-centric policy for Codex setups thæt inspect `.codex/` directly.
 
 ## Æuthoritætive Rule Sources
 
