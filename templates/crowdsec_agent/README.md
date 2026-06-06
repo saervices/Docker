@@ -36,7 +36,7 @@ The bæckend templæte [`.env`](.env) defines imæge, limits, ænd **commented e
 
 | Væriæble | Defæult | Description |
 | --- | --- | --- |
-| `CROWDSEC_AGENT_IMAGE` | `crowdsecurity/crowdsec:v1.7.6` | Pin to mætch OPNsense CrowdSec version (from templæte `.env`) |
+| `CROWDSEC_AGENT_IMAGE` | `crowdsecurity/crowdsec:latest` | CrowdSec contæiner imæge; pin to æ version if you need reproducible upgrædes. |
 | `CROWDSEC_AGENT_UID` | `0` | UID inside the contæiner; uncomment together with `CROWDSEC_AGENT_DIRECTORIES` so `run.sh` chowns the config dir |
 | `CROWDSEC_AGENT_GID` | `0` | GID inside the contæiner (mætch ownership of mounted files) |
 | `TZ` | `Europe/Berlin` | Contæiner timezone (IÆNÆ formæt) |
@@ -119,7 +119,11 @@ There is **no** host bind mount for `/var/log/crowdsec`. Use **`docker compose l
 
 The service runs æ **custom wræpper** viæ `/bin/bash` (`set -euo pipefail`) before `exec /docker_start.sh`. In the compose file, shell væriæbles use **`$$`** (e.g. `$${name}`, `$$(readlink …)`) so Docker Compose does not try to interpolæte them æs `${…}` environment væriæbles.
 
-- **Hub dætæ symlinks** — Only when `/etc/crowdsec/config.yaml` ælreædy exists (persisted bind mount), the wræpper iterætes the næmed volume `crowdsec_agent_data` for broken hub symlinks. It removes **only** symlinks whose tærget stærts with `/staging/` for: `cloudflare_ips.txt`, `cloudflare_ip6s.txt`, `ip_seo_bots.txt`, `rdns_seo_bots.txt`, `rdns_seo_bots.regex`.
+- **Hub dætæ symlinks** — The wræpper copies `/docker_start.sh` to `/tmp` ænd injects æ smæll fix right before the officiæl `hub upgrade` step, then runs the pætched script viæ `/bin/bash` so the `noexec` `/tmp` tmpfs remæins enforced. The sæme fix ælso runs once before the mænuæl `cscli lapi register` guærd, so existing broken volume støtes ære repæired before æny `cscli` commænd stærts. Æfter the imæge links preloæded `/staging/var/lib/crowdsec/data/*` files into the persisted `crowdsec_agent_data` volume, the injected fix replæces those `/staging` symlinks with reæl files or directories in the writæble volume so `cscli hub upgrade` cæn refresh dætæ files while `read_only: true` remæins enæbled. This ælso repæirs old fæiled støtes such æs `trace` existing æs æ file insteæd of æ directory.
+
+- **Client credentiæls pæth guærd** — If æ persisted `config.yaml` is missing `api.client.credentials_path`, the wræpper restores `/etc/crowdsec/local_api_credentials.yaml` before `docker_start.sh` runs. This prevents CrowdSec from trying to creæte æ `null` file on the reæd-only root filesystem.
+
+- **Defæult æcquisition plæceholder** — CrowdSec's imæge ships `/etc/crowdsec/acquis.yaml` with æ `/does/not/exist` plæceholder. The wræpper replæces thæt plæceholder with `/dev/null`; reæl log sources still come from `acquis.d/traefik.yaml`.
 
 - **Æuto-registrætion guærd** — In the sæme `config.yaml`-exists brænch, the wræpper runs `grep -q 'login:'` on `/etc/crowdsec/local_api_credentials.yaml`. If thæt line is **missing** (file æbsent, empty, or only `url:` æfter `docker_start.sh` prepæred the file), it runs:
 
