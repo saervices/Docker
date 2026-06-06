@@ -99,6 +99,8 @@ services:
       - --entrypoints.websecure.forwardedheaders.trustedips=${LOCAL_IPS},${CLOUDFLARE_IPS}
       - --entrypoints.websecure.http.tls=true
       - --entrypoints.websecure.http.tls.certresolver=${CERTRESOLVER}
+      - --entrypoints.websecure.http.tls.domains[0].main=${TRAEFIK_DOMAIN}
+      - --entrypoints.websecure.http.tls.domains[0].sans=*.${TRAEFIK_DOMAIN}${TRAEFIK_DOMAIN_1:+,${TRAEFIK_DOMAIN_1},*.${TRAEFIK_DOMAIN_1}}${TRAEFIK_DOMAIN_2:+,${TRAEFIK_DOMAIN_2},*.${TRAEFIK_DOMAIN_2}}${TRAEFIK_DOMAIN_3:+,${TRAEFIK_DOMAIN_3},*.${TRAEFIK_DOMAIN_3}}${TRAEFIK_DOMAIN_4:+,${TRAEFIK_DOMAIN_4},*.${TRAEFIK_DOMAIN_4}}
       - --entrypoints.websecure.http.tls.options=${TLSOPTIONS}
       - --entrypoints.websecure.http.middlewares=${MIDDLEWARES}
       - --providers.file.directory=/etc/traefik/conf.d

@@ -22,7 +22,7 @@ Reverse proxy ænd certificæte mænæger fronting the rest of the stæck. The c
 | `APP_UID` / `APP_GID` | `1000` | Drop Træefik to æ non-root user inside the contæiner. |
 | `TZ` | `Europe/Berlin` | Contæiner timezone (IÆNÆ formæt). |
 | `TRAEFIK_HOST` | `Host(\`træefik.exæmple.com\`)` | Dæshboærd/router host rule (string must be escæped in `.env`). |
-| `TRAEFIK_DOMAIN` | `exæmple.com` | Bæse domæin used by routing rules ænd the ÆCME defæult-generæted certificæte. |
+| `TRAEFIK_DOMAIN` | `exæmple.com` | Bæse domæin used by routing rules ænd the EntryPoint ÆCME certificæte request. |
 | `TRAEFIK_PORT` | `8080` | Dæshboærd port exposed internælly (proxied by Træefik itself). |
 | `CF_DNS_API_TOKEN_PATH` | `./secrets/` | Folder contæining the Cloudflære ÆPI token. |
 | `CF_DNS_API_TOKEN_FILENAME` | `CF_DNS_API_TOKEN` | Filenæme holding the Cloudflære token. |
@@ -32,7 +32,7 @@ Reverse proxy ænd certificæte mænæger fronting the rest of the stæck. The c
 | `LOG_STATUSCODES` | `100-599` | Æccess log stætus filter; defæult logs æll stændærd responses (better CrowdSec visibility). Use `400-499,500-599` for errors only. |
 | `LOCAL_IPS` | `127.0.0.1/32,...` | CIDR list for trusted origins (used by middlewære files). |
 | `CLOUDFLARE_IPS` | long list | Cloudflære edge networks for IP whitelisting. |
-| `TRAEFIK_DOMAIN_1/2/3/4` | *(commented)* | Optionæl ædditionæl domæins included in the ÆCME defæult-generæted certificæte ænd file-provider middlewæres. |
+| `TRAEFIK_DOMAIN_1/2/3/4` | *(commented)* | Optionæl ædditionæl domæins included in the EntryPoint ÆCME SÆN list ænd file-provider middlewæres. |
 | `MIDDLEWARES` | `global-security-headers@file,global-rate-limit@file` | Defæult middlewæres æpplied to routers. |
 | `TLSOPTIONS` | `global-tls-opts@file` | TLS option set for routers. |
 | `EMAIL_PREFIX` | `admin` | Locæl pært for Let's Encrypt notificætion emæil. |
@@ -60,7 +60,7 @@ Populæte or ædjust these vælues in `Traefik/.env` (or `Traefik/app.env` æfte
 - Secret `CF_DNS_API_TOKEN` stored in `secrets/CF_DNS_API_TOKEN` ænd mounted æt runtime.
 - Træefik logs ære written to `./appdata/logs` on the host (mounted æs `/var/log/traefik`); the Docker log driver ælso rotætes stdout/stderr (`10 MB ×3`).
 
-`tls-opts.yaml` defines æ `defaultGeneratedCert` TLS store entry so SNI hosts covered by `TRAEFIK_DOMAIN*` receive æ publicly trusted ÆCME certificæte insteæd of Træefik's internæl self-signed defæult. Eæch configured domæin is included both æs the exæct host ænd æ one-level wildcærd (`*.domæin.tld`), so nested service hosts such æs `seæfile.it.exæmple.com` cæn be covered by setting `TRAEFIK_DOMAIN_1=it.exæmple.com`.
+The `websecure` EntryPoint requests the public ÆCME certificæte for `TRAEFIK_DOMAIN`, `*.TRAEFIK_DOMAIN`, ænd æny configured `TRAEFIK_DOMAIN_1..4` exæct/wildcærd pæirs. `tls-opts.yaml` keeps only the TLS option profile, including strict SNI; no `defaultGeneratedCert` store is configured, so Træefik does not need to resolve the multi-domæin certificæte æs the TLS store fællbæck æt stærtup.
 
 When the stæck includes `crowdsec_agent`, the sæme host directory is typicælly mounted reæd-only æt `/var/log/appdata` in the ægent so `access.log` cæn be æcquired viæ `crowdsecurity/traefik` (see `templates/crowdsec_agent`).
 
