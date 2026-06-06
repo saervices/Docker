@@ -9,10 +9,8 @@ readonly CERTS_DUMPER_SSH_SECRET="/run/secrets/TRAEFIK_CERTS_DUMPER_PASSWORD"
 readonly CERTS_DUMPER_SSH_IDENTITY_FILE="/tmp/.ssh/certs_dumper_identity"
 readonly CERTS_DUMPER_CF_TOKEN_FILE="${CF_DNS_API_TOKEN_FILE:-/run/secrets/CF_DNS_API_TOKEN}"
 readonly CERTS_DUMPER_CF_API_BASE="${CLOUDFLARE_API_BASE:-https://api.cloudflare.com/client/v4}"
-readonly CERTS_DUMPER_CF_ZONE_ID="${TRAEFIK_CERTS_DUMPER_CF_ZONE_ID:-}"
-readonly MAILCOW_TLSA_ENABLED="${TRAEFIK_CERTS_DUMPER_MAILCOW_TLSA_ENABLED:-true}"
-readonly MAILCOW_TLSA_NAME="${TRAEFIK_CERTS_DUMPER_MAILCOW_TLSA_NAME:-_25._tcp.mail.it.xn--lb-1ia.de}"
-readonly MAILCOW_TLSA_TTL="${TRAEFIK_CERTS_DUMPER_MAILCOW_TLSA_TTL:-300}"
+readonly TRAEFIK_DOMAIN_NAME="${TRAEFIK_DOMAIN:-}"
+readonly MAILCOW_TLSA_PREFIX="_25._tcp.mail"
 
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 # --- LOGGING
@@ -105,6 +103,31 @@ read_cloudflare_token() {
 }
 
 #ææææææææææææææææææææææææææææææææææ
+# FUNCTION: normalize_dns_name
+#   Lowercases æ DNS næme ænd removes æ træiling dot.
+#   Ærguments:
+#     $1 - DNS næme
+#ææææææææææææææææææææææææææææææææææ
+normalize_dns_name() {
+  local dns_name="$1"
+
+  dns_name="${dns_name%.}"
+  printf '%s' "$dns_name" | tr '[:upper:]' '[:lower:]'
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: build_mailcow_tlsa_name
+#   Builds the Mailcow SMTP DÆNE TLSÆ record næme from TRÆEFIK_DOMÆIN.
+#   Ærguments:
+#     $1 - normalized Træefik domain
+#ææææææææææææææææææææææææææææææææææ
+build_mailcow_tlsa_name() {
+  local zone_name="$1"
+
+  printf '%s.%s' "$MAILCOW_TLSA_PREFIX" "$zone_name"
+}
+
+#ææææææææææææææææææææææææææææææææææ
 # FUNCTION: calculate_tlsa_spki_sha256
 #   Cælculætes TLSÆ 3 1 1 SPKI SHÆ-256 hash from æ certificæte.
 #   Ærguments:
@@ -150,15 +173,68 @@ cloudflare_check_response() {
 }
 
 #ææææææææææææææææææææææææææææææææææ
+# FUNCTION: cloudflare_get_zones_by_name
+#   Lists Cloudflære zones mætching æ domain næme.
+#   Ærguments:
+#     $1 - zone næme
+#ææææææææææææææææææææææææææææææææææ
+cloudflare_get_zones_by_name() {
+  local zone_name="$1"
+  local token
+  local response_file
+  local http_status
+
+  token="$(read_cloudflare_token)"
+  response_file="$(mktemp /tmp/cloudflare-get-zone.XXXXXX)"
+
+  if ! http_status="$(curl -sS -o "$response_file" -w '%{http_code}' --get \
+    --header "Authorization: Bearer ${token}" \
+    --data-urlencode "name=${zone_name}" \
+    --data-urlencode "per_page=50" \
+    "${CERTS_DUMPER_CF_API_BASE}/zones")"; then
+    log_error "Cloudflare API zone lookup failed: $(cat "$response_file" 2>/dev/null || true)"
+  fi
+
+  cloudflare_check_response "GET zones" "$http_status" "$response_file"
+  cat "$response_file"
+  rm -f "$response_file"
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: cloudflare_find_zone_id
+#   Resolves the Cloudflære zone ID from TRÆEFIK_DOMÆIN.
+#   Ærguments:
+#     $1 - zone næme
+#ææææææææææææææææææææææææææææææææææ
+cloudflare_find_zone_id() {
+  local zone_name="$1"
+  local zones_json
+  local zone_count
+
+  zones_json="$(cloudflare_get_zones_by_name "$zone_name")"
+  zone_count="$(printf '%s' "$zones_json" | jq -r '.result | length')"
+
+  case "$zone_count" in
+    1)
+      printf '%s' "$zones_json" | jq -r '.result[0].id'
+      ;;
+    0)
+      log_error "Cloudflare zone not found for TRAEFIK_DOMAIN=${zone_name}"
+      ;;
+    *)
+      log_error "Multiple Cloudflare zones found for TRAEFIK_DOMAIN=${zone_name}; refusing to guess"
+      ;;
+  esac
+}
+
+#ææææææææææææææææææææææææææææææææææ
 # FUNCTION: cloudflare_get_tlsa_records
-#   Lists Cloudflære TLSÆ records by exæct næme.
+#   Lists Cloudflære TLSÆ records in æ zone.
 #   Ærguments:
 #     $1 - Cloudflære zone ID
-#     $2 - TLSÆ record næme
 #ææææææææææææææææææææææææææææææææææ
 cloudflare_get_tlsa_records() {
   local zone_id="$1"
-  local record_name="$2"
   local token
   local response_file
   local http_status
@@ -169,7 +245,7 @@ cloudflare_get_tlsa_records() {
   if ! http_status="$(curl -sS -o "$response_file" -w '%{http_code}' --get \
     --header "Authorization: Bearer ${token}" \
     --data-urlencode "type=TLSA" \
-    --data-urlencode "name=${record_name}" \
+    --data-urlencode "per_page=5000000" \
     "${CERTS_DUMPER_CF_API_BASE}/zones/${zone_id}/dns_records")"; then
     log_error "Cloudflare API GET failed: $(cat "$response_file" 2>/dev/null || true)"
   fi
@@ -213,110 +289,104 @@ cloudflare_write_record() {
 
 #ææææææææææææææææææææææææææææææææææ
 # FUNCTION: build_tlsa_payload
-#   Builds Cloudflære TLSÆ JSON pæyloæd.
+#   Builds Cloudflære TLSÆ JSON pæyloæd from æn existing record.
 #   Ærguments:
-#     $1 - TLSÆ record næme
-#     $2 - TTL
-#     $3 - TLSÆ certificæte hash
+#     $1 - existing TLSÆ record JSON
+#     $2 - TLSÆ certificæte hash
 #ææææææææææææææææææææææææææææææææææ
 build_tlsa_payload() {
-  local record_name="$1"
-  local ttl="$2"
-  local certificate_hash="$3"
+  local record_json="$1"
+  local certificate_hash="$2"
 
-  jq -n \
-    --arg name "$record_name" \
+  printf '%s' "$record_json" | jq \
     --arg certificate "$certificate_hash" \
-    --argjson ttl "$ttl" \
     '{
       type: "TLSA",
-      name: $name,
-      ttl: $ttl,
+      name: .name,
+      ttl: (.ttl // 1),
       data: {
-        usage: 3,
-        selector: 1,
-        matching_type: 1,
+        usage: (.data.usage // ((.content // "" | split(" ") | .[0] // "" | tonumber?) // 3)),
+        selector: (.data.selector // ((.content // "" | split(" ") | .[1] // "" | tonumber?) // 1)),
+        matching_type: (.data.matching_type // ((.content // "" | split(" ") | .[2] // "" | tonumber?) // 1)),
         certificate: $certificate
-      },
-      comment: "Managed by traefik_certs-dumper mailcow hook"
+      }
     }'
 }
 
 #ææææææææææææææææææææææææææææææææææ
-# FUNCTION: upsert_cloudflare_tlsa_record
-#   Creætes or updætes the configured Cloudflære TLSÆ record.
+# FUNCTION: update_existing_cloudflare_tlsa_record
+#   Updætes the existing Mæilcow Cloudflære TLSÆ record.
 #   Ærguments:
-#     $1 - TLSÆ certificæte hash
+#     $1 - Cloudflære zone ID
+#     $2 - TLSÆ record næme
+#     $3 - TLSÆ certificæte hash
 #ææææææææææææææææææææææææææææææææææ
-upsert_cloudflare_tlsa_record() {
-  local certificate_hash="$1"
+update_existing_cloudflare_tlsa_record() {
+  local zone_id="$1"
+  local record_name="$2"
+  local certificate_hash="$3"
   local records_json
+  local matching_records_json
+  local record_json
   local record_count
   local record_id
   local current_certificate
   local payload
 
-  [ -n "$CERTS_DUMPER_CF_ZONE_ID" ] || log_error "TRAEFIK_CERTS_DUMPER_CF_ZONE_ID is required for TLSA updates"
-  case "$MAILCOW_TLSA_TTL" in
-    ''|*[!0-9]*) log_error "TRAEFIK_CERTS_DUMPER_MAILCOW_TLSA_TTL must be numeric: ${MAILCOW_TLSA_TTL}" ;;
-  esac
-
-  records_json="$(cloudflare_get_tlsa_records "$CERTS_DUMPER_CF_ZONE_ID" "$MAILCOW_TLSA_NAME")"
-  record_count="$(printf '%s' "$records_json" | jq -r '.result | length')"
-  payload="$(build_tlsa_payload "$MAILCOW_TLSA_NAME" "$MAILCOW_TLSA_TTL" "$certificate_hash")"
+  records_json="$(cloudflare_get_tlsa_records "$zone_id")"
+  matching_records_json="$(printf '%s' "$records_json" | jq -c --arg name "$record_name" \
+    '.result | map(select((.name | ascii_downcase) == ($name | ascii_downcase)))')"
+  record_count="$(printf '%s' "$matching_records_json" | jq -r 'length')"
 
   case "$record_count" in
     0)
-      log_info "Creating Cloudflare TLSA record ${MAILCOW_TLSA_NAME}..."
-      cloudflare_write_record "POST" "${CERTS_DUMPER_CF_API_BASE}/zones/${CERTS_DUMPER_CF_ZONE_ID}/dns_records" "$payload"
-      log_ok "Cloudflare TLSA record created: ${MAILCOW_TLSA_NAME}"
+      log_error "Existing Cloudflare TLSA record not found: ${record_name}"
       ;;
     1)
-      record_id="$(printf '%s' "$records_json" | jq -r '.result[0].id')"
-      current_certificate="$(printf '%s' "$records_json" | jq -r '.result[0].data.certificate // ""' | tr '[:upper:]' '[:lower:]')"
+      record_json="$(printf '%s' "$matching_records_json" | jq -c '.[0]')"
+      record_id="$(printf '%s' "$record_json" | jq -r '.id')"
+      current_certificate="$(printf '%s' "$record_json" | jq -r '.data.certificate // ""' | tr '[:upper:]' '[:lower:]')"
       if [ -z "$current_certificate" ]; then
-        current_certificate="$(printf '%s' "$records_json" | jq -r '.result[0].content // "" | split(" ") | .[3] // ""' | tr '[:upper:]' '[:lower:]')"
+        current_certificate="$(printf '%s' "$record_json" | jq -r '.content // "" | split(" ") | .[3] // ""' | tr '[:upper:]' '[:lower:]')"
       fi
 
       if [ "$current_certificate" = "$certificate_hash" ]; then
-        log_ok "Cloudflare TLSA record already current: ${MAILCOW_TLSA_NAME}"
+        log_ok "Cloudflare TLSA record already current: ${record_name}"
         return 0
       fi
 
-      log_info "Updating Cloudflare TLSA record ${MAILCOW_TLSA_NAME}..."
-      cloudflare_write_record "PATCH" "${CERTS_DUMPER_CF_API_BASE}/zones/${CERTS_DUMPER_CF_ZONE_ID}/dns_records/${record_id}" "$payload"
-      log_ok "Cloudflare TLSA record updated: ${MAILCOW_TLSA_NAME}"
+      payload="$(build_tlsa_payload "$record_json" "$certificate_hash")"
+      log_info "Updating Cloudflare TLSA record ${record_name}..."
+      cloudflare_write_record "PATCH" "${CERTS_DUMPER_CF_API_BASE}/zones/${zone_id}/dns_records/${record_id}" "$payload"
+      log_ok "Cloudflare TLSA record updated: ${record_name}"
       ;;
     *)
-      log_error "Multiple Cloudflare TLSA records found for ${MAILCOW_TLSA_NAME}; refusing to update"
+      log_error "Multiple Cloudflare TLSA records found for ${record_name}; refusing to update"
       ;;
   esac
 }
 
 #ææææææææææææææææææææææææææææææææææ
 # FUNCTION: update_mailcow_tlsa
-#   Upserts the Mæilcow SMTP DÆNE TLSÆ record in Cloudflære.
+#   Updætes the existing Mæilcow SMTP DÆNE TLSÆ record in Cloudflære.
 #   Ærguments:
 #     $1 - locæl certificæte pæth
 #ææææææææææææææææææææææææææææææææææ
 update_mailcow_tlsa() {
   local cert_path="$1"
+  local zone_name
+  local zone_id
+  local record_name
   local certificate_hash
 
-  case "$MAILCOW_TLSA_ENABLED" in
-    true|TRUE|1|yes|YES|on|ON) ;;
-    false|FALSE|0|no|NO|off|OFF)
-      log_info "Mailcow TLSA update disabled."
-      return 0
-      ;;
-    *)
-      log_error "Invalid TRAEFIK_CERTS_DUMPER_MAILCOW_TLSA_ENABLED value: ${MAILCOW_TLSA_ENABLED}"
-      ;;
-  esac
+  [ -n "$TRAEFIK_DOMAIN_NAME" ] || log_error "TRAEFIK_DOMAIN is required for Mailcow TLSA updates"
 
+  zone_name="$(normalize_dns_name "$TRAEFIK_DOMAIN_NAME")"
+  record_name="$(build_mailcow_tlsa_name "$zone_name")"
+  zone_id="$(cloudflare_find_zone_id "$zone_name")"
   certificate_hash="$(calculate_tlsa_spki_sha256 "$cert_path")"
-  log_info "Calculated Mailcow TLSA 3 1 1 hash for ${MAILCOW_TLSA_NAME}."
-  upsert_cloudflare_tlsa_record "$certificate_hash"
+  log_info "Calculated Mailcow TLSA SPKI-SHA256 hash for ${record_name}."
+  update_existing_cloudflare_tlsa_record "$zone_id" "$record_name" "$certificate_hash"
 }
 
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
