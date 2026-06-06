@@ -553,5 +553,5 @@ example_other_service() {
 check_dependencies scp ssh curl jq openssl od
 prepare_ssh_directory
 prepare_ssh_identity_from_secret
-mailcow
+# if true; then mailcow; fi
 log_ok "All post-hook tasks completed."
