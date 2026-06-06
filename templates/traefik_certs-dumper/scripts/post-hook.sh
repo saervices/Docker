@@ -9,8 +9,9 @@ readonly CERTS_DUMPER_SSH_SECRET="/run/secrets/TRAEFIK_CERTS_DUMPER_PASSWORD"
 readonly CERTS_DUMPER_SSH_IDENTITY_FILE="/tmp/.ssh/certs_dumper_identity"
 readonly CERTS_DUMPER_CF_TOKEN_FILE="${CF_DNS_API_TOKEN_FILE:-/run/secrets/CF_DNS_API_TOKEN}"
 readonly CERTS_DUMPER_CF_API_BASE="${CLOUDFLARE_API_BASE:-https://api.cloudflare.com/client/v4}"
+readonly CERTS_DUMPER_CERT_WAIT_SECONDS=60
 readonly TRAEFIK_DOMAIN_NAME="${TRAEFIK_DOMAIN:-}"
-readonly MAILCOW_TLSA_PREFIX="_25._tcp.mail"
+readonly MAILCOW_TLSA_PREFIX="_25._tcp."
 
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 # --- LOGGING
@@ -116,15 +117,31 @@ normalize_dns_name() {
 }
 
 #ææææææææææææææææææææææææææææææææææ
-# FUNCTION: build_mailcow_tlsa_name
-#   Builds the Mailcow SMTP DÆNE TLSÆ record næme from TRÆEFIK_DOMÆIN.
+# FUNCTION: select_mailcow_tlsa_record
+#   Selects the existing Mæilcow SMTP DÆNE TLSÆ record from Cloudflære.
 #   Ærguments:
-#     $1 - normalized Træefik domain
+#     $1 - Cloudflære TLSÆ records response JSON
 #ææææææææææææææææææææææææææææææææææ
-build_mailcow_tlsa_name() {
-  local zone_name="$1"
+select_mailcow_tlsa_record() {
+  local records_json="$1"
+  local matching_records_json
+  local record_count
 
-  printf '%s.%s' "$MAILCOW_TLSA_PREFIX" "$zone_name"
+  matching_records_json="$(printf '%s' "$records_json" | jq -c --arg prefix "$MAILCOW_TLSA_PREFIX" \
+    '.result | map(select((.name | ascii_downcase) | startswith($prefix)))')"
+  record_count="$(printf '%s' "$matching_records_json" | jq -r 'length')"
+
+  case "$record_count" in
+    0)
+      log_error "Existing Mailcow Cloudflare TLSA record not found; expected exactly one record starting with ${MAILCOW_TLSA_PREFIX}"
+      ;;
+    1)
+      printf '%s' "$matching_records_json" | jq -c '.[0]'
+      ;;
+    *)
+      log_error "Multiple Cloudflare TLSA records starting with ${MAILCOW_TLSA_PREFIX} found; refusing to guess"
+      ;;
+  esac
 }
 
 #ææææææææææææææææææææææææææææææææææ
@@ -318,52 +335,36 @@ build_tlsa_payload() {
 #   Updætes the existing Mæilcow Cloudflære TLSÆ record.
 #   Ærguments:
 #     $1 - Cloudflære zone ID
-#     $2 - TLSÆ record næme
-#     $3 - TLSÆ certificæte hash
+#     $2 - TLSÆ certificæte hash
 #ææææææææææææææææææææææææææææææææææ
 update_existing_cloudflare_tlsa_record() {
   local zone_id="$1"
-  local record_name="$2"
-  local certificate_hash="$3"
+  local certificate_hash="$2"
   local records_json
-  local matching_records_json
   local record_json
-  local record_count
   local record_id
+  local record_name
   local current_certificate
   local payload
 
   records_json="$(cloudflare_get_tlsa_records "$zone_id")"
-  matching_records_json="$(printf '%s' "$records_json" | jq -c --arg name "$record_name" \
-    '.result | map(select((.name | ascii_downcase) == ($name | ascii_downcase)))')"
-  record_count="$(printf '%s' "$matching_records_json" | jq -r 'length')"
+  record_json="$(select_mailcow_tlsa_record "$records_json")"
+  record_id="$(printf '%s' "$record_json" | jq -r '.id')"
+  record_name="$(printf '%s' "$record_json" | jq -r '.name')"
+  current_certificate="$(printf '%s' "$record_json" | jq -r '.data.certificate // ""' | tr '[:upper:]' '[:lower:]')"
+  if [ -z "$current_certificate" ]; then
+    current_certificate="$(printf '%s' "$record_json" | jq -r '.content // "" | split(" ") | .[3] // ""' | tr '[:upper:]' '[:lower:]')"
+  fi
 
-  case "$record_count" in
-    0)
-      log_error "Existing Cloudflare TLSA record not found: ${record_name}"
-      ;;
-    1)
-      record_json="$(printf '%s' "$matching_records_json" | jq -c '.[0]')"
-      record_id="$(printf '%s' "$record_json" | jq -r '.id')"
-      current_certificate="$(printf '%s' "$record_json" | jq -r '.data.certificate // ""' | tr '[:upper:]' '[:lower:]')"
-      if [ -z "$current_certificate" ]; then
-        current_certificate="$(printf '%s' "$record_json" | jq -r '.content // "" | split(" ") | .[3] // ""' | tr '[:upper:]' '[:lower:]')"
-      fi
+  if [ "$current_certificate" = "$certificate_hash" ]; then
+    log_ok "Cloudflare TLSA record already current: ${record_name}"
+    return 0
+  fi
 
-      if [ "$current_certificate" = "$certificate_hash" ]; then
-        log_ok "Cloudflare TLSA record already current: ${record_name}"
-        return 0
-      fi
-
-      payload="$(build_tlsa_payload "$record_json" "$certificate_hash")"
-      log_info "Updating Cloudflare TLSA record ${record_name}..."
-      cloudflare_write_record "PATCH" "${CERTS_DUMPER_CF_API_BASE}/zones/${zone_id}/dns_records/${record_id}" "$payload"
-      log_ok "Cloudflare TLSA record updated: ${record_name}"
-      ;;
-    *)
-      log_error "Multiple Cloudflare TLSA records found for ${record_name}; refusing to update"
-      ;;
-  esac
+  payload="$(build_tlsa_payload "$record_json" "$certificate_hash")"
+  log_info "Updating Cloudflare TLSA record ${record_name}..."
+  cloudflare_write_record "PATCH" "${CERTS_DUMPER_CF_API_BASE}/zones/${zone_id}/dns_records/${record_id}" "$payload"
+  log_ok "Cloudflare TLSA record updated: ${record_name}"
 }
 
 #ææææææææææææææææææææææææææææææææææ
@@ -376,17 +377,47 @@ update_mailcow_tlsa() {
   local cert_path="$1"
   local zone_name
   local zone_id
-  local record_name
   local certificate_hash
 
   [ -n "$TRAEFIK_DOMAIN_NAME" ] || log_error "TRAEFIK_DOMAIN is required for Mailcow TLSA updates"
 
   zone_name="$(normalize_dns_name "$TRAEFIK_DOMAIN_NAME")"
-  record_name="$(build_mailcow_tlsa_name "$zone_name")"
   zone_id="$(cloudflare_find_zone_id "$zone_name")"
   certificate_hash="$(calculate_tlsa_spki_sha256 "$cert_path")"
-  log_info "Calculated Mailcow TLSA SPKI-SHA256 hash for ${record_name}."
-  update_existing_cloudflare_tlsa_record "$zone_id" "$record_name" "$certificate_hash"
+  log_info "Calculated Mailcow TLSA SPKI-SHA256 hash."
+  update_existing_cloudflare_tlsa_record "$zone_id" "$certificate_hash"
+}
+
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+# --- CERTIFICÆTE FILES
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: wait_for_certificate_files
+#   Wæits until the dumped certificæte/key files exist ænd ære non-empty.
+#   Ærguments:
+#     $1 - locæl certificæte pæth
+#     $2 - locæl privæte key pæth
+#ææææææææææææææææææææææææææææææææææ
+wait_for_certificate_files() {
+  local cert_path="$1"
+  local key_path="$2"
+  local waited=0
+
+  while [ "$waited" -lt "$CERTS_DUMPER_CERT_WAIT_SECONDS" ]; do
+    if [ -s "$cert_path" ] && [ -s "$key_path" ]; then
+      return 0
+    fi
+
+    if [ "$waited" -eq 0 ]; then
+      log_info "Waiting for dumped certificate files..."
+    fi
+
+    sleep 1
+    waited=$((waited + 1))
+  done
+
+  log_error "Dumped certificate files not ready after ${CERTS_DUMPER_CERT_WAIT_SECONDS}s: ${cert_path}, ${key_path}"
 }
 
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
@@ -489,6 +520,7 @@ mailcow() {
   local remote_cert="${project_path}/data/assets/ssl/cert.pem"
   local remote_key="${project_path}/data/assets/ssl/key.pem"
 
+  wait_for_certificate_files "$local_cert" "$local_key"
   copy_certificates "$local_cert" "$local_key" "$dest_host" "$dest_user" "$remote_cert" "$remote_key" "$ssh_key"
   update_mailcow_tlsa "$local_cert"
   restart_remote_docker_compose "$dest_host" "$dest_user" "$project_path" "$ssh_key" \
