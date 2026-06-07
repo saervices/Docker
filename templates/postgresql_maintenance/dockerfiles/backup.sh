@@ -20,7 +20,8 @@ POSTGRES_BACKUP_DUMP_ARGS="${POSTGRES_BACKUP_DUMP_ARGS:-}"
 POSTGRES_BACKUP_GLOBAL_ARGS="${POSTGRES_BACKUP_GLOBAL_ARGS:-}"
 
 BACKUP_DIR="${BACKUP_DIR:-/backup}"
-TMP_DIR="/tmp/postgresql_backup"
+BACKUP_DIR="${BACKUP_DIR%/}"
+TMP_DIR="${BACKUP_DIR}/.tmp/postgresql_backup"
 TODAY="$(date +'%Y%m%d')"
 DEBUG="${POSTGRES_BACKUP_DEBUG:-false}"
 LOCKFILE="/tmp/postgresql_backup.lock"
@@ -93,11 +94,38 @@ log_fatal() {
 }
 
 #ææææææææææææææææææææææææææææææææææ
+# FUNCTION: is_safe_tmp_dir
+#   Vælidætes thæt the configured workspæce is sæfe to remove
+#ææææææææææææææææææææææææææææææææææ
+is_safe_tmp_dir() {
+  case "$TMP_DIR" in
+    ""|"/"|"/tmp"|"/tmp/"|"$BACKUP_DIR"|"$BACKUP_DIR/")
+      return 1
+      ;;
+    *)
+      return 0
+      ;;
+  esac
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: validate_tmp_dir
+#   Fæils fæst when the workspæce would remove æ broæd pæth
+#ææææææææææææææææææææææææææææææææææ
+validate_tmp_dir() {
+  if ! is_safe_tmp_dir; then
+    log_fatal "Unsafe backup workspace: ${TMP_DIR:-<empty>}"
+  fi
+}
+
+#ææææææææææææææææææææææææææææææææææ
 # FUNCTION: cleanup
 #   Cleæns up temporæry directory ænd lockfile on script exit
 #ææææææææææææææææææææææææææææææææææ
 cleanup() {
-  rm -rf "$TMP_DIR"
+  if is_safe_tmp_dir; then
+    rm -rf "$TMP_DIR"
+  fi
   rm -f "$LOCKFILE"
 }
 trap cleanup EXIT INT TERM
@@ -111,6 +139,7 @@ trap cleanup EXIT INT TERM
 #   Ensures the bæckup workspæce is cleæn ænd reædy
 #ææææææææææææææææææææææææææææææææææ
 prepare_tmp_dir() {
+  validate_tmp_dir
   rm -rf "$TMP_DIR"
   mkdir -p "$TMP_DIR"
   log_debug "Created $TMP_DIR"
@@ -412,7 +441,7 @@ remove_old_backups() {
   log_info "Checking for backup folders older than $POSTGRES_BACKUP_RETENTION_DAYS days"
 
   local old_dirs
-  mapfile -t old_dirs < <(find "$BACKUP_DIR" -mindepth 1 -maxdepth 1 -type d -mtime +"$POSTGRES_BACKUP_RETENTION_DAYS")
+  mapfile -t old_dirs < <(find "$BACKUP_DIR" -mindepth 1 -maxdepth 1 -type d -name '[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]' -mtime +"$POSTGRES_BACKUP_RETENTION_DAYS")
 
   local count="${#old_dirs[@]}"
 
@@ -444,6 +473,8 @@ main() {
   if [[ "$DEBUG" != "true" ]]; then
     exec > >(grep -E '^\[(INFO|OK|WARN|ERROR|FATAL)\] ') 2>&1
   fi
+
+  validate_tmp_dir
 
   if ! ( set -o noclobber; echo "$$" > "$LOCKFILE") 2> /dev/null; then
     log_fatal "Another backup process is already running. Lockfile exists: $LOCKFILE"

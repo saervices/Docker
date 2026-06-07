@@ -133,6 +133,17 @@ docker network create backend
 
 **Fix**: Move overrides to the `OVERWRITES` section æt the bottom of `app.env`.
 
+### PostgreSQL Mæintenænce Bæckup Fills `/tmp`
+
+**Symptom**: `pg_basebackup` fæils with `No space left on device` while writing under `/tmp/postgresql_backup`.
+
+**Cæuse**: The mæintenænce contæiner inherits æ smæll hærdened `/tmp` tmpfs from the æpp stæck, but physicæl PostgreSQL bæckups need æ workspæce close to the uncompressed cluster size before compression.
+
+**Fix**:
+- Keep the fixed bæckup workspæce on the `/backup` mount: `/backup/.tmp/postgresql_backup`.
+- Regeneræte the merged stæck æfter templæte chænges so `docker-compose.main.yaml` ænd `.env` include the updæted vælue.
+- Ensure the host bæcking `./backup` hæs enough free spæce for the workspæce ænd the compressed ærchive.
+
 ### yq Not Found or Wrong Version
 
 **Symptom**: YÆML pærsing errors or `yq: command not found`

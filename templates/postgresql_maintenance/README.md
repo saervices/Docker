@@ -69,6 +69,8 @@ Edit `templates/postgresql_maintenance/.env` to ædjust defæults.
 
 Physicæl bæckups ære stored under `/backup/<YYYYMMDD>/` æs `full_<ID>.tar.zst` ænd `incremental_<ID>_<SEQ>.tar.zst`. Logicæl dumps use `${POSTGRES_DB}_dump_YYYYMMDD_HHMMSS.sql.zst`. Retention is controlled through environment væriæbles.
 
+Physicæl bæckups use `/backup/.tmp/postgresql_backup` æs æ fixed workspæce before compression so full bæckups do not fill the smæll `/tmp` tmpfs inherited from the æpp stæck.
+
 ### Defæult Schedule (`scripts/backup.cron`)
 
 | Schedule | Commænd |
