@@ -87,19 +87,69 @@ services:
       - |
         set -euo pipefail
         CONFIG=/etc/crowdsec/config.yaml
+        START_SCRIPT=/tmp/docker_start.sh
 
-        if [[ -f "$${CONFIG}" ]]; then
-          DATA_DIR=/var/lib/crowdsec/data
-          for name in cloudflare_ips.txt cloudflare_ip6s.txt ip_seo_bots.txt rdns_seo_bots.txt rdns_seo_bots.regex; do
-            p="$${DATA_DIR}/$${name}"
-            if [[ -L "$$p" ]]; then
-              t=$$(readlink "$$p")
-              if [[ "$$t" == /staging/* ]]; then
-                echo "Removing staging symlink: $$p -> $$t" >&2
-                rm -f "$$p"
+        cat > /tmp/materialize-staging-data-links.sh <<'EOF'
+        materialize_staging_data_links() {
+          local data_dir="/var/lib/crowdsec/data"
+          local name
+          local path
+          local target
+
+          shopt -s nullglob
+          for target in /staging/var/lib/crowdsec/data/*; do
+            name="$$(basename "$${target}")"
+            path="$${data_dir}/$${name}"
+
+            if [[ -d "$${target}" ]]; then
+              if [[ -L "$${path}" || ! -d "$${path}" ]]; then
+                echo "Materializing staging data directory: $${path} -> $${target}" >&2
+                rm -rf "$${path}"
+                mkdir -p "$${path}"
+                cp -a "$${target}/." "$${path}/" 2>/dev/null || true
+              fi
+            elif [[ -f "$${target}" ]]; then
+              if [[ -L "$${path}" || -d "$${path}" ]]; then
+                echo "Materializing staging data file: $${path} -> $${target}" >&2
+                rm -rf "$${path}"
+                cp "$${target}" "$${path}"
               fi
             fi
           done
+          shopt -u nullglob
+        }
+
+        repair_default_acquisition_placeholder() {
+          local acquisition_file="/etc/crowdsec/acquis.yaml"
+
+          if [[ -f "$${acquisition_file}" ]] && grep -qs '/does/not/exist' "$${acquisition_file}"; then
+            echo "Replacing CrowdSec default acquisition placeholder with /dev/null." >&2
+            cat > "$${acquisition_file}" <<'ACQUIS'
+        source: file
+        filename: /dev/null
+        labels:
+          type: syslog
+        ACQUIS
+          fi
+        }
+
+        materialize_staging_data_links
+        repair_default_acquisition_placeholder
+        EOF
+        /bin/bash /tmp/materialize-staging-data-links.sh
+
+        if grep -q '## Install hub items' /docker_start.sh; then
+          sed '/## Install hub items/r /tmp/materialize-staging-data-links.sh' /docker_start.sh > "$${START_SCRIPT}"
+        else
+          echo "CrowdSec docker_start.sh marker not found; running unpatched start script." >&2
+          cp /docker_start.sh "$${START_SCRIPT}"
+        fi
+        if [[ -f "$${CONFIG}" ]]; then
+          credentials_path="$$(yq e '.api.client.credentials_path // ""' "$${CONFIG}" 2>/dev/null || true)"
+          if [[ -z "$${credentials_path}" || "$${credentials_path}" == "null" ]]; then
+            echo "CrowdSec api.client.credentials_path missing — restoring default path." >&2
+            yq e '.api.client.credentials_path = "/etc/crowdsec/local_api_credentials.yaml"' -i "$${CONFIG}"
+          fi
 
           CREDS=/etc/crowdsec/local_api_credentials.yaml
           if ! grep -qs 'login:' "$${CREDS}"; then
@@ -108,7 +158,7 @@ services:
           fi
         fi
 
-        exec /docker_start.sh
+        exec /bin/bash "$${START_SCRIPT}"
     environment:                                                                                                                                                # Contæiner environment væriæbles (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
       TZ: ${TZ:-Europe/Berlin}                                                                                                                                  # Contæiner timezone (IÆNÆ formæt)
       COLLECTIONS: ${CROWDSEC_AGENT_COLLECTIONS:?Collections required}                                                                                          # Collections instælled by the entrypoint on first stært — set in æpp.env (If ænchor cæn't be used, different from æpp templæte)

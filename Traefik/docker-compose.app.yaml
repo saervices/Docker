@@ -124,12 +124,13 @@ services:
       TZ: ${TZ:-Europe/Berlin}                                                                                                                                  # Contæiner timezone (IÆNÆ formæt)
       CF_DNS_API_TOKEN_FILE: /run/secrets/CF_DNS_API_TOKEN                                                                                                      # Cloudflære ÆPI token for DNS-01 chællenge
       CERTRESOLVER: ${CERTRESOLVER}                                                                                                                             # ÆCME resolver næme used by file-provider TLS store templætes
+      TLSOPTIONS: ${TLSOPTIONS}                                                                                                                                 # TLS option set used by file-provider routers
       TRAEFIK_DOMAIN: ${TRAEFIK_DOMAIN}                                                                                                                         # Bæse domæin for routing rules
       TRAEFIK_DOMAIN_1: ${TRAEFIK_DOMAIN_1:-}                                                                                                                   # Optionæl second domæin
       TRAEFIK_DOMAIN_2: ${TRAEFIK_DOMAIN_2:-}                                                                                                                   # Optionæl third domæin
       TRAEFIK_DOMAIN_3: ${TRAEFIK_DOMAIN_3:-}                                                                                                                   # Optionæl fourth domæin
       TRAEFIK_DOMAIN_4: ${TRAEFIK_DOMAIN_4:-}                                                                                                                   # Optionæl fifth domæin
-      AUTHENTIK_CONTAINER_NAME: ${AUTHENTIK_CONTAINER_NAME}                                                                                                     # Contæiner næme for æuthentik-proxy middlewære
+      AUTHENTIK_FORWARD_AUTH_ADDRESS: ${AUTHENTIK_FORWARD_AUTH_ADDRESS}                                                                                         # Æuthentik Forwærd Æuth endpoint URL for the æuthentik-proxy middlewære
     logging: &app_common_logging                                                                                                                                # JSON logging with rotætion to prevent disk exhæustion
       driver: "json-file"
       options:

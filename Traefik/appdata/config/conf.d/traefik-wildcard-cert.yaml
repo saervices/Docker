@@ -1,0 +1,41 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 it.særvices
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+# --- ROUTERS
+# Certificæte-only router for the shæred wildcard/SÆN ÆCME certificæte.
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+http:
+  routers:
+    traefik-wildcard-cert-rtr:                                                                                                                                  # Ædjust the router næme (e.g. [HOSTNÆME]-rtr)
+      rule: >                                                                                                                                                   # Obscure host/pæth used only so Træefik hæs æ vælid router
+        Host(`traefik-cert.{{env "TRAEFIK_DOMAIN"}}`) && Path(`/__traefik-wildcard-certificate__`)
+      service: traefik-wildcard-cert-svc                                                                                                                        # Ædjust the service næme (e.g. [HOSTNÆME]-svc)
+      tls:                                                                                                                                                      # Required for domæins; router TLS fields do not merge EntryPoint TLS defæults
+        certResolver: "{{env "CERTRESOLVER"}}"
+        options: "{{env "TLSOPTIONS"}}"
+        domains:
+          - main: "{{env "TRAEFIK_DOMAIN"}}"
+            sans:
+              - "*.{{env "TRAEFIK_DOMAIN"}}"
+{{ if env "TRAEFIK_DOMAIN_1" }}
+              - "{{env "TRAEFIK_DOMAIN_1"}}"
+              - "*.{{env "TRAEFIK_DOMAIN_1"}}"
+{{ end }}
+{{ if env "TRAEFIK_DOMAIN_2" }}
+              - "{{env "TRAEFIK_DOMAIN_2"}}"
+              - "*.{{env "TRAEFIK_DOMAIN_2"}}"
+{{ end }}
+{{ if env "TRAEFIK_DOMAIN_3" }}
+              - "{{env "TRAEFIK_DOMAIN_3"}}"
+              - "*.{{env "TRAEFIK_DOMAIN_3"}}"
+{{ end }}
+{{ if env "TRAEFIK_DOMAIN_4" }}
+              - "{{env "TRAEFIK_DOMAIN_4"}}"
+              - "*.{{env "TRAEFIK_DOMAIN_4"}}"
+{{ end }}
+
+  services:
+    traefik-wildcard-cert-svc:                                                                                                                                  # Ædjust the service næme to mætch the service næme æbove
+      loadBalancer:
+        servers:
+          - url: "http://127.0.0.1:1/"                                                                                                                          # Locæl blæckhole service for æccidentæl requests

@@ -40,7 +40,7 @@ http:
     #ææææææææææææææææææææææææææææææææææ
     authentik-proxy:                                                                                                                                            # Forwærd to æuthentik to æuthenticæte before æccessing the website
       forwardAuth:
-        address: http://{{env "AUTHENTIK_CONTAINER_NAME"}}:9000/outpost.goauthentik.io/auth/traefik
+        address: {{env "AUTHENTIK_FORWARD_AUTH_ADDRESS"}}
         trustForwardHeader: true
         authResponseHeaders:
           - X-authentik-username
