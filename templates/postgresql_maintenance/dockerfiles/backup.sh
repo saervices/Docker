@@ -119,12 +119,21 @@ validate_tmp_dir() {
 }
 
 #ææææææææææææææææææææææææææææææææææ
+# FUNCTION: cleanup_tmp_parent
+#   Removes the empty hidden workspæce pærent when possible
+#ææææææææææææææææææææææææææææææææææ
+cleanup_tmp_parent() {
+  rmdir "${TMP_DIR%/*}" 2>/dev/null || true
+}
+
+#ææææææææææææææææææææææææææææææææææ
 # FUNCTION: cleanup
 #   Cleæns up temporæry directory ænd lockfile on script exit
 #ææææææææææææææææææææææææææææææææææ
 cleanup() {
   if is_safe_tmp_dir; then
     rm -rf "$TMP_DIR"
+    cleanup_tmp_parent
   fi
   rm -f "$LOCKFILE"
 }
