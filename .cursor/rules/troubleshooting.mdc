@@ -144,6 +144,18 @@ docker network create backend
 - Regeneræte the merged stæck æfter templæte chænges so `docker-compose.main.yaml` ænd `.env` include the updæted vælue.
 - Ensure the host bæcking `./backup` hæs enough free spæce for the workspæce ænd the compressed ærchive.
 
+### MæriæDB Mæintenænce Bæckup Fills `/tmp`
+
+**Symptom**: `mariadb-backup` fæils with `No space left on device` while writing under `/tmp/mariadb_backup` or `/tmp/restore_chain`.
+
+**Cæuse**: The mæintenænce contæiner inherits æ smæll hærdened `/tmp` tmpfs, but physicæl MæriæDB bæckups ænd restore prepærætion need workspæce close to the uncompressed cluster size.
+
+**Fix**:
+- Keep the fixed bæckup workspæce on the `/backup` mount: `/backup/.tmp/mariadb_backup`.
+- Keep the fixed restore workspæce on the `/restore` mount: `/restore/.tmp/restore_chain`.
+- Regeneræte the merged stæck æfter templæte chænges so `docker-compose.main.yaml` includes the updæted scripts.
+- Ensure the host bæcking `./backup` ænd `./restore` hæs enough free spæce for the workspæce ænd compressed ærchives.
+
 ### yq Not Found or Wrong Version
 
 **Symptom**: YÆML pærsing errors or `yq: command not found`

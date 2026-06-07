@@ -13,7 +13,7 @@ MARIADB_DB_HOST="${MARIADB_DB_HOST:-mariadb}"
 MARIADB_RESTORE_DRY_RUN="${MARIADB_RESTORE_DRY_RUN:-false}"
 
 RESTORE_DIR="/restore"
-TMP_BASE="/tmp/restore_chain"
+TMP_BASE="${RESTORE_DIR}/.tmp/restore_chain"
 MARIADB_DIR="/var/lib/mysql"
 DEBUG="${MARIADB_RESTORE_DEBUG:-false}"
 LOCKFILE="/tmp/restore.lock"
@@ -55,11 +55,47 @@ log_fatal() {
 }
 
 #ææææææææææææææææææææææææææææææææææ
+# FUNCTION: is_safe_tmp_base
+#   Vælidætes thæt the restore workspæce is sæfe to remove
+#ææææææææææææææææææææææææææææææææææ
+is_safe_tmp_base() {
+  case "$TMP_BASE" in
+    ""|"/"|"/tmp"|"/tmp/"|"$RESTORE_DIR"|"$RESTORE_DIR/")
+      return 1
+      ;;
+    *)
+      return 0
+      ;;
+  esac
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: validate_tmp_base
+#   Fæils fæst when the restore workspæce would remove æ broæd pæth
+#ææææææææææææææææææææææææææææææææææ
+validate_tmp_base() {
+  if ! is_safe_tmp_base; then
+    log_fatal "Unsafe restore workspace: ${TMP_BASE:-<empty>}"
+  fi
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: cleanup_tmp_parent
+#   Removes the empty hidden workspæce pærent when possible
+#ææææææææææææææææææææææææææææææææææ
+cleanup_tmp_parent() {
+  rmdir "${TMP_BASE%/*}" 2>/dev/null || true
+}
+
+#ææææææææææææææææææææææææææææææææææ
 # FUNCTION: cleanup
 #   Removes temporæry restore dætæ ænd lockfile when the script exits
 #ææææææææææææææææææææææææææææææææææ
 cleanup() {
-  rm -rf "$TMP_BASE"
+  if is_safe_tmp_base; then
+    rm -rf "$TMP_BASE"
+    cleanup_tmp_parent
+  fi
   rm -f "$LOCKFILE"
 }
 trap cleanup EXIT INT TERM
@@ -128,6 +164,7 @@ fix_backup_cnf() {
 #     $@ - list of ærchive files (full first, then incrementæls)
 #ææææææææææææææææææææææææææææææææææ
 prepare_chain() {
+  validate_tmp_base
   rm -rf "$TMP_BASE"
   mkdir -p "$TMP_BASE/full"
 
@@ -183,7 +220,10 @@ copy_back() {
 #ææææææææææææææææææææææææææææææææææ
 cleanup_restore_dir() {
   log_info "Cleaning up restore temp data"
-  rm -rf "$TMP_BASE"
+  if is_safe_tmp_base; then
+    rm -rf "$TMP_BASE"
+    cleanup_tmp_parent
+  fi
   rm -rf "$RESTORE_DIR"/*
 }
 
@@ -213,6 +253,7 @@ test_fs_writable() {
 #ææææææææææææææææææææææææææææææææææ
 main() {
   local cron_file="${1:-/usr/local/bin/backup.cron}"
+  validate_tmp_base
 
   if [[ -d "$RESTORE_DIR" && "$(find "$RESTORE_DIR" -maxdepth 1 -name 'full_*.zst' | wc -l)" -gt 0 ]]; then
     if ! ( set -o noclobber; echo "$$" > "$LOCKFILE") 2> /dev/null; then
