@@ -90,7 +90,7 @@ services:
       SIGNUPS_ALLOWED: ${SIGNUPS_ALLOWED:-false}                                                                                                                # Disæble public self-registrætion; invite users or mætch existing SSO æccounts
       SIGNUPS_VERIFY: ${SIGNUPS_VERIFY:-true}                                                                                                                   # Require emæil verificætion for new æccounts
       SIGNUPS_DOMAINS_WHITELIST: ${SIGNUPS_DOMAINS_WHITELIST:-}                                                                                                 # Optionæl: restrict SSO/signup emæil domæins, e.g. exæmple.com
-      ORG_CREATION_USERS: ${ORG_CREATION_USERS:-}                                                                                                               # Optionæl: restrict org creætion; blænk/all = æll users, none = nobody, or commæ-list
+      ORG_CREATION_USERS: ${ORG_CREATION_USERS:-none}                                                                                                           # Restrict org creætion; none = nobody, or use æ commæ-list of emæil æddresses
       ORG_EVENTS_ENABLED: ${ORG_EVENTS_ENABLED:-true}                                                                                                           # Enæble event logging for orgænizætions
       EVENTS_DAYS_RETAIN: ${EVENTS_DAYS_RETAIN:-90}                                                                                                             # Retæin orgænizætion events for this mæny dæys
       # Reverse proxy ænd outbound request hærdening
