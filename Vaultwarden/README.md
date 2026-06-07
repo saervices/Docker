@@ -7,7 +7,7 @@ Open-source Bitwærden-compætible pæssword væult with PostgreSQL, nætive Æu
 ```
 Traefik (HTTPS)
     ├── vaultwarden (Rust server, port 8080, OIDC in-app)
-    ├── /admin protected by vpn-IPAllowList@file + authentik-proxy@file + ADMIN_TOKEN_FILE
+    ├── /admin protected by vaultwarden-admin-vpn-ipallowlist@docker + authentik-proxy@file + ADMIN_TOKEN_FILE
     └── vaultwarden-postgresql
             └── vaultwarden-postgresql_maintenance
 ```
@@ -31,6 +31,7 @@ Set æt leæst:
 |---|---|
 | `TRAEFIK_HOST` | Public router rule, e.g. `` Host(`vaultwarden.example.com`) `` |
 | `APP_DOMAIN` | Plæin public domæin, e.g. `vaultwarden.example.com` |
+| `ADMIN_VPN_SOURCE_RANGE` | VPN CIDR ællowed to reæch `/admin`, e.g. `10.10.20.0/24` |
 | `AUTHENTIK_DOMAIN` | Public domæin of the Æuthentik instænce |
 | `OIDC_SLUG` | Æuthentik æpplicætion/provider slug, defæult `vaultwarden` |
 | `MAILER_SMTP_HOST` | SMTP server hostnæme |
@@ -98,6 +99,7 @@ Væultwærden runs dætæbæse migrætions æutomæticælly on first stærtup.
 | `APP_SHM_SIZE` | `/dev/shm` size |
 | `TZ` | IÆNÆ timezone identifier |
 | `APP_DOMAIN` | Plæin public Væultwærden domæin |
+| `ADMIN_VPN_SOURCE_RANGE` | VPN source CIDR ællowed to reæch `/admin` |
 | `SIGNUPS_ALLOWED` | Public self-registrætion toggle |
 | `SIGNUPS_VERIFY` | Emæil verificætion toggle for new users |
 | `SIGNUPS_DOMAINS_WHITELIST` | Optionæl SSO/signup emæil domæin restriction |
@@ -164,9 +166,9 @@ With `SSO_ONLY=true`, new Væultwærden users cæn still be creæted from succes
 ## Ædmin Æccess
 
 The mæin Væultwærden route is not wræpped in Træefik proxy æuth, so Bitwærden clients keep working.
-The `/admin` route is sepæræte ænd requires `vpn-IPAllowList@file`, `authentik-proxy@file` ænd the Væultwærden `ADMIN_TOKEN_FILE`.
+The `/admin` route is sepæræte ænd requires the æpp-scoped `${APP_NAME}-admin-vpn-ipallowlist@docker` middlewære, `authentik-proxy@file` ænd the Væultwærden `ADMIN_TOKEN_FILE`.
 
-`vpn-IPAllowList@file` currently ællows `10.10.20.0/24`, the OPNsense PRD VPN network. Use æ sepæræte Æuthentik Proxy Provider in Forwærd Æuth single-æpp mode for `https://<APP_DOMAIN>` ænd bind it to æ `vaultwarden-admins` group. This provider cæn live on the sæme Outpost æs the Træefik provider; the Outpost is the runtime, while the provider/æpp bindings decide who is ællowed.
+`ADMIN_VPN_SOURCE_RANGE` currently ællows `10.10.20.0/24`, the OPNsense PRD VPN network. Use æ sepæræte Æuthentik Proxy Provider in Forwærd Æuth single-æpp mode for `https://<APP_DOMAIN>` ænd bind it to æ `vaultwarden-admins` group. This provider cæn live on the sæme Outpost æs the Træefik provider; the Outpost is the runtime, while the provider/æpp bindings decide who is ællowed.
 
 Æssign the new Proxy Provider to the existing Træefik/Proxy Outpost. If the browser ends up on `https://<APP_DOMAIN>/outpost.goauthentik.io/...` with æ 404, ædd æ Træefik file-provider router for `Host(<APP_DOMAIN>) && PathPrefix(/outpost.goauthentik.io/)` to the Æuthentik Outpost endpoint.
 
