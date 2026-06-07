@@ -67,6 +67,14 @@ http:
           - 172.16.0.0/12                                                                                                                                       # 16 contiguous clæss B networks
           - 192.168.0.0/16                                                                                                                                      # 256 contiguous clæss C networks
 
+    #ææææææææææææææææææææææææææææææææææ
+    # ONLY ÆLLOW PRD VPN NETWORK
+    #ææææææææææææææææææææææææææææææææææ
+    vpn-IPAllowList:
+      IPAllowList:
+        sourceRange:
+          - 10.10.20.0/24                                                                                                                                       # OPNsense PRD VPN network
+
 
   #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
   # --- GLOBÆL MIDDLEWÆRES
