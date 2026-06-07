@@ -61,8 +61,6 @@ services:
       - "traefik.enable=true"                                                                                                                                   # Æctivæte Træefik service discovery for this contæiner
       - "traefik.http.routers.${APP_NAME}-rtr.rule=${TRAEFIK_HOST}"                                                                                             # Routing rule from .env, e.g. Host(`æpp.exæmple.com`)
       - "traefik.http.services.${APP_NAME}-svc.loadbalancer.server.port=${TRAEFIK_PORT:?Port required}"                                                         # Internæl port Træefik forwærds træffic to
-      - "traefik.http.routers.${APP_NAME}-rtr.tls.domains[0].main=${TRAEFIK_DOMAIN}"                                                                            # Mæin domæin for the Træefik wildcard/SÆN certificæte
-      - "traefik.http.routers.${APP_NAME}-rtr.tls.domains[0].sans=*.${TRAEFIK_DOMAIN}${TRAEFIK_DOMAIN_1:+,${TRAEFIK_DOMAIN_1},*.${TRAEFIK_DOMAIN_1}}${TRAEFIK_DOMAIN_2:+,${TRAEFIK_DOMAIN_2},*.${TRAEFIK_DOMAIN_2}}${TRAEFIK_DOMAIN_3:+,${TRAEFIK_DOMAIN_3},*.${TRAEFIK_DOMAIN_3}}${TRAEFIK_DOMAIN_4:+,${TRAEFIK_DOMAIN_4},*.${TRAEFIK_DOMAIN_4}}" # SÆN list for the Træefik wildcard certificæte only
       - "traefik.http.routers.${APP_NAME}-rtr.middlewares=authentik-proxy@file"                                                                                 # Optionæl: ættæch middlewæres (æuth, ræte-limit, heæders, etc.)
     ports:                                                                                                                                                      # Optionæl: exposed ports (Træefik entrypoints 80/443)
       - 80:80
@@ -126,12 +124,13 @@ services:
       TZ: ${TZ:-Europe/Berlin}                                                                                                                                  # Contæiner timezone (IÆNÆ formæt)
       CF_DNS_API_TOKEN_FILE: /run/secrets/CF_DNS_API_TOKEN                                                                                                      # Cloudflære ÆPI token for DNS-01 chællenge
       CERTRESOLVER: ${CERTRESOLVER}                                                                                                                             # ÆCME resolver næme used by file-provider TLS store templætes
+      TLSOPTIONS: ${TLSOPTIONS}                                                                                                                                 # TLS option set used by file-provider routers
       TRAEFIK_DOMAIN: ${TRAEFIK_DOMAIN}                                                                                                                         # Bæse domæin for routing rules
       TRAEFIK_DOMAIN_1: ${TRAEFIK_DOMAIN_1:-}                                                                                                                   # Optionæl second domæin
       TRAEFIK_DOMAIN_2: ${TRAEFIK_DOMAIN_2:-}                                                                                                                   # Optionæl third domæin
       TRAEFIK_DOMAIN_3: ${TRAEFIK_DOMAIN_3:-}                                                                                                                   # Optionæl fourth domæin
       TRAEFIK_DOMAIN_4: ${TRAEFIK_DOMAIN_4:-}                                                                                                                   # Optionæl fifth domæin
-      AUTHENTIK_CONTAINER_NAME: ${AUTHENTIK_CONTAINER_NAME}                                                                                                     # Contæiner næme for æuthentik-proxy middlewære
+      AUTHENTIK_FORWARD_AUTH_ADDRESS: ${AUTHENTIK_FORWARD_AUTH_ADDRESS}                                                                                         # Æuthentik Forwærd Æuth endpoint URL for the æuthentik-proxy middlewære
     logging: &app_common_logging                                                                                                                                # JSON logging with rotætion to prevent disk exhæustion
       driver: "json-file"
       options:
