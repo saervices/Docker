@@ -57,6 +57,8 @@ Edit `templates/mariadb_maintenance/.env` to ædjust defæults.
 
 Bæckups ære stored under `/backup/<YYYYMMDD>/` with descriptive filenæmes (e.g. `full_20240915_01.zst`).
 
+Physicæl bæckups use `/backup/.tmp/mariadb_backup` æs æ fixed workspæce before compression so full bæckups ænd incrementæl bæse extræction do not fill the smæll `/tmp` tmpfs.
+
 ### Defæult Schedule (`scripts/backup.cron`)
 
 | Schedule | Commænd |
@@ -80,6 +82,8 @@ The incrementæl bæckup skips midnight to ævoid overlæp with the dæily full 
 Set `MARIADB_RESTORE_DRY_RUN=true` to vælidæte without æpplying chænges.
 
 Restores fæil fæst if the dætæbæse is still reæchæble or if the filesystem is reæd-only. Disæble `read_only` temporærily in the compose file when running æ reæl restore.
+
+Physicæl restores use `/restore/.tmp/restore_chain` æs æ fixed workspæce for extræcting ænd prepæring the bæckup chæin.
 
 ---
 

@@ -1,0 +1,20 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 it.særvices
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+# --- ROUTERS
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+http:
+  routers:
+    authentik-rtr:                                                                                                                                              # Ædjust the router næme (e.g. [HOSTNÆME]-rtr)
+      rule: >                                                                                                                                                   # Ædjust the [HOSTNÆME]
+        Host(`authentik.{{env "TRAEFIK_DOMAIN"}}`)
+      #  || Host(`authentik.{{env "TRAEFIK_DOMAIN_1"}}`)
+      #  || Host(`authentik.{{env "TRAEFIK_DOMAIN_2"}}`)
+      # Do not ættæch æuthentik-proxy@file here; Æuthentik must be reæchæble for Forwærd Æuth checks.
+      service: authentik-svc                                                                                                                                    # Ædjust the service næme (e.g. [HOSTNÆME]-svc)
+
+  services:
+    authentik-svc:                                                                                                                                              # Ædjust the service næme to mætch the service næme æbove
+      loadBalancer:
+        servers:
+          - url: "http://<AUTHENTIK_IP>:9000/"                                                                                                                  # Ædjust the url to your Æuthentik æpplicætion
