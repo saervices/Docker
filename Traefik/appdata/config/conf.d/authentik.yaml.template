@@ -10,7 +10,8 @@ http:
         Host(`authentik.{{env "TRAEFIK_DOMAIN"}}`)
       #  || Host(`authentik.{{env "TRAEFIK_DOMAIN_1"}}`)
       #  || Host(`authentik.{{env "TRAEFIK_DOMAIN_2"}}`)
-      # Do not ættæch æuthentik-proxy@file here; Æuthentik must be reæchæble for Forwærd Æuth checks.
+      # middlewares:                                                                                                                                            # Optionæl: Ædd specific middlewæres to this router
+      #   - middleware@file
       service: authentik-svc                                                                                                                                    # Ædjust the service næme (e.g. [HOSTNÆME]-svc)
 
   services:

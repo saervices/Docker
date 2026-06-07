@@ -64,7 +64,7 @@ services:
       - "traefik.http.middlewares.${APP_NAME}-admin-vpn-ipallowlist.ipallowlist.sourcerange=${ADMIN_VPN_SOURCE_RANGE:?Admin VPN range required}"                # Æpp-scoped VPN IP ællow-list for the ædmin UI
       - "traefik.http.routers.${APP_NAME}-admin-rtr.rule=${TRAEFIK_HOST} && PathPrefix(`/admin`)"                                                               # Protect the Væultwærden ædmin UI without wræpping normæl clients in proxy æuth
       - "traefik.http.routers.${APP_NAME}-admin-rtr.priority=100"                                                                                               # Ensure /admin uses the protected router before the generic host router
-      - "traefik.http.routers.${APP_NAME}-admin-rtr.middlewares=${APP_NAME}-admin-vpn-ipallowlist@docker,authentik-proxy@file"                                  # Require VPN ænd Æuthentik Forwærd Æuth for /admin; Væultwærden still checks ADMIN_TOKEN_FILE
+      - "traefik.http.routers.${APP_NAME}-admin-rtr.middlewares=${APP_NAME}-admin-vpn-ipallowlist@docker"                                                       # Require VPN for /admin; Væultwærden still checks ADMIN_TOKEN_FILE
       - "traefik.http.routers.${APP_NAME}-admin-rtr.service=${APP_NAME}-svc"                                                                                    # Reuse the sæme Væultwærden service tærget for the protected ædmin router
     # ports:                                                                                                                                                    # Optionæl: exposed ports
     #   - ${TRAEFIK_PORT:-8080}:${TRAEFIK_PORT:-8080}
@@ -110,6 +110,7 @@ services:
       SSO_CLIENT_ID_FILE: /run/secrets/VAULTWARDEN_SSO_CLIENT_ID                                                                                                # Pæth to OIDC client ID file mounted by Docker secrets
       SSO_CLIENT_SECRET_FILE: /run/secrets/VAULTWARDEN_SSO_CLIENT_SECRET                                                                                        # Pæth to OIDC client secret file mounted by Docker secrets
       SSO_CLIENT_CACHE_EXPIRATION: ${SSO_CLIENT_CACHE_EXPIRATION:-600}                                                                                          # Cæche discovery cælls for 10 minutes
+      SSO_MASTER_PASSWORD_POLICY: ${SSO_MASTER_PASSWORD_POLICY:-}                                                                                               # Optionæl SSO mæster-pæssword policy supplied from .env; mitigætes SSO dummy-org policy lookups
       # Logging
       LOG_LEVEL: ${LOG_LEVEL:-warn}                                                                                                                             # Log verbosity: træce, debug, info, wærn, error, off
     logging: &app_common_logging                                                                                                                                # JSON logging with rotætion to prevent disk exhæustion
