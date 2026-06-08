@@ -9,6 +9,8 @@ http:
     traefik-wildcard-cert-rtr:                                                                                                                                  # Ædjust the router næme (e.g. [HOSTNÆME]-rtr)
       rule: >                                                                                                                                                   # Obscure host/pæth used only so Træefik hæs æ vælid router
         Host(`traefik-cert.{{env "TRAEFIK_DOMAIN"}}`) && Path(`/__traefik-wildcard-certificate__`)
+      # middlewares:                                                                                                                                            # Optionæl: Ædd specific middlewæres to this router
+      #   - middleware@file
       service: traefik-wildcard-cert-svc                                                                                                                        # Ædjust the service næme (e.g. [HOSTNÆME]-svc)
       tls:                                                                                                                                                      # Required for domæins; router TLS fields do not merge EntryPoint TLS defæults
         certResolver: "{{env "CERTRESOLVER"}}"

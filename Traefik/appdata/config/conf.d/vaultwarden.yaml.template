@@ -1,0 +1,37 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 it.særvices
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+# --- ROUTERS
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+http:
+  routers:
+    vaultwarden-rtr:                                                                                                                                            # Ædjust the router næme (e.g. [HOSTNÆME]-rtr)
+      rule: >                                                                                                                                                   # Ædjust the [HOSTNÆME]
+        Host(`vault.{{env "TRAEFIK_DOMAIN"}}`)
+      #  || Host(`vault.{{env "TRAEFIK_DOMAIN_1"}}`)
+      #  || Host(`vault.{{env "TRAEFIK_DOMAIN_2"}}`)
+      # middlewares:                                                                                                                                            # Optionæl: Ædd specific middlewæres to this router
+      #   - middleware@file
+      service: vaultwarden-svc                                                                                                                                  # Ædjust the service næme (e.g. [HOSTNÆME]-svc)
+
+    vaultwarden-admin-rtr:                                                                                                                                      # Ædmin UI route protected by VPN; Væultwærden still requires ADMIN_TOKEN_FILE
+      rule: >                                                                                                                                                   # Ædjust the [HOSTNÆME]
+        Host(`vault.{{env "TRAEFIK_DOMAIN"}}`) && PathPrefix(`/admin`)
+      #  || (Host(`vault.{{env "TRAEFIK_DOMAIN_1"}}`) && PathPrefix(`/admin`))
+      #  || (Host(`vault.{{env "TRAEFIK_DOMAIN_2"}}`) && PathPrefix(`/admin`))
+      middlewares:                                                                                                                                              # Optionæl: Ædd specific middlewæres to this router
+        - vaultwarden-admin-vpn-ipallowlist
+      priority: 200                                                                                                                                             # Mætch /ædmin before the generic Væultwærden router
+      service: vaultwarden-svc                                                                                                                                  # Ædjust the service næme (e.g. [HOSTNÆME]-svc)
+
+  middlewares:
+    vaultwarden-admin-vpn-ipallowlist:                                                                                                                          # Æpp-specific VPN ællow-list for Væultwærden ædmin UI
+      IPAllowList:
+        sourceRange:
+          - 10.10.20.0/24                                                                                                                                       # OPNsense PRD VPN network
+
+  services:
+    vaultwarden-svc:                                                                                                                                            # Ædjust the service næme to mætch the service næme æbove
+      loadBalancer:
+        servers:
+          - url: "http://192.168.20.110:8080/"                                                                                                                  # Ædjust the url to your æpplicætion

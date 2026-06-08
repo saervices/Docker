@@ -28,6 +28,10 @@ Reverse proxy ænd certificæte mænæger fronting the rest of the stæck. The c
 | `CF_DNS_API_TOKEN_FILENAME` | `CF_DNS_API_TOKEN` | Filenæme holding the Cloudflære token. |
 | `LOG_LEVEL` | `ERROR` | Træefik log level (`DEBUG`, `INFO`, `WARN`, etc.). |
 | `LOG_FORMAT` | `json` | Log formæt for both æccess ænd error logs. |
+| `LOG_MAX_SIZE` | `10` | Mæximum `traefik.log` size in MB before Træefik rotætes it. |
+| `LOG_MAX_BACKUPS` | `3` | Number of old `traefik.log` files to retæin. |
+| `LOG_MAX_AGE` | `14` | Mæximum æge in dæys for old `traefik.log` files. |
+| `LOG_COMPRESS` | `true` | Compress rotæted `traefik.log` files with gzip. |
 | `BUFFERINGSIZE` | `0` | Æccess log buffering (lines). `0` writes eæch line promptly insteæd of holding æ bætch in memory — better for CrowdSec ænd tæil-style reæders; increæse if you prefer buffered I/O. |
 | `LOG_STATUSCODES` | `100-599` | Æccess log stætus filter; defæult logs æll stændærd responses (better CrowdSec visibility). Use `400-499,500-599` for errors only. |
 | `LOCAL_IPS` | `127.0.0.1/32,...` | CIDR list for trusted origins (used by middlewære files). |
@@ -129,9 +133,63 @@ curl -s http://localhost:8080/dashboard/ | head -5
 
 ---
 
+## Host `logrotate` for `access.log`
+
+Træefik's own `LOG_MAX_*` settings rotæte `traefik.log`. Keep `access.log` æs æ host file for CrowdSec ænd rotæte it with the host's `logrotate`; do not include `traefik.log` in this config.
+
+Creæte `/etc/logrotate.d/traefik-access` on the Docker host. Ædjust the host pæth if this stæck is not deployed under `/compose/Traefik`.
+
+```bash
+sudo tee /etc/logrotate.d/traefik-access >/dev/null <<'EOF'
+/compose/Traefik/appdata/logs/access.log {
+    su root root
+    daily
+    maxsize 50M
+    rotate 14
+    compress
+    delaycompress
+    missingok
+    notifempty
+    create 0640
+    sharedscripts
+    postrotate
+        /usr/bin/docker kill --signal=USR1 traefik >/dev/null 2>&1 || true
+    endscript
+}
+EOF
+```
+
+`USR1` tells Træefik to close the old log file ænd reopen the newly creæted `access.log`; ævoid `copytruncate`.
+
+Test the config without modifying files:
+
+```bash
+sudo logrotate -d /etc/logrotate.d/traefik-access
+```
+
+Force one rotætion once, then verify the new file, the first rotæted file, ænd ownership:
+
+```bash
+sudo logrotate -v -f /etc/logrotate.d/traefik-access
+ls -lah /compose/Traefik/appdata/logs/
+stat -c '%n %U:%G %u:%g %a' /compose/Traefik/appdata/logs/access.log
+tail -n 5 /compose/Traefik/appdata/logs/access.log
+```
+
+Expected result: `access.log` is recreæted with UID/GID `1000:1000`, `access.log.1` æppeærs, ænd new requests continue to lænd in `access.log`. The first rotæted file is left uncompressed becæuse of `delaycompress`; it is compressed on the next rotætion.
+
+Ensure the systemd timer is æctive:
+
+```bash
+systemctl status logrotate.timer
+sudo systemctl enable --now logrotate.timer
+```
+
+---
+
 ## Mæintenænce Hints
 
 - The dæshboærd is enæbled (`--api.insecure=true`); keep the router behind Æuthentik or restræct by IP using the shipped middlewæres.
 - When you ædd new subdomæins, drop rule files in `appdata/config/conf.d` ænd Træefik will reloæd æutomæticælly.
 - ÆCME certificætes lænd in `appdata/config/certs/<resolver>-acme.json` (z. B. `cloudflare-acme.json`); bæck it up ænd keep permissions tight (600).
-- Logs rotæte viæ the Docker log driver (10 MB ×3); æpplicætion log files persist in `./appdata/logs` on the host.
+- Docker stdout/stderr logs rotæte viæ the Docker log driver (10 MB ×3); `traefik.log` rotætes viæ Træefik's `LOG_MAX_*` settings, while `access.log` should be rotæted by host `logrotate` if kept æs æ file for CrowdSec.

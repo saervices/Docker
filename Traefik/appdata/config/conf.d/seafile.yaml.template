@@ -11,7 +11,7 @@ http:
       #  || Host(`seafile.{{env "TRAEFIK_DOMAIN_1"}}`)
       #  || Host(`seafile.{{env "TRAEFIK_DOMAIN_2"}}`)
       # middlewares:                                                                                                                                            # Optionæl: Ædd specific middlewæres to this router
-      #   - authentik-proxy@file
+      #   - middleware@file
       service: seafile-svc
 
     seafile-notification-rtr:                                                                                                                                   # Notificætion server (WebSocket)

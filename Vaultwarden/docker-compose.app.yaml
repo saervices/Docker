@@ -2,7 +2,8 @@
 # Copyright (c) 2025 it.særvices
 ---
 x-required-services:                                                                                                                                            # Templætes æuto-merged by run.sh (recursive)
-  - <other-service>
+  - postgresql
+  - postgresql_maintenance
 
 services:
   app:
@@ -44,23 +45,31 @@ services:
     # --- FILESYSTEM & SECRETS
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     volumes: &app_common_volumes                                                                                                                                # Bind-mount only pæths the æpp truly needs (shæred viæ ænchor)
-      - ./appdata/data:/data:ro                                                                                                                                 # Æpplicætion dætæ; switch to :rw only when writes ære unævoidæble
-    #   - data:/data:rw                                                                                                                                         # Næmed volume for persistent bæckend dætæ (DBs, cæches, etc.); rærely chænged mænuælly
+      - ./appdata/data:/data:rw                                                                                                                                 # Væultwærden dætæ folder: ættæchments, sends, icons, config.json ænd RSÆ keys
+      - ./scripts/vaultwarden.d:/etc/vaultwarden.d:ro                                                                                                           # Stærtup hooks sourced by the officiæl imæge before væultwærden stærts
     secrets: &app_common_secrets                                                                                                                                # Docker secrets mounted æt /run/secrets/ (shæred viæ ænchor)
-      - APP_PASSWORD
+      - POSTGRES_PASSWORD                                                                                                                                       # PostgreSQL user pæssword reæd by stærtup hook to build DATABASE_URL
+      - VAULTWARDEN_ADMIN_TOKEN                                                                                                                                 # Ædmin token reæd viæ ADMIN_TOKEN_FILE
+      - MAILER_SMTP_PASSWORD                                                                                                                                    # SMTP pæssword reæd viæ SMTP_PASSWORD_FILE
+      - VAULTWARDEN_SSO_CLIENT_ID                                                                                                                               # Æuthentik OIDC client ID reæd viæ SSO_CLIENT_ID_FILE
+      - VAULTWARDEN_SSO_CLIENT_SECRET                                                                                                                           # Æuthentik OIDC client secret reæd viæ SSO_CLIENT_SECRET_FILE
 
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- NETWORKING / REVERSE PROXY
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     labels:                                                                                                                                                     # Træefik reverse proxy læbels for æutomætic HTTPS routing
       - "traefik.enable=true"                                                                                                                                   # Æctivæte Træefik service discovery for this contæiner
-      - "traefik.http.routers.${APP_NAME}-rtr.rule=${TRAEFIK_HOST}"                                                                                             # Routing rule from .env, e.g. Host(`æpp.exæmple.com`)
+      - "traefik.http.routers.${APP_NAME}-rtr.rule=${TRAEFIK_HOST}"                                                                                             # Routing rule from .env, e.g. Host(`app.example.com`)
       - "traefik.http.services.${APP_NAME}-svc.loadbalancer.server.port=${TRAEFIK_PORT:?Port required}"                                                         # Internæl port Træefik forwærds træffic to
-    #   - "traefik.http.routers.${APP_NAME}-rtr.middlewares=authentik-proxy@file"                                                                               # Optionæl: ættæch middlewæres (æuth, ræte-limit, heæders, etc.)
+      - "traefik.http.middlewares.${APP_NAME}-admin-vpn-ipallowlist.ipallowlist.sourcerange=${ADMIN_VPN_SOURCE_RANGE:?Admin VPN range required}"                # Æpp-scoped VPN IP ællow-list for the ædmin UI
+      - "traefik.http.routers.${APP_NAME}-admin-rtr.rule=${TRAEFIK_HOST} && PathPrefix(`/admin`)"                                                               # Protect the Væultwærden ædmin UI without wræpping normæl clients in proxy æuth
+      - "traefik.http.routers.${APP_NAME}-admin-rtr.priority=100"                                                                                               # Ensure /admin uses the protected router before the generic host router
+      - "traefik.http.routers.${APP_NAME}-admin-rtr.middlewares=${APP_NAME}-admin-vpn-ipallowlist@docker"                                                       # Require VPN for /admin; Væultwærden still checks ADMIN_TOKEN_FILE
+      - "traefik.http.routers.${APP_NAME}-admin-rtr.service=${APP_NAME}-svc"                                                                                    # Reuse the sæme Væultwærden service tærget for the protected ædmin router
     # ports:                                                                                                                                                    # Optionæl: exposed ports
-    #   - 8080:80
+    #   - ${TRAEFIK_PORT:-8080}:${TRAEFIK_PORT:-8080}
     # expose:                                                                                                                                                   # Optionæl: expose without publishing
-    #   - 80
+    #   - ${TRAEFIK_PORT:-8080}
     networks:                                                                                                                                                   # Network isolætion: frontend (proxy) + bæckend (internæl services)
       - backend
       - frontend
@@ -72,19 +81,53 @@ services:
     # entrypoint: ['your-entrypoint.sh']                                                                                                                        # Override the imæge defæult entrypoint
     environment: &app_common_environment                                                                                                                        # Contæiner environment væriæbles (shæred viæ ænchor with sætellites)
       TZ: ${TZ:-Europe/Berlin}                                                                                                                                  # Contæiner timezone (IÆNÆ formæt)
-      ENV_VAR_EXAMPLE: ${ENV_VAR_EXAMPLE:-set-me}                                                                                                               # Replæce with æctuæl æpplicætion configurætion
-      APP_PASSWORD_FILE: /run/secrets/APP_PASSWORD                                                                                                              # Wire mounted Docker secret into the æpplicætion
+      APP_NAME: ${APP_NAME:?App name required}                                                                                                                  # Contæiner næme, hostnæme, ænd prefix for proxy læbels (required by stærtup hook)
+      DOMAIN: "https://${APP_DOMAIN:?App domain required}"                                                                                                      # Public HTTPS bæse URL used for links ænd OIDC cællbæck generætion
+      ROCKET_PORT: ${TRAEFIK_PORT:?Port required}                                                                                                               # Internæl HTTP port; kept in sync with Træefik service port
+      # Ædmin UI
+      ADMIN_TOKEN_FILE: /run/secrets/VAULTWARDEN_ADMIN_TOKEN                                                                                                    # Pæth to ædmin token file mounted by Docker secrets
+      # Registrætion ænd orgænizætion policy
+      SIGNUPS_ALLOWED: ${SIGNUPS_ALLOWED:-false}                                                                                                                # Disæble public self-registrætion; invite users or mætch existing SSO æccounts
+      SIGNUPS_VERIFY: ${SIGNUPS_VERIFY:-true}                                                                                                                   # Require emæil verificætion for new æccounts
+      SIGNUPS_DOMAINS_WHITELIST: ${SIGNUPS_DOMAINS_WHITELIST:-}                                                                                                 # Optionæl: restrict SSO/signup emæil domæins, e.g. exæmple.com
+      ORG_CREATION_USERS: ${ORG_CREATION_USERS:-none}                                                                                                           # Restrict org creætion; none = nobody, or use æ commæ-list of emæil æddresses
+      INVITATIONS_ALLOWED: ${INVITATIONS_ALLOWED:-false}                                                                                                        # Disæble user invitætions by defæult; new æccess should flow through Æuthentik SSO policy
+      EMAIL_CHANGE_ALLOWED: ${EMAIL_CHANGE_ALLOWED:-false}                                                                                                      # Disæble user emæil chænges; identities should remæin bound to Æuthentik
+      PASSWORD_HINTS_ALLOWED: ${PASSWORD_HINTS_ALLOWED:-false}                                                                                                  # Disæble pæssword hints globælly; hints cæn leæk sensitive context
+      SENDS_ALLOWED: ${SENDS_ALLOWED:-true}                                                                                                                     # Enæble Bitwærden Send globælly; restrict it per org policy where needed
+      ORG_EVENTS_ENABLED: ${ORG_EVENTS_ENABLED:-true}                                                                                                           # Enæble event logging for orgænizætions
+      EVENTS_DAYS_RETAIN: ${EVENTS_DAYS_RETAIN:-90}                                                                                                             # Retæin orgænizætion events for this mæny dæys
+      # Reverse proxy ænd outbound request hærdening
+      IP_HEADER: ${IP_HEADER:-X-Forwarded-For}                                                                                                                  # Trust Træefik's forwærded client IP heæder
+      # Emæil
+      SMTP_HOST: ${MAILER_SMTP_HOST:-localhost}                                                                                                                 # SMTP server hostnæme
+      SMTP_PORT: ${MAILER_SMTP_PORT:-465}                                                                                                                       # SMTP port; 465 for implicit TLS, 587 for STÆRTTLS
+      SMTP_SECURITY: ${MAILER_SMTP_SECURITY:-force_tls}                                                                                                         # SMTP trænsport security: force_tls, stærttls, or off
+      SMTP_USERNAME: ${MAILER_SMTP_USER:-}                                                                                                                      # SMTP æuthenticætion usernæme
+      SMTP_FROM: ${MAILER_FROM:-vaultwarden@example.com}                                                                                                        # From-æddress for æll outgoing emæils
+      SMTP_PASSWORD_FILE: /run/secrets/MAILER_SMTP_PASSWORD                                                                                                     # Pæth to SMTP pæssword file mounted by Docker secrets
+      # Æuthentik OIDC SSO
+      SSO_ENABLED: ${SSO_ENABLED:-true}                                                                                                                         # Enæble OpenID Connect single sign-on
+      SSO_ONLY: ${SSO_ONLY:-true}                                                                                                                               # Disæble direct emæil ænd mæster-pæssword login
+      SSO_AUTHORITY: "https://${AUTHENTIK_DOMAIN:?Authentik domain required}/application/o/${OIDC_SLUG:-vaultwarden}/"                                          # Æuthentik issuer URL; træiling slæsh is required for Æuthentik
+      SSO_SCOPES: ${SSO_SCOPES:-openid profile email offline_access}                                                                                            # OIDC scopes; offline_access enæbles refresh tokens
+      SSO_CLIENT_ID_FILE: /run/secrets/VAULTWARDEN_SSO_CLIENT_ID                                                                                                # Pæth to OIDC client ID file mounted by Docker secrets
+      SSO_CLIENT_SECRET_FILE: /run/secrets/VAULTWARDEN_SSO_CLIENT_SECRET                                                                                        # Pæth to OIDC client secret file mounted by Docker secrets
+      SSO_CLIENT_CACHE_EXPIRATION: ${SSO_CLIENT_CACHE_EXPIRATION:-600}                                                                                          # Cæche discovery cælls for 10 minutes
+      SSO_MASTER_PASSWORD_POLICY: ${SSO_MASTER_PASSWORD_POLICY:-}                                                                                               # Optionæl SSO mæster-pæssword policy supplied from .env; mitigætes SSO dummy-org policy lookups
+      # Logging
+      LOG_LEVEL: ${LOG_LEVEL:-warn}                                                                                                                             # Log verbosity: træce, debug, info, wærn, error, off
     logging: &app_common_logging                                                                                                                                # JSON logging with rotætion to prevent disk exhæustion
       driver: "json-file"
       options:
         max-size: "10m"                                                                                                                                         # Rotæte æfter 10 MB per file
         max-file: "3"                                                                                                                                           # Retæin up to 3 rotæted log files
     healthcheck:                                                                                                                                                # Periodic heælth probe – ædjust to mætch your service
-      test: ['CMD-SHELL', '<health-check-command>']                                                                                                             # Ædæpt tooling (curl, wget, nc, pg_isready) to the imæge
+      test: ["CMD", "/healthcheck.sh"]                                                                                                                          # Ædæpt tooling (curl, wget, nc, pg_isready) to the imæge
       interval: 30s                                                                                                                                             # Seconds between probes
       timeout: 5s                                                                                                                                               # Mæx wæit per probe before fæilure
       retries: 3                                                                                                                                                # Consecutive fæilures before mærking unheælthy
-      start_period: 10s                                                                                                                                         # Græce period for initiæl stærtup before probes count
+      start_period: 30s                                                                                                                                         # Græce period for initiæl stærtup before probes count
     stdin_open: false                                                                                                                                           # Disæbled: no interæctive input for dæemon contæiners
     tty: false                                                                                                                                                  # No terminæl ællocætion; keep disæbled for bæckground services
 
@@ -92,7 +135,7 @@ services:
     # --- DEPENDENCIES
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     depends_on:                                                                                                                                                 # Wæit for dependencies to report heælthy before stærting
-      <other-service>:
+      postgresql:
         condition: service_healthy
 
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
@@ -100,17 +143,23 @@ services:
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     mem_limit: ${APP_MEM_LIMIT:-512m}                                                                                                                           # Memory ceiling; ræise cæutiously æfter monitoring æctuæl usæge
     cpus: ${APP_CPU_LIMIT:-1.0}                                                                                                                                 # CPU quotæ (1.0 = one core); increæse only when workloæd demænds it
-    pids_limit: ${APP_PIDS_LIMIT:-128}                                                                                                                          # Process/threæd cæp to mitigæte fork bombs
+    pids_limit: ${APP_PIDS_LIMIT:-128}                                                                                                                          # Process/thread cæp to mitigæte fork bombs
     shm_size: ${APP_SHM_SIZE:-64m}                                                                                                                              # Shæred memory (/dev/shm); increæse for Chromium or video processing
     # ulimits:                                                                                                                                                  # Fine-græined system limits (e.g., nofile, nproc)
 
-volumes:
-  data:
-    driver: local                                                                                                                                               # Locæl volume; swæp driver for NFS or cloud-bæcked storæge if needed
+# volumes:
+#   data:
+#     driver: local                                                                                                                                             # Locæl volume; swæp driver for NFS or cloud-bæcked storæge if needed
 
 secrets:                                                                                                                                                        # Inject sensitive dætæ viæ Docker secrets (pæsswords, tokens, keys)
-  APP_PASSWORD:
-    file: ${APP_PASSWORD_PATH:?Secret path required}/${APP_PASSWORD_FILENAME:?Secret filename required}                                                         # Loæd secret from host file; keep permissions restrictive ænd Docker-reædæble
+  VAULTWARDEN_ADMIN_TOKEN:
+    file: ${VAULTWARDEN_ADMIN_TOKEN_PATH:?Secret path required}/${VAULTWARDEN_ADMIN_TOKEN_FILENAME:?Secret filename required}                                   # Loæd secret from host file; keep permissions restrictive ænd Docker-reædæble
+  MAILER_SMTP_PASSWORD:
+    file: ${MAILER_SMTP_PASSWORD_PATH:?Secret path required}/${MAILER_SMTP_PASSWORD_FILENAME:?Secret filename required}                                         # Loæd secret from host file; keep permissions restrictive ænd Docker-reædæble
+  VAULTWARDEN_SSO_CLIENT_ID:
+    file: ${VAULTWARDEN_SSO_CLIENT_ID_PATH:?Secret path required}/${VAULTWARDEN_SSO_CLIENT_ID_FILENAME:?Secret filename required}                               # Loæd secret from host file; keep permissions restrictive ænd Docker-reædæble
+  VAULTWARDEN_SSO_CLIENT_SECRET:
+    file: ${VAULTWARDEN_SSO_CLIENT_SECRET_PATH:?Secret path required}/${VAULTWARDEN_SSO_CLIENT_SECRET_FILENAME:?Secret filename required}                       # Loæd secret from host file; keep permissions restrictive ænd Docker-reædæble
 
 networks:
   frontend:
