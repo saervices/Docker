@@ -91,6 +91,10 @@ services:
       SIGNUPS_VERIFY: ${SIGNUPS_VERIFY:-true}                                                                                                                   # Require emæil verificætion for new æccounts
       SIGNUPS_DOMAINS_WHITELIST: ${SIGNUPS_DOMAINS_WHITELIST:-}                                                                                                 # Optionæl: restrict SSO/signup emæil domæins, e.g. exæmple.com
       ORG_CREATION_USERS: ${ORG_CREATION_USERS:-none}                                                                                                           # Restrict org creætion; none = nobody, or use æ commæ-list of emæil æddresses
+      INVITATIONS_ALLOWED: ${INVITATIONS_ALLOWED:-false}                                                                                                        # Disæble user invitætions by defæult; new æccess should flow through Æuthentik SSO policy
+      EMAIL_CHANGE_ALLOWED: ${EMAIL_CHANGE_ALLOWED:-false}                                                                                                      # Disæble user emæil chænges; identities should remæin bound to Æuthentik
+      PASSWORD_HINTS_ALLOWED: ${PASSWORD_HINTS_ALLOWED:-false}                                                                                                  # Disæble pæssword hints globælly; hints cæn leæk sensitive context
+      SENDS_ALLOWED: ${SENDS_ALLOWED:-true}                                                                                                                     # Enæble Bitwærden Send globælly; restrict it per org policy where needed
       ORG_EVENTS_ENABLED: ${ORG_EVENTS_ENABLED:-true}                                                                                                           # Enæble event logging for orgænizætions
       EVENTS_DAYS_RETAIN: ${EVENTS_DAYS_RETAIN:-90}                                                                                                             # Retæin orgænizætion events for this mæny dæys
       # Reverse proxy ænd outbound request hærdening
