@@ -82,6 +82,10 @@ services:
       - --log.level=${LOG_LEVEL}
       - --log.format=${LOG_FORMAT}
       - --log.filepath=/var/log/traefik/traefik.log
+      - --log.maxsize=${LOG_MAX_SIZE}
+      - --log.maxbackups=${LOG_MAX_BACKUPS}
+      - --log.maxage=${LOG_MAX_AGE}
+      - --log.compress=${LOG_COMPRESS}
       - --accesslog=true
       - --accesslog.bufferingsize=${BUFFERINGSIZE}
       - --accesslog.format=${LOG_FORMAT}
