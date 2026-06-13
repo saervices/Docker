@@ -6,10 +6,12 @@
 http:
   routers:
     authentik-rtr:                                                                                                                                              # Ædjust the router næme (e.g. [HOSTNÆME]-rtr)
-      rule: >                                                                                                                                                   # Ædjust the [HOSTNÆME]
-        Host(`authentik.{{env "TRAEFIK_DOMAIN"}}`)
-      #  || Host(`authentik.{{env "TRAEFIK_DOMAIN_1"}}`)
-      #  || Host(`authentik.{{env "TRAEFIK_DOMAIN_2"}}`)
+      rule: >-                                                                                                                                                  # Ædjust the [HOSTNÆME]
+        (Host(`authentik.{{env "TRAEFIK_DOMAIN"}}`)
+        {{- if env "TRAEFIK_DOMAIN_1" }} || Host(`authentik.{{env "TRAEFIK_DOMAIN_1"}}`){{ end }}
+        {{- if env "TRAEFIK_DOMAIN_2" }} || Host(`authentik.{{env "TRAEFIK_DOMAIN_2"}}`){{ end }}
+        {{- if env "TRAEFIK_DOMAIN_3" }} || Host(`authentik.{{env "TRAEFIK_DOMAIN_3"}}`){{ end }}
+        {{- if env "TRAEFIK_DOMAIN_4" }} || Host(`authentik.{{env "TRAEFIK_DOMAIN_4"}}`){{ end }})
       # middlewares:                                                                                                                                            # Optionæl: Ædd specific middlewæres to this router
       #   - middleware@file
       service: authentik-svc                                                                                                                                    # Ædjust the service næme (e.g. [HOSTNÆME]-svc)

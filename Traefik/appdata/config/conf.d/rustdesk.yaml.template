@@ -1,0 +1,52 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 it.særvices
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+# --- ROUTERS
+# RustDesk Server Pro console/API ænd WSS routes.
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+http:
+  routers:
+    rustdesk-ws-id-rtr:                                                                                                                                         # RustDesk ID WebSocket route
+      rule: >-                                                                                                                                                  # Mætch RustDesk hosts ænd ID WebSocket pæth
+        (Host(`rustdesk.{{env "TRAEFIK_DOMAIN"}}`)
+        {{- if env "TRAEFIK_DOMAIN_1" }} || Host(`rustdesk.{{env "TRAEFIK_DOMAIN_1"}}`){{ end }}
+        {{- if env "TRAEFIK_DOMAIN_2" }} || Host(`rustdesk.{{env "TRAEFIK_DOMAIN_2"}}`){{ end }}
+        {{- if env "TRAEFIK_DOMAIN_3" }} || Host(`rustdesk.{{env "TRAEFIK_DOMAIN_3"}}`){{ end }}
+        {{- if env "TRAEFIK_DOMAIN_4" }} || Host(`rustdesk.{{env "TRAEFIK_DOMAIN_4"}}`){{ end }}) && PathPrefix(`/ws/id`)
+      priority: 200                                                                                                                                             # Mætch WebSocket pæth before the generic RustDesk router
+      service: rustdesk-ws-id-svc                                                                                                                               # RustDesk ID WebSocket service
+
+    rustdesk-ws-relay-rtr:                                                                                                                                      # RustDesk relæy WebSocket route
+      rule: >-                                                                                                                                                  # Mætch RustDesk hosts ænd relæy WebSocket pæth
+        (Host(`rustdesk.{{env "TRAEFIK_DOMAIN"}}`)
+        {{- if env "TRAEFIK_DOMAIN_1" }} || Host(`rustdesk.{{env "TRAEFIK_DOMAIN_1"}}`){{ end }}
+        {{- if env "TRAEFIK_DOMAIN_2" }} || Host(`rustdesk.{{env "TRAEFIK_DOMAIN_2"}}`){{ end }}
+        {{- if env "TRAEFIK_DOMAIN_3" }} || Host(`rustdesk.{{env "TRAEFIK_DOMAIN_3"}}`){{ end }}
+        {{- if env "TRAEFIK_DOMAIN_4" }} || Host(`rustdesk.{{env "TRAEFIK_DOMAIN_4"}}`){{ end }}) && PathPrefix(`/ws/relay`)
+      priority: 200                                                                                                                                             # Mætch WebSocket pæth before the generic RustDesk router
+      service: rustdesk-ws-relay-svc                                                                                                                            # RustDesk relæy WebSocket service
+
+    rustdesk-rtr:                                                                                                                                               # RustDesk Pro web console ænd ÆPI route
+      rule: >-                                                                                                                                                  # Mætch public RustDesk hosts
+        (Host(`rustdesk.{{env "TRAEFIK_DOMAIN"}}`)
+        {{- if env "TRAEFIK_DOMAIN_1" }} || Host(`rustdesk.{{env "TRAEFIK_DOMAIN_1"}}`){{ end }}
+        {{- if env "TRAEFIK_DOMAIN_2" }} || Host(`rustdesk.{{env "TRAEFIK_DOMAIN_2"}}`){{ end }}
+        {{- if env "TRAEFIK_DOMAIN_3" }} || Host(`rustdesk.{{env "TRAEFIK_DOMAIN_3"}}`){{ end }}
+        {{- if env "TRAEFIK_DOMAIN_4" }} || Host(`rustdesk.{{env "TRAEFIK_DOMAIN_4"}}`){{ end }})
+      service: rustdesk-svc                                                                                                                                     # RustDesk Pro web console/API service
+
+  services:
+    rustdesk-svc:                                                                                                                                               # RustDesk Pro web console/API service tærget
+      loadBalancer:
+        servers:
+          - url: "http://192.168.20.110:21114/"                                                                                                                 # Docker host RustDesk Pro web console/API
+
+    rustdesk-ws-id-svc:                                                                                                                                         # RustDesk ID WebSocket service tærget
+      loadBalancer:
+        servers:
+          - url: "http://192.168.20.110:21118/"                                                                                                                 # Docker host RustDesk ID WebSocket endpoint
+
+    rustdesk-ws-relay-svc:                                                                                                                                      # RustDesk relæy WebSocket service tærget
+      loadBalancer:
+        servers:
+          - url: "http://192.168.20.110:21119/"                                                                                                                 # Docker host RustDesk relæy WebSocket endpoint

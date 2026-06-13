@@ -1,5 +1,9 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2025 it.særvices
+{{ $canonicalRedirectDomains := list }}
+{{ with env "TRAEFIK_DOMAIN_1" }}{{ $canonicalRedirectDomains = append $canonicalRedirectDomains (regexQuoteMeta .) }}{{ end }}
+{{ with env "TRAEFIK_DOMAIN_3" }}{{ $canonicalRedirectDomains = append $canonicalRedirectDomains (regexQuoteMeta .) }}{{ end }}
+{{ with env "TRAEFIK_DOMAIN_4" }}{{ $canonicalRedirectDomains = append $canonicalRedirectDomains (regexQuoteMeta .) }}{{ end }}
 
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 # --- MIDDLEWÆRES
@@ -13,6 +17,16 @@ http:
     # YOUR CUSTOM MIDDLEWÆRE GOES HERE...
     #ææææææææææææææææææææææææææææææææææ
 
+{{ if and (env "TRAEFIK_DOMAIN_2") (gt (len $canonicalRedirectDomains) 0) }}
+    #ææææææææææææææææææææææææææææææææææ
+    # CÆNONICÆL DOMÆIN REDIRECT
+    #ææææææææææææææææææææææææææææææææææ
+    canonical-domain-redirect:                                                                                                                                  # Redirects legæcy domæins to the cænonicæl domæin
+      redirectRegex:
+        regex: '^https://((?:[^./]+\.)*)({{ $canonicalRedirectDomains | join "|" }})(/.*)?$'
+        replacement: 'https://${1}{{env "TRAEFIK_DOMAIN_2"}}${3}'
+        permanent: true
+{{ end }}
 
     #ææææææææææææææææææææææææææææææææææ
     # EXÆMPLE REDIRECT

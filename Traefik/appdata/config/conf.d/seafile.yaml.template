@@ -6,33 +6,41 @@
 http:
   routers:
     seafile-rtr:                                                                                                                                                # Mæin Seæfile web UI (Seæhub)
-      rule: >
-        Host(`seafile.{{env "TRAEFIK_DOMAIN"}}`)
-      #  || Host(`seafile.{{env "TRAEFIK_DOMAIN_1"}}`)
-      #  || Host(`seafile.{{env "TRAEFIK_DOMAIN_2"}}`)
+      rule: >-
+        (Host(`seafile.{{env "TRAEFIK_DOMAIN"}}`)
+        {{- if env "TRAEFIK_DOMAIN_1" }} || Host(`seafile.{{env "TRAEFIK_DOMAIN_1"}}`){{ end }}
+        {{- if env "TRAEFIK_DOMAIN_2" }} || Host(`seafile.{{env "TRAEFIK_DOMAIN_2"}}`){{ end }}
+        {{- if env "TRAEFIK_DOMAIN_3" }} || Host(`seafile.{{env "TRAEFIK_DOMAIN_3"}}`){{ end }}
+        {{- if env "TRAEFIK_DOMAIN_4" }} || Host(`seafile.{{env "TRAEFIK_DOMAIN_4"}}`){{ end }})
       # middlewares:                                                                                                                                            # Optionæl: Ædd specific middlewæres to this router
       #   - middleware@file
       service: seafile-svc
 
     seafile-notification-rtr:                                                                                                                                   # Notificætion server (WebSocket)
-      rule: >
-        Host(`seafile.{{env "TRAEFIK_DOMAIN"}}`) && PathPrefix(`/notification`)
-      #  || (Host(`seafile.{{env "TRAEFIK_DOMAIN_1"}}`) && PathPrefix(`/notification`))
-      #  || (Host(`seafile.{{env "TRAEFIK_DOMAIN_2"}}`) && PathPrefix(`/notification`))
+      rule: >-
+        (Host(`seafile.{{env "TRAEFIK_DOMAIN"}}`)
+        {{- if env "TRAEFIK_DOMAIN_1" }} || Host(`seafile.{{env "TRAEFIK_DOMAIN_1"}}`){{ end }}
+        {{- if env "TRAEFIK_DOMAIN_2" }} || Host(`seafile.{{env "TRAEFIK_DOMAIN_2"}}`){{ end }}
+        {{- if env "TRAEFIK_DOMAIN_3" }} || Host(`seafile.{{env "TRAEFIK_DOMAIN_3"}}`){{ end }}
+        {{- if env "TRAEFIK_DOMAIN_4" }} || Host(`seafile.{{env "TRAEFIK_DOMAIN_4"}}`){{ end }}) && PathPrefix(`/notification`)
       service: seafile-notification-svc
 
     seafile-collabora-rtr:                                                                                                                                      # Collabora Online (WOPI endpoints for document editing)
-      rule: >
-        Host(`seafile.{{env "TRAEFIK_DOMAIN"}}`) && (PathPrefix(`/hosting/discovery`) || PathPrefix(`/browser`) || PathPrefix(`/cool`) || PathPrefix(`/lool`) || PathPrefix(`/loleaflet`))
-      #  || (Host(`seafile.{{env "TRAEFIK_DOMAIN_1"}}`) && (PathPrefix(`/hosting/discovery`) || PathPrefix(`/browser`) || PathPrefix(`/cool`) || PathPrefix(`/lool`) || PathPrefix(`/loleaflet`)))
-      #  || (Host(`seafile.{{env "TRAEFIK_DOMAIN_2"}}`) && (PathPrefix(`/hosting/discovery`) || PathPrefix(`/browser`) || PathPrefix(`/cool`) || PathPrefix(`/lool`) || PathPrefix(`/loleaflet`)))
+      rule: >-
+        (Host(`seafile.{{env "TRAEFIK_DOMAIN"}}`)
+        {{- if env "TRAEFIK_DOMAIN_1" }} || Host(`seafile.{{env "TRAEFIK_DOMAIN_1"}}`){{ end }}
+        {{- if env "TRAEFIK_DOMAIN_2" }} || Host(`seafile.{{env "TRAEFIK_DOMAIN_2"}}`){{ end }}
+        {{- if env "TRAEFIK_DOMAIN_3" }} || Host(`seafile.{{env "TRAEFIK_DOMAIN_3"}}`){{ end }}
+        {{- if env "TRAEFIK_DOMAIN_4" }} || Host(`seafile.{{env "TRAEFIK_DOMAIN_4"}}`){{ end }}) && (PathPrefix(`/hosting/discovery`) || PathPrefix(`/browser`) || PathPrefix(`/cool`) || PathPrefix(`/lool`) || PathPrefix(`/loleaflet`))
       service: seafile-collabora-svc
 
     seafile-seadoc-rtr:                                                                                                                                         # SeæDoc document editor
-      rule: >
-        Host(`seafile.{{env "TRAEFIK_DOMAIN"}}`) && (PathPrefix(`/sdoc-server`) || PathPrefix(`/socket.io`))
-      #  || (Host(`seafile.{{env "TRAEFIK_DOMAIN_1"}}`) && (PathPrefix(`/sdoc-server`) || PathPrefix(`/socket.io`)))
-      #  || (Host(`seafile.{{env "TRAEFIK_DOMAIN_2"}}`) && (PathPrefix(`/sdoc-server`) || PathPrefix(`/socket.io`)))
+      rule: >-
+        (Host(`seafile.{{env "TRAEFIK_DOMAIN"}}`)
+        {{- if env "TRAEFIK_DOMAIN_1" }} || Host(`seafile.{{env "TRAEFIK_DOMAIN_1"}}`){{ end }}
+        {{- if env "TRAEFIK_DOMAIN_2" }} || Host(`seafile.{{env "TRAEFIK_DOMAIN_2"}}`){{ end }}
+        {{- if env "TRAEFIK_DOMAIN_3" }} || Host(`seafile.{{env "TRAEFIK_DOMAIN_3"}}`){{ end }}
+        {{- if env "TRAEFIK_DOMAIN_4" }} || Host(`seafile.{{env "TRAEFIK_DOMAIN_4"}}`){{ end }}) && (PathPrefix(`/sdoc-server`) || PathPrefix(`/socket.io`))
       middlewares:
         - seafile-seadoc-stripprefix
       service: seafile-seadoc-svc
