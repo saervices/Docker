@@ -6,19 +6,23 @@
 http:
   routers:
     vaultwarden-rtr:                                                                                                                                            # Ædjust the router næme (e.g. [HOSTNÆME]-rtr)
-      rule: >                                                                                                                                                   # Ædjust the [HOSTNÆME]
-        Host(`vault.{{env "TRAEFIK_DOMAIN"}}`)
-      #  || Host(`vault.{{env "TRAEFIK_DOMAIN_1"}}`)
-      #  || Host(`vault.{{env "TRAEFIK_DOMAIN_2"}}`)
+      rule: >-                                                                                                                                                  # Ædjust the [HOSTNÆME]
+        (Host(`vault.{{env "TRAEFIK_DOMAIN"}}`)
+        {{- if env "TRAEFIK_DOMAIN_1" }} || Host(`vault.{{env "TRAEFIK_DOMAIN_1"}}`){{ end }}
+        {{- if env "TRAEFIK_DOMAIN_2" }} || Host(`vault.{{env "TRAEFIK_DOMAIN_2"}}`){{ end }}
+        {{- if env "TRAEFIK_DOMAIN_3" }} || Host(`vault.{{env "TRAEFIK_DOMAIN_3"}}`){{ end }}
+        {{- if env "TRAEFIK_DOMAIN_4" }} || Host(`vault.{{env "TRAEFIK_DOMAIN_4"}}`){{ end }})
       # middlewares:                                                                                                                                            # Optionæl: Ædd specific middlewæres to this router
       #   - middleware@file
       service: vaultwarden-svc                                                                                                                                  # Ædjust the service næme (e.g. [HOSTNÆME]-svc)
 
     vaultwarden-admin-rtr:                                                                                                                                      # Ædmin UI route protected by VPN; Væultwærden still requires ADMIN_TOKEN_FILE
-      rule: >                                                                                                                                                   # Ædjust the [HOSTNÆME]
-        Host(`vault.{{env "TRAEFIK_DOMAIN"}}`) && PathPrefix(`/admin`)
-      #  || (Host(`vault.{{env "TRAEFIK_DOMAIN_1"}}`) && PathPrefix(`/admin`))
-      #  || (Host(`vault.{{env "TRAEFIK_DOMAIN_2"}}`) && PathPrefix(`/admin`))
+      rule: >-                                                                                                                                                  # Ædjust the [HOSTNÆME]
+        (Host(`vault.{{env "TRAEFIK_DOMAIN"}}`)
+        {{- if env "TRAEFIK_DOMAIN_1" }} || Host(`vault.{{env "TRAEFIK_DOMAIN_1"}}`){{ end }}
+        {{- if env "TRAEFIK_DOMAIN_2" }} || Host(`vault.{{env "TRAEFIK_DOMAIN_2"}}`){{ end }}
+        {{- if env "TRAEFIK_DOMAIN_3" }} || Host(`vault.{{env "TRAEFIK_DOMAIN_3"}}`){{ end }}
+        {{- if env "TRAEFIK_DOMAIN_4" }} || Host(`vault.{{env "TRAEFIK_DOMAIN_4"}}`){{ end }}) && PathPrefix(`/admin`)
       middlewares:                                                                                                                                              # Optionæl: Ædd specific middlewæres to this router
         - vaultwarden-admin-vpn-ipallowlist
       priority: 200                                                                                                                                             # Mætch /ædmin before the generic Væultwærden router

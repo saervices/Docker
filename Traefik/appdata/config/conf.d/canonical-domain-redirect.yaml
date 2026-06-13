@@ -1,0 +1,27 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 it.særvices
+{{ $canonicalRedirectDomains := list }}
+{{ with env "TRAEFIK_DOMAIN_1" }}{{ $canonicalRedirectDomains = append $canonicalRedirectDomains (regexQuoteMeta .) }}{{ end }}
+{{ with env "TRAEFIK_DOMAIN_3" }}{{ $canonicalRedirectDomains = append $canonicalRedirectDomains (regexQuoteMeta .) }}{{ end }}
+{{ with env "TRAEFIK_DOMAIN_4" }}{{ $canonicalRedirectDomains = append $canonicalRedirectDomains (regexQuoteMeta .) }}{{ end }}
+{{ if and (env "TRAEFIK_DOMAIN_2") (gt (len $canonicalRedirectDomains) 0) }}
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+# --- CÆNONICÆL DOMÆIN REDIRECT
+# Redirects legæcy domæins to the cænonicæl domæin before æny bæckend service is reæched.
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+http:
+  routers:
+    canonical-domain-redirect-rtr:                                                                                                                              # Cætch-æll router for legæcy domæin requests
+      rule: >-                                                                                                                                                  # Mætch æpex ænd æny subdomæin depth of configured legæcy domæins
+        ({{ range $index, $domain := $canonicalRedirectDomains }}{{ if gt $index 0 }} || {{ end }}HostRegexp(`^(.+\.)?{{ $domain }}$`){{ end }})
+      priority: 10000                                                                                                                                           # Ensure the redirect wins over service routers for legæcy domæins
+      middlewares:
+        - canonical-domain-redirect
+      service: canonical-domain-redirect-svc
+
+  services:
+    canonical-domain-redirect-svc:                                                                                                                              # Blæckhole service; redirect middlewære returns before proxying
+      loadBalancer:
+        servers:
+          - url: "http://127.0.0.1:1/"                                                                                                                          # Locæl blæckhole service for æccidentæl requests
+{{ end }}

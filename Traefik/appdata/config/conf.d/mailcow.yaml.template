@@ -6,11 +6,13 @@
 http:
   routers:
     mailcow-rtr:                                                                                                                                                # Ædjust the router næme (e.g. [HOSTNÆME]-rtr)
-      rule: >                                                                                                                                                   # Ædjust the [HOSTNÆME]
-        Host(`mailcow.{{env "TRAEFIK_DOMAIN"}}`)
-      #  || (Host(`mail.{{env "TRAEFIK_DOMAIN"}}`) && PathPrefix(`/.well-known/acme-challenge/`)) || Host(`mta-sts.{{env "TRAEFIK_DOMAIN"}}`) || Host(`autodiscover.{{env "TRAEFIK_DOMAIN"}}`) || Host(`autoconfig.{{env "TRAEFIK_DOMAIN"}}`)
-      #  || Host(`mail.{{env "TRAEFIK_DOMAIN_1"}}`) || Host(`mta-sts.{{env "TRAEFIK_DOMAIN_1"}}`) || Host(`autodiscover.{{env "TRAEFIK_DOMAIN_1"}}`) || Host(`autoconfig.{{env "TRAEFIK_DOMAIN_1"}}`)
-      #  || Host(`mail.{{env "TRAEFIK_DOMAIN_2"}}`) || Host(`mta-sts.{{env "TRAEFIK_DOMAIN_2"}}`) || Host(`autodiscover.{{env "TRAEFIK_DOMAIN_2"}}`) || Host(`autoconfig.{{env "TRAEFIK_DOMAIN_2"}}`)
+      rule: >-                                                                                                                                                  # Ædjust the [HOSTNÆME]
+        (Host(`mailcow.prd.{{env "TRAEFIK_DOMAIN"}}`)
+        || (Host(`mail.it.{{env "TRAEFIK_DOMAIN"}}`) && PathPrefix(`/.well-known/acme-challenge/`)) || Host(`mta-sts.it.{{env "TRAEFIK_DOMAIN"}}`) || Host(`autodiscover.it.{{env "TRAEFIK_DOMAIN"}}`) || Host(`autoconfig.it.{{env "TRAEFIK_DOMAIN"}}`)
+        {{- if env "TRAEFIK_DOMAIN_1" }} || Host(`mailcow.prd.{{env "TRAEFIK_DOMAIN_1"}}`) || (Host(`mail.it.{{env "TRAEFIK_DOMAIN_1"}}`) && PathPrefix(`/.well-known/acme-challenge/`)) || Host(`mta-sts.it.{{env "TRAEFIK_DOMAIN_1"}}`) || Host(`autodiscover.it.{{env "TRAEFIK_DOMAIN_1"}}`) || Host(`autoconfig.it.{{env "TRAEFIK_DOMAIN_1"}}`){{ end }}
+        {{- if env "TRAEFIK_DOMAIN_2" }} || Host(`mailcow.prd.{{env "TRAEFIK_DOMAIN_2"}}`) || (Host(`mail.it.{{env "TRAEFIK_DOMAIN_2"}}`) && PathPrefix(`/.well-known/acme-challenge/`)) || Host(`mta-sts.it.{{env "TRAEFIK_DOMAIN_2"}}`) || Host(`autodiscover.it.{{env "TRAEFIK_DOMAIN_2"}}`) || Host(`autoconfig.it.{{env "TRAEFIK_DOMAIN_2"}}`){{ end }}
+        {{- if env "TRAEFIK_DOMAIN_3" }} || Host(`mailcow.prd.{{env "TRAEFIK_DOMAIN_3"}}`) || (Host(`mail.it.{{env "TRAEFIK_DOMAIN_3"}}`) && PathPrefix(`/.well-known/acme-challenge/`)) || Host(`mta-sts.it.{{env "TRAEFIK_DOMAIN_3"}}`) || Host(`autodiscover.it.{{env "TRAEFIK_DOMAIN_3"}}`) || Host(`autoconfig.it.{{env "TRAEFIK_DOMAIN_3"}}`){{ end }}
+        {{- if env "TRAEFIK_DOMAIN_4" }} || Host(`mailcow.prd.{{env "TRAEFIK_DOMAIN_4"}}`) || (Host(`mail.it.{{env "TRAEFIK_DOMAIN_4"}}`) && PathPrefix(`/.well-known/acme-challenge/`)) || Host(`mta-sts.it.{{env "TRAEFIK_DOMAIN_4"}}`) || Host(`autodiscover.it.{{env "TRAEFIK_DOMAIN_4"}}`) || Host(`autoconfig.it.{{env "TRAEFIK_DOMAIN_4"}}`){{ end }})
       # middlewares:                                                                                                                                            # Optionæl: Ædd specific middlewæres to this router
       #   - middleware@file
       service: mailcow-svc                                                                                                                                      # Ædjust the service næme (e.g. [HOSTNÆME]-svc)

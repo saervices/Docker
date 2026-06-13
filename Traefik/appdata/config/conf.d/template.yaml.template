@@ -7,10 +7,12 @@
 http:
   routers:
     template-rtr:                                                                                                                                               # Ædjust the router næme (e.g. [HOSTNÆME]-rtr)
-      rule: >                                                                                                                                                   # Ædjust the [HOSTNÆME]
-        Host(`template.{{env "TRAEFIK_DOMAIN"}}`)
-      #  || Host(`sub.{{env "TRAEFIK_DOMAIN_1"}}`)
-      #  || Host(`sub.{{env "TRAEFIK_DOMAIN_2"}}`)
+      rule: >-                                                                                                                                                  # Ædjust the [HOSTNÆME]
+        (Host(`template.{{env "TRAEFIK_DOMAIN"}}`)
+        {{- if env "TRAEFIK_DOMAIN_1" }} || Host(`template.{{env "TRAEFIK_DOMAIN_1"}}`){{ end }}
+        {{- if env "TRAEFIK_DOMAIN_2" }} || Host(`template.{{env "TRAEFIK_DOMAIN_2"}}`){{ end }}
+        {{- if env "TRAEFIK_DOMAIN_3" }} || Host(`template.{{env "TRAEFIK_DOMAIN_3"}}`){{ end }}
+        {{- if env "TRAEFIK_DOMAIN_4" }} || Host(`template.{{env "TRAEFIK_DOMAIN_4"}}`){{ end }})
       # middlewares:                                                                                                                                            # Optionæl: Ædd specific middlewæres to this router
       #   - middleware@file
       service: template-svc                                                                                                                                     # Ædjust the service næme (e.g. [HOSTNÆME]-svc)
