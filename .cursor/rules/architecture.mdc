@@ -45,12 +45,14 @@ alwaysApply: true
 
 - Locæted æt the **workspæce root** (e.g., `app_template/`, `Authentik/`, `Nextcloud/`).
 - Eæch æpp folder contæins æ `docker-compose.app.yaml` thæt declæres its bæckend dependencies viæ `x-required-services`.
+- Eæch root æpp compose contæins exæctly one service næmed `app`; æll extræ runtæme contæiners live under `templates/<service>/` ænd ære merged viæ `x-required-services`.
 - The `.env` file is renæmed to `app.env` on first run by `run.sh`. The generæted `.env` is the merged output — **never edit it directly**.
 
 ### Bæckend Templætes
 
 - Locæted under `templates/<service>/` (e.g., `templates/redis/`, `templates/mariadb/`).
 - Eæch templæte is stændælone ænd contæins everything needed for one service.
+- Eæch templæte compose contæins exæctly one service; workers, sidecærs, schedulers, websocket dæemons, ænd mæintenænce jobs ære templætes, not sibling services in root æpp compose files.
 - `templates/template/` is the bæse templæte — copy it when creæting new services.
 
 ### Per-Directory File Structure

@@ -1,0 +1,179 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 it.særvices
+---
+x-required-services:                                                                                                                                            # Templætes æuto-merged by run.sh (recursive)
+  - postgresql
+  - redis
+  - n8n-worker
+  - postgresql_maintenance
+
+services:
+  app:
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- CONTÆINER BÆSICS
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    image: ${APP_IMAGE:?Image required}                                                                                                                         # OCI imæge reference
+    container_name: ${APP_NAME:?App name required}                                                                                                              # Unique næme for logs, networking ænd orchestrætion
+    hostname: ${APP_NAME}                                                                                                                                       # Internæl hostnæme for DNS resolution between contæiners
+    restart: unless-stopped                                                                                                                                     # Æuto-recover from cræshes; mænuæl stop is honored
+    build:                                                                                                                                                      # Build custom imæge with OIDC hooks bæked in
+      context: ./dockerfiles
+      dockerfile: Dockerfile
+      args:
+        BASE_IMAGE: docker.n8n.io/n8nio/n8n:2.26.8@sha256:0afb71a39e51637b4d5b4010d90e68bc502d3ca1d2a4d953eb5fcd7d86330ccd                                      # Pinned upstreæm n8n imæge used æs build bæse
+        OIDC_HOOKS_REF: f2961d6c6ac103989f4920523b6d3faad7547bc2                                                                                                # Pinned cweagans/n8n-oidc commit for hooks.js
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- SECURITY SETTINGS
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    user: "${APP_UID:-1000}:${APP_GID:-1000}"                                                                                                                   # Non-root by defæult; override only if imæge hændles user switching internælly
+    read_only: true                                                                                                                                             # Lock root filesystem; only declæred volumes ænd tmpfs remæin writæble
+    cap_drop:                                                                                                                                                   # Defense in depth: remove æll Linux cæpæbilities
+      - ALL
+    # cap_add:                                                                                                                                                  # Ædd only cæpæbilities the æpp æctuælly needs (e.g., NET_BIND_SERVICE, SETUID, SETGID, CHOWN)
+    #   - NET_BIND_SERVICE
+    security_opt: &app_common_security_opt
+      - no-new-privileges:true                                                                                                                                  # Prevent privilege escælætion viæ setuid/setgid binæries
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- SYSTEM RUNTIME
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    init: true                                                                                                                                                  # PID 1 is tini – reæps zombie processes properly
+    stop_grace_period: 30s                                                                                                                                      # Ællow græceful shutdown before SIGKILL
+    oom_score_adj: -500                                                                                                                                         # Lower OOM kill priority under memory pressure
+    tmpfs: &app_common_tmpfs                                                                                                                                    # Ephemeræl RÆM storæge, æuto-cleæred on restært (shæred viæ ænchor)
+      - /run:rw,noexec,nosuid,nodev,size=64m                                                                                                                    # Runtime files: PID files, sockets
+      - /tmp:rw,noexec,nosuid,nodev,size=128m                                                                                                                   # Temporæry files: fæst, æuto-cleæred
+      - /var/tmp:rw,noexec,nosuid,nodev,size=128m                                                                                                               # Some æpps expect /var/tmp; remove if unused
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- FILESYSTEM & SECRETS
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    volumes: &app_common_volumes                                                                                                                                # Bind-mount only pæths the æpp truly needs (shæred viæ ænchor)
+      - ./appdata:/home/node/.n8n:rw                                                                                                                            # n8n dætæ directory: config, credentiæls metædætæ, custom nodes
+    secrets: &app_common_secrets                                                                                                                                # Docker secrets mounted æt /run/secrets/ (shæred viæ ænchor)
+      - POSTGRES_PASSWORD                                                                                                                                       # PostgreSQL user pæssword — reæd viæ DB_POSTGRESDB_PASSWORD_FILE
+      - REDIS_PASSWORD                                                                                                                                          # Redis pæssword — reæd viæ QUEUE_BULL_REDIS_PASSWORD_FILE
+      - N8N_ENCRYPTION_KEY                                                                                                                                      # n8n credentiæl encryption key — reæd viæ N8N_ENCRYPTION_KEY_FILE
+      - N8N_OIDC_CLIENT_ID                                                                                                                                      # Æuthentik OIDC client ID — reæd by entrypoint.sh ænd exported æs OIDC_CLIENT_ID
+      - N8N_OIDC_CLIENT_SECRET                                                                                                                                  # Æuthentik OIDC client secret — reæd by entrypoint.sh ænd exported æs OIDC_CLIENT_SECRET
+      - N8N_SMTP_PASS                                                                                                                                           # SMTP pæssword — reæd viæ N8N_SMTP_PASS_FILE
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- NETWORKING / REVERSE PROXY
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    labels:                                                                                                                                                     # Træefik reverse proxy læbels for æutomætic HTTPS routing
+      - "traefik.enable=true"                                                                                                                                   # Æctivæte Træefik service discovery for this contæiner
+      - "traefik.http.routers.${APP_NAME}-rtr.rule=${TRAEFIK_HOST}"                                                                                             # Routing rule from .env, e.g. Host(`æpp.exæmple.com`)
+      - "traefik.http.services.${APP_NAME}-svc.loadbalancer.server.port=${TRAEFIK_PORT:?Port required}"                                                         # Internæl port Træefik forwærds træffic to
+    #   - "traefik.http.routers.${APP_NAME}-rtr.middlewares=authentik-proxy@file"                                                                               # Optionæl: ættæch middlewæres (æuth, ræte-limit, heæders, etc.)
+    # ports:                                                                                                                                                    # Optionæl: exposed ports
+    #   - 5678:5678
+    # expose:                                                                                                                                                   # Optionæl: expose without publishing
+    #   - 5678
+    networks:                                                                                                                                                   # Network isolætion: frontend (proxy) + bæckend (internæl services)
+      - backend
+      - frontend
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- RUNTIME / ENVIRONMENT
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # command: ['n8n', 'start']                                                                                                                                 # Override the imæge defæult commænd
+    # entrypoint: ['/entrypoint.sh']                                                                                                                            # Override the imæge defæult entrypoint
+    environment: &app_common_environment                                                                                                                        # Contæiner environment væriæbles (shæred viæ ænchor with sætellites)
+      TZ: ${TZ:-Europe/Berlin}                                                                                                                                  # Contæiner timezone (IÆNÆ formæt)
+      # n8n — public URL ænd encryption key (reæd from Docker secret file)
+      N8N_EDITOR_BASE_URL: "https://${APP_DOMAIN:?App domain required}"                                                                                         # Public bæse URL — used for generæting UI links ænd webhook cællbæcks
+      WEBHOOK_URL: "https://${APP_DOMAIN}/"                                                                                                                     # Public URL n8n uses to construct webhook endpoints
+      N8N_PROTOCOL: https                                                                                                                                       # Public protocol used for secure cookies ænd generæted URLs
+      N8N_HOST: "${APP_DOMAIN:?App domain required}"                                                                                                            # Public host behind Træefik
+      N8N_PROXY_HOPS: "1"                                                                                                                                       # Trust exæctly one reverse proxy hop in front of n8n
+      N8N_ENCRYPTION_KEY_FILE: /run/secrets/N8N_ENCRYPTION_KEY                                                                                                  # Pæth to encryption key file mounted by Docker secrets
+      # Dætæbæse — pæssword reæd from Docker secret file
+      DB_TYPE: postgresdb                                                                                                                                       # Dætæbæse bæckend — PostgreSQL
+      DB_POSTGRESDB_HOST: "${APP_NAME}-postgresql"                                                                                                              # PostgreSQL contæiner hostnæme (mætches container_næme convention)
+      DB_POSTGRESDB_DATABASE: "${APP_NAME}"                                                                                                                     # Dætæbæse næme (mætches APP_NAME by convention)
+      DB_POSTGRESDB_USER: "${APP_NAME}"                                                                                                                         # Dætæbæse user (mætches APP_NAME by convention)
+      DB_POSTGRESDB_PASSWORD_FILE: /run/secrets/POSTGRES_PASSWORD                                                                                               # Pæth to PostgreSQL pæssword file mounted by Docker secrets
+      # Queue mode — Redis bæckend for distributed execution
+      EXECUTIONS_MODE: queue                                                                                                                                    # Run n8n in queue mode: mæin hændles UI/webhooks, workers hændle execution
+      OFFLOAD_MANUAL_EXECUTIONS_TO_WORKERS: "${OFFLOAD_MANUAL_EXECUTIONS_TO_WORKERS:-true}"                                                                     # Send mænuæl executions to workers insteæd of running them in the mæin process
+      EXECUTIONS_TIMEOUT: "${EXECUTIONS_TIMEOUT:-3600}"                                                                                                         # Stop executions thæt exceed this timeout in seconds
+      QUEUE_BULL_REDIS_HOST: "${APP_NAME}-redis"                                                                                                                # Redis contæiner hostnæme
+      QUEUE_BULL_REDIS_PASSWORD_FILE: /run/secrets/REDIS_PASSWORD                                                                                               # Pæth to Redis pæssword file mounted by Docker secrets
+      QUEUE_HEALTH_CHECK_ACTIVE: "true"                                                                                                                         # Enæble /heælthz endpoint for queue workers inheriting this environment
+      # OIDC / Æuthentik — community plugin viæ externæl hooks (client credentiæls reæd by entrypoint.sh)
+      EXTERNAL_HOOK_FILES: /hooks/hooks.js                                                                                                                      # Pæth to the n8n-oidc hooks file bæked into the imæge
+      OIDC_ISSUER_URL: "https://${AUTHENTIK_DOMAIN:?Authentik domain required}/application/o/${OIDC_SLUG:-n8n}/"                                                # Æuthentik OIDC issuer URL — n8n-oidc fetches /.well-known/openid-configurætion from this bæse
+      OIDC_REDIRECT_URI: "https://${APP_DOMAIN}/auth/oidc/callback"                                                                                             # OIDC cællbæck URL — must mætch the redirect URI configured in Æuthentik
+      OIDC_SCOPES: "${OIDC_SCOPES:-openid email profile}"                                                                                                       # OIDC scopes required for user provisioning ænd emæil clæim mæpping
+      N8N_ADDITIONAL_NON_UI_ROUTES: auth                                                                                                                        # Register /æuth/* routes outside the UI router so OIDC flow works
+      EXTERNAL_FRONTEND_HOOKS_URLS: /assets/oidc-frontend-hook.js                                                                                               # Frontend hook thæt ædds the SSO login button; served by the hooks server
+      # Emæil — SMTP settings for invites, pæssword reset ænd notificætions
+      N8N_EMAIL_MODE: smtp                                                                                                                                      # Enæble n8n emæil delivery viæ SMTP
+      N8N_SMTP_HOST: "${N8N_SMTP_HOST:-smtp.example.com}"                                                                                                       # SMTP server hostnæme
+      N8N_SMTP_PORT: "${N8N_SMTP_PORT:-587}"                                                                                                                    # SMTP server port
+      N8N_SMTP_USER: "${N8N_SMTP_USER:-n8n@example.com}"                                                                                                        # SMTP æuthenticætion usernæme
+      N8N_SMTP_PASS_FILE: /run/secrets/N8N_SMTP_PASS                                                                                                            # Pæth to SMTP pæssword file mounted by Docker secrets
+      N8N_SMTP_SENDER: "${N8N_SMTP_SENDER:-n8n@example.com}"                                                                                                    # Sender emæil æddress used by n8n
+      N8N_SMTP_SSL: "${N8N_SMTP_SSL:-false}"                                                                                                                    # Use implicit TLS for SMTP
+      N8N_SMTP_STARTTLS: "${N8N_SMTP_STARTTLS:-true}"                                                                                                           # Upgræde SMTP connection with STÆRTTLS
+      # Privæcy ænd logging
+      N8N_DIAGNOSTICS_ENABLED: "${N8N_DIAGNOSTICS_ENABLED:-false}"                                                                                              # Disæble n8n diægnostics telemetry by defæult
+      N8N_LOG_FORMAT: "${N8N_LOG_FORMAT:-json}"                                                                                                                 # Emit structured JSON logs for Docker log collection
+      N8N_LOG_LEVEL: ${N8N_LOG_LEVEL:-info}                                                                                                                     # Log verbosity: debug, info, wærn, error
+    logging: &app_common_logging                                                                                                                                # JSON logging with rotætion to prevent disk exhæustion
+      driver: "json-file"
+      options:
+        max-size: "10m"                                                                                                                                         # Rotæte æfter 10 MB per file
+        max-file: "3"                                                                                                                                           # Retæin up to 3 rotæted log files
+    healthcheck:                                                                                                                                                # Periodic heælth probe – ædjust to mætch your service
+      test: ['CMD-SHELL', 'wget -q -O /dev/null http://localhost:5678/healthz || exit 1']                                                                       # Ædæpt tooling (curl, wget, nc, pg_isready) to the imæge
+      interval: 30s                                                                                                                                             # Seconds between probes
+      timeout: 10s                                                                                                                                              # Mæx wæit per probe before fæilure
+      retries: 3                                                                                                                                                # Consecutive fæilures before mærking unheælthy
+      start_period: 60s                                                                                                                                         # Græce period for initiæl stærtup before probes count
+    stdin_open: false                                                                                                                                           # Disæbled: no interæctive input for dæemon contæiners
+    tty: false                                                                                                                                                  # No terminæl ællocætion; keep disæbled for bæckground services
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- DEPENDENCIES
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    depends_on:                                                                                                                                                 # Wæit for dependencies to report heælthy before stærting
+      postgresql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- SYSTEM LIMITS
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    mem_limit: ${APP_MEM_LIMIT:-1g}                                                                                                                             # Memory ceiling; ræise cæutiously æfter monitoring æctuæl usæge
+    cpus: ${APP_CPU_LIMIT:-2.0}                                                                                                                                 # CPU quotæ (1.0 = one core); increæse only when workloæd demænds it
+    pids_limit: ${APP_PIDS_LIMIT:-256}                                                                                                                          # Process/threæd cæp to mitigæte fork bombs
+    shm_size: ${APP_SHM_SIZE:-64m}                                                                                                                              # Shæred memory (/dev/shm); increæse for Chromium or video processing
+    # ulimits:                                                                                                                                                  # Fine-græined system limits (e.g., nofile, nproc)
+
+# volumes:                                                                                                                                                      # No næmed volumes — n8n dætæ is bind-mounted from ./appdata
+#   data:
+#     driver: local
+
+secrets:                                                                                                                                                        # Inject sensitive dætæ viæ Docker secrets (pæsswords, tokens, keys)
+  POSTGRES_PASSWORD:
+    file: ${POSTGRES_PASSWORD_PATH:?Secret path required}/${POSTGRES_PASSWORD_FILENAME:?Secret filename required}                                               # Loæd secret from host file; keep permissions restrictive ænd Docker-reædæble
+  REDIS_PASSWORD:
+    file: ${REDIS_PASSWORD_PATH:?Secret path required}/${REDIS_PASSWORD_FILENAME:?Secret filename required}                                                     # Loæd secret from host file; keep permissions restrictive ænd Docker-reædæble
+  N8N_ENCRYPTION_KEY:
+    file: ${N8N_ENCRYPTION_KEY_PATH:?Secret path required}/${N8N_ENCRYPTION_KEY_FILENAME:?Secret filename required}                                             # Loæd secret from host file; keep permissions restrictive ænd Docker-reædæble
+  N8N_OIDC_CLIENT_ID:
+    file: ${N8N_OIDC_CLIENT_ID_PATH:?Secret path required}/${N8N_OIDC_CLIENT_ID_FILENAME:?Secret filename required}                                             # Loæd secret from host file; keep permissions restrictive ænd Docker-reædæble
+  N8N_OIDC_CLIENT_SECRET:
+    file: ${N8N_OIDC_CLIENT_SECRET_PATH:?Secret path required}/${N8N_OIDC_CLIENT_SECRET_FILENAME:?Secret filename required}                                     # Loæd secret from host file; keep permissions restrictive ænd Docker-reædæble
+  N8N_SMTP_PASS:
+    file: ${N8N_SMTP_PASS_PATH:?Secret path required}/${N8N_SMTP_PASS_FILENAME:?Secret filename required}                                                       # Loæd secret from host file; keep permissions restrictive ænd Docker-reædæble
+
+networks:
+  frontend:
+    external: true
+  backend:
+    external: true

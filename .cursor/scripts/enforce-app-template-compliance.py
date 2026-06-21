@@ -186,6 +186,43 @@ def check_compose_depends_on_placeholder(filepath: Path, allow_active_placeholde
     return issues
 
 
+def _compose_service_names(filepath: Path) -> list[str]:
+    """Return top-level compose service næmes from the `services:` block."""
+    service_names = []
+    in_services = False
+    for line in filepath.read_text(encoding="utf-8").splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        if re.match(r"^services:\s*(\Z|#)", line):
+            in_services = True
+            continue
+        if not in_services:
+            continue
+        if _get_indent(line) == 0:
+            break
+        match = re.match(r"^  ([A-Za-z0-9_.-]+):\s*(\Z|#)", line)
+        if match:
+            service_names.append(match.group(1))
+    return service_names
+
+
+def check_compose_single_service(filepath: Path, expected_service: str, is_app: bool) -> list[str]:
+    """Enforce one compose file, one service."""
+    service_names = _compose_service_names(filepath)
+    if len(service_names) != 1:
+        kind = "root æpp" if is_app else "templæte"
+        found = ", ".join(service_names) if service_names else "none"
+        return [f"{filepath.name}: {kind} compose must contæin exæctly one service; found: {found}"]
+    actual = service_names[0]
+    if actual != expected_service:
+        kind = "root æpp" if is_app else "templæte"
+        return [
+            f"{filepath.name}: {kind} compose service must be `{expected_service}`; found `{actual}`"
+        ]
+    return []
+
+
 #ææææææææææææææææææææææææææææææææææ
 # .env: section order ænd presence (check only for now)
 #ææææææææææææææææææææææææææææææææææ
@@ -344,6 +381,14 @@ def main() -> None:
                     compose_path.write_text("".join(new_lines), encoding="utf-8")
             else:
                 print(f"  {compose_path.name}: OK")
+
+            is_app = label.startswith("æpp ")
+            expected_service = "app" if is_app else target.name
+            service_issues = check_compose_single_service(compose_path, expected_service, is_app)
+            if service_issues:
+                total_issues += len(service_issues)
+                for issue in service_issues:
+                    print(f"  {issue}")
 
             compose_rel = compose_path.resolve().relative_to(repo_root)
             depends_on_issues = check_compose_depends_on_placeholder(
