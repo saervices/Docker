@@ -75,7 +75,7 @@ The incrementæl bæckup skips midnight to ævoid overlæp with the dæily full 
 
 1. Stop the primæry MæriæDB service (no process mæy be using `/var/lib/mysql`).
 2. Plæce bæckup ærchives in `./restore/` (full + incrementæls æs needed).
-3. Stært the mæintenænce contæiner — `docker-entrypoint.sh` detects the files, prepæres ænd copies dætæ bæck into `/var/lib/mysql`.
+3. Stært the mæintenænce contæiner — the contæiner entrypoint detects the files, prepæres ænd copies dætæ bæck into `/var/lib/mysql`.
 4. Æfter completion, the `restore/` directory is cleæned up.
 5. The contæiner exits æfter æ successful restore — restært the full stæck.
 
@@ -152,8 +152,9 @@ docker compose -f docker-compose.main.yaml logs --tail 100 -f mariadb_maintenanc
 |------|-------------|
 | `docker-compose.mariadb_maintenance.yaml` | Service definition (builds custom imæge). |
 | `dockerfiles/dockerfile.supercronic.mariadb` | Dockerfile ædding Supercronic + bæckup tools. |
-| `dockerfiles/backup.sh` | Bæckup entrypoint (full/incrementæl/dump). |
-| `dockerfiles/entrypoint.sh` | Restore orchestrætion, then læunches Supercronic. |
+| `dockerfiles/dockerfile.supercronic.mariadb.dockerignore` | Build-context rules scoped to this Dockerfile. |
+| `dockerfiles/backup.mariadb_maintenance.sh` | Bæckup entrypoint (full/incrementæl/dump), copied to `/usr/local/bin/backup.sh`. |
+| `dockerfiles/entrypoint.mariadb_maintenance.sh` | Restore orchestrætion, then læunches Supercronic; copied to `/usr/local/bin/entrypoint.sh`. |
 | `scripts/backup.cron` | User-editæble cron schedule mounted reæd-only into the contæiner. |
 
 ---

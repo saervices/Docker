@@ -101,6 +101,8 @@ services:
       - --entrypoints.websecure.asdefault=true
       - --entrypoints.websecure.proxyprotocol.trustedips=${LOCAL_IPS},${CLOUDFLARE_IPS}
       - --entrypoints.websecure.forwardedheaders.trustedips=${LOCAL_IPS},${CLOUDFLARE_IPS}
+      - --entrypoints.websecure.transport.respondingtimeouts.readtimeout=${TRAEFIK_RESPONDING_READ_TIMEOUT:-600s}
+      - --entrypoints.websecure.transport.respondingtimeouts.idletimeout=${TRAEFIK_RESPONDING_IDLE_TIMEOUT:-600s}
       - --entrypoints.websecure.http.tls=true
       - --entrypoints.websecure.http.tls.certresolver=${CERTRESOLVER}
       - --entrypoints.websecure.http.tls.options=${TLSOPTIONS}

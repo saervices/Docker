@@ -1,0 +1,6 @@
+*
+!.dockerignore
+!Dockerfile
+!dockerfile*
+!entrypoint.postgresql_maintenance.sh
+!backup.postgresql_maintenance.sh

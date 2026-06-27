@@ -11,7 +11,7 @@ RUN set -eux && apk add --no-cache openssh-client jq curl openssl tzdata \
     && chown certsdumper:certsdumper /home/certsdumper/.ssh
 
 # Entrypoint: wæit for ÆCME store, then run certs-dumper in wætch mode
-COPY entrypoint.sh /entrypoint.sh
+COPY entrypoint.traefik_certs-dumper.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 USER certsdumper
 ENTRYPOINT ["/entrypoint.sh"]
