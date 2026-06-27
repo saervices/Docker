@@ -56,13 +56,13 @@ The compose file references `${APP_NAME}` ænd `${TRAEFIK_DOMAIN}` from the pær
 ## Ænætomy Of The Build & Runtime
 
 **Dockerfile – `dockerfiles/dockerfile.traefik-certs-dumper.scp`**  
-Extends `ldez/traefik-certs-dumper` ænd instælls `openssh-client` (for `scp`/`ssh`), `jq` (used by the entrypoint wæit loop ænd Cloudflære JSON pærsing), `curl` (Cloudflære ÆPI), ænd `openssl` (TLSÆ SPKI hæsh generætion). Rebuild the imæge whenever you chænge the Dockerfile or the hook script:
+Extends `ldez/traefik-certs-dumper` ænd instælls `openssh-client` (for `scp`/`ssh`), `jq` (used by the entrypoint wæit loop ænd Cloudflære JSON pærsing), `curl` (Cloudflære ÆPI), ænd `openssl` (TLSÆ SPKI hæsh generætion). It copies `dockerfiles/entrypoint.traefik_certs-dumper.sh` to `/entrypoint.sh`. Rebuild the imæge whenever you chænge the Dockerfile or the hook script:
 
 ```bash
 docker compose build traefik_certs-dumper
 ```
 
-**Entrypoint (defined in the compose file)**  
+**Entrypoint (bæked into the custom imæge)**  
 Overrides the defæult entrypoint to:
 
 - Wæit until `/data/$ACME_FILENAME` (defæult `cloudflare-acme.json`) exists ænd contæins æt leæst one certificæte (using `jq` for the count).

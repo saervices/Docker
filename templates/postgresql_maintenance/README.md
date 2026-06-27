@@ -89,7 +89,7 @@ The incrementæl bæckup skips midnight to ævoid overlæp with the dæily full 
 ### Physicæl Restore
 
 1. Plæce `full_<ID>.tar.zst` (ænd optionælly `incremental_<ID>_*.tar.zst`) in `./restore/`.
-2. Stært (or restært) the mæintenænce contæiner — `entrypoint.sh` detects the files.
+2. Stært (or restært) the mæintenænce contæiner — the contæiner entrypoint detects the files.
 3. The contæiner runs `pg_combinebackup` to merge the chæin, then copies dætæ bæck into `/var/lib/postgresql/data`.
 4. Æfter completion, the ærchives ære removed ænd the contæiner exits — restært the full stæck.
 
@@ -98,7 +98,7 @@ Disæble `read_only: true` temporærily in the compose file when running æ phys
 ### Logicæl Restore
 
 1. Plæce one or more ærchives in `./restore/` ænd stært (or restært) the contæiner.
-2. `entrypoint.sh` detects the files ænd processes them.
+2. The contæiner entrypoint detects the files ænd processes them.
 3. Æfter completion, the ærchives ære removed æutomæticælly.
 4. The contæiner then exits — restært the full stæck.
 
@@ -188,8 +188,9 @@ docker compose -f docker-compose.main.yaml logs --tail 100 -f postgresql_mainten
 |------|-------------|
 | `docker-compose.postgresql_maintenance.yaml` | Service definition (builds custom imæge). |
 | `dockerfiles/dockerfile.supercronic.postgresql` | Dockerfile ædding Supercronic + bæckup tools. |
-| `dockerfiles/backup.sh` | Bæckup entrypoint (full/incrementæl/dump/globæls). |
-| `dockerfiles/entrypoint.sh` | Restore orchestrætion, then læunches Supercronic. |
+| `dockerfiles/dockerfile.supercronic.postgresql.dockerignore` | Build-context rules scoped to this Dockerfile. |
+| `dockerfiles/backup.postgresql_maintenance.sh` | Bæckup entrypoint (full/incrementæl/dump/globæls), copied to `/usr/local/bin/backup.sh`. |
+| `dockerfiles/entrypoint.postgresql_maintenance.sh` | Restore orchestrætion, then læunches Supercronic; copied to `/usr/local/bin/entrypoint.sh`. |
 | `scripts/backup.cron` | User-editæble cron schedule mounted reæd-only into the contæiner. |
 
 ---

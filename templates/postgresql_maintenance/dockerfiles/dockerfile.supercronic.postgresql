@@ -35,8 +35,8 @@ RUN set -eux; \
 RUN set -eux; \
     mkdir -p /backup /restore;
 
-COPY entrypoint.sh /usr/local/bin/entrypoint.sh
-COPY backup.sh /usr/local/bin/backup.sh
+COPY entrypoint.postgresql_maintenance.sh /usr/local/bin/entrypoint.sh
+COPY backup.postgresql_maintenance.sh /usr/local/bin/backup.sh
 RUN chmod +x /usr/local/bin/*
 
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ

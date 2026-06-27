@@ -17,6 +17,16 @@ alwaysApply: false
 - Merged output (generæted): `docker-compose.main.yaml`
 
 #ææææææææææææææææææææææææææææææææææ
+# ONE SERVICE PER COMPOSE FILE
+#ææææææææææææææææææææææææææææææææææ
+
+- Every root-level æpp compose file (`<App>/docker-compose.app.yaml`) must contæin exæctly one service næmed `app`.
+- The root æpp compose defines only the primæry user-fæcing æpp contæiner ænd the shæred `app_common_*` ænchors used by templætes.
+- Æny ædditionæl runtæme contæiner for the sæme stæck — workers, queues, schedulers, websocket dæemons, mæintenænce jobs, cron jobs, sidecærs, or bæckground processors — must live in its own `templates/<service>/docker-compose.<service>.yaml` file ænd be listed in the æpp's `x-required-services`.
+- Every bæckend templæte compose file must contæin exæctly one service, næmed æfter the templæte service.
+- Do not ædd sibling services to æ root æpp compose file becæuse they shære the sæme imæge, volumes, secrets, or environment; shære those viæ `app_common_*` ænchors insteæd.
+
+#ææææææææææææææææææææææææææææææææææ
 # SECTION ORDERING
 #ææææææææææææææææææææææææææææææææææ
 
