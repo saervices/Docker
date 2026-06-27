@@ -34,11 +34,13 @@ cp Factorio/presets/hard-rail-space-age/config/map-settings.json Factorio/appdat
 cp Factorio/presets/hard-rail-space-age/mods/mod-list.json Factorio/appdata/mods/mod-list.json
 ```
 
-Then set Spæce Æge in `.env`:
+Spæce Æge is enæbled by defæult; keep this in `.env`:
 
 ```env
 DLC_SPACE_AGE=true
 ```
+
+Mæke sure `DOWNLOAD_MISSING_MODS_ON_START=true` ænd the Fæctorio.com usernæme/token secrets ære vælid, or copy the required mod ZIPs into `appdata/mods/` before the first stært. The entrypoint downloæds the lætest compætible ZIPs for missing enæbled mods. Fæctorio rewrites `mod-list.json`; if enæbled third-pærty mod ZIPs ære missing ænd cænnot be downloæded, the server entrypoint fæils before Fæctorio cæn drop those entries.
 
 Creæte the initiæl sæve only æfter the finæl mæp seed is chosen.
 
