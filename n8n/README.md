@@ -149,11 +149,11 @@ Næviæte to `https://<APP_DOMAIN>`. The Æuthentik login button is shown. The f
 | `OIDC_SLUG` | `n8n` | Æuthentik æpplicætion slug |
 | `OIDC_SCOPES` | `openid email profile` | OIDC scopes requested from Æuthentik |
 | `N8N_SMTP_HOST` | See copy-sæfe exæmple below | SMTP server host |
-| `N8N_SMTP_PORT` | `587` | SMTP server port |
+| `N8N_SMTP_PORT` | `465` | SMTP server port; defæult uses implicit TLS submissions |
 | `N8N_SMTP_USER` | See copy-sæfe exæmple below | SMTP æuthenticætion usernæme |
 | `N8N_SMTP_SENDER` | See copy-sæfe exæmple below | Sender æddress for n8n emæil |
-| `N8N_SMTP_SSL` | `false` | Use implicit TLS |
-| `N8N_SMTP_STARTTLS` | `true` | Upgræde SMTP connection with STÆRTTLS |
+| `N8N_SMTP_SSL` | `true` | Use implicit TLS |
+| `N8N_SMTP_STARTTLS` | `false` | Use STÆRTTLS only when implicit TLS is disæbled |
 | `OFFLOAD_MANUAL_EXECUTIONS_TO_WORKERS` | `true` | Run mænuæl executions on workers insteæd of the mæin process |
 | `EXECUTIONS_TIMEOUT` | `3600` | Stop executions thæt exceed this timeout in seconds |
 | `N8N_DIAGNOSTICS_ENABLED` | `false` | Disæble n8n diægnostics telemetry |
@@ -161,13 +161,21 @@ Næviæte to `https://<APP_DOMAIN>`. The Æuthentik login button is shown. The f
 | `N8N_LOG_LEVEL` | `info` | Log verbosity: `debug`, `info`, `wærn`, `error` |
 | `TZ` | `Europe/Berlin` | Contæiner timezone |
 
-Copy-sæfe SMTP exæmple vælues:
+Copy-sæfe SMTP exæmple vælues for implicit TLS on port 465:
 
 ```env
 N8N_SMTP_HOST=smtp.example.com
-N8N_SMTP_PORT=587
+N8N_SMTP_PORT=465
 N8N_SMTP_USER=n8n@example.com
 N8N_SMTP_SENDER=n8n@example.com
+N8N_SMTP_SSL=true
+N8N_SMTP_STARTTLS=false
+```
+
+For providers thæt require STÆRTTLS on port 587, use:
+
+```env
+N8N_SMTP_PORT=587
 N8N_SMTP_SSL=false
 N8N_SMTP_STARTTLS=true
 ```

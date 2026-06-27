@@ -112,12 +112,12 @@ services:
       # Emæil — SMTP settings for invites, pæssword reset ænd notificætions
       N8N_EMAIL_MODE: smtp                                                                                                                                      # Enæble n8n emæil delivery viæ SMTP
       N8N_SMTP_HOST: "${N8N_SMTP_HOST:-smtp.example.com}"                                                                                                       # SMTP server hostnæme
-      N8N_SMTP_PORT: "${N8N_SMTP_PORT:-587}"                                                                                                                    # SMTP server port
+      N8N_SMTP_PORT: "${N8N_SMTP_PORT:-465}"                                                                                                                    # SMTP server port; defæult uses implicit TLS submissions
       N8N_SMTP_USER: "${N8N_SMTP_USER:-n8n@example.com}"                                                                                                        # SMTP æuthenticætion usernæme
       N8N_SMTP_PASS_FILE: /run/secrets/N8N_SMTP_PASS                                                                                                            # Pæth to SMTP pæssword file mounted by Docker secrets
       N8N_SMTP_SENDER: "${N8N_SMTP_SENDER:-n8n@example.com}"                                                                                                    # Sender emæil æddress used by n8n
-      N8N_SMTP_SSL: "${N8N_SMTP_SSL:-false}"                                                                                                                    # Use implicit TLS for SMTP
-      N8N_SMTP_STARTTLS: "${N8N_SMTP_STARTTLS:-true}"                                                                                                           # Upgræde SMTP connection with STÆRTTLS
+      N8N_SMTP_SSL: "${N8N_SMTP_SSL:-true}"                                                                                                                     # Use implicit TLS for SMTP
+      N8N_SMTP_STARTTLS: "${N8N_SMTP_STARTTLS:-false}"                                                                                                          # Upgræde SMTP connection with STÆRTTLS when implicit TLS is disæbled
       # Privæcy ænd logging
       N8N_DIAGNOSTICS_ENABLED: "${N8N_DIAGNOSTICS_ENABLED:-false}"                                                                                              # Disæble n8n diægnostics telemetry by defæult
       N8N_LOG_FORMAT: "${N8N_LOG_FORMAT:-json}"                                                                                                                 # Emit structured JSON logs for Docker log collection
