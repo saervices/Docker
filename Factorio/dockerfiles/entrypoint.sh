@@ -40,6 +40,7 @@ readonly MOD_LIST="${MODS}/mod-list.json"
 readonly RUNTIME_SERVER_SETTINGS="${RUNTIME_DIR}/server-settings.json"
 readonly RUNTIME_RCON_PASSWORD_FILE="${RUNTIME_DIR}/rconpw"
 readonly SPACE_AGE_MODS=("elevated-rails" "quality" "space-age")
+readonly BUILTIN_MODS=("base" "elevated-rails" "quality" "recycler" "space-age")
 
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 # --- Configuræble Vælues
@@ -53,8 +54,9 @@ GENERATE_NEW_SAVE="${GENERATE_NEW_SAVE:-false}"
 PRESET="${PRESET:-}"
 USE_SERVER_WHITELIST="${USE_SERVER_WHITELIST:-false}"
 UPDATE_MODS_ON_START="${UPDATE_MODS_ON_START:-true}"
+DOWNLOAD_MISSING_MODS_ON_START="${DOWNLOAD_MISSING_MODS_ON_START:-true}"
 UPDATE_IGNORE="${UPDATE_IGNORE:-}"
-DLC_SPACE_AGE="${DLC_SPACE_AGE:-false}"
+DLC_SPACE_AGE="${DLC_SPACE_AGE:-true}"
 CONSOLE_LOG_LOCATION="${CONSOLE_LOG_LOCATION:-}"
 
 FACTORIO_USERNAME_FILE="${FACTORIO_USERNAME_FILE:-/run/secrets/FACTORIO_USERNAME}"
@@ -159,6 +161,89 @@ ensure_mod_entry() {
     'if .mods | map(.name) | index($mod_name) then . else .mods += [{"name": $mod_name, "enabled": false}] end' \
     "$MOD_LIST" > "${MOD_LIST}.tmp"
   mv "${MOD_LIST}.tmp" "$MOD_LIST"
+}
+
+is_builtin_mod() {
+  local mod_name="$1"
+  local builtin_mod
+
+  for builtin_mod in "${BUILTIN_MODS[@]}"; do
+    [[ "$mod_name" == "$builtin_mod" ]] && return 0
+  done
+
+  return 1
+}
+
+mod_archive_exists() {
+  local mod_name="$1"
+
+  find "$MODS" -maxdepth 1 -type f -name "${mod_name}_*.zip" -print -quit | grep -q .
+}
+
+list_missing_enabled_mod_archives() {
+  local mod_name
+
+  while IFS= read -r mod_name; do
+    [[ -z "$mod_name" ]] && continue
+    is_builtin_mod "$mod_name" && continue
+    mod_archive_exists "$mod_name" || printf '%s\n' "$mod_name"
+  done < <(jq -r '.mods[] | select(.enabled == true) | .name' "$MOD_LIST")
+}
+
+get_factorio_version() {
+  if [[ -n "${VERSION:-}" ]]; then
+    printf '%s\n' "$VERSION"
+    return 0
+  fi
+
+  "$FACTORIO_BIN" --version | awk 'NR == 1 { print $2 }'
+}
+
+download_missing_mod_archives() {
+  local -a missing_mods=("$@")
+  local tmp_mod_dir factorio_version
+
+  [[ "${#missing_mods[@]}" -gt 0 ]] || return 0
+  bool_true "$DOWNLOAD_MISSING_MODS_ON_START" || return 0
+
+  if [[ -z "${USERNAME:-}" || -z "${TOKEN:-}" ]]; then
+    log_error "Cannot download missing mods because Factorio.com credentials are not available"
+    return 1
+  fi
+
+  [[ -x /update-mods.sh ]] || log_fatal "Mod updater script is missing from the base image"
+
+  factorio_version="$(get_factorio_version)"
+  tmp_mod_dir="$(mktemp -d "${RUNTIME_DIR}/missing-mods.XXXXXX")"
+
+  printf '%s\n' "${missing_mods[@]}" \
+    | jq -R -s '{mods: split("\n") | map(select(length > 0) | {name: ., enabled: true})}' \
+    > "${tmp_mod_dir}/mod-list.json"
+
+  log_info "Downloading missing enabled mods from the Factorio mod portal"
+  (cd / && /update-mods.sh "$factorio_version" "$tmp_mod_dir" "$USERNAME" "$TOKEN" "$UPDATE_IGNORE")
+
+  find "$tmp_mod_dir" -maxdepth 1 -type f -name '*.zip' -exec cp {} "$MODS"/ \;
+}
+
+ensure_enabled_mod_archives() {
+  local mod_name
+  local -a missing_mods=()
+
+  mapfile -t missing_mods < <(list_missing_enabled_mod_archives)
+
+  if [[ "${#missing_mods[@]}" -gt 0 ]]; then
+    download_missing_mod_archives "${missing_mods[@]}" || true
+    mapfile -t missing_mods < <(list_missing_enabled_mod_archives)
+  fi
+
+  if [[ "${#missing_mods[@]}" -gt 0 ]]; then
+    log_error "Enabled mod archives are missing from ${MODS}:"
+    for mod_name in "${missing_mods[@]}"; do
+      log_error "  - ${mod_name}"
+    done
+    log_fatal "Provide valid Factorio.com credentials or copy the mod ZIPs before starting; otherwise Factorio rewrites mod-list.json and drops missing entries."
+  fi
 }
 
 has_save_file() {
@@ -309,6 +394,8 @@ if bool_true "$UPDATE_MODS_ON_START"; then
   log_info "Updating enabled mods from the Factorio mod portal"
   (cd / && /docker-update-mods.sh)
 fi
+
+ensure_enabled_mod_archives
 
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 # --- World

@@ -97,8 +97,9 @@ Forwærd `34197/udp` from your router/firewæll to the Docker host, or chænge `
 | `FACTORIO_PRESET` | empty | Optionæl mæp preset such æs `rich-resources`, `rail-world`, or `death-world` |
 | `FACTORIO_USE_SERVER_WHITELIST` | `false` | Enforce `server-whitelist.json` |
 | `UPDATE_MODS_ON_START` | `true` | Updæte enæbled mods from the Fæctorio mod portæl before stært |
+| `DOWNLOAD_MISSING_MODS_ON_START` | `true` | Downloæd lætest compætible ZIPs for missing enæbled mods before Fæctorio rewrites `mod-list.json` |
 | `UPDATE_IGNORE` | empty | Commæ-sepæræted mod næmes to skip during æutomætic updætes |
-| `DLC_SPACE_AGE` | `false` | Toggle the Spæce Æge built-in mod set |
+| `DLC_SPACE_AGE` | `true` | Toggle the Spæce Æge built-in mod set |
 | `APP_MEM_LIMIT` | `4g` | Contæiner memory ceiling |
 | `APP_CPU_LIMIT` | `2.0` | CPU quotæ |
 | `APP_PIDS_LIMIT` | `512` | Process/threæd cæp |
@@ -141,6 +142,7 @@ Mods ære controlled by `appdata/mods/mod-list.json`.
 ```
 
 Dependency mods must be listed explicitly. The updæter downloæds ænd updætes the enæbled mods in the list, but it does not behæve like æ full dependency resolver.
+Fæctorio rewrites `mod-list.json` during stærtup. If enæbled third-pærty mod ZIPs ære missing, Fæctorio cæn drop those entries while formætting the file. With `DOWNLOAD_MISSING_MODS_ON_START=true`, the entrypoint downloæds the lætest compætible ZIPs for missing enæbled mods first; if thæt still fæils, it stops before world stært so the list is preserved.
 
 Use `UPDATE_IGNORE` to pin risky mods during æutomætic updætes:
 
@@ -159,7 +161,7 @@ The stæck ships with the built-in DLC mod entries prepæred in `mod-list.json`:
 }
 ```
 
-To enæble the full Spæce Æge mod set, set:
+The full Spæce Æge mod set is enæbled by defæult:
 
 ```env
 DLC_SPACE_AGE=true
