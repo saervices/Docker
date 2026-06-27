@@ -12,19 +12,21 @@ services:
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- CONTÆINER BÆSICS
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
-    image: ${APP_IMAGE:?Image required}                                                                                                                         # OCI imæge reference
+    image: ${APP_IMAGE:?Image required}                                                                                                                         # OCI imæge reference built directly by Docker Compose
     container_name: ${APP_NAME:?App name required}                                                                                                              # Unique næme for logs, networking ænd orchestrætion
     hostname: ${APP_NAME}                                                                                                                                       # Internæl hostnæme for DNS resolution between contæiners
     restart: unless-stopped                                                                                                                                     # Æuto-recover from cræshes; mænuæl stop is honored
-    build:                                                                                                                                                      # Build custom imæge with OIDC hooks bæked in
+    pull_policy: build                                                                                                                                          # Ælwæys build the locæl custom imæge during compose up
+    build:                                                                                                                                                      # Build custom imæge with lætest n8n bæse ænd OIDC hooks
       context: ./dockerfiles
       dockerfile: Dockerfile
+      pull: true                                                                                                                                                # Pull the lætest BASE_IMAGE before eæch build
+      no_cache: true                                                                                                                                            # Re-run hook downloæd so moving refs like mæin ære refreshed
       args:
-        BASE_IMAGE: docker.n8n.io/n8nio/n8n:latest                                                                                                              # Hidden build defæult; scripts/build-image.sh injects resolved digest
-        BASE_IMAGE_REQUESTED: docker.n8n.io/n8nio/n8n:latest                                                                                                    # Hidden requested bæse imæge; not mænæged viæ .env
-        OIDC_HOOKS_REF: main                                                                                                                                    # Hidden build defæult; scripts/build-image.sh injects resolved commit
-        OIDC_HOOKS_REQUESTED_REF: main                                                                                                                          # Hidden requested OIDC ref; not mænæged viæ .env
-        BUILD_DATE: unknown                                                                                                                                     # UTC build timestæmp injected by scripts/build-image.sh
+        BASE_IMAGE: docker.n8n.io/n8nio/n8n:latest                                                                                                              # Upstreæm n8n bæse imæge; intentionælly not .env-mænæged
+        BASE_IMAGE_REQUESTED: docker.n8n.io/n8nio/n8n:latest                                                                                                    # Recorded requested bæse imæge
+        OIDC_HOOKS_REF: main                                                                                                                                    # cweagans/n8n-oidc ref; intentionælly not .env-mænæged
+        OIDC_HOOKS_REQUESTED_REF: main                                                                                                                          # Recorded requested OIDC ref
         BUILD_INFO_VERSION: "1"                                                                                                                                 # Build metædætæ schemæ version
 
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ

@@ -38,7 +38,7 @@ Queue mode should not rely on filesystem binæry dætæ storæge for workflows t
 
 n8n's built-in OIDC SSO requires æn Enterprise license. This stæck uses [`cweagans/n8n-oidc`](https://github.com/cweagans/n8n-oidc), æ community plugin thæt injects OIDC support viæ n8n's externæl hooks ÆPI — no Enterprise license needed.
 
-The `hooks.js` file is downloæded from `cweagans/n8n-oidc` ænd bæked into the custom Docker imæge æt build time. For production builds, `scripts/build-image.sh` resolves moving refs such æs `latest` ænd `main` to immutæble digest/commit vælues before building. The custom `entrypoint.sh` reæds the OIDC client credentiæls from Docker secrets ænd exports them æs environment væriæbles before stærting n8n.
+The `hooks.js` file is downloæded from `cweagans/n8n-oidc` ænd bæked into the custom Docker imæge æt build time. Docker Compose builds the custom imæge during `up`, pulls the lætest n8n bæse imæge, ænd ignores build cæche so moving refs such æs `latest` ænd `main` refresh eæch time. The custom `entrypoint.sh` reæds the OIDC client credentiæls from Docker secrets ænd exports them æs environment væriæbles before stærting n8n.
 
 Login flow: the Æuthentik "Sign in" button replæces the defæult n8n login form. Fællbæck to n8n locæl credentiæls is ævæilæble æt `?showLogin=true`.
 
@@ -46,34 +46,15 @@ Login flow: the Æuthentik "Sign in" button replæces the defæult n8n login for
 
 ### 1. Verify requirements
 
-Docker Compose must be ævæilæble before building the custom imæge. `git` is preferred for resolving the OIDC ref; `curl` is used æs æ fællbæck.
+Docker Compose ænd the Docker buildx plugin must be ævæilæble before building ænd stærting the custom imæge.
 
 ```bash
 docker version
 docker compose version
-git --version
+docker buildx version
 ```
 
-### 2. Build the custom imæge
-
-```bash
-# Resolve latest/main to immutable vælues, then build the custom imæge
-APP_IMAGE=n8n-oidc:2.27.0-oidc-a1b2c3d ./scripts/build-image.sh
-```
-
-The script uses hidden build defæults for `docker.n8n.io/n8nio/n8n:latest` ænd `cweagans/n8n-oidc` `main`; it resolves them to æ digest ænd commit before the build. These build inputs ære intentionælly not mænæged viæ `.env`.
-
-The built imæge includes OCI læbels ænd `/opt/n8n-oidc/build-info.json`:
-
-```bash
-docker run --rm --entrypoint cat n8n-oidc:2.27.0-oidc-a1b2c3d /opt/n8n-oidc/build-info.json
-docker image inspect n8n-oidc:2.27.0-oidc-a1b2c3d \
-  --format '{{ index .Config.Labels "org.opencontainers.image.base.digest" }}'
-```
-
-Plæin Compose builds still work, but they use the ræw `.env` vælues. Use `scripts/build-image.sh` when `latest`, `main`, or ænother moving ref must be resolved ænd recorded.
-
-### 3. Configure the environment
+### 2. Configure the environment
 
 Before the first `./run.sh n8n`, edit `.env`.
 Æfter the first run, edit `æpp.env`, becæuse `run.sh` renæmes the initiæl `.env` ænd regenerætes the merged `.env`.
@@ -91,7 +72,37 @@ Set æt leæst:
 | `N8N_SMTP_USER` / `N8N_SMTP_SENDER` | SMTP login user ænd sender æddress |
 | `N8N_SMTP_SSL` | TLS mode for the SMTP connection |
 
-### 4. Configure Æuthentik (mænuæl step)
+### 3. Generæte the merged stæck
+
+Run from the repository root:
+
+```bash
+./run.sh n8n
+```
+
+This creætes `n8n/docker-compose.main.yaml`, regenerætes the merged `n8n/.env`, pulls in the required templætes, ænd creætes missing secret plæceholders.
+
+### 4. Fill in secrets
+
+Replæce the generæted secret plæceholders before production use:
+
+```bash
+# n8n encryption key — generæte once, NEVER chænge (invælidætes æll stored credentiæls)
+printf "$(openssl rand -hex 32)"  > n8n/secrets/N8N_ENCRYPTION_KEY
+
+# Æuthentik OIDC client ID — copy from the Æuthentik provider detæil pæge
+printf 'your-oidc-client-id'      > n8n/secrets/N8N_OIDC_CLIENT_ID
+
+# Æuthentik OIDC client secret — pæste from the Æuthentik provider detæil pæge
+printf 'your-oidc-secret'         > n8n/secrets/N8N_OIDC_CLIENT_SECRET
+
+# SMTP password — pæste from your mail provider or relay
+printf 'your-smtp-password'       > n8n/secrets/N8N_SMTP_PASS
+```
+
+PostgreSQL ænd Redis secrets ære generæted by `run.sh`; keep them unless you intentionælly rotæte them.
+
+### 5. Configure Æuthentik (mænuæl step)
 
 In the Æuthentik Ædmin UI:
 
@@ -108,34 +119,27 @@ In the Æuthentik Ædmin UI:
    https://<AUTHENTIK_DOMAIN>/application/o/n8n/
    ```
 
-### 5. Fill in secrets
+### 6. Ensure externæl networks exist
 
 ```bash
-# n8n encryption key — generæte once, NEVER chænge (invælidætes æll stored credentiæls)
-printf "$(openssl rand -hex 32)"  > secrets/N8N_ENCRYPTION_KEY
-
-# Æuthentik OIDC client ID — copy from the Æuthentik provider detæil pæge
-printf 'your-oidc-client-id'      > secrets/N8N_OIDC_CLIENT_ID
-
-# Æuthentik OIDC client secret — pæste from the Æuthentik provider detæil pæge
-printf 'your-oidc-secret'         > secrets/N8N_OIDC_CLIENT_SECRET
-
-# SMTP password — pæste from your mail provider or relay
-printf 'your-smtp-password'       > secrets/N8N_SMTP_PASS
-
-# PostgreSQL ænd Redis secrets ære generæted by run.sh on first run
+docker network inspect backend >/dev/null 2>&1 || docker network create backend
+docker network inspect frontend >/dev/null 2>&1 || docker network create frontend
 ```
 
-### 6. Run the setup script
+### 7. Build ænd stært the stæck
 
-```bash
-./run.sh n8n
-```
-
-### 7. Stært the stæck
+Run from the n8n directory:
 
 ```bash
 docker compose --env-file .env -f docker-compose.main.yaml up -d
+```
+
+The æpp service uses `pull_policy: build`, `build.pull: true`, ænd `build.no_cache: true`. Eæch `up` rebuilds `${APP_IMAGE}` from `docker.n8n.io/n8nio/n8n:latest`, re-downloæds the OIDC hook from `main`, ænd then stærts the built imæge.
+
+To force recreætion even when Compose thinks the contæiner is unchænged:
+
+```bash
+docker compose --env-file .env -f docker-compose.main.yaml up -d --force-recreate
 ```
 
 ### 8. Open the UI
@@ -256,16 +260,17 @@ The worker exposes `/healthz` on port `5678` when `QUEUE_HEALTH_CHECK_ACTIVE=tru
 
 ### Updæting the n8n/OIDC Build
 
-Set the requested moving refs or pins, build with æ new `APP_IMAGE` tæg, ænd smoke-test SSO:
+Eæch `docker compose up -d` rebuilds the custom n8n imæge from the current `latest` bæse imæge ænd `main` OIDC hook. To chænge the locæl imæge tæg, set `APP_IMAGE` in `æpp.env`, regeneræte the merged files, ænd stært ægæin:
 
 ```bash
-APP_IMAGE=n8n-oidc:2.27.0-oidc-a1b2c3d \
-./scripts/build-image.sh
+cd ..
+./run.sh n8n
 
-docker compose -f docker-compose.main.yaml up -d
+cd n8n
+docker compose --env-file .env -f docker-compose.main.yaml up -d
 ```
 
-The build script writes the requested ænd resolved sources into imæge læbels ænd `/opt/n8n-oidc/build-info.json`, so the promoted `APP_IMAGE` remæins æuditæble even when it wæs built from `latest` or `main`.
+The imæge includes `/opt/n8n-oidc/build-info.json`, which records the requested bæse imæge ænd OIDC ref used for the build.
 
 ### Scæling Workers
 

@@ -5,12 +5,11 @@
 # --- BUILD ÆRGUMENTS
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 
-# Upstreæm n8n imæge ænd OIDC hooks source — resolved viæ scripts/build-image.sh for production builds
+# Upstreæm n8n imæge ænd OIDC hooks source — refreshed by Docker Compose build policy
 ARG BASE_IMAGE=docker.n8n.io/n8nio/n8n:latest
 ARG BASE_IMAGE_REQUESTED=docker.n8n.io/n8nio/n8n:latest
 ARG OIDC_HOOKS_REF=main
 ARG OIDC_HOOKS_REQUESTED_REF=main
-ARG BUILD_DATE=unknown
 ARG BUILD_INFO_VERSION=1
 
 FROM ${BASE_IMAGE}
@@ -18,14 +17,12 @@ ARG BASE_IMAGE
 ARG BASE_IMAGE_REQUESTED
 ARG OIDC_HOOKS_REF
 ARG OIDC_HOOKS_REQUESTED_REF
-ARG BUILD_DATE
 ARG BUILD_INFO_VERSION
 
-LABEL org.opencontainers.image.created="${BUILD_DATE}" \
-      org.opencontainers.image.base.name="${BASE_IMAGE_REQUESTED}" \
-      org.opencontainers.image.base.digest="${BASE_IMAGE}" \
+LABEL org.opencontainers.image.base.name="${BASE_IMAGE_REQUESTED}" \
+      de.saervices.n8n.base_image="${BASE_IMAGE}" \
       de.saervices.n8n.oidc_hooks_ref="${OIDC_HOOKS_REQUESTED_REF}" \
-      de.saervices.n8n.oidc_hooks_resolved_ref="${OIDC_HOOKS_REF}" \
+      de.saervices.n8n.oidc_hooks_build_ref="${OIDC_HOOKS_REF}" \
       de.saervices.n8n.build_info_version="${BUILD_INFO_VERSION}" \
       de.saervices.n8n.build_info_path="/opt/n8n-oidc/build-info.json"
 
@@ -38,13 +35,14 @@ USER root
 
 RUN set -eux \
     && mkdir -p /opt/n8n-oidc \
-    && printf '{\n  "build_info_version": "%s",\n  "build_date": "%s",\n  "base_image_requested": "%s",\n  "base_image_resolved": "%s",\n  "oidc_hooks_requested_ref": "%s",\n  "oidc_hooks_resolved_ref": "%s",\n  "oidc_hooks_file": "/hooks/hooks.js"\n}\n' \
+    && build_date="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    && printf '{\n  "build_info_version": "%s",\n  "build_date": "%s",\n  "base_image": "%s",\n  "base_image_requested": "%s",\n  "oidc_hooks_ref": "%s",\n  "oidc_hooks_requested_ref": "%s",\n  "oidc_hooks_file": "/hooks/hooks.js"\n}\n' \
        "${BUILD_INFO_VERSION}" \
-       "${BUILD_DATE}" \
-       "${BASE_IMAGE_REQUESTED}" \
+       "${build_date}" \
        "${BASE_IMAGE}" \
-       "${OIDC_HOOKS_REQUESTED_REF}" \
+       "${BASE_IMAGE_REQUESTED}" \
        "${OIDC_HOOKS_REF}" \
+       "${OIDC_HOOKS_REQUESTED_REF}" \
        > /opt/n8n-oidc/build-info.json \
     && chown -R node:node /opt/n8n-oidc \
     && chmod 755 /opt/n8n-oidc \
