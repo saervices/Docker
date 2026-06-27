@@ -1,0 +1,36 @@
+{
+  "mods": [
+    {"name": "base", "enabled": true},
+    {"name": "elevated-rails", "enabled": true},
+    {"name": "quality", "enabled": true},
+    {"name": "recycler", "enabled": true},
+    {"name": "space-age", "enabled": true},
+
+    {"name": "flib", "enabled": true},
+    {"name": "alien-biomes-graphics", "enabled": true},
+    {"name": "FluidWagonColorMask", "enabled": true},
+    {"name": "TheEckelmonster-core-library", "enabled": true},
+
+    {"name": "SimpleBotStart", "enabled": true},
+    {"name": "factoryplanner", "enabled": true},
+    {"name": "RateCalculator", "enabled": true},
+    {"name": "BottleneckLite", "enabled": true},
+    {"name": "even-distribution", "enabled": true},
+    {"name": "squeak-through-2", "enabled": true},
+    {"name": "FactorySearch", "enabled": true},
+    {"name": "dqol-resource-monitor", "enabled": true},
+    {"name": "AutoDeconstruct", "enabled": true},
+    {"name": "ModuleInserterSimplified", "enabled": true},
+    {"name": "Milestones", "enabled": true},
+
+    {"name": "textplates", "enabled": true},
+    {"name": "color-coding", "enabled": true},
+    {"name": "alien-biomes", "enabled": true},
+    {"name": "light-overhaul", "enabled": true},
+    {"name": "Automatic_Train_Painter", "enabled": true},
+    {"name": "VehicleSnap", "enabled": true},
+    {"name": "Death_Counter", "enabled": true},
+
+    {"name": "more-enemies", "enabled": true}
+  ]
+}

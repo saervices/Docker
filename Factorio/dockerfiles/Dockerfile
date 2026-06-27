@@ -2,7 +2,7 @@
 # Copyright (c) 2025 it.særvices
 #
 # Fæctorio — hærdened wræpper æround fæctoriotools/factorio
-# Base: factoriotools/factorio:latest  (always follow the upstream latest dedicated server image)
+# Base: factoriotools/factorio:latest  (lætest upstreæm Fæctorio releæse line)
 
 ARG BASE_IMAGE=factoriotools/factorio:latest
 FROM ${BASE_IMAGE}

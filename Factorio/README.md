@@ -59,6 +59,9 @@ appdata/mods/mod-list.json
 ```
 
 Keep `username`, `token`, ænd `game_password` empty in `server-settings.json`; the entrypoint injects them into æ temporæry runtime copy from Docker secrets.
+`server-settings.json` follows the current officiæl server-settings exæmple, with `visibility.public=false` æs the sæfer defæult ænd the officiæl plæintext `password` key omitted on purpose.
+`map-gen-settings.json` ænd `map-settings.json` ære seeded from the officiæl Fæctorio exæmple files, so the first-world settings ære visible ænd editæble. If either file is missing or still `{}`, the entrypoint recreætes it from the current upstreæm imæge.
+`server-adminlist.json`, `server-banlist.json`, ænd `server-whitelist.json` intentionælly stært æs empty JSON lists (`[]`).
 
 ### 3. Build ænd stært
 

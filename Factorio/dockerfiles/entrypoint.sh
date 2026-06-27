@@ -30,6 +30,8 @@ readonly RUNTIME_DIR
 readonly SERVER_SETTINGS_TEMPLATE="${CONFIG}/server-settings.json"
 readonly MAP_GEN_SETTINGS="${CONFIG}/map-gen-settings.json"
 readonly MAP_SETTINGS="${CONFIG}/map-settings.json"
+readonly MAP_GEN_SETTINGS_EXAMPLE="/opt/factorio/data/map-gen-settings.example.json"
+readonly MAP_SETTINGS_EXAMPLE="/opt/factorio/data/map-settings.example.json"
 readonly SERVER_ADMINLIST="${CONFIG}/server-adminlist.json"
 readonly SERVER_BANLIST="${CONFIG}/server-banlist.json"
 readonly SERVER_WHITELIST="${CONFIG}/server-whitelist.json"
@@ -125,9 +127,21 @@ ensure_json_array_file() {
 
 ensure_json_object_file() {
   local file="$1"
+  local example_file="${2:-}"
 
   if [[ ! -f "$file" ]]; then
-    printf '{}\n' > "$file"
+    if [[ -n "$example_file" && -f "$example_file" ]]; then
+      cp "$example_file" "$file"
+    else
+      printf '{}\n' > "$file"
+    fi
+    return 0
+  fi
+
+  if jq -e 'type == "object" and length == 0' "$file" >/dev/null; then
+    if [[ -n "$example_file" && -f "$example_file" ]]; then
+      cp "$example_file" "$file"
+    fi
   fi
 }
 
@@ -156,8 +170,8 @@ has_save_file() {
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 mkdir -p "$CONFIG" "$SAVES" "$MODS" "$SCENARIOS" "$SCRIPTOUTPUT" "$RUNTIME_DIR"
 
-ensure_json_object_file "$MAP_GEN_SETTINGS"
-ensure_json_object_file "$MAP_SETTINGS"
+ensure_json_object_file "$MAP_GEN_SETTINGS" "$MAP_GEN_SETTINGS_EXAMPLE"
+ensure_json_object_file "$MAP_SETTINGS" "$MAP_SETTINGS_EXAMPLE"
 ensure_json_array_file "$SERVER_ADMINLIST"
 ensure_json_array_file "$SERVER_BANLIST"
 ensure_json_array_file "$SERVER_WHITELIST"
@@ -200,27 +214,55 @@ if [[ ! -f "$SERVER_SETTINGS_TEMPLATE" ]]; then
     "game",
     "docker"
   ],
+  "_comment_max_players": "Maximum number of players allowed, admins can join even a full server. 0 means unlimited.",
   "max_players": 0,
+  "_comment_visibility": [
+    "public: Game will be published on the official Factorio matching server",
+    "lan: Game will be broadcast on LAN"
+  ],
   "visibility": {
     "public": false,
     "lan": true
   },
+  "_comment_credentials": "Leave username, token and game_password empty here; the Docker entrypoint injects them from Docker secrets into /tmp/factorio-runtime/server-settings.json. The official plaintext password key is intentionally omitted.",
   "username": "",
+  "_comment_token": "Authentication token. May be used instead of the official plaintext password key.",
   "token": "",
   "game_password": "",
+  "_comment_require_user_verification": "When set to true, the server will only allow clients that have a valid Factorio.com account",
   "require_user_verification": true,
+  "_comment_max_upload_in_kilobytes_per_second": "optional, default value is 0. 0 means unlimited.",
   "max_upload_in_kilobytes_per_second": 0,
+  "_comment_max_upload_slots": "optional, default value is 5. 0 means unlimited.",
   "max_upload_slots": 5,
+  "_comment_minimum_latency_in_ticks": "optional one tick is 16ms in default speed, default value is 0. 0 means no minimum.",
   "minimum_latency_in_ticks": 0,
+  "_comment_max_heartbeats_per_second": "Network tick rate. Maximum rate game updates packets are sent at before bundling them together. Minimum value is 6, maximum value is 240.",
+  "max_heartbeats_per_second": 60,
+  "_comment_ignore_player_limit_for_returning_players": "Players that played on this map already can join even when the max player limit was reached.",
   "ignore_player_limit_for_returning_players": false,
+  "_comment_allow_commands": "possible values are, true, false and admins-only",
   "allow_commands": "admins-only",
+  "_comment_autosave_interval": "Autosave interval in minutes",
   "autosave_interval": 10,
+  "_comment_autosave_slots": "server autosave slots, it is cycled through when the server autosaves.",
   "autosave_slots": 5,
+  "_comment_afk_autokick_interval": "How many minutes until someone is kicked when doing nothing, 0 for never.",
   "afk_autokick_interval": 0,
+  "_comment_auto_pause": "Whether should the server be paused when no players are present.",
   "auto_pause": true,
+  "_comment_auto_pause_when_players_connect": "Whether should the server be paused when someone is connecting to the server.",
+  "auto_pause_when_players_connect": false,
   "only_admins_can_pause_the_game": true,
+  "_comment_autosave_only_on_server": "Whether autosaves should be saved only on server or also on all connected clients. Default is true.",
   "autosave_only_on_server": true,
-  "non_blocking_saving": false
+  "_comment_non_blocking_saving": "Highly experimental feature, enable only at your own risk of losing your saves. On UNIX systems, server will fork itself to create an autosave. Autosaving on connected Windows clients will be disabled regardless of autosave_only_on_server option.",
+  "non_blocking_saving": false,
+  "_comment_segment_sizes": "Long network messages are split into segments that are sent over multiple ticks. Their size depends on the number of peers currently connected. Increasing the segment size will increase upload bandwidth requirement for the server and download bandwidth requirement for clients. This setting only affects server outbound messages. Changing these settings can have a negative impact on connection stability for some clients.",
+  "minimum_segment_size": 25,
+  "minimum_segment_size_peer_count": 20,
+  "maximum_segment_size": 100,
+  "maximum_segment_size_peer_count": 10
 }
 JSON
 fi
@@ -251,7 +293,7 @@ jq \
   --arg username "$USERNAME" \
   --arg token "$TOKEN" \
   --arg game_password "$GAME_PASSWORD" \
-  '.username = $username | .token = $token | .game_password = $game_password' \
+  'del(.password) | .username = $username | .token = $token | .game_password = $game_password' \
   "$SERVER_SETTINGS_TEMPLATE" > "$RUNTIME_SERVER_SETTINGS"
 
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
