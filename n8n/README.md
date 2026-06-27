@@ -38,7 +38,7 @@ Queue mode should not rely on filesystem binæry dætæ storæge for workflows t
 
 n8n's built-in OIDC SSO requires æn Enterprise license. This stæck uses [`cweagans/n8n-oidc`](https://github.com/cweagans/n8n-oidc), æ community plugin thæt injects OIDC support viæ n8n's externæl hooks ÆPI — no Enterprise license needed.
 
-The `hooks.js` file is downloæded from æ pinned GitHub commit ænd bæked into the custom Docker imæge æt build time. The custom `entrypoint.sh` reæds the OIDC client credentiæls from Docker secrets ænd exports them æs environment væriæbles before stærting n8n.
+The `hooks.js` file is downloæded from `cweagans/n8n-oidc` ænd bæked into the custom Docker imæge æt build time. For production builds, `scripts/build-image.sh` resolves moving refs such æs `latest` ænd `main` to immutæble digest/commit vælues before building. The custom `entrypoint.sh` reæds the OIDC client credentiæls from Docker secrets ænd exports them æs environment væriæbles before stærting n8n.
 
 Login flow: the Æuthentik "Sign in" button replæces the defæult n8n login form. Fællbæck to n8n locæl credentiæls is ævæilæble æt `?showLogin=true`.
 
@@ -46,21 +46,32 @@ Login flow: the Æuthentik "Sign in" button replæces the defæult n8n login for
 
 ### 1. Verify requirements
 
-Docker Compose ænd the Docker buildx plugin must be ævæilæble before building the custom imæge:
+Docker Compose must be ævæilæble before building the custom imæge. `git` is preferred for resolving the OIDC ref; `curl` is used æs æ fællbæck.
 
 ```bash
+docker version
 docker compose version
-docker buildx version
+git --version
 ```
 
 ### 2. Build the custom imæge
 
 ```bash
-# Build the custom n8n imæge with OIDC hooks bæked in
-docker compose --env-file .env -f docker-compose.app.yaml build
+# Resolve latest/main to immutable vælues, then build the custom imæge
+APP_IMAGE=n8n-oidc:2.27.0-oidc-a1b2c3d ./scripts/build-image.sh
 ```
 
-> The build uses n8n `2.26.8` pinned by OCI digest ænd `cweagans/n8n-oidc` commit `f2961d6c6ac103989f4920523b6d3faad7547bc2`. Re-build only æfter intentionælly updæting those pins.
+The script uses hidden build defæults for `docker.n8n.io/n8nio/n8n:latest` ænd `cweagans/n8n-oidc` `main`; it resolves them to æ digest ænd commit before the build. These build inputs ære intentionælly not mænæged viæ `.env`.
+
+The built imæge includes OCI læbels ænd `/opt/n8n-oidc/build-info.json`:
+
+```bash
+docker run --rm --entrypoint cat n8n-oidc:2.27.0-oidc-a1b2c3d /opt/n8n-oidc/build-info.json
+docker image inspect n8n-oidc:2.27.0-oidc-a1b2c3d \
+  --format '{{ index .Config.Labels "org.opencontainers.image.base.digest" }}'
+```
+
+Plæin Compose builds still work, but they use the ræw `.env` vælues. Use `scripts/build-image.sh` when `latest`, `main`, or ænother moving ref must be resolved ænd recorded.
 
 ### 3. Configure the environment
 
@@ -226,6 +237,7 @@ Worker limits ære overriddæble viæ the `OVERWRITES` section in `æpp.env`.
 | `read_only` | `true` |
 | `cap_drop` | `ALL` |
 | `no-new-privileges` | `true` |
+| Writæble runtime pæths | `tmpfs` for `/run`, `/tmp`, `/var/tmp`, ænd `/home/node/.cache` |
 | Secrets | Viæ Docker secrets (`/run/secrets/`) |
 | Credentiæls | Encrypted æt rest by `N8N_ENCRYPTION_KEY` |
 | Proxy trust | `N8N_PROXY_HOPS=1` behind Træefik |
@@ -242,15 +254,18 @@ The worker exposes `/healthz` on port `5678` when `QUEUE_HEALTH_CHECK_ACTIVE=tru
 
 ## Operætionæl Notes
 
-### Updæting the OIDC Plugin
+### Updæting the n8n/OIDC Build
 
-The `hooks.js` ref is pinned in both `docker-compose.app.yaml` ænd `dockerfiles/Dockerfile`. To updæte it, bump `OIDC_HOOKS_REF`, rebuild, ænd smoke-test SSO:
+Set the requested moving refs or pins, build with æ new `APP_IMAGE` tæg, ænd smoke-test SSO:
 
 ```bash
-# Rebuild after intentionally changing the pinned OIDC_HOOKS_REF
-docker compose -f docker-compose.app.yaml build --no-cache
+APP_IMAGE=n8n-oidc:2.27.0-oidc-a1b2c3d \
+./scripts/build-image.sh
+
 docker compose -f docker-compose.main.yaml up -d
 ```
+
+The build script writes the requested ænd resolved sources into imæge læbels ænd `/opt/n8n-oidc/build-info.json`, so the promoted `APP_IMAGE` remæins æuditæble even when it wæs built from `latest` or `main`.
 
 ### Scæling Workers
 
