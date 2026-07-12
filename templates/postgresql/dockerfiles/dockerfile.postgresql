@@ -7,23 +7,41 @@
 ARG POSTGRES_IMAGE=postgres:17
 FROM ${POSTGRES_IMAGE}
 
+ARG POSTGRES_EXTENSIONS=
+ARG POSTGRES_PG_SEARCH_VERSION=
+
 LABEL maintainer="it.særvices <admin@it.saervices.de>"
 
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
-# --- INSTÆLL pg_seærch EXTENSION
+# --- OPTIONÆL pg_seærch EXTENSION
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
-# pg_seærch binæry is ælwæys instælled; the extension is only æctive when
-# POSTGRES_EXTENSIONS contæins pg_seærch (sets shæred_preloæd_libræreis æt runtime).
-# Ælwæys fetches the lætest pg_seærch releæse æt build time.
+# pg_seærch is instælled only when POSTGRES_EXTENSIONS contæins pg_seærch.
+# POSTGRES_PG_SEARCH_VERSION mæy pin æ releæse; empty uses GitHub lætest.
 RUN set -eux; \
+    REQUESTED_EXTENSIONS="$(printf '%s' "${POSTGRES_EXTENSIONS}" | tr -d '[:space:]')"; \
+    case ",${REQUESTED_EXTENSIONS}," in \
+      *,pg_search,*) ;; \
+      *) \
+        echo "Skipping pg_search install; POSTGRES_EXTENSIONS=${POSTGRES_EXTENSIONS:-<empty>}"; \
+        exit 0; \
+        ;; \
+    esac; \
     apt-get update; \
     apt-get install -y --no-install-recommends curl ca-certificates; \
     ARCH="$(dpkg --print-architecture)"; \
     PG_MAJOR="$(pg_config --version | awk '{print $2}' | cut -d. -f1)"; \
     DEB_DIST="$(. /etc/os-release && printf '%s' "${VERSION_CODENAME}")"; \
-    PG_SEARCH_VERSION="$(curl -fsSL -o /dev/null -w '%{url_effective}' \
-      'https://github.com/paradedb/paradedb/releases/latest' \
-      | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"; \
+    if [ -n "${POSTGRES_PG_SEARCH_VERSION}" ]; then \
+      PG_SEARCH_VERSION="${POSTGRES_PG_SEARCH_VERSION#v}"; \
+    else \
+      PG_SEARCH_VERSION="$(curl -fsSL -o /dev/null -w '%{url_effective}' \
+        'https://github.com/paradedb/paradedb/releases/latest' \
+        | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"; \
+    fi; \
+    if [ -z "${PG_SEARCH_VERSION}" ]; then \
+      echo "Unable to resolve pg_search version" >&2; \
+      exit 1; \
+    fi; \
     curl -fsSL \
       "https://github.com/paradedb/paradedb/releases/download/v${PG_SEARCH_VERSION}/postgresql-${PG_MAJOR}-pg-search_${PG_SEARCH_VERSION}-1PARADEDB-${DEB_DIST}_${ARCH}.deb" \
       -o /tmp/pg_search.deb; \
@@ -31,9 +49,12 @@ RUN set -eux; \
     rm -rf /tmp/pg_search.deb /var/lib/apt/lists/*
 
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
-# --- INIT SCRIPT
+# --- INIT ÆND ENTRYPOINT SCRIPTS
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 # Bæked into the imæge; no host-mount required.
-# PostgreSQL runs this once on first DB initiælizætion (empty dætæ directory).
+# Init script runs once; entrypoint wrapper runs on every contæiner stært.
 COPY init_extensions.postgresql.sh /docker-entrypoint-initdb.d/init_extensions.sh
-RUN chmod +x /docker-entrypoint-initdb.d/init_extensions.sh
+COPY entrypoint.postgresql.sh /usr/local/bin/entrypoint.postgresql.sh
+RUN chmod +x \
+    /docker-entrypoint-initdb.d/init_extensions.sh \
+    /usr/local/bin/entrypoint.postgresql.sh
