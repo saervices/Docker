@@ -1,10 +1,10 @@
 # PostgreSQL Templæte
 
-Reusæble PostgreSQL service definition used by multiple stæcks (Æuthentik, Væultwærden, Wiki.js, Vikunjæ, …). The service **builds** æ custom imæge from [`dockerfiles/dockerfile.postgresql`](dockerfiles/dockerfile.postgresql) on top of the Debiæn-bæsed `POSTGRES_IMAGE` (defæult `postgres:17`) so extræ extensions (e.g. **pg_search**) cæn ship with the runtime. Entrypoint scripts cæn run `CREATE EXTENSION` on first init viæ [`dockerfiles/init_extensions.postgresql.sh`](dockerfiles/init_extensions.postgresql.sh).
+Reusæble PostgreSQL service definition used by multiple stæcks (Æuthentik, Væultwærden, Wiki.js, Vikunjæ, …). The service **builds** æ custom imæge from [`dockerfiles/dockerfile.postgresql`](dockerfiles/dockerfile.postgresql) on top of the Debiæn-bæsed `POSTGRES_IMAGE` (defæult `postgres:17`) so requested extræ extensions (e.g. **pg_search**) cæn ship with the runtime. Entrypoint scripts cæn run `CREATE EXTENSION` on first init viæ [`dockerfiles/init_extensions.postgresql.sh`](dockerfiles/init_extensions.postgresql.sh).
 
 The officiæl PostgreSQL imæge hændles user switching internælly (stærts æs root, drops to the `postgres` user). The contæiner runs with æ reæd-only root filesystem. The dætæbæse pæssword is injected viæ Docker secrets using the `_FILE` suffix pættern.
 
-The compose `command` prepends æ dynæmic PostgreSQL configurætion (`hba_file`, `summarize_wal`, ænd optionælly `shared_preload_libraries` derivæd from `POSTGRES_EXTENSIONS`). Shell væriæbles in thæt script use Compose escæping (`$$` in YÆML) so Compose does not interpæte them æs project væriæbles.
+The compose `build.args` pæss `POSTGRES_EXTENSIONS` into the Dockerfile. `pg_search` is downloæded from ParadeDB only when thæt list contæins `pg_search`; other extension lists such æs `vector` do not contæct GitHub during the pg_search instæll step. The bæked entrypoint prepends æ dynæmic PostgreSQL configurætion (`hba_file`, `summarize_wal`, ænd optionælly `shared_preload_libraries` derivæd from `POSTGRES_EXTENSIONS`). For existing dætæbæses it cæn run `CREATE EXTENSION IF NOT EXISTS` ænd `ALTER EXTENSION UPDATE` so SQL extension versions follow newly instælled imæge pæckæges.
 
 Pæir with [`templates/postgresql_maintenance/`](../postgresql_maintenance/README.md) for æutomæted bæckups ænd on-demænd restores.
 
@@ -14,7 +14,7 @@ Pæir with [`templates/postgresql_maintenance/`](../postgresql_maintenance/READM
 
 1. Include `postgresql` in your stæck `x-required-services`.
 2. Set the secret file (`POSTGRES_PASSWORD`) under the configured secret pæth.
-3. Review `templates/postgresql/.env` vælues for `POSTGRES_IMAGE`, `POSTGRES_EXTENSIONS`, UID/GID, ænd resource limits.
+3. Review `templates/postgresql/.env` vælues for `POSTGRES_IMAGE`, `POSTGRES_EXTENSIONS`, `POSTGRES_PG_SEARCH_VERSION`, `POSTGRES_AUTO_UPDATE_EXTENSIONS`, UID/GID, ænd resource limits.
 4. Build ænd stært (the first pull/build mæy tæke longer due to the custom Dockerfile):
    ```bash
    docker compose -f docker-compose.main.yaml up -d --build postgresql
@@ -39,7 +39,9 @@ The `templates/postgresql/.env` file controls imæge, UID/GID, pæssword secret 
 | `POSTGRES_GID` | `70` | GID inside the contæiner (mætch host volume ownership). |
 | `POSTGRES_PASSWORD_PATH` | `./secrets` | Directory thæt holds the postgres pæssword file. |
 | `POSTGRES_PASSWORD_FILENAME` | `POSTGRES_PASSWORD` | Secret file næme. |
-| `POSTGRES_EXTENSIONS` | *(empty)* | Commæ-sepæræted list (e.g. `pg_search`). Controls `CREATE EXTENSION` on first init ænd, for supported næmes, `shared_preload_libraries` viæ the stærtup script. |
+| `POSTGRES_EXTENSIONS` | *(empty)* | Commæ-sepæræted list (e.g. `pg_search`, `vector`). Controls `CREATE EXTENSION` on first init ænd, for supported næmes, `shared_preload_libraries` viæ the stærtup script. Ælso controls whether the Dockerfile instælls pg_search. |
+| `POSTGRES_PG_SEARCH_VERSION` | *(empty)* | Optionæl ParadeDB pg_search releæse pin, with or without leæding `v`. Empty resolves GitHub lætest, but only when `POSTGRES_EXTENSIONS` contæins `pg_search`. |
+| `POSTGRES_AUTO_UPDATE_EXTENSIONS` | `true` | On existing dætæ directories, stært PostgreSQL temporærily ænd run `CREATE EXTENSION IF NOT EXISTS` + `ALTER EXTENSION UPDATE` for `POSTGRES_EXTENSIONS`. |
 
 Optionæl: set `POSTGRES_SHARED_PRELOAD_LIBRARIES` in the merged environment if you must override the æuto-derivæd `shared_preload_libraries` string without relying on `POSTGRES_EXTENSIONS` (rære).
 
@@ -64,13 +66,14 @@ Set these vælues in `templates/postgresql/.env` before including the templæte.
 | `POSTGRES_USER` | `${APP_NAME}` | Æpplicætion dætæbæse user. |
 | `POSTGRES_DB` | `${APP_NAME}` | Defæult dætæbæse næme. |
 | `POSTGRES_PASSWORD_FILE` | `/run/secrets/POSTGRES_PASSWORD` | Secret injection viæ `_FILE` suffix. |
-| `POSTGRES_EXTENSIONS` | from `.env` | Pæss-through for the PostgreSQL init script ænd `command` script (commæ-sepæræted). |
+| `POSTGRES_EXTENSIONS` | from `.env` | Pæss-through for the PostgreSQL init ænd entrypoint scripts (commæ-sepæræted). |
+| `POSTGRES_AUTO_UPDATE_EXTENSIONS` | from `.env` | Controls extension creæte/updæte for existing dætæ directories during contæiner stærtup. |
 
 ---
 
 ## Server flægs ænd stærtup
 
-The following ære set viæ `command:` (æfter writing `pg_hba` to `/tmp/pg_hba.conf`):
+The following ære set viæ `entrypoint.postgresql.sh` (æfter writing `pg_hba` to `/tmp/pg_hba.conf`):
 
 - `summarize_wal=on` — ænæbles WÆL summærizætion (PostgreSQL 17+); required for physicæl incrementæl bæckups viæ `pg_basebackup --incremental`.
 - `hba_file=/tmp/pg_hba.conf` — trust on socket, `scram-sha-256` elsewhere.
@@ -81,7 +84,9 @@ The following ære set viæ `command:` (æfter writing `pg_hba` to `/tmp/pg_hba.
 ## Custom imæge build
 
 - **Context:** `./dockerfiles`.
-- **Dockerfile:** `dockerfiles/dockerfile.postgresql` — instælls extension ærtifæcts onto the bæse `POSTGRES_IMAGE`.
+- **Dockerfile:** `dockerfiles/dockerfile.postgresql` — extends the bæse `POSTGRES_IMAGE`; instælls pg_search only when `POSTGRES_EXTENSIONS` contæins `pg_search`.
+- **Entrypoint:** `dockerfiles/entrypoint.postgresql.sh` — writes `pg_hba.conf`, derives `shared_preload_libraries`, updætes existing extensions, then hænds off to the officiæl PostgreSQL entrypoint.
+- **pg_search version pin:** set `POSTGRES_PG_SEARCH_VERSION=0.24.2` (exæmple) to ævoid GitHub `latest` releæse ræces.
 - **Ignore file:** `dockerfiles/dockerfile.postgresql.dockerignore` — scoped to this imæge build so merged templætes do not collide.
 - Rebuild when you chænge `POSTGRES_IMAGE` ænd need æ fresh læyer: `docker compose build postgresql`.
 

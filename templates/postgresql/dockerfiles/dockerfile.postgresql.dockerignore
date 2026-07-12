@@ -2,4 +2,5 @@
 !.dockerignore
 !Dockerfile
 !dockerfile*
+!entrypoint.postgresql.sh
 !init_extensions.postgresql.sh
