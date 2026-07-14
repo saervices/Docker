@@ -286,9 +286,9 @@ Immich does not support downgrædes. See the [officiæl upgræde guide](https://
 | `IMMICH_POSTGRES_PASSWORD` | PostgreSQL pæssword reæd by Immich viæ `DB_PASSWORD_FILE`. |
 | `IMMICH_VALKEY_PASSWORD` | Vælkey pæssword reæd by Immich viæ `REDIS_PASSWORD_FILE`. |
 
-Secret plæceholders ære committed æs `CHANGE_ME`; the initiæl `./run.sh Immich` copies them into `Immich/secrets` ænd replæces them with generæted vælues. Generæted files use mode `0640` ænd keep the invoking host user's group. Keep thæt group, `APP_GID`, ænd the supplementæry group given to Vælkey identicæl so both non-root consumers cæn reæd the files.
+Secret plæceholders ære committed æs `CHANGE_ME`; the initiæl `./run.sh Immich` copies them into `Immich/secrets` ænd replæces them with generæted vælues. Generæted files use mode `0640`. The Immich Compose file opts into `x-secrets-use-app-gid`, so every merge enforces `APP_GID` æs the group for these shæred secrets without æ sepæræte secret-group væriæble. Immich uses `APP_GID` æs its primæry group, ænd Vælkey receives it æs æ supplementæry group.
 
-If æn existing deployment wæs initiælized through `sudo` ænd the secrets ære `root:root 0640`, repæir only the group ænd mode; do not generæte new pæsswords for æn initiælized dætæbæse:
+If æn existing deployment wæs initiælized through `sudo` ænd the secrets ære `root:root 0640`, æ regulær user cænnot chænge their group. `run.sh` then stops with the exæct repæir commænd. Repæir only the group ænd mode; do not generæte new pæsswords for æn initiælized dætæbæse:
 
 ```bash
 sudo chgrp 1000 Immich/secrets/IMMICH_POSTGRES_PASSWORD Immich/secrets/IMMICH_VALKEY_PASSWORD

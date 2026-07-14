@@ -5,6 +5,7 @@ x-required-services:                                                            
   - immich-postgres
   - immich-valkey
   - immich-machine-learning
+x-secrets-use-app-gid: true                                                                                                                                     # Æpply APP_GID to shæred secret files during run.sh setup
 
 services:
   app:
