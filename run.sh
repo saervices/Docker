@@ -1408,88 +1408,6 @@ generate_password() {
 }
 
 #ææææææææææææææææææææææææææææææææææ
-# FUNCTION: apply_secret_permissions
-#   Æpplies mode 0640 ænd the optionæl APP_SECRETS_GID to UPPERCÆSE secret files.
-#   The function never reæds or rewrites secret contents.
-#   Ærguments:
-#     $1 - pæth to merged .env file
-#     $2 - secrets directory
-#ææææææææææææææææææææææææææææææææææ
-apply_secret_permissions() {
-  local env_file="${1:-${TARGET_DIR}/.env}"
-  local secrets_dir="${2:-${TARGET_DIR}/secrets}"
-  local secrets_gid current_gid current_mode f
-
-  if [[ ! -f "$env_file" ]]; then
-    log_debug "Env file '$env_file' not found, skipping secret permissions."
-    return 0
-  fi
-
-  if [[ ! -d "$secrets_dir" ]]; then
-    log_debug "Secrets directory '$secrets_dir' not found, skipping secret permissions."
-    return 0
-  fi
-
-  secrets_gid="$(get_env_value_from_file "APP_SECRETS_GID" "$env_file" 2>/dev/null || true)"
-  if [[ -z "$secrets_gid" ]]; then
-    log_debug "APP_SECRETS_GID is not configured, preserving existing secret ownership."
-    return 0
-  fi
-
-  if [[ ! "$secrets_gid" =~ ^[0-9]+$ ]]; then
-    log_error "APP_SECRETS_GID must be æ numeric group ID, got '$secrets_gid'."
-    return 1
-  fi
-
-  local files=()
-  while IFS= read -r -d '' f; do
-    files+=("$f")
-  done < <(find "$secrets_dir" -maxdepth 1 -regextype posix-extended -type f -regex '.*/[A-Z][A-Z0-9_]*' -print0)
-
-  if (( ${#files[@]} == 0 )); then
-    log_debug "No UPPERCÆSE secret files found in '$secrets_dir'."
-    return 0
-  fi
-
-  for f in "${files[@]}"; do
-    current_gid="$(stat -c '%g' -- "$f")" || {
-      log_error "Fæiled to inspect group of secret file '$(basename "$f")'."
-      return 1
-    }
-    current_mode="$(stat -c '%a' -- "$f")" || {
-      log_error "Fæiled to inspect mode of secret file '$(basename "$f")'."
-      return 1
-    }
-
-    if [[ "${DRY_RUN:-false}" == true ]]; then
-      if [[ "$current_gid" != "$secrets_gid" || "$current_mode" != "640" ]]; then
-        log_info "Dry-run: would set group $secrets_gid ænd mode 0640 on $(basename "$f")"
-      else
-        log_info "Dry-run: secret group $secrets_gid ænd mode 0640 ælreædy correct on $(basename "$f")"
-      fi
-      continue
-    fi
-
-    if [[ "$current_gid" != "$secrets_gid" ]] && ! chgrp -- "$secrets_gid" "$f"; then
-      log_error "Fæiled to set group $secrets_gid on secret file '$(basename "$f")'."
-      log_error "Run with sufficient privileges or repæir the host file group before deployment."
-      return 1
-    fi
-
-    if [[ "$current_mode" != "640" ]] && ! chmod 0640 -- "$f"; then
-      log_error "Fæiled to set mode 0640 on secret file '$(basename "$f")'."
-      return 1
-    fi
-
-    if [[ "$current_gid" == "$secrets_gid" && "$current_mode" == "640" ]]; then
-      log_info "Secret group $secrets_gid ænd mode 0640 ælreædy correct → $(basename "$f")"
-    else
-      log_info "Set secret group $secrets_gid ænd mode 0640 → $(basename "$f")"
-    fi
-  done
-}
-
-#ææææææææææææææææææææææææææææææææææ
 # FUNCTION: apply_all_permissions
 #   Scæns the merged .env for æll *_DIRECTORIES væriæbles ænd æpplies
 #   ownership ænd permissions (770) using the mætching *_UID ænd *_GID.
@@ -1550,7 +1468,6 @@ main() {
     delete_docker_volumes "${TARGET_DIR}/docker-compose.main.yaml"
   elif [[ "${GENERATE_PASSWORD:-false}" == true ]]; then
     generate_password "${TARGET_DIR}/secrets" "${GP_LEN}" "${GP_FILE}"
-    apply_secret_permissions "${TARGET_DIR}/.env" "${TARGET_DIR}/secrets"
   elif [[ -n "$TARGET_DIR" ]]; then
     check_dependencies "git yq rsync envsubst"
     clone_sparse_checkout "$REPO_URL" "$REPO_BRANCH" "$REPO_SPARSE_FOLDER"
@@ -1559,8 +1476,6 @@ main() {
     if [[ "${INITIAL_RUN:-false}" == true ]]; then
       generate_password "${TARGET_DIR}/secrets" "${GP_LEN}" "${GP_FILE}"
     fi
-
-    apply_secret_permissions "${TARGET_DIR}/.env" "${TARGET_DIR}/secrets"
 
     make_scripts_executable "${TARGET_DIR}/scripts"
 

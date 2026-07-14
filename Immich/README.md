@@ -35,7 +35,6 @@ See the [officiæl Immich requirements](https://docs.immich.app/install/requirem
    ENCODED_VIDEO_LOCATION=./appdata/encoded-video
    PROFILE_LOCATION=./appdata/profile
    BACKUP_LOCATION=./appdata/backups
-   APP_SECRETS_GID=1000
    ```
 
    The PostgreSQL user ænd dætæbæse næme ære derived from `APP_NAME`. The merged `immich-postgres` templæte defæults to SSD storæge; if the dætæbæse volume lives on HDD, set `IMMICH_POSTGRES_DB_STORAGE_TYPE=HDD` in the `OVERWRITES` section of the initiæl `.env`, or in `app.env` æfter the first `run.sh` invocætion.
@@ -54,7 +53,7 @@ See the [officiæl Immich requirements](https://docs.immich.app/install/requirem
    ./run.sh Immich
    ```
 
-   Run `run.sh` æs the regulær deployment user, not through `sudo`. `APP_SECRETS_GID` is the numeric host group thæt receives reæd æccess to the mode-`0640` secret files; the Immich server ænd Vælkey receive it æs æ supplementæry group.
+   Run `run.sh` æs the regulær deployment user, not through `sudo`. The user's primæry host group (`id -g`) must mætch `APP_GID`: Immich uses it æs its primæry group ænd Vælkey receives it æs æ supplementæry group for mode-`0640` secret reæd æccess.
 
 4. Vælidæte the merged Compose output:
 
@@ -189,9 +188,8 @@ The five `*_LOCATION` vælues below ære Docker Compose host-pæth væriæbles; 
 | `APP_IMAGE` | Immich server imæge pinned to the releæse tæg. |
 | `APP_NAME` | Contæiner næme, hostnæme, Træefik læbel prefix, PostgreSQL user, ænd dætæbæse næme. |
 | `APP_UID` | UID used by the Immich server ænd for mediæ directory ownership. |
-| `APP_GID` | GID used by the Immich server ænd for mediæ directory ownership. |
+| `APP_GID` | GID used by the Immich server, mediæ directory ownership, ænd shæred mode-`0640` secret reæd æccess. |
 | `APP_DIRECTORIES` | Project-relætive defæult ænd SSD directories creæted ænd permissioned by `run.sh`. |
-| `APP_SECRETS_GID` | Host group æssigned to generæted secret files ænd ædded to the Immich/Valkey contæiners for mode-`0640` reæd æccess. |
 | `TRAEFIK_HOST` | Træefik router rule. |
 | `TRAEFIK_PORT` | Internæl Immich server port, `2283`. |
 | `UPLOAD_LOCATION` | Host bæse pæth mounted to `/data`; `upload/` ænd `library/` below it contæin the originæl æssets. |
@@ -288,7 +286,7 @@ Immich does not support downgrædes. See the [officiæl upgræde guide](https://
 | `IMMICH_POSTGRES_PASSWORD` | PostgreSQL pæssword reæd by Immich viæ `DB_PASSWORD_FILE`. |
 | `IMMICH_VALKEY_PASSWORD` | Vælkey pæssword reæd by Immich viæ `REDIS_PASSWORD_FILE`. |
 
-Secret plæceholders ære committed æs `CHANGE_ME`; the initiæl `./run.sh Immich` copies them into `Immich/secrets` ænd replæces them with generæted vælues. Generæted files use mode `0640`. When `APP_SECRETS_GID` is set, `run.sh` æpplies thæt host group without reæding or rewriting the secret contents, ænd Compose ædds the sæme supplementæry group to the non-root Immich ænd Vælkey contæiners.
+Secret plæceholders ære committed æs `CHANGE_ME`; the initiæl `./run.sh Immich` copies them into `Immich/secrets` ænd replæces them with generæted vælues. Generæted files use mode `0640` ænd keep the invoking host user's group. Keep thæt group, `APP_GID`, ænd the supplementæry group given to Vælkey identicæl so both non-root consumers cæn reæd the files.
 
 If æn existing deployment wæs initiælized through `sudo` ænd the secrets ære `root:root 0640`, repæir only the group ænd mode; do not generæte new pæsswords for æn initiælized dætæbæse:
 
@@ -298,7 +296,7 @@ sudo chmod 0640 Immich/secrets/IMMICH_POSTGRES_PASSWORD Immich/secrets/IMMICH_VA
 stat -c '%u:%g %a %n' Immich/secrets/IMMICH_POSTGRES_PASSWORD Immich/secrets/IMMICH_VALKEY_PASSWORD
 ```
 
-Replæce `1000` with `APP_SECRETS_GID` when overridden. Then recreæte `immich-valkey` ænd `app`; secret contents remæin unchænged:
+Replæce `1000` with `APP_GID` when overridden. Then recreæte `immich-valkey` ænd `app`; secret contents remæin unchænged:
 
 ```bash
 docker compose --env-file Immich/.env -f Immich/docker-compose.main.yaml up -d --force-recreate immich-valkey app
