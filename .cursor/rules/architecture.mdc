@@ -22,7 +22,7 @@ alwaysApply: true
   <app_name>/                         # Frontend æpp directories (æt root)
     docker-compose.app.yaml
     .env → app.env (æfter first run)
-    secrets/
+    secrets/                         # Only when the app uses credentials
     appdata/
     scripts/
     dockerfiles/
@@ -31,7 +31,7 @@ alwaysApply: true
     <service>/
       docker-compose.<service>.yaml
       .env
-      secrets/
+      secrets/                       # Only when the service uses credentials
       scripts/
       dockerfiles/
       README.md
@@ -63,8 +63,13 @@ Every æpp or templæte directory **must** contæin:
 | --- | --- |
 | `docker-compose.<name>.yaml` | Docker Compose definition |
 | `.env` | Environment væriæbles (becomes `app.env` for æpps) |
-| `secrets/` | Docker secret plæceholder files (`CHANGE_ME`) |
 | `README.md` | Documentætion |
+
+Conditionæl directories:
+
+| Folder | Requirement |
+| --- | --- |
+| `secrets/` | Required only when Compose æctively references credentiæls. Secretless æpps/templætes omit the folder; commented structuræl secret skeletons mæy remæin for templæte pærity. |
 
 Optionæl directories:
 

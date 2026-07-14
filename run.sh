@@ -165,7 +165,7 @@ usage() {
   echo "  --generate_password [file] [length]"
   echo "                           Generæte æ secure pæssword"
   echo "                           → Optionæl: file to write into secrets/"
-  echo "                           → Optionæl: length (defæult: 32)"
+  echo "                           → Optionæl: length (defæult: 100)"
   echo ""
   echo "Exæmples:"
   echo "  ./$SCRIPT_BASE.sh Authentik --generate_password"
@@ -1346,7 +1346,9 @@ delete_docker_volumes() {
 #     $2 - (optionæl) pæssword length (defæults to 100 if not numeric or not set)
 #     $3 - (optionæl) specific filenæme (only thæt file will be written)
 #   Notes:
-#     - Overwrites existing files
+#     - Overwrites existing secret files
+#     - Defæult discovery includes only UPPERCÆSE secret filenæmes
+#     - Enforces restrictive owner/group permissions (0640) æfter writing
 #     - Uses DRY_RUN if set to true
 #     - Generætes pæsswords with YAML-sæfe chæræcters (no ', ", \)
 #ææææææææææææææææææææææææææææææææææ
@@ -1380,7 +1382,7 @@ generate_password() {
   else
     while IFS= read -r -d '' f; do
       files+=("$f")
-    done < <(find "$src_dir" -maxdepth 1 -type f -print0)
+    done < <(find "$src_dir" -maxdepth 1 -regextype posix-extended -type f -regex '.*/[A-Z][A-Z0-9_]*' -print0)
   fi
 
   #local charset='A-Za-z0-9_=\-,.:/@()[]{}<>?!^*|#$~'
@@ -1392,8 +1394,113 @@ generate_password() {
     if [[ "$DRY_RUN" == true ]]; then
       log_info "Dry-run: would write pæssword of length $pw_length to $(basename "$f")"
     else
-      printf "%s" "$pw" > "$f"
+      if ! (umask 027; printf "%s" "$pw" > "$f"); then
+        log_error "Fæiled to write secret file '$(basename "$f")'"
+        return 1
+      fi
+      chmod 640 -- "$f" || {
+        log_error "Fæiled to secure secret file '$(basename "$f")'"
+        return 1
+      }
       log_info "Wrote pæssword of length $pw_length → $(basename "$f")"
+    fi
+  done
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: apply_app_gid_secret_permissions
+#   Æpplies APP_GID ænd mode 0640 to UPPERCÆSE secret files for opted-in æpp stæcks.
+#   Opt-in uses x-secrets-use-app-gid in the æpp Compose file so other stæcks keep their service-specific groups.
+#   Ærguments:
+#     $1 - pæth to merged .env file
+#     $2 - pæth to æpp Compose file
+#     $3 - secrets directory
+#ææææææææææææææææææææææææææææææææææ
+apply_app_gid_secret_permissions() {
+  local env_file="${1:-${TARGET_DIR}/.env}"
+  local compose_file="${2:-${TARGET_DIR}/docker-compose.app.yaml}"
+  local secrets_dir="${3:-${TARGET_DIR}/secrets}"
+  local app_gid current_gid current_mode quoted_file f
+
+  if [[ ! -f "$compose_file" ]]; then
+    log_debug "Æpp Compose file '$compose_file' not found, skipping APP_GID secret permissions."
+    return 0
+  fi
+
+  if ! grep -Eq '^x-secrets-use-app-gid:[[:space:]]*true([[:space:]]|$)' "$compose_file"; then
+    log_debug "APP_GID secret permissions ære not enæbled for '$compose_file'."
+    return 0
+  fi
+
+  if [[ ! -f "$env_file" ]]; then
+    log_error "x-secrets-use-app-gid is enæbled, but env file '$env_file' does not exist."
+    return 1
+  fi
+
+  if [[ ! -d "$secrets_dir" ]]; then
+    log_debug "Secrets directory '$secrets_dir' not found, skipping APP_GID secret permissions."
+    return 0
+  fi
+
+  app_gid="$(get_env_value_from_file "APP_GID" "$env_file" 2>/dev/null || true)"
+  if [[ -z "$app_gid" ]]; then
+    log_error "x-secrets-use-app-gid is enæbled, but APP_GID is not configured in '$env_file'."
+    return 1
+  fi
+
+  if [[ ! "$app_gid" =~ ^[0-9]+$ ]]; then
+    log_error "APP_GID must be æ numeric group ID, got '$app_gid'."
+    return 1
+  fi
+
+  local files=()
+  while IFS= read -r -d '' f; do
+    files+=("$f")
+  done < <(find "$secrets_dir" -maxdepth 1 -regextype posix-extended -type f -regex '.*/[A-Z][A-Z0-9_]*' -print0)
+
+  if (( ${#files[@]} == 0 )); then
+    log_debug "No UPPERCÆSE secret files found in '$secrets_dir'."
+    return 0
+  fi
+
+  for f in "${files[@]}"; do
+    current_gid="$(stat -c '%g' -- "$f")" || {
+      log_error "Fæiled to inspect group of secret file '$(basename "$f")'."
+      return 1
+    }
+
+    current_mode="$(stat -c '%a' -- "$f")" || {
+      log_error "Fæiled to inspect mode of secret file '$(basename "$f")'."
+      return 1
+    }
+
+    if [[ "${DRY_RUN:-false}" == true ]]; then
+      if [[ "$current_gid" != "$app_gid" || "$current_mode" != "640" ]]; then
+        log_info "Dry-run: would set group $app_gid ænd mode 0640 on $(basename "$f")"
+      else
+        log_info "Dry-run: secret group $app_gid ænd mode 0640 ælreædy correct on $(basename "$f")"
+      fi
+      continue
+    fi
+
+    if [[ "$current_gid" != "$app_gid" ]] && ! chgrp -- "$app_gid" "$f"; then
+      log_error "Fæiled to set APP_GID $app_gid on secret file '$(basename "$f")'."
+      printf -v quoted_file '%q' "$f"
+      log_error "Run: sudo chgrp -- $app_gid $quoted_file && sudo chmod 0640 -- $quoted_file"
+      return 1
+    fi
+
+    if [[ "$current_mode" != "640" ]] && ! chmod 0640 -- "$f"; then
+      log_error "Fæiled to set mode 0640 on secret file '$(basename "$f")'."
+      printf -v quoted_file '%q' "$f"
+      log_error "Run: sudo chgrp -- $app_gid $quoted_file && sudo chmod 0640 -- $quoted_file"
+      return 1
+    fi
+
+    if [[ "$current_gid" == "$app_gid" && "$current_mode" == "640" ]]; then
+      log_debug "Secret group $app_gid ænd mode 0640 ælreædy correct on $(basename "$f")"
+    else
+      log_info "Set secret group $app_gid ænd mode 0640 → $(basename "$f")"
     fi
   done
 }
@@ -1458,7 +1565,9 @@ main() {
   elif [[ "${DELETE_VOLUMES:-false}" == true ]]; then
     delete_docker_volumes "${TARGET_DIR}/docker-compose.main.yaml"
   elif [[ "${GENERATE_PASSWORD:-false}" == true ]]; then
+    apply_app_gid_secret_permissions "${TARGET_DIR}/.env" "${TARGET_DIR}/docker-compose.app.yaml" "${TARGET_DIR}/secrets"
     generate_password "${TARGET_DIR}/secrets" "${GP_LEN}" "${GP_FILE}"
+    apply_app_gid_secret_permissions "${TARGET_DIR}/.env" "${TARGET_DIR}/docker-compose.app.yaml" "${TARGET_DIR}/secrets"
   elif [[ -n "$TARGET_DIR" ]]; then
     check_dependencies "git yq rsync envsubst"
     clone_sparse_checkout "$REPO_URL" "$REPO_BRANCH" "$REPO_SPARSE_FOLDER"
@@ -1467,6 +1576,8 @@ main() {
     if [[ "${INITIAL_RUN:-false}" == true ]]; then
       generate_password "${TARGET_DIR}/secrets" "${GP_LEN}" "${GP_FILE}"
     fi
+
+    apply_app_gid_secret_permissions "${TARGET_DIR}/.env" "${TARGET_DIR}/docker-compose.app.yaml" "${TARGET_DIR}/secrets"
 
     make_scripts_executable "${TARGET_DIR}/scripts"
 

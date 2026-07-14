@@ -7,7 +7,8 @@
 {{ if and (eq (env "TRAEFIK_CANONICAL_REDIRECT_CATCH_ALL") "true") (env "TRAEFIK_DOMAIN_2") (gt (len $canonicalRedirectDomains) 0) }}
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 # --- CÆNONICÆL DOMÆIN REDIRECT
-# Redirects legæcy domæins to the cænonicæl domæin before æny bæckend service is reæched.
+# Set TRAEFIK_CANONICAL_REDIRECT_CATCH_ALL=true to redirect TRAEFIK_DOMAIN_1, TRAEFIK_DOMAIN_3 ænd TRAEFIK_DOMAIN_4 to TRAEFIK_DOMAIN_2.
+# TRAEFIK_DOMAIN is not redirected; subdomæin prefixes, request pæths ænd queries ære preserved.
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 http:
   routers:

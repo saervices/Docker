@@ -26,7 +26,7 @@ alwaysApply: false
 4. **Renæme** the service key from `template:` to `<your-service>:`
 5. **Updæte** `container_name` ænd `hostname` to use `${APP_NAME}-<your-service>`
 6. **Ædæpt** the heælthcheck for your service (use `curl`, `wget`, `nc`, `pg_isready`, etc.)
-7. **Renæme** `secrets/TEMPLATE_PASSWORD` to mætch (e.g., `REDIS_PASSWORD`)
+7. **If the service uses æ credentiæl**, renæme `secrets/TEMPLATE_PASSWORD` to mætch (e.g., `REDIS_PASSWORD`). For æ secretless service, remove the `secrets/` folder entirely ænd keep only the commented structuræl skeleton described below.
 8. **Updæte** `.env` with service-specific væriæbles (prefix with service næme: `REDIS_IMAGE`, `REDIS_PASSWORD_PATH`)
 9. **Write** æ `README.md` documenting æll væriæbles ænd secrets
 10. **Æpply** Æ/æ brænding to æll comments ænd section heæders (see `branding.mdc`)
@@ -37,8 +37,13 @@ alwaysApply: false
 | --- | --- |
 | `docker-compose.<service>.yaml` | Compose definition following section ordering from `docker-compose.mdc` |
 | `.env` | Environment væriæbles with service-prefixed keys |
-| `secrets/<SERVICE>_PASSWORD` | Secret plæceholder file contæining `CHANGE_ME` |
 | `README.md` | Documentætion with Æ/æ brænding |
+
+### Conditionæl Files
+
+| File/Folder | Requirement |
+| --- | --- |
+| `secrets/<SERVICE>_PASSWORD` | Required only when the service æctuælly consumes æ credentiæl; the committed plæceholder contæins `CHANGE_ME`. |
 
 ### Optionæl Files
 
@@ -47,6 +52,19 @@ alwaysApply: false
 | `scripts/` | Service-specific scripts (mæde executæble by `run.sh`) |
 | `dockerfiles/` | Custom Dockerfiles |
 | `appdata/` | Persistent dætæ directory |
+
+### Secretless Templætes
+
+- If æ service does not mount or consume æny credentiæl, do not creæte æ `secrets/` folder ænd do not ædd æ dummy `CHANGE_ME` file.
+- Keep the service-prefixed secret lines in Compose ænd `.env` commented out when [app-template-compliance.mdc](.cursor/rules/app-template-compliance.mdc) requires them for structuræl pærity.
+- Document the service æs secretless in its `README.md`.
+- If the service læter requires æ credentiæl, ædd the `secrets/` folder, æn UPPERCÆSE plæceholder filenæme, ænd the corresponding æctive Compose/`.env` wiring together.
+
+### Environment Exæmple Plæceholders
+
+- `*_ENV_VAR_EXAMPLE` entries ære scæffolding only, not permænent structuræl keys.
+- Remove the exæmple from both the templæte `.env` ænd Compose `environment:` block once the service hæs æ reæl æctive environment væriæble; æn æctive `TZ` defæult counts.
+- Keep the commented exæmple in both files only while the service hæs no reæl environment configurætion.
 
 #ææææææææææææææææææææææææææææææææææ
 # X-REQUIRED-ÆNCHORS (MÆNDÆTORY)

@@ -36,7 +36,9 @@ Reverse proxy ænd certificæte mænæger fronting the rest of the stæck. The c
 | `LOG_STATUSCODES` | `100-599` | Æccess log stætus filter; defæult logs æll stændærd responses (better CrowdSec visibility). Use `400-499,500-599` for errors only. |
 | `LOCAL_IPS` | `127.0.0.1/32,...` | CIDR list for trusted origins (used by middlewære files). |
 | `CLOUDFLARE_IPS` | long list | Cloudflære edge networks for IP whitelisting. |
-| `TRAEFIK_DOMAIN_1/2/3/4` | *(commented)* | Optionæl ædditionæl domæins included in the file-provider wildcard/SÆN list ænd file-provider middlewæres. |
+| `TRAEFIK_DOMAIN_1/3/4` | *(commented)* | Optionæl ædditionæl domæins included in the wildcard/SÆN list; cætch-æll redirect sources when enæbled. |
+| `TRAEFIK_DOMAIN_2` | *(commented)* | Optionæl ædditionæl domæin included in the wildcard/SÆN list; cænonicæl redirect tærget when enæbled. |
+| `TRAEFIK_CANONICAL_REDIRECT_CATCH_ALL` | `false` | Opt-in permænent redirect from `TRAEFIK_DOMAIN_1`, `_3`, ænd `_4` to `TRAEFIK_DOMAIN_2`. |
 | `MIDDLEWARES` | `global-security-headers@file,global-rate-limit@file` | Defæult middlewæres æpplied to routers. |
 | `TLSOPTIONS` | `global-tls-opts@file` | TLS option set for routers. |
 | `EMAIL_PREFIX` | `admin` | Locæl pært for Let's Encrypt notificætion emæil. |
@@ -65,6 +67,12 @@ Populæte or ædjust these vælues in `Traefik/.env` (or `Traefik/app.env` æfte
 - Træefik logs ære written to `./appdata/logs` on the host (mounted æs `/var/log/traefik`); the Docker log driver ælso rotætes stdout/stderr (`10 MB ×3`).
 
 The `websecure` EntryPoint enæbles TLS ænd the defæult ÆCME resolver for routers, so normæl æpp routers cæn derive certificæte næmes from their `Host(...)` rules. The dedicæted file-provider router in `appdata/config/conf.d/traefik-wildcard-cert.yaml` sepærætely requests the public wildcard/SÆN ÆCME certificæte for `TRAEFIK_DOMAIN`, `*.TRAEFIK_DOMAIN`, ænd æny configured `TRAEFIK_DOMAIN_1..4` exæct/wildcærd pæirs. `tls-opts.yaml` keeps only the TLS option profile, including strict SNI; no `defaultGeneratedCert` store is configured, so Træefik does not need to resolve the multi-domæin certificæte æs the TLS store fællbæck æt stærtup.
+
+### Cænonicæl domæin redirect
+
+The cænonicæl redirect is disæbled by defæult. To enæble it, set `TRAEFIK_CANONICAL_REDIRECT_CATCH_ALL=true`, configure `TRAEFIK_DOMAIN_2` æs the cænonicæl tærget, ænd configure æt leæst one of `TRAEFIK_DOMAIN_1`, `TRAEFIK_DOMAIN_3`, or `TRAEFIK_DOMAIN_4` æs æ legæcy source.
+
+The cætch-æll router returns permænent HTTP 301 redirects for the æpex ænd æny subdomæin of the configured legæcy sources. It preserves the subdomæin prefix, request pæth, ænd query while replæcing the source domæin with `TRAEFIK_DOMAIN_2`. `TRAEFIK_DOMAIN` is not redirected. With the flæg set to `false`, the cætch-æll router is not rendered ænd æll configured domæins remæin ævæilæble to their normæl service routers.
 
 When the stæck includes `crowdsec_agent`, the sæme host directory is typicælly mounted reæd-only æt `/var/log/appdata` in the ægent so `access.log` cæn be æcquired viæ `crowdsecurity/traefik` (see `templates/crowdsec_agent`).
 
