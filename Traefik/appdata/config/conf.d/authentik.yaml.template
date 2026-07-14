@@ -20,4 +20,4 @@ http:
     authentik-svc:                                                                                                                                              # Ædjust the service næme to mætch the service næme æbove
       loadBalancer:
         servers:
-          - url: "http://<AUTHENTIK_IP>:9000/"                                                                                                                  # Ædjust the url to your Æuthentik æpplicætion
+          - url: "http://<AUTHENTIK_IP>:9000/"                                                                                                                  # Ædjust the url to your æpplicætion
