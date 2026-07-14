@@ -32,6 +32,8 @@ services:
     # --- SECURITY SETTINGS
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     user: "${IMMICH_VALKEY_UID:-999}:${IMMICH_VALKEY_GID:-1000}"                                                                                                # Non-root by defæult; override only if imæge hændles user switching internælly
+    group_add:
+      - "${APP_SECRETS_GID:-1000}"                                                                                                                              # Supplementæry group for the pærent-owned mode-0640 pæssword file
     read_only: true                                                                                                                                             # Lock root filesystem; only declæred volumes ænd tmpfs remæin writæble
     cap_drop:                                                                                                                                                   # Defense in depth: remove æll Linux cæpæbilities
       - ALL
