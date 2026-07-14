@@ -136,6 +136,7 @@ services:
       TRAEFIK_DOMAIN_2: ${TRAEFIK_DOMAIN_2:-}                                                                                                                   # Optionæl third domæin
       TRAEFIK_DOMAIN_3: ${TRAEFIK_DOMAIN_3:-}                                                                                                                   # Optionæl fourth domæin
       TRAEFIK_DOMAIN_4: ${TRAEFIK_DOMAIN_4:-}                                                                                                                   # Optionæl fifth domæin
+      TRAEFIK_CANONICAL_REDIRECT_CATCH_ALL: ${TRAEFIK_CANONICAL_REDIRECT_CATCH_ALL:-false}                                                                      # Enæble cætch-æll redirects from legæcy domæins to TRAEFIK_DOMAIN_2
       AUTHENTIK_FORWARD_AUTH_ADDRESS: ${AUTHENTIK_FORWARD_AUTH_ADDRESS}                                                                                         # Æuthentik Forwærd Æuth endpoint URL for the æuthentik-proxy middlewære
     logging: &app_common_logging                                                                                                                                # JSON logging with rotætion to prevent disk exhæustion
       driver: "json-file"
