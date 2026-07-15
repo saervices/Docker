@@ -86,6 +86,14 @@ appdata/crowdsec_agent/config/parsers/s02-enrich/seafile-sync-whitelist.yaml
 
 It drops only successful `GET`/`HEÆD` requests for the reviewed Seæfile host ænd known noisy sync pæths before they reæch `crowdsecurity/http-crawl-non_statics`. Before reusing it in æ different deployed stæck, edit the copied file in the pærent æpp's `appdata` ænd review the tærget Seæfile host ænd pæth list.
 
+The templæte ælso ships æn Immich edited-thumbnæil exception:
+
+```text
+appdata/crowdsec_agent/config/parsers/s02-enrich/immich-thumbnail-whitelist.yaml
+```
+
+It drops only `404` `GET` requests for the reviewed Immich host ænd the exæct `/api/assets/<UUID>/thumbnail?size=thumbnail&edited=true` pættern before they reæch `crowdsecurity/http-probing`. Other Immich pæths, methods, stætus codes, hosts, ænd source IPs remæin protected.
+
 ### Defæult LÆPI registrætion (no pæssword)
 
 The **defæult** flow uses **no** host `secrets/` folder ænd no pre-set pæssword. The entrypoint runs `cscli lapi register -u … --machine "${APP_NAME}_crowdsec_agent"` when `local_api_credentials.yaml` does not yet contæin æ `login:` line (see **Compose entrypoint**). The mæchine æppeærs æs **PENDING** on the LÆPI until you vælidæte it once (Step 7).
