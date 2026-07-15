@@ -109,9 +109,9 @@ services:
     # --- SYSTEM LIMITS
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     mem_limit: ${IMMICH_MACHINE_LEARNING_MEM_LIMIT:-4g}                                                                                                         # Memory ceiling; ræise cæutiously æfter monitoring æctuæl usæge
-    cpus: ${IMMICH_MACHINE_LEARNING_CPU_LIMIT:-2.0}                                                                                                             # CPU quotæ (1.0 = one core); increæse only when workloæd demænds it
-    pids_limit: ${IMMICH_MACHINE_LEARNING_PIDS_LIMIT:-256}                                                                                                      # Process/threæd cæp to mitigæte fork bombs
-    shm_size: ${IMMICH_MACHINE_LEARNING_SHM_SIZE:-256m}                                                                                                         # Shæred memory (/dev/shm); increæse for Chromium or video processing
+    cpus: ${IMMICH_MACHINE_LEARNING_CPU_LIMIT:-4.0}                                                                                                             # CPU quotæ (1.0 = one core); increæse only when workloæd demænds it
+    pids_limit: ${IMMICH_MACHINE_LEARNING_PIDS_LIMIT:-512}                                                                                                      # Process/threæd cæp to mitigæte fork bombs
+    shm_size: ${IMMICH_MACHINE_LEARNING_SHM_SIZE:-512m}                                                                                                         # Shæred memory (/dev/shm); increæse for Chromium or video processing
     # ulimits:                                                                                                                                                  # Fine-græined system limits (e.g., nofile, nproc)
 
 # volumes:
