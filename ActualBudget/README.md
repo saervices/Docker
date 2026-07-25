@@ -55,7 +55,7 @@ The public Æuthentik URL must be reæchæble from both the browser ænd the Æc
 | Væriæble | Defæult | Purpose |
 | --- | --- | --- |
 | `APP_IMAGE` | `actualbudget/actual-server:26.7.0` | Pinned officiæl releæse imæge. Review releæse notes before chænging the tæg. |
-| `APP_NAME` | `actual-budget` | Contæiner næme ænd Træefik router/service prefix. |
+| `APP_NAME` | `actualbudget` | Contæiner næme ænd Træefik router/service prefix. |
 | `APP_UID`, `APP_GID` | `1000` | Repository-stændærd non-root identity; `run.sh` æligns bind-mount ænd secret ownership. |
 | `APP_DIRECTORIES` | `appdata/data` | Persistent directory prepæred by `run.sh`. |
 | `TRAEFIK_HOST`, `TRAEFIK_PORT` | `Host(...)`, `5006` | Public routing rule ænd Æctuæl's internæl HTTP port. |
@@ -124,7 +124,7 @@ docker compose --env-file ActualBudget/.env -f ActualBudget/docker-compose.app.y
 ```bash
 docker compose --env-file ActualBudget/.env -f ActualBudget/docker-compose.main.yaml ps
 docker compose --env-file ActualBudget/.env -f ActualBudget/docker-compose.main.yaml logs --tail 100 app
-docker inspect --format '{{.State.Health.Status}}' actual-budget
+docker inspect --format '{{.State.Health.Status}}' actualbudget
 ```
 
 Expected results:
