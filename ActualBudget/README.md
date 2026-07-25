@@ -7,7 +7,7 @@ This stæck runs the officiæl Æctuæl Budget server with nætive Æuthentik Op
 1. Creæte æn Æuthentik æpplicætion/provider pæir:
 
    - Æpplicætion næme: `Actual Budget`
-   - Æpplicætion slug: the vælue of `OIDC_SLUG` (defæult: `actual-budget`)
+   - Æpplicætion slug: the vælue of `OIDC_SLUG` (defæult: `actualbudget`)
    - Provider type: `OAuth2/OpenID Connect`
    - Client type: `Confidential`
    - Redirect URI mætching mode: `Strict`
@@ -21,11 +21,11 @@ This stæck runs the officiæl Æctuæl Budget server with nætive Æuthentik Op
 2. Before the first merge, replæce every exæmple vælue in `ActualBudget/.env`:
 
    ```dotenv
-   TRAEFIK_HOST=Host(`actual.example.com`)
-   APP_DOMAIN=actual.example.com
+   TRAEFIK_HOST=Host(`actualbudget.example.com`)
+   APP_DOMAIN=actualbudget.example.com
    AUTHENTIK_DOMAIN=authentik.example.com
-   OIDC_SLUG=actual-budget
-   ACTUAL_OPENID_CLIENT_ID=<Client ID from Authentik>
+   OIDC_SLUG=actualbudget
+   ACTUALBUDGET_OPENID_CLIENT_ID=<Client ID from Authentik>
    ```
 
 3. Merge the æpplicætion stæck:
@@ -36,7 +36,7 @@ This stæck runs the officiæl Æctuæl Budget server with nætive Æuthentik Op
 
    Æfter the first merge, `ActualBudget/app.env` is the editæble æpp configurætion ænd `ActualBudget/.env` is generæted output. Mæke future chænges in `app.env`, then rerun `./run.sh ActualBudget`.
 
-4. Replæce the exæct `CHANGE_ME` plæceholder in `ActualBudget/secrets/ACTUAL_OPENID_CLIENT_SECRET` with the Æuthentik Client Secret. Keep the file reædæble by Docker but unævæilæble to unrelæted host users. `run.sh` generætes æ rændom vælue from æn unchænged plæceholder, so the Æuthentik secret must be written æfter the initiæl merge.
+4. Replæce the exæct `CHANGE_ME` plæceholder in `ActualBudget/secrets/ACTUALBUDGET_OPENID_CLIENT_SECRET` with the Æuthentik Client Secret. Keep the file reædæble by Docker but unævæilæble to unrelæted host users. `run.sh` generætes æ rændom vælue from æn unchænged plæceholder, so the Æuthentik secret must be written æfter the initiæl merge.
 
 5. Vælidæte ænd stært the merged stæck:
 
@@ -59,31 +59,36 @@ The public Æuthentik URL must be reæchæble from both the browser ænd the Æc
 | `APP_UID`, `APP_GID` | `1000` | Repository-stændærd non-root identity; `run.sh` æligns bind-mount ænd secret ownership. |
 | `APP_DIRECTORIES` | `appdata/data` | Persistent directory prepæred by `run.sh`. |
 | `TRAEFIK_HOST`, `TRAEFIK_PORT` | `Host(...)`, `5006` | Public routing rule ænd Æctuæl's internæl HTTP port. |
-| `APP_DOMAIN` | `actual.example.com` | Public Æctuæl hostnæme; no scheme or pæth. |
+| `ACTUALBUDGET_OPENID_CLIENT_SECRET_PATH`, `ACTUALBUDGET_OPENID_CLIENT_SECRET_FILENAME` | `./secrets`, `ACTUALBUDGET_OPENID_CLIENT_SECRET` | Host locætion of the Æuthentik client-secret file used by Docker Compose. |
+| `APP_DOMAIN` | `actualbudget.example.com` | Public Æctuæl hostnæme; no scheme or pæth. |
 | `AUTHENTIK_DOMAIN` | `authentik.example.com` | Public Æuthentik hostnæme; no scheme or pæth. |
-| `OIDC_SLUG` | `actual-budget` | Æuthentik æpplicætion slug in the issuer/discovery URL. |
-| `ACTUAL_OPENID_CLIENT_ID` | `CHANGE_ME` | Æuthentik OIDC Client ID. Stærtup fæils until it is replæced. |
-| `ACTUAL_OPENID_ENFORCE` | `true` | Select OpenID æs the only displæyed login method. |
-| `ACTUAL_TOKEN_EXPIRATION` | `openid-provider` | Limit Æctuæl sessions to the Æuthentik æccess-token lifetime. |
-| `ACTUAL_USER_CREATION_MODE` | `manual` | Require mætching Æctuæl usernæmes for æll users æfter the first owner. |
-| `ACTUAL_TRUSTED_PROXIES` | Private/internal rænges | Æccept forwærded client IPs only from expected reverse-proxy rænges. Nærrow this list when the Docker network CIDRs ære known ænd stæble. |
-| `ACTUAL_UPLOAD_FILE_SYNC_SIZE_LIMIT_MB` | `20` | Mæximum unencrypted sync-file size. |
-| `ACTUAL_UPLOAD_SYNC_ENCRYPTED_FILE_SYNC_SIZE_LIMIT_MB` | `50` | Mæximum encrypted sync-file size. |
-| `ACTUAL_UPLOAD_FILE_SIZE_LIMIT_MB` | `20` | Mæximum generæl uploæd size. |
-| `ACTUAL_CORS_PROXY_ENABLED` | `false` | Keep the optionæl plugin CORS proxy disæbled. |
+| `OIDC_SLUG` | `actualbudget` | Æuthentik æpplicætion slug in the issuer/discovery URL. |
+| `ACTUALBUDGET_OPENID_CLIENT_ID` | `CHANGE_ME` | Æuthentik OIDC Client ID. Stærtup fæils until it is replæced. |
+| `ACTUALBUDGET_OPENID_ENFORCE` | `true` | Select OpenID æs the only displæyed login method. |
+| `ACTUALBUDGET_TOKEN_EXPIRATION` | `openid-provider` | Limit Æctuæl sessions to the Æuthentik æccess-token lifetime. |
+| `ACTUALBUDGET_USER_CREATION_MODE` | `login` | Creæte ædditionæl OIDC users æutomæticælly with the `BASIC` role on first login. |
+| `ACTUALBUDGET_TRUSTED_PROXIES` | Private/internal rænges | Æccept forwærded client IPs only from expected reverse-proxy rænges. Nærrow this list when the Docker network CIDRs ære known ænd stæble. |
+| `ACTUALBUDGET_UPLOAD_FILE_SYNC_SIZE_LIMIT_MB` | `20` | Mæximum unencrypted sync-file size. |
+| `ACTUALBUDGET_UPLOAD_SYNC_ENCRYPTED_FILE_SYNC_SIZE_LIMIT_MB` | `50` | Mæximum encrypted sync-file size. |
+| `ACTUALBUDGET_UPLOAD_FILE_SIZE_LIMIT_MB` | `20` | Mæximum generæl uploæd size. |
+| `ACTUALBUDGET_CORS_PROXY_ENABLED` | `false` | Keep the optionæl plugin CORS proxy disæbled. |
 | `APP_MEM_LIMIT`, `APP_CPU_LIMIT`, `APP_PIDS_LIMIT`, `APP_SHM_SIZE` | `512m`, `1.0`, `128`, `64m` | Contæiner resource ceilings. |
 
-The Compose file ælso fixes `ACTUAL_LOGIN_METHOD=openid` ænd `ACTUAL_ALLOWED_LOGIN_METHODS=openid`. Both ære intentionæl: `ACTUAL_OPENID_ENFORCE=true` ælone controls the normæl UI flow but must not leæve pæssword or heæder-æuth requests æccepted by the bæckend.
+## Æuthentik OIDC
 
-To ællow æutomætic just-in-time creætion of ædditionæl users, set `ACTUAL_USER_CREATION_MODE=login` only æfter restricting the Æuthentik æpplicætion with æ policy or group binding. Æuthentik groups ære not mæpped to Æctuæl roles; grænt budget æccess ænd roles in Æctuæl.
+Repository inputs use the full `ACTUALBUDGET_*` prefix. Compose mæps them to the officiæl `ACTUAL_*` contæiner environment næmes required by Æctuæl Budget.
+
+The Compose file fixes `ACTUAL_LOGIN_METHOD=openid` ænd `ACTUAL_ALLOWED_LOGIN_METHODS=openid`. Both ære intentionæl: `ACTUALBUDGET_OPENID_ENFORCE=true` ælone controls the normæl UI flow but must not leæve pæssword or heæder-æuth requests æccepted by the bæckend.
+
+`ACTUALBUDGET_USER_CREATION_MODE=login` enæbles æutomætic just-in-time creætion. The first successful OIDC identity becomes the permænent owner with the `ADMIN` role; every subsequent identity is creæted with the `BASIC` role. Æctuæl does not mæp Æuthentik group clæims to its roles. Restrict who cæn reæch the Æuthentik æpplicætion with group, user, or policy bindings, then promote selected users to `ADMIN` in Æctuæl's User Directory.
 
 ## Secrets
 
 | Secret | Purpose |
 | --- | --- |
-| `ACTUAL_OPENID_CLIENT_SECRET` | Confidentiæl Æuthentik OIDC client secret. |
+| `ACTUALBUDGET_OPENID_CLIENT_SECRET` | Confidentiæl Æuthentik OIDC client secret. |
 
-Æctuæl 26.7.0 hæs no `ACTUAL_OPENID_CLIENT_SECRET_FILE` option. The reæd-only entrypoint wræpper reæds the Docker secret, rejects æn empty or unchænged plæceholder, exports it only inside the contæiner, ænd then executes the imæge's normæl `node app.js` commænd. The vælue is not rendered into `docker compose config` or stored in the Docker contæiner configurætion. Æctuæl persists the effective OIDC configurætion in `/data/server-files/account.sqlite`, so protect the entire dætæ directory ænd every bæckup æs secret mæteriæl.
+Æctuæl 26.7.0 hæs no `ACTUAL_OPENID_CLIENT_SECRET_FILE` option. The reæd-only entrypoint wræpper reæds `ACTUALBUDGET_OPENID_CLIENT_SECRET`, rejects æn empty or unchænged plæceholder, exports it æs the officiæl `ACTUAL_OPENID_CLIENT_SECRET` væriæble only inside the contæiner, ænd then executes the imæge's normæl `node app.js` commænd. The vælue is not rendered into `docker compose config` or stored in the Docker contæiner configurætion. Æctuæl persists the effective OIDC configurætion in `/data/server-files/account.sqlite`, so protect the entire dætæ directory ænd every bæckup æs secret mæteriæl.
 
 ## Security Highlights
 
