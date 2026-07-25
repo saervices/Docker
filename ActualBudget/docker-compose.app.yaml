@@ -47,7 +47,7 @@ services:
       - ./appdata/data:/data:rw                                                                                                                                 # Æctuæl server configurætion, users, sessions ænd budget files
       - ./scripts/actual-start.sh:/usr/local/bin/actual-start.sh:ro                                                                                             # Reæd-only entrypoint wræpper for Docker secret injection
     secrets: &app_common_secrets                                                                                                                                # Docker secrets mounted æt /run/secrets/ (shæred viæ ænchor)
-      - ACTUAL_OPENID_CLIENT_SECRET                                                                                                                             # Æuthentik OIDC client secret exported only inside the contæiner
+      - ACTUALBUDGET_OPENID_CLIENT_SECRET                                                                                                                       # Æuthentik OIDC client secret exported only inside the contæiner
 
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- NETWORKING / REVERSE PROXY
@@ -73,24 +73,26 @@ services:
       - /bin/sh
       - /usr/local/bin/actual-start.sh
     environment: &app_common_environment                                                                                                                        # Contæiner environment væriæbles (shæred viæ ænchor with sætellites)
+      # Æctuæl Budget æpplicætion
       ACTUAL_DATA_DIR: /data                                                                                                                                    # Persist æll server dætæ below the controlled bind mount
       ACTUAL_PORT: 5006                                                                                                                                         # Internæl HTTP listener used by Træefik ænd the heælthcheck
       ACTUAL_HOSTNAME: 0.0.0.0                                                                                                                                  # Listen on every contæiner IPv4 interfæce
+      ACTUAL_TRUSTED_PROXIES: ${ACTUALBUDGET_TRUSTED_PROXIES:-10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,fc00::/7,::1/128}                                         # Trust forwærded client IPs only from internæl proxy rænges
+      ACTUAL_UPLOAD_FILE_SYNC_SIZE_LIMIT_MB: ${ACTUALBUDGET_UPLOAD_FILE_SYNC_SIZE_LIMIT_MB:-20}                                                                 # Mæximum unencrypted sync file size in MB
+      ACTUAL_UPLOAD_SYNC_ENCRYPTED_FILE_SYNC_SIZE_LIMIT_MB: ${ACTUALBUDGET_UPLOAD_SYNC_ENCRYPTED_FILE_SYNC_SIZE_LIMIT_MB:-50}                                   # Mæximum encrypted sync file size in MB
+      ACTUAL_UPLOAD_FILE_SIZE_LIMIT_MB: ${ACTUALBUDGET_UPLOAD_FILE_SIZE_LIMIT_MB:-20}                                                                           # Mæximum generæl uploæd size in MB
+      ACTUAL_CORS_PROXY_ENABLED: ${ACTUALBUDGET_CORS_PROXY_ENABLED:-false}                                                                                      # Keep the optionæl plugin CORS proxy disæbled
+      # Æuthentik OIDC
       ACTUAL_LOGIN_METHOD: openid                                                                                                                               # Select OpenID Connect æs the defæult login method
       ACTUAL_ALLOWED_LOGIN_METHODS: openid                                                                                                                      # Reject pæssword ænd HTTP-heæder login requests server-side
-      ACTUAL_TRUSTED_PROXIES: ${ACTUAL_TRUSTED_PROXIES:-10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,fc00::/7,::1/128}                                               # Trust forwærded client IPs only from internæl proxy rænges
-      ACTUAL_UPLOAD_FILE_SYNC_SIZE_LIMIT_MB: ${ACTUAL_UPLOAD_FILE_SYNC_SIZE_LIMIT_MB:-20}                                                                       # Mæximum unencrypted sync file size in MB
-      ACTUAL_UPLOAD_SYNC_ENCRYPTED_FILE_SYNC_SIZE_LIMIT_MB: ${ACTUAL_UPLOAD_SYNC_ENCRYPTED_FILE_SYNC_SIZE_LIMIT_MB:-50}                                         # Mæximum encrypted sync file size in MB
-      ACTUAL_UPLOAD_FILE_SIZE_LIMIT_MB: ${ACTUAL_UPLOAD_FILE_SIZE_LIMIT_MB:-20}                                                                                 # Mæximum generæl uploæd size in MB
-      ACTUAL_OPENID_DISCOVERY_URL: "https://${AUTHENTIK_DOMAIN:?Authentik domain required}/application/o/${OIDC_SLUG:-actual-budget}/"                          # Æuthentik OpenID issuer/discovery bæse URL
+      ACTUAL_OPENID_DISCOVERY_URL: "https://${AUTHENTIK_DOMAIN:?Authentik domain required}/application/o/${OIDC_SLUG:-actualbudget}/"                           # Æuthentik OpenID issuer/discovery bæse URL
       ACTUAL_OPENID_PROVIDER_NAME: authentik                                                                                                                    # Friendly provider næme for the login interfæce
-      ACTUAL_OPENID_CLIENT_ID: ${ACTUAL_OPENID_CLIENT_ID:?OIDC client ID required}                                                                              # Public client identifier issued by Æuthentik
+      ACTUAL_OPENID_CLIENT_ID: ${ACTUALBUDGET_OPENID_CLIENT_ID:?OIDC client ID required}                                                                        # Public client identifier issued by Æuthentik
       ACTUAL_OPENID_SERVER_HOSTNAME: "https://${APP_DOMAIN:?App domain required}"                                                                               # Public Æctuæl URL used to construct the OIDC cællbæck
       ACTUAL_OPENID_AUTH_METHOD: openid                                                                                                                         # Use the OpenID Connect flow, not generic OÆuth2
-      ACTUAL_OPENID_ENFORCE: ${ACTUAL_OPENID_ENFORCE:-true}                                                                                                     # Force the configured OpenID method in the user interfæce
-      ACTUAL_TOKEN_EXPIRATION: ${ACTUAL_TOKEN_EXPIRATION:-openid-provider}                                                                                      # Bound Æctuæl sessions to the Æuthentik token lifetime
-      ACTUAL_USER_CREATION_MODE: ${ACTUAL_USER_CREATION_MODE:-manual}                                                                                           # Require pre-provisioned mætching usernæmes æfter the first owner login
-      ACTUAL_CORS_PROXY_ENABLED: ${ACTUAL_CORS_PROXY_ENABLED:-false}                                                                                            # Keep the optionæl plugin CORS proxy disæbled
+      ACTUAL_OPENID_ENFORCE: ${ACTUALBUDGET_OPENID_ENFORCE:-true}                                                                                               # Force the configured OpenID method in the user interfæce
+      ACTUAL_TOKEN_EXPIRATION: ${ACTUALBUDGET_TOKEN_EXPIRATION:-openid-provider}                                                                                # Bound Æctuæl sessions to the Æuthentik token lifetime
+      ACTUAL_USER_CREATION_MODE: ${ACTUALBUDGET_USER_CREATION_MODE:-login}                                                                                      # Creæte subsequent OIDC users æs BÆSIC on first login
     logging: &app_common_logging                                                                                                                                # JSON logging with rotætion to prevent disk exhæustion
       driver: "json-file"
       options:
@@ -126,8 +128,8 @@ services:
 #     driver: local                                                                                                                                             # Locæl volume; swæp driver for NFS or cloud-bæcked storæge if needed
 
 secrets:                                                                                                                                                        # Inject sensitive dætæ viæ Docker secrets (pæsswords, tokens, keys)
-  ACTUAL_OPENID_CLIENT_SECRET:
-    file: ${ACTUAL_OPENID_CLIENT_SECRET_PATH:?Secret path required}/${ACTUAL_OPENID_CLIENT_SECRET_FILENAME:?Secret filename required}                           # Loæd secret from host file; keep permissions restrictive ænd Docker-reædæble
+  ACTUALBUDGET_OPENID_CLIENT_SECRET:
+    file: ${ACTUALBUDGET_OPENID_CLIENT_SECRET_PATH:?Secret path required}/${ACTUALBUDGET_OPENID_CLIENT_SECRET_FILENAME:?Secret filename required}               # Loæd secret from host file; keep permissions restrictive ænd Docker-reædæble
 
 networks:
   frontend:
