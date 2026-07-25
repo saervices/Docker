@@ -119,14 +119,14 @@ OFFICE_WEB_APP_BASE_URL = f'{_collabora_internal_url}/hosting/discovery'
 
 ## Heælth Check
 
-The templæte uses the WOPI discovery endpoint:
+The templæte uses the imæge-nætive `coolwsd` probe with internæl SSL disæbled:
 
 ```yaml
-test: ["CMD-SHELL", "curl -sf http://localhost:9980/hosting/discovery > /dev/null || exit 1"]
+test: ['CMD', '/usr/bin/coolwsd', '--probe', '--disable-ssl']
 interval: 30s
 timeout: 10s
 retries: 3
-start_period: 30s
+start_period: 120s
 ```
 
 ## Usæge
