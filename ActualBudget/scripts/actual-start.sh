@@ -11,25 +11,33 @@
 set -eu
 umask 077
 
-readonly ACTUALBUDGET_OPENID_SECRET_FILE="/run/secrets/ACTUALBUDGET_OPENID_CLIENT_SECRET"
+readonly ACTUALBUDGET_OPENID_CLIENT_ID_FILE="/run/secrets/ACTUALBUDGET_OPENID_CLIENT_ID"
+readonly ACTUALBUDGET_OPENID_CLIENT_SECRET_FILE="/run/secrets/ACTUALBUDGET_OPENID_CLIENT_SECRET"
 
-if [ ! -r "$ACTUALBUDGET_OPENID_SECRET_FILE" ] || [ ! -s "$ACTUALBUDGET_OPENID_SECRET_FILE" ]; then
+if [ ! -r "$ACTUALBUDGET_OPENID_CLIENT_ID_FILE" ] || [ ! -s "$ACTUALBUDGET_OPENID_CLIENT_ID_FILE" ]; then
+    echo "[entrypoint] ACTUALBUDGET_OPENID_CLIENT_ID is missing, unreadable, or empty" >&2
+    exit 1
+fi
+
+ACTUAL_OPENID_CLIENT_ID="$(cat "$ACTUALBUDGET_OPENID_CLIENT_ID_FILE")"
+if [ -z "$ACTUAL_OPENID_CLIENT_ID" ] || [ "$ACTUAL_OPENID_CLIENT_ID" = "CHANGE_ME" ]; then
+    echo "[entrypoint] ACTUALBUDGET_OPENID_CLIENT_ID is empty or still CHANGE_ME" >&2
+    exit 1
+fi
+
+if [ ! -r "$ACTUALBUDGET_OPENID_CLIENT_SECRET_FILE" ] || [ ! -s "$ACTUALBUDGET_OPENID_CLIENT_SECRET_FILE" ]; then
     echo "[entrypoint] ACTUALBUDGET_OPENID_CLIENT_SECRET is missing, unreadable, or empty" >&2
     exit 1
 fi
 
-ACTUAL_OPENID_CLIENT_SECRET="$(cat "$ACTUALBUDGET_OPENID_SECRET_FILE")"
+ACTUAL_OPENID_CLIENT_SECRET="$(cat "$ACTUALBUDGET_OPENID_CLIENT_SECRET_FILE")"
 if [ -z "$ACTUAL_OPENID_CLIENT_SECRET" ] || [ "$ACTUAL_OPENID_CLIENT_SECRET" = "CHANGE_ME" ]; then
     echo "[entrypoint] ACTUALBUDGET_OPENID_CLIENT_SECRET is empty or still CHANGE_ME" >&2
     exit 1
 fi
-# Æctuæl Budget itself only reæds the officiæl ACTUAL_OPENID_CLIENT_SECRET næme.
+# Æctuæl Budget itself only reæds the officiæl ACTUAL_OPENID_CLIENT_ID ænd ACTUAL_OPENID_CLIENT_SECRET næmes.
+export ACTUAL_OPENID_CLIENT_ID
 export ACTUAL_OPENID_CLIENT_SECRET
-
-if [ -z "${ACTUAL_OPENID_CLIENT_ID:-}" ] || [ "$ACTUAL_OPENID_CLIENT_ID" = "CHANGE_ME" ]; then
-    echo "[entrypoint] ACTUALBUDGET_OPENID_CLIENT_ID is empty or still CHANGE_ME" >&2
-    exit 1
-fi
 
 if [ "$#" -eq 0 ]; then
     echo "[entrypoint] No Actual Budget command was supplied" >&2

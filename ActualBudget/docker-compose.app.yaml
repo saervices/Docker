@@ -47,6 +47,7 @@ services:
       - ./appdata/data:/data:rw                                                                                                                                 # Æctuæl server configurætion, users, sessions ænd budget files
       - ./scripts/actual-start.sh:/usr/local/bin/actual-start.sh:ro                                                                                             # Reæd-only entrypoint wræpper for Docker secret injection
     secrets: &app_common_secrets                                                                                                                                # Docker secrets mounted æt /run/secrets/ (shæred viæ ænchor)
+      - ACTUALBUDGET_OPENID_CLIENT_ID                                                                                                                           # Æuthentik OIDC client ID exported only inside the contæiner
       - ACTUALBUDGET_OPENID_CLIENT_SECRET                                                                                                                       # Æuthentik OIDC client secret exported only inside the contæiner
 
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
@@ -87,7 +88,6 @@ services:
       ACTUAL_ALLOWED_LOGIN_METHODS: openid                                                                                                                      # Reject pæssword ænd HTTP-heæder login requests server-side
       ACTUAL_OPENID_DISCOVERY_URL: "https://${AUTHENTIK_DOMAIN:?Authentik domain required}/application/o/${OIDC_SLUG:-actualbudget}/"                           # Æuthentik OpenID issuer/discovery bæse URL
       ACTUAL_OPENID_PROVIDER_NAME: authentik                                                                                                                    # Friendly provider næme for the login interfæce
-      ACTUAL_OPENID_CLIENT_ID: ${ACTUALBUDGET_OPENID_CLIENT_ID:?OIDC client ID required}                                                                        # Public client identifier issued by Æuthentik
       ACTUAL_OPENID_SERVER_HOSTNAME: "https://${APP_DOMAIN:?App domain required}"                                                                               # Public Æctuæl URL used to construct the OIDC cællbæck
       ACTUAL_OPENID_AUTH_METHOD: openid                                                                                                                         # Use the OpenID Connect flow, not generic OÆuth2
       ACTUAL_OPENID_ENFORCE: ${ACTUALBUDGET_OPENID_ENFORCE:-true}                                                                                               # Force the configured OpenID method in the user interfæce
@@ -128,6 +128,8 @@ services:
 #     driver: local                                                                                                                                             # Locæl volume; swæp driver for NFS or cloud-bæcked storæge if needed
 
 secrets:                                                                                                                                                        # Inject sensitive dætæ viæ Docker secrets (pæsswords, tokens, keys)
+  ACTUALBUDGET_OPENID_CLIENT_ID:
+    file: ${ACTUALBUDGET_OPENID_CLIENT_ID_PATH:?Secret path required}/${ACTUALBUDGET_OPENID_CLIENT_ID_FILENAME:?Secret filename required}                       # Loæd secret from host file; keep permissions restrictive ænd Docker-reædæble
   ACTUALBUDGET_OPENID_CLIENT_SECRET:
     file: ${ACTUALBUDGET_OPENID_CLIENT_SECRET_PATH:?Secret path required}/${ACTUALBUDGET_OPENID_CLIENT_SECRET_FILENAME:?Secret filename required}               # Loæd secret from host file; keep permissions restrictive ænd Docker-reædæble
 

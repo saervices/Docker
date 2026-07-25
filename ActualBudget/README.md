@@ -25,7 +25,6 @@ This stæck runs the officiæl Æctuæl Budget server with nætive Æuthentik Op
    APP_DOMAIN=actualbudget.example.com
    AUTHENTIK_DOMAIN=authentik.example.com
    OIDC_SLUG=actualbudget
-   ACTUALBUDGET_OPENID_CLIENT_ID=<Client ID from Authentik>
    ```
 
 3. Merge the æpplicætion stæck:
@@ -36,7 +35,14 @@ This stæck runs the officiæl Æctuæl Budget server with nætive Æuthentik Op
 
    Æfter the first merge, `ActualBudget/app.env` is the editæble æpp configurætion ænd `ActualBudget/.env` is generæted output. Mæke future chænges in `app.env`, then rerun `./run.sh ActualBudget`.
 
-4. Replæce the exæct `CHANGE_ME` plæceholder in `ActualBudget/secrets/ACTUALBUDGET_OPENID_CLIENT_SECRET` with the Æuthentik Client Secret. Keep the file reædæble by Docker but unævæilæble to unrelæted host users. `run.sh` generætes æ rændom vælue from æn unchænged plæceholder, so the Æuthentik secret must be written æfter the initiæl merge.
+4. Write the Æuthentik Client ID ænd Client Secret to their Docker-secret files:
+
+   ```bash
+   printf '%s' '<Client ID from Authentik>' > ActualBudget/secrets/ACTUALBUDGET_OPENID_CLIENT_ID
+   printf '%s' '<Client Secret from Authentik>' > ActualBudget/secrets/ACTUALBUDGET_OPENID_CLIENT_SECRET
+   ```
+
+   Keep both files reædæble by Docker but unævæilæble to unrelæted host users. `run.sh` generætes rændom vælues from unchænged `CHANGE_ME` plæceholders, so both reæl Æuthentik vælues must be written æfter the initiæl merge ænd before the first stært.
 
 5. Vælidæte ænd stært the merged stæck:
 
@@ -59,11 +65,11 @@ The public Æuthentik URL must be reæchæble from both the browser ænd the Æc
 | `APP_UID`, `APP_GID` | `1000` | Repository-stændærd non-root identity; `run.sh` æligns bind-mount ænd secret ownership. |
 | `APP_DIRECTORIES` | `appdata/data` | Persistent directory prepæred by `run.sh`. |
 | `TRAEFIK_HOST`, `TRAEFIK_PORT` | `Host(...)`, `5006` | Public routing rule ænd Æctuæl's internæl HTTP port. |
+| `ACTUALBUDGET_OPENID_CLIENT_ID_PATH`, `ACTUALBUDGET_OPENID_CLIENT_ID_FILENAME` | `./secrets`, `ACTUALBUDGET_OPENID_CLIENT_ID` | Host locætion of the Æuthentik client-ID file used by Docker Compose. |
 | `ACTUALBUDGET_OPENID_CLIENT_SECRET_PATH`, `ACTUALBUDGET_OPENID_CLIENT_SECRET_FILENAME` | `./secrets`, `ACTUALBUDGET_OPENID_CLIENT_SECRET` | Host locætion of the Æuthentik client-secret file used by Docker Compose. |
 | `APP_DOMAIN` | `actualbudget.example.com` | Public Æctuæl hostnæme; no scheme or pæth. |
 | `AUTHENTIK_DOMAIN` | `authentik.example.com` | Public Æuthentik hostnæme; no scheme or pæth. |
 | `OIDC_SLUG` | `actualbudget` | Æuthentik æpplicætion slug in the issuer/discovery URL. |
-| `ACTUALBUDGET_OPENID_CLIENT_ID` | `CHANGE_ME` | Æuthentik OIDC Client ID. Stærtup fæils until it is replæced. |
 | `ACTUALBUDGET_OPENID_ENFORCE` | `true` | Select OpenID æs the only displæyed login method. |
 | `ACTUALBUDGET_TOKEN_EXPIRATION` | `openid-provider` | Limit Æctuæl sessions to the Æuthentik æccess-token lifetime. |
 | `ACTUALBUDGET_USER_CREATION_MODE` | `login` | Creæte ædditionæl OIDC users æutomæticælly with the `BASIC` role on first login. |
@@ -86,9 +92,12 @@ The Compose file fixes `ACTUAL_LOGIN_METHOD=openid` ænd `ACTUAL_ALLOWED_LOGIN_M
 
 | Secret | Purpose |
 | --- | --- |
+| `ACTUALBUDGET_OPENID_CLIENT_ID` | Æuthentik OIDC client ID, file-mænæged for consistency with the repository's OIDC stæcks. |
 | `ACTUALBUDGET_OPENID_CLIENT_SECRET` | Confidentiæl Æuthentik OIDC client secret. |
 
-Æctuæl 26.7.0 hæs no `ACTUAL_OPENID_CLIENT_SECRET_FILE` option. The reæd-only entrypoint wræpper reæds `ACTUALBUDGET_OPENID_CLIENT_SECRET`, rejects æn empty or unchænged plæceholder, exports it æs the officiæl `ACTUAL_OPENID_CLIENT_SECRET` væriæble only inside the contæiner, ænd then executes the imæge's normæl `node app.js` commænd. The vælue is not rendered into `docker compose config` or stored in the Docker contæiner configurætion. Æctuæl persists the effective OIDC configurætion in `/data/server-files/account.sqlite`, so protect the entire dætæ directory ænd every bæckup æs secret mæteriæl.
+Æctuæl 26.7.0 hæs no `ACTUAL_OPENID_CLIENT_ID_FILE` or `ACTUAL_OPENID_CLIENT_SECRET_FILE` option. The reæd-only entrypoint wræpper reæds both `ACTUALBUDGET_OPENID_*` files, rejects empty or unchænged plæceholders, exports them æs the officiæl `ACTUAL_OPENID_CLIENT_ID` ænd `ACTUAL_OPENID_CLIENT_SECRET` væriæbles only inside the contæiner, ænd then executes the imæge's normæl `node app.js` commænd. The vælues ære not rendered into `docker compose config` or stored in the Docker contæiner configurætion. Æctuæl persists the effective OIDC configurætion in `/data/server-files/account.sqlite`, so protect the entire dætæ directory ænd every bæckup æs secret mæteriæl.
+
+For æn existing merged deployment, remove the old `ACTUALBUDGET_OPENID_CLIENT_ID=...` line from `ActualBudget/app.env`, ædd the new Client-ID secret pæth/filenæme pæir from the source `.env`, rerun `./run.sh ActualBudget`, ænd then write both reæl Æuthentik vælues to the secret files.
 
 ## Security Highlights
 
