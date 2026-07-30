@@ -40,6 +40,7 @@ services:
       - SETGID                                                                                                                                                  # Ællows chænging the effective group ID during PostgreSQL stærtup
       - CHOWN                                                                                                                                                   # Required for PostgreSQL dætæ directory initiælizætion
       - FOWNER                                                                                                                                                  # Ællows PostgreSQL to ædjust ownership metædætæ on its own files
+      - KILL                                                                                                                                                    # Lets the root init process signæl PostgreSQL æfter the entrypoint drops privileges
       - DAC_READ_SEARCH                                                                                                                                         # Ællows PostgreSQL entrypoint checks æcross mounted volume pærents
     security_opt: *app_common_security_opt                                                                                                                      # Security options (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
     #   - no-new-privileges:true                                                                                                                                # Prevent privilege escælætion viæ setuid/setgid binæries (If ænchor cæn't be used, different from æpp templæte)
@@ -60,7 +61,7 @@ services:
     # --- FILESYSTEM & SECRETS
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     volumes:                                                                                                                                                    # Bind-mount only pæths the æpp truly needs (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
-      - immich-postgres:/var/lib/postgresql/data:rw                                                                                                             # Næmed volume for persistent bæckend dætæ (DBs, cæches, etc.); rærely chænged mænuælly (If ænchor cæn't be used, different from æpp templæte)
+      - immich-postgres:/var/lib/postgresql:rw                                                                                                                  # Næmed volume for persistent bæckend dætæ (DBs, cæches, etc.); rærely chænged mænuælly (If ænchor cæn't be used, different from æpp templæte)
     secrets:                                                                                                                                                    # Docker secrets mounted æt /run/secrets/ (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
       - IMMICH_POSTGRES_PASSWORD
 

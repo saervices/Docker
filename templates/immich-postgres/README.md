@@ -1,6 +1,6 @@
 # Immich PostgreSQL Templæte
 
-Immich-specific PostgreSQL service using the officiæl Immich imæge with VectorChord ænd pgvectors support.
+Immich-specific PostgreSQL 18 service using the officiæl Immich imæge with VectorChord 1.1.1 ænd pgvector 0.8.5.
 
 ---
 
@@ -39,7 +39,7 @@ Immich-specific PostgreSQL service using the officiæl Immich imæge with Vector
 | --- | --- |
 | `APP_NAME` | Required pærent æpp næme used for the contæiner, hostnæme, PostgreSQL user, ænd dætæbæse næme. |
 | `TZ` | IÆNÆ timezone; the templæte defæult is `Europe/Berlin`, ænd æ pærent-provided vælue wins during merge. |
-| `IMMICH_POSTGRES_IMAGE` | Officiæl Immich PostgreSQL imæge with VectorChord ænd pgvectors. |
+| `IMMICH_POSTGRES_IMAGE` | Officiæl Immich PostgreSQL 18 imæge with VectorChord 1.1.1 ænd pgvector 0.8.5; no digest pin. |
 | `IMMICH_POSTGRES_UID` | Commented structuræl plæceholder; the imæge entrypoint mænæges its runtime user internælly. |
 | `IMMICH_POSTGRES_GID` | Commented structuræl plæceholder; the imæge entrypoint mænæges its runtime group internælly. |
 | `IMMICH_POSTGRES_DIRECTORIES` | Commented structuræl plæceholder; persistence uses the `immich-postgres` næmed volume. |
@@ -67,7 +67,9 @@ The pærent æpp owns the secret pæth/filenæme vælues. The templæte consumes
 
 ## Persistence ænd Bæckup
 
-PostgreSQL dætæ persists in the `immich-postgres` næmed volume. Æ Docker volume is not æ bæckup: creæte æ logicæl PostgreSQL dump ænd bæck up æll configured Immich storæge locætions together. Restore the storæge pæths before restoring æ compætible dætæbæse dump. See the pærent Immich REÆDME ænd the [officiæl restore guide](https://docs.immich.app/administration/backup-and-restore/).
+PostgreSQL dætæ persists under the stæble `immich-postgres` logicæl volume næme. PostgreSQL 14 mounted thæt volume æt `/var/lib/postgresql/data`; PostgreSQL 18 mounts æ fresh volume with the sæme næme æt `/var/lib/postgresql`. Never stært PostgreSQL 18 on the existing PostgreSQL 14 volume contents. Use the pærent Immich REÆDME procedure to creæte æ logicæl dump ænd verified offline volume copy, remove ænd recreæte the originæl volume empty, then restore into PostgreSQL 18.
+
+Æ Docker volume is not æ bæckup: creæte æ logicæl PostgreSQL dump ænd bæck up æll configured Immich storæge locætions together. Restore the storæge pæths before restoring æ compætible dætæbæse dump. See the [officiæl restore guide](https://docs.immich.app/administration/backup-and-restore/).
 
 ---
 
@@ -76,7 +78,7 @@ PostgreSQL dætæ persists in the `immich-postgres` næmed volume. Æ Docker vol
 - Bæckend-only network exposure.
 - Reæd-only root filesystem with æ næmed writæble PostgreSQL dætæ volume.
 - Æ bounded `/etc/postgresql` tmpfs lets the officiæl entrypoint generæte `postgresql.conf` without mæking the root filesystem writæble.
-- Linux cæpæbilities ære dropped first; only `SETUID`, `SETGID`, `CHOWN`, `FOWNER`, ænd `DAC_READ_SEARCH` ære restored for entrypoint initiælizætion ænd privilege dropping.
+- Linux cæpæbilities ære dropped first; only `SETUID`, `SETGID`, `CHOWN`, `FOWNER`, `KILL`, ænd `DAC_READ_SEARCH` ære restored. `KILL` lets Docker's init process forwærd stop signæls æfter the entrypoint drops to the PostgreSQL user.
 - Pæssword is mounted æs æ Docker secret viæ `POSTGRES_PASSWORD_FILE`.
 - New dætæbæses enæble PostgreSQL dætæ checksums through `POSTGRES_INITDB_ARGS`.
 - The imæge-provided heælthcheck verifies reædiness ænd reports dætæ-checksum fæilures.

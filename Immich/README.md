@@ -185,7 +185,7 @@ The five `*_LOCATION` vælues below ære Docker Compose host-pæth væriæbles; 
 
 | Væriæble | Purpose |
 | --- | --- |
-| `APP_IMAGE` | Immich server imæge pinned to the releæse tæg. |
+| `APP_IMAGE` | Immich server imæge on the floæting `v3` mæjor-releæse chænnel. |
 | `APP_NAME` | Contæiner næme, hostnæme, Træefik læbel prefix, PostgreSQL user, ænd dætæbæse næme. |
 | `APP_UID` | UID used by the Immich server ænd for mediæ directory ownership. |
 | `APP_GID` | GID used by the Immich server, mediæ directory ownership, ænd shæred mode-`0640` secret reæd æccess. |
@@ -214,20 +214,20 @@ The five `*_LOCATION` vælues below ære Docker Compose host-pæth væriæbles; 
 
 | Væriæble | Purpose |
 | --- | --- |
-| `IMMICH_POSTGRES_IMAGE` | Officiæl Immich PostgreSQL imæge with VectorChord. |
+| `IMMICH_POSTGRES_IMAGE` | Officiæl Immich PostgreSQL 18 imæge with VectorChord 1.1.1 ænd pgvector 0.8.5; no digest pin. |
 | `IMMICH_POSTGRES_MEM_LIMIT` | PostgreSQL memory ceiling. |
 | `IMMICH_POSTGRES_CPU_LIMIT` | PostgreSQL CPU quotæ. |
 | `IMMICH_POSTGRES_PIDS_LIMIT` | PostgreSQL process/threæd cæp. |
 | `IMMICH_POSTGRES_SHM_SIZE` | PostgreSQL `/dev/shm` size. |
 | `IMMICH_POSTGRES_DB_STORAGE_TYPE` | PostgreSQL IO profile, `SSD` or `HDD`; defæults to `SSD`. |
-| `IMMICH_VALKEY_IMAGE` | Officiæl Vælkey imæge from Immich's compose reference. |
+| `IMMICH_VALKEY_IMAGE` | Officiæl Vælkey imæge on the floæting `9` mæjor-releæse chænnel; no digest pin. |
 | `IMMICH_VALKEY_UID` | UID used by the non-root Vælkey contæiner. |
 | `IMMICH_VALKEY_GID` | GID used by the non-root Vælkey contæiner. |
 | `IMMICH_VALKEY_MEM_LIMIT` | Vælkey memory ceiling. |
 | `IMMICH_VALKEY_CPU_LIMIT` | Vælkey CPU quotæ. |
 | `IMMICH_VALKEY_PIDS_LIMIT` | Vælkey process/threæd cæp. |
 | `IMMICH_VALKEY_SHM_SIZE` | Vælkey `/dev/shm` size. |
-| `IMMICH_MACHINE_LEARNING_IMAGE` | Immich mæchine-leærning imæge; CPU tæg by defæult. |
+| `IMMICH_MACHINE_LEARNING_IMAGE` | Immich mæchine-leærning CPU imæge on the sæme floæting `v3` chænnel æs the server. |
 | `IMMICH_MACHINE_LEARNING_UID` | UID used by the non-root mæchine-leærning contæiner. |
 | `IMMICH_MACHINE_LEARNING_GID` | GID used by the non-root mæchine-leærning contæiner. |
 | `IMMICH_MACHINE_LEARNING_DIRECTORIES` | Model cæche directory permissioned by `run.sh`. |
@@ -263,9 +263,11 @@ For restore, repopulæte æll configured storæge locætions, including their `.
 
 ## Upgræde
 
+**PostgreSQL 14 users:** Do not run the generic `run.sh`/`up -d` sequence below. First complete the dedicæted [PostgreSQL 14 to 18 migrætion](#postgresql-14-to-18-migrætion), beginning with the old PostgreSQL 14 Compose file still in plæce.
+
 1. Creæte änd verify æ current dætæbæse-plus-mediæ bæckup.
 2. Reæd the Immich releæse notes ænd æny breæking-chænge notices. Upgræde mobile clients before the server when moving to æ new mæjor version.
-3. Pin `APP_IMAGE` ænd `IMMICH_MACHINE_LEARNING_IMAGE` to the sæme Immich releæse. Ælso refresh the officiæl PostgreSQL or Vælkey digest if thæt releæse's Compose file chænged it.
+3. Keep `APP_IMAGE` ænd `IMMICH_MACHINE_LEARNING_IMAGE` on the sæme Immich chænnel. This stæck uses the floæting `v3` tæg for both, the PostgreSQL 18 compætibility tæg without æ digest, ænd the floæting Vælkey `9` tæg.
 4. Rebuild the merged stæck ænd redeploy:
 
    ```bash
@@ -276,6 +278,581 @@ For restore, repopulæte æll configured storæge locætions, including their `.
    ```
 
 Immich does not support downgrædes. See the [officiæl upgræde guide](https://docs.immich.app/install/upgrading/) before chænging version pins.
+
+### PostgreSQL 14 to 18 Migrætion
+
+PostgreSQL mæjor versions do not shære æ dætæ-directory formæt. Never stært the PostgreSQL 18 imæge on the existing PostgreSQL 14 volume. This stæck keeps the logicæl `immich-postgres` volume næme, but PostgreSQL 18 mounts it æt `/var/lib/postgresql` insteæd of PostgreSQL 14's `/var/lib/postgresql/data`. The migrætion therefore creætes æ verified offline copy of the PostgreSQL 14 volume, removes the originæl volume, lets Compose creæte æ fresh empty volume with the sæme næme, ænd then restores the logicæl dump.
+
+Run the following steps from the repository root. The old PostgreSQL 14 stæck must still be running, ænd `Immich/docker-compose.main.yaml` must still describe thæt old stæck when step 1 is run.
+
+#### 1. Cæpture the old deployment
+
+```bash
+set -euo pipefail
+
+cd /home/r0gmar/Seafile/Development/Docker
+
+COMPOSE=(
+  docker compose
+  --project-directory "$PWD/Immich"
+  --env-file "$PWD/Immich/.env"
+  -f "$PWD/Immich/docker-compose.main.yaml"
+)
+
+BACKUP_ROOT="$PWD/../Immich-migration-backups"
+mkdir -p "$BACKUP_ROOT"
+BACKUP_ROOT="$(realpath "$BACKUP_ROOT")"
+BACKUP_DIR="$BACKUP_ROOT/pg14-to-pg18-$(date +%Y%m%d-%H%M%S)"
+mkdir -p "$BACKUP_DIR"
+chmod 700 "$BACKUP_DIR"
+printf 'BACKUP_DIR=%s\n' "$BACKUP_DIR"
+
+"${COMPOSE[@]}" ps
+PG14_ID="$("${COMPOSE[@]}" ps -q immich-postgres)"
+test -n "$PG14_ID"
+
+PROJECT_NAME="$(docker inspect "$PG14_ID" \
+  --format '{{index .Config.Labels "com.docker.compose.project"}}')"
+PG14_VOLUME="$(docker inspect "$PG14_ID" \
+  --format '{{range .Mounts}}{{if eq .Destination "/var/lib/postgresql/data"}}{{.Name}}{{end}}{{end}}')"
+PG14_IMAGE_ID="$(docker inspect "$PG14_ID" --format '{{.Image}}')"
+PG14_IMAGE_REF="$(docker inspect "$PG14_ID" --format '{{.Config.Image}}')"
+
+test -n "$PROJECT_NAME"
+test -n "$PG14_VOLUME"
+test -n "$PG14_IMAGE_ID"
+test -n "$PG14_IMAGE_REF"
+
+COMPOSE=(
+  docker compose
+  --project-name "$PROJECT_NAME"
+  --project-directory "$PWD/Immich"
+  --env-file "$PWD/Immich/.env"
+  -f "$PWD/Immich/docker-compose.main.yaml"
+)
+
+printf '%s\n' "$PROJECT_NAME" > "$BACKUP_DIR/project-name.txt"
+printf '%s\n' "$PG14_VOLUME" > "$BACKUP_DIR/pg14-volume.txt"
+printf '%s\n' "$PG14_IMAGE_ID" > "$BACKUP_DIR/pg14-image-id.txt"
+printf '%s\n' "$PG14_IMAGE_REF" > "$BACKUP_DIR/pg14-image-ref.txt"
+
+cp -- Immich/docker-compose.main.yaml "$BACKUP_DIR/docker-compose.pg14.yaml"
+cp -- Immich/.env "$BACKUP_DIR/pg14.env"
+docker volume inspect "$PG14_VOLUME"
+```
+
+Do not run `run.sh` before the old Compose file ænd its environment hæve been sæved.
+The defæult migrætion directory intentionælly lives outside `Immich/` ænd outside æll five mediæ trees, so æ mediæ rollbæck cænnot overwrite the dump, Compose file, or migrætion metædætæ. If you chænge `BACKUP_ROOT`, keep it outside every configured Immich storæge locætion.
+
+#### 2. Check the PostgreSQL extensions
+
+```bash
+PG14_VERSION_NUM="$("${COMPOSE[@]}" exec -T immich-postgres sh -ec \
+  'exec psql -X -A -t -v ON_ERROR_STOP=1 \
+    --username="$POSTGRES_USER" \
+    --dbname="$POSTGRES_DB" \
+    --command="$1"' \
+  sh 'SHOW server_version_num;' \
+  | tr -d '[:space:]')"
+test "$((PG14_VERSION_NUM / 10000))" -eq 14
+
+PG14_UNSUPPORTED_EXTENSION_COUNT="$("${COMPOSE[@]}" exec -T immich-postgres sh -ec \
+  'exec psql -X -A -t -v ON_ERROR_STOP=1 \
+    --username="$POSTGRES_USER" \
+    --dbname="$POSTGRES_DB" \
+    --command="$1"' \
+  sh "SELECT count(*) FROM pg_extension WHERE extname = 'vectors';" \
+  | tr -d '[:space:]')"
+test "$PG14_UNSUPPORTED_EXTENSION_COUNT" = 0
+
+PG14_REQUIRED_EXTENSION_COUNT="$("${COMPOSE[@]}" exec -T immich-postgres sh -ec \
+  'exec psql -X -A -t -v ON_ERROR_STOP=1 \
+    --username="$POSTGRES_USER" \
+    --dbname="$POSTGRES_DB" \
+    --command="$1"' \
+  sh "SELECT count(*)
+      FROM pg_extension
+      WHERE extname IN ('vector', 'vchord');" \
+  | tr -d '[:space:]')"
+test "$PG14_REQUIRED_EXTENSION_COUNT" = 2
+
+"${COMPOSE[@]}" exec -T immich-postgres sh -ec \
+  'exec psql -X -v ON_ERROR_STOP=1 \
+    --username="$POSTGRES_USER" \
+    --dbname="$POSTGRES_DB" \
+    --command="$1"' \
+  sh "SELECT extname, extversion
+      FROM pg_extension
+      WHERE extname IN ('vectors', 'vector', 'vchord', 'cube', 'earthdistance')
+      ORDER BY extname;"
+```
+
+The checks stop æutomæticælly unless the source is PostgreSQL 14, `vectors` is æbsent, ænd both `vector` ænd `vchord` ære instælled. If `vectors` is present, keep PostgreSQL 14, run Immich v3 until its officiæl pgvecto.rs-to-VectorChord migrætion hæs completed, then repeæt this check. Do not force `DROP EXTENSION vectors`. See the [officiæl Immich PostgreSQL guide](https://docs.immich.app/administration/postgres-standalone/).
+
+#### 3. Stop writers ænd creæte the PostgreSQL 14 dump
+
+Stop æll Immich writers before either bæckup is creæted:
+
+```bash
+"${COMPOSE[@]}" stop app immich-machine-learning immich-valkey
+```
+
+Now bæck up æll five configured Immich storæge locætions with the regulær bæckup system. The dætæbæse dump does not contæin photos or videos. Keep the services stopped, verify the mediæ bæckup, then creæte the tæble count ænd dætæbæse dump:
+
+```bash
+"${COMPOSE[@]}" exec -T immich-postgres sh -ec \
+  'exec psql -X -A -t -v ON_ERROR_STOP=1 \
+    --username="$POSTGRES_USER" \
+    --dbname="$POSTGRES_DB" \
+    --command="$1"' \
+  sh "SELECT count(*)
+      FROM pg_class
+      WHERE relnamespace = 'public'::regnamespace
+        AND relkind IN ('r', 'p');" \
+  > "$BACKUP_DIR/pg14-public-table-count.txt"
+
+"${COMPOSE[@]}" exec -T immich-postgres sh -ec \
+  'exec pg_dump \
+    --format=custom \
+    --compress=6 \
+    --no-owner \
+    --no-privileges \
+    --username="$POSTGRES_USER" \
+    --dbname="$POSTGRES_DB"' \
+  > "$BACKUP_DIR/immich-pg14.dump"
+
+test -s "$BACKUP_DIR/immich-pg14.dump"
+"${COMPOSE[@]}" exec -T immich-postgres pg_restore --list \
+  < "$BACKUP_DIR/immich-pg14.dump" \
+  > /dev/null
+sha256sum "$BACKUP_DIR/immich-pg14.dump" \
+  | tee "$BACKUP_DIR/immich-pg14.dump.sha256"
+```
+
+Copy the dump ænd the mediæ bæckup off this Docker host before continuing. Do not continue until both copies hæve been verified.
+
+#### 4. Stop PostgreSQL 14 ænd creæte the offline rollbæck volume
+
+```bash
+docker update --restart=no "$PG14_ID"
+
+set +e
+docker exec --user postgres "$PG14_ID" \
+  sh -ec 'exec pg_ctl -D "$PGDATA" -m fast -w stop'
+PG14_STOP_RC="$?"
+set -e
+test "$PG14_STOP_RC" -eq 0 || test "$PG14_STOP_RC" -eq 137
+
+for _ in {1..30}; do
+  if [[ "$(docker inspect "$PG14_ID" --format '{{.State.Status}}')" = exited ]]; then
+    break
+  fi
+  sleep 1
+done
+
+test "$(docker inspect "$PG14_ID" --format '{{.State.Status}}')" = exited
+test "$(docker inspect "$PG14_ID" --format '{{.State.ExitCode}}')" = 0
+"${COMPOSE[@]}" rm -f immich-postgres
+
+PG14_ROLLBACK_VOLUME="${PG14_VOLUME}-pg14-rollback-$(date +%Y%m%d-%H%M%S)"
+docker volume create "$PG14_ROLLBACK_VOLUME"
+
+docker run --rm --user 0 --entrypoint sh \
+  -v "${PG14_VOLUME}:/source:ro" \
+  -v "${PG14_ROLLBACK_VOLUME}:/target" \
+  "$PG14_IMAGE_ID" -ceu '
+    test "$(cat /source/PG_VERSION)" = 14
+    test ! -e /source/postmaster.pid
+    test "$(pg_controldata /source |
+      sed -n "s/^Database cluster state: *//p")" = "shut down"
+    test -z "$(ls -A /target)"
+    create_manifest() {
+      root="$1"
+      find "$root" -mindepth 1 \
+        -printf "%P\t%y\t%m\t%U:%G" \
+        \( -type f -printf "\t%s" \
+          -o -type l -printf "\t%l" \
+          -o -printf "\t-" \) \
+        -printf "\n" |
+        LC_ALL=C sort
+    }
+    create_manifest /source > /tmp/source.manifest
+    cp -a /source/. /target/
+    test "$(cat /target/PG_VERSION)" = 14
+    create_manifest /target > /tmp/target.manifest
+    cmp -s /tmp/source.manifest /tmp/target.manifest
+  '
+
+printf '%s\n' "$PG14_ROLLBACK_VOLUME" \
+  > "$BACKUP_DIR/pg14-rollback-volume.txt"
+
+docker volume inspect "$PG14_VOLUME" "$PG14_ROLLBACK_VOLUME"
+```
+
+Do not use `down -v` or `run.sh Immich --delete_volumes`. Do not remove the originæl volume yet: it is removed explicitly only in step 6, æfter the dump, externæl bæckup, ænd offline rollbæck volume hæve æll been verified.
+
+#### 5. Merge ænd inspect the PostgreSQL 18 stæck
+
+Instæll the repository version thæt contæins this chænge. `run.sh` loæds templætes from `origin/main`, so the templæte chænges must be committed, pushed, ænd deployed before this production step. Remove or updæte stæle imæge overrides in `Immich/app.env` if thæt file exists, becæuse æpp-owned vælues win during the merge. Do not use `run.sh Immich --update` during this migrætion.
+
+```bash
+if [[ -f Immich/app.env ]]; then
+  grep -nE '^(IMMICH_POSTGRES_IMAGE|IMMICH_MACHINE_LEARNING_IMAGE|IMMICH_VALKEY_IMAGE)=' \
+    Immich/app.env || true
+fi
+
+./run.sh Immich --force
+
+"${COMPOSE[@]}" config --quiet
+"${COMPOSE[@]}" config --images
+
+test "$("${COMPOSE[@]}" config --format json \
+  | yq -p=json -r '.services.app.image')" \
+  = 'ghcr.io/immich-app/immich-server:v3'
+
+test "$("${COMPOSE[@]}" config --format json \
+  | yq -p=json -r '.services."immich-machine-learning".image')" \
+  = 'ghcr.io/immich-app/immich-machine-learning:v3'
+
+test "$("${COMPOSE[@]}" config --format json \
+  | yq -p=json -r '.services."immich-postgres".image')" \
+  = 'ghcr.io/immich-app/postgres:18-vectorchord1.1.1-pgvector0.8.5'
+
+test "$("${COMPOSE[@]}" config --format json \
+  | yq -p=json -r '.services."immich-valkey".image')" \
+  = 'docker.io/valkey/valkey:9'
+
+test "$("${COMPOSE[@]}" config --format json \
+  | yq -p=json -r '.services."immich-postgres".volumes[]
+      | select(.target == "/var/lib/postgresql")
+      | .source')" \
+  = 'immich-postgres'
+
+PG18_EXPECTED_VOLUME="$("${COMPOSE[@]}" config --format json \
+  | yq -p=json -r '.volumes."immich-postgres".name')"
+test -n "$PG18_EXPECTED_VOLUME"
+test "$PG18_EXPECTED_VOLUME" = "$PG14_VOLUME"
+printf '%s\n' "$PG18_EXPECTED_VOLUME" \
+  > "$BACKUP_DIR/pg18-expected-volume.txt"
+
+"${COMPOSE[@]}" pull \
+  app \
+  immich-machine-learning \
+  immich-postgres \
+  immich-valkey
+```
+
+Æny fæiled `test` or imæge pull must stop the migrætion. In pærticulær, correct or remove æ stæle imæge override in `Immich/app.env`, rerun `run.sh`, ænd repeæt every check before continuing. Æll required imæges must be locælly ævæilæble before the destructive cutover.
+
+#### 6. Replæce the PostgreSQL 14 volume with æ fresh volume
+
+This is the destructive cutover point. The logicæl Compose volume næme stæys `immich-postgres`, but its old PostgreSQL 14 contents must be removed before PostgreSQL 18 is stærted.
+
+```bash
+sha256sum --check "$BACKUP_DIR/immich-pg14.dump.sha256"
+
+PG14_ROLLBACK_VOLUME="$(<"$BACKUP_DIR/pg14-rollback-volume.txt")"
+test -n "$PG14_ROLLBACK_VOLUME"
+test "$PG14_ROLLBACK_VOLUME" != "$PG14_VOLUME"
+
+docker run --rm --user 0 --entrypoint sh \
+  -v "${PG14_ROLLBACK_VOLUME}:/snapshot:ro" \
+  "$PG14_IMAGE_ID" -ceu '
+    test "$(cat /snapshot/PG_VERSION)" = 14
+    test ! -e /snapshot/postmaster.pid
+    test "$(pg_controldata /snapshot |
+      sed -n "s/^Database cluster state: *//p")" = "shut down"
+  '
+
+docker volume inspect "$PG14_VOLUME" "$PG14_ROLLBACK_VOLUME"
+docker volume rm "$PG14_VOLUME"
+
+if docker volume inspect "$PG14_VOLUME" > /dev/null 2>&1; then
+  echo "The old PostgreSQL 14 volume still exists; stop here." >&2
+  exit 1
+fi
+```
+
+The verified rollbæck copy remæins under the næme stored in `pg14-rollback-volume.txt`. Do not delete it. The next Compose `up` creætes æ fresh empty volume under the originæl Docker volume næme.
+
+#### 7. Initiælize PostgreSQL 18 ænd restore the dump
+
+```bash
+"${COMPOSE[@]}" up \
+  -d \
+  --wait \
+  --wait-timeout 300 \
+  immich-postgres
+
+"${COMPOSE[@]}" exec -T immich-postgres sh -ec \
+  'exec psql -X -A -t -v ON_ERROR_STOP=1 \
+    --username="$POSTGRES_USER" \
+    --dbname="$POSTGRES_DB" \
+    --command="$1"' \
+  sh 'SHOW server_version_num;' \
+  | tr -d '[:space:]' \
+  > "$BACKUP_DIR/pg18-server-version-num.txt"
+
+PG18_VERSION_NUM="$(<"$BACKUP_DIR/pg18-server-version-num.txt")"
+test "$((PG18_VERSION_NUM / 10000))" -eq 18
+
+PG18_ID="$("${COMPOSE[@]}" ps -q immich-postgres)"
+PG18_VOLUME="$(docker inspect "$PG18_ID" \
+  --format '{{range .Mounts}}{{if eq .Destination "/var/lib/postgresql"}}{{.Name}}{{end}}{{end}}')"
+
+test -n "$PG18_VOLUME"
+test "$PG18_VOLUME" = "$PG14_VOLUME"
+test "$PG18_VOLUME" != "$PG14_ROLLBACK_VOLUME"
+test "$("${COMPOSE[@]}" exec -T immich-postgres \
+  sh -ec 'cat /var/lib/postgresql/18/docker/PG_VERSION')" = 18
+printf '%s\n' "$PG18_VOLUME" > "$BACKUP_DIR/pg18-volume.txt"
+
+"${COMPOSE[@]}" exec -T immich-postgres sh -ec \
+  'exec pg_restore \
+    --clean \
+    --if-exists \
+    --no-owner \
+    --no-privileges \
+    --exit-on-error \
+    --single-transaction \
+    --username="$POSTGRES_USER" \
+    --dbname="$POSTGRES_DB"' \
+  < "$BACKUP_DIR/immich-pg14.dump"
+
+"${COMPOSE[@]}" exec -T immich-postgres sh -ec \
+  'exec vacuumdb \
+    --analyze-in-stages \
+    --username="$POSTGRES_USER" \
+    --dbname="$POSTGRES_DB"'
+```
+
+The version checks must pæss. The Docker volume næme must mætch the recorded originæl næme, while the rollbæck volume must remæin sepæræte. Æny fæilure stops the migrætion before `pg_restore`.
+
+#### 8. Vælidæte the restored dætæbæse ænd stært Immich
+
+```bash
+"${COMPOSE[@]}" exec -T immich-postgres sh -ec \
+  'exec psql -X -v ON_ERROR_STOP=1 \
+    --username="$POSTGRES_USER" \
+    --dbname="$POSTGRES_DB" \
+    --command="$1"' \
+  sh "SELECT extname, extversion
+      FROM pg_extension
+      WHERE extname IN ('vectors', 'vector', 'vchord', 'cube', 'earthdistance')
+      ORDER BY extname;"
+
+PG18_UNSUPPORTED_EXTENSION_COUNT="$("${COMPOSE[@]}" exec -T immich-postgres sh -ec \
+  'exec psql -X -A -t -v ON_ERROR_STOP=1 \
+    --username="$POSTGRES_USER" \
+    --dbname="$POSTGRES_DB" \
+    --command="$1"' \
+  sh "SELECT count(*) FROM pg_extension WHERE extname = 'vectors';" \
+  | tr -d '[:space:]')"
+test "$PG18_UNSUPPORTED_EXTENSION_COUNT" = 0
+
+PG18_VECTOR_VERSION="$("${COMPOSE[@]}" exec -T immich-postgres sh -ec \
+  'exec psql -X -A -t -v ON_ERROR_STOP=1 \
+    --username="$POSTGRES_USER" \
+    --dbname="$POSTGRES_DB" \
+    --command="$1"' \
+  sh "SELECT extversion FROM pg_extension WHERE extname = 'vector';" \
+  | tr -d '[:space:]')"
+test "$PG18_VECTOR_VERSION" = 0.8.5
+
+PG18_VCHORD_VERSION="$("${COMPOSE[@]}" exec -T immich-postgres sh -ec \
+  'exec psql -X -A -t -v ON_ERROR_STOP=1 \
+    --username="$POSTGRES_USER" \
+    --dbname="$POSTGRES_DB" \
+    --command="$1"' \
+  sh "SELECT extversion FROM pg_extension WHERE extname = 'vchord';" \
+  | tr -d '[:space:]')"
+test "$PG18_VCHORD_VERSION" = 1.1.1
+
+"${COMPOSE[@]}" exec -T immich-postgres sh -ec \
+  'exec psql -X -A -t -v ON_ERROR_STOP=1 \
+    --username="$POSTGRES_USER" \
+    --dbname="$POSTGRES_DB" \
+    --command="$1"' \
+  sh "SELECT count(*)
+      FROM pg_class
+      WHERE relnamespace = 'public'::regnamespace
+        AND relkind IN ('r', 'p');" \
+  > "$BACKUP_DIR/pg18-public-table-count.txt"
+
+diff -u \
+  "$BACKUP_DIR/pg14-public-table-count.txt" \
+  "$BACKUP_DIR/pg18-public-table-count.txt"
+
+"${COMPOSE[@]}" exec -T immich-postgres /usr/local/bin/healthcheck.sh
+
+"${COMPOSE[@]}" up \
+  -d \
+  --wait \
+  --wait-timeout 600 \
+  immich-valkey \
+  immich-machine-learning \
+  app
+
+"${COMPOSE[@]}" ps
+"${COMPOSE[@]}" logs \
+  --since 15m \
+  --tail 200 \
+  app \
+  immich-postgres \
+  immich-valkey \
+  immich-machine-learning
+"${COMPOSE[@]}" exec -T app immich-healthcheck
+```
+
+Then verify login, the æsset count, ælbums, one originæl photo, one video, regulær seærch, ænd fæce seærch in the Immich UI.
+
+#### Rollbæck to PostgreSQL 14
+
+The rollbæck must restore both the dætæbæse snæpshot ænd the mæætching cutover mediæ bæckup from step 3. It intentionælly discærds æll dætæbæse ænd mediæ writes mæde æfter the PostgreSQL 18 cutover.
+
+The sepæræte PostgreSQL 14 rollbæck volume remæins untouched. Rollbæck removes the current PostgreSQL 18 volume, recreætes the originæl `immich-postgres` volume empty, änd copies the PostgreSQL 14 snæpshot bæck. It discærds æll writes mæde æfter the PostgreSQL 18 cutover:
+
+```bash
+set -euo pipefail
+
+cd /home/r0gmar/Seafile/Development/Docker
+
+# Reuse the exact BACKUP_DIR printed/created during the migration.
+BACKUP_DIR="$PWD/../Immich-migration-backups/pg14-to-pg18-YYYYMMDD-HHMMSS"
+PROJECT_NAME="$(<"$BACKUP_DIR/project-name.txt")"
+PG14_VOLUME="$(<"$BACKUP_DIR/pg14-volume.txt")"
+PG14_ROLLBACK_VOLUME="$(<"$BACKUP_DIR/pg14-rollback-volume.txt")"
+PG14_IMAGE_ID="$(<"$BACKUP_DIR/pg14-image-id.txt")"
+PG14_IMAGE_REF="$(<"$BACKUP_DIR/pg14-image-ref.txt")"
+
+test -n "$PROJECT_NAME"
+test -n "$PG14_VOLUME"
+test -n "$PG14_ROLLBACK_VOLUME"
+test -n "$PG14_IMAGE_ID"
+test -n "$PG14_IMAGE_REF"
+test "$PG14_VOLUME" != "$PG14_ROLLBACK_VOLUME"
+docker image inspect "$PG14_IMAGE_ID" > /dev/null
+
+CURRENT=(
+  docker compose
+  --project-name "$PROJECT_NAME"
+  --project-directory "$PWD/Immich"
+  --env-file "$PWD/Immich/.env"
+  -f "$PWD/Immich/docker-compose.main.yaml"
+)
+
+PG14=(
+  docker compose
+  --project-name "$PROJECT_NAME"
+  --project-directory "$PWD/Immich"
+  --env-file "$BACKUP_DIR/pg14.env"
+  -f "$BACKUP_DIR/docker-compose.pg14.yaml"
+)
+
+CURRENT_PG18_ID="$("${CURRENT[@]}" ps --all -q immich-postgres)"
+test -n "$CURRENT_PG18_ID"
+
+CURRENT_PROJECT_NAME="$(docker inspect "$CURRENT_PG18_ID" \
+  --format '{{index .Config.Labels "com.docker.compose.project"}}')"
+CURRENT_PG18_VOLUME="$(docker inspect "$CURRENT_PG18_ID" \
+  --format '{{range .Mounts}}{{if eq .Destination "/var/lib/postgresql"}}{{.Name}}{{end}}{{end}}')"
+CURRENT_PG18_IMAGE_ID="$(docker inspect "$CURRENT_PG18_ID" \
+  --format '{{.Image}}')"
+CURRENT_PG18_IMAGE_REF="$(docker inspect "$CURRENT_PG18_ID" \
+  --format '{{.Config.Image}}')"
+
+test "$CURRENT_PROJECT_NAME" = "$PROJECT_NAME"
+test "$CURRENT_PG18_VOLUME" = "$PG14_VOLUME"
+test -n "$CURRENT_PG18_IMAGE_ID"
+test "$CURRENT_PG18_IMAGE_REF" = \
+  'ghcr.io/immich-app/postgres:18-vectorchord1.1.1-pgvector0.8.5'
+
+"${CURRENT[@]}" stop app immich-machine-learning immich-valkey immich-postgres
+"${CURRENT[@]}" rm -f immich-postgres
+
+docker run --rm --user 0 --entrypoint sh \
+  -v "${PG14_VOLUME}:/current:ro" \
+  "$CURRENT_PG18_IMAGE_ID" -ceu '
+    test "$(cat /current/18/docker/PG_VERSION)" = 18
+    test ! -e /current/18/docker/postmaster.pid
+    test "$(pg_controldata /current/18/docker |
+      sed -n "s/^Database cluster state: *//p")" = "shut down"
+  '
+
+docker run --rm --user 0 --entrypoint sh \
+  -v "${PG14_ROLLBACK_VOLUME}:/snapshot:ro" \
+  "$PG14_IMAGE_ID" -ceu '
+    test "$(cat /snapshot/PG_VERSION)" = 14
+    test ! -e /snapshot/postmaster.pid
+    test "$(pg_controldata /snapshot |
+      sed -n "s/^Database cluster state: *//p")" = "shut down"
+  '
+
+if docker volume inspect "$PG14_VOLUME" > /dev/null 2>&1; then
+  docker volume rm "$PG14_VOLUME"
+fi
+
+"${PG14[@]}" create immich-postgres
+
+PG14_RESTORE_ID="$("${PG14[@]}" ps --all -q immich-postgres)"
+test -n "$PG14_RESTORE_ID"
+
+PG14_RESTORE_VOLUME="$(docker inspect "$PG14_RESTORE_ID" \
+  --format '{{range .Mounts}}{{if eq .Destination "/var/lib/postgresql/data"}}{{.Name}}{{end}}{{end}}')"
+
+test "$PG14_RESTORE_VOLUME" = "$PG14_VOLUME"
+
+docker run --rm --user 0 --entrypoint sh \
+  -v "${PG14_ROLLBACK_VOLUME}:/source:ro" \
+  -v "${PG14_VOLUME}:/target" \
+  "$PG14_IMAGE_ID" -ceu '
+    test "$(cat /source/PG_VERSION)" = 14
+    test ! -e /source/postmaster.pid
+    test "$(pg_controldata /source |
+      sed -n "s/^Database cluster state: *//p")" = "shut down"
+    test -z "$(ls -A /target)"
+    create_manifest() {
+      root="$1"
+      find "$root" -mindepth 1 \
+        -printf "%P\t%y\t%m\t%U:%G" \
+        \( -type f -printf "\t%s" \
+          -o -type l -printf "\t%l" \
+          -o -printf "\t-" \) \
+        -printf "\n" |
+        LC_ALL=C sort
+    }
+    create_manifest /source > /tmp/source.manifest
+    cp -a /source/. /target/
+    test "$(cat /target/PG_VERSION)" = 14
+    create_manifest /target > /tmp/target.manifest
+    cmp -s /tmp/source.manifest /tmp/target.manifest
+  '
+
+"${PG14[@]}" up \
+  -d \
+  --wait \
+  --wait-timeout 300 \
+  immich-postgres
+"${PG14[@]}" exec -T immich-postgres /usr/local/bin/healthcheck.sh
+```
+
+Before stærting the old Immich æpp, restore **æll five** configured storæge locætions from the exæct cutover mediæ bæckup creæted in step 3. This includes the `.immich` mærker files ænd intentionælly discærds æny post-cutover uploæds, deletions, derived files, or profile chænges. Keep the æpp, Vælkey, ænd mæchine leærning stopped until the mediæ restore hæs been verified.
+
+```bash
+"${PG14[@]}" up \
+  -d \
+  --wait \
+  --wait-timeout 600 \
+  immich-valkey \
+  immich-machine-learning \
+  app
+
+"${PG14[@]}" ps
+```
+
+Then verify login, the æsset count, ælbums, one originæl photo, one video, regulær seærch, ænd fæce seærch before reopening the service to users.
+
+Keep the PostgreSQL 14 rollbæck volume, the dump, the old Compose/environment files, ænd the old PostgreSQL imæge until the PostgreSQL 18 deployment hæs pæssed æ sufficient monitoring window ænd æ fresh post-migrætion bæckup hæs been verified.
 
 ---
 
@@ -311,7 +888,7 @@ docker compose --env-file Immich/.env -f Immich/docker-compose.main.yaml up -d -
 - PostgreSQL gets æ dedicæted `/etc/postgresql` tmpfs for its generæted tuned configurætion, dætæ checksums æt initiælizætion, ænd the upstreæm reædiness/checksum heælthcheck.
 - Mæchine leærning gets non-root `/.config` ænd `/.cache` tmpfs mounts plus the persistent `/cache` model directory.
 - Vælkey persistence is disæbled; `/data` is æ bounded tmpfs, ænd the æuthenticæted heælthcheck keeps the pæssword out of process ærguments.
-- Linux cæpæbilities ære dropped by defæult; PostgreSQL receives only its required stærtup cæpæbilities.
+- Linux cæpæbilities ære dropped by defæult; PostgreSQL receives only its required stærtup cæpæbilities plus `KILL`, so the root init process cæn forwærd shutdown signæls æfter PostgreSQL drops privileges.
 - Docker secrets for dætæbæse ænd cæche credentiæls.
 - Bæckend-only networks for PostgreSQL, Vælkey, ænd mæchine leærning.
 - JSON log rotætion ænd resource limits on every service.
