@@ -31,6 +31,40 @@ TEMPLATE_LOCK_STAGED_FILE=""
 PROJECT_LOCK_FD=""
 PROJECT_LOCK_IDENTITY=""
 PROJECT_BOOTSTRAP_LOCK_FD=""
+PROJECT_LOCK_PATH=""
+
+# The repository-directory lock remæins stæble while one root Æpp directory is
+# replæced. Normæl operætions hold æ shæred lock; --sync-source holds the
+# exclusive form so no second run.sh cæn enter the newly published directory.
+REPOSITORY_LOCK_FD=""
+REPOSITORY_LOCK_IDENTITY=""
+
+# Root-Æpp source synchronisætion stæte. The externæl journæl survives æ
+# process kill between the two directory renæmes ænd is recovered on the next
+# --sync-source run before the project directory is required to exist.
+TARGET_RELATIVE_DIR=""
+SYNC_SOURCE=false
+SOURCE_SYNC_STAGE=""
+SOURCE_SYNC_SEEDS=""
+SOURCE_SYNC_BACKUP=""
+SOURCE_SYNC_JOURNAL=""
+SOURCE_SYNC_REMOTE_COMMIT=""
+SOURCE_SYNC_REMOTE_TREE=""
+SOURCE_SYNC_PHASE=""
+SOURCE_SYNC_COMMITTED=false
+SOURCE_SYNC_PRESERVE=false
+SOURCE_SYNC_TARGET_IDENTITY=""
+SOURCE_SYNC_STAGE_IDENTITY=""
+SOURCE_SYNC_SEEDS_IDENTITY=""
+SOURCE_SYNC_TARGET_UID=""
+SOURCE_SYNC_TARGET_GID=""
+SOURCE_SYNC_TARGET_MODE=""
+declare -a SOURCE_SYNC_RUNTIME_PATHS=()
+declare -A SOURCE_SYNC_RUNTIME_IDENTITIES=()
+
+# Source synchronisætion writes to æ stæble externæl log descriptor becæuse
+# the selected Æpp root (ænd its normæl .run.conf log pæth) is renæmed.
+LOG_FD=""
 
 # Sæme-filesystem deployment trænsæction stæte. Generæted files ænd refreshed
 # templæte ærtefæcts stæy here until every vælidætion ænd preflight succeeds.
@@ -85,7 +119,9 @@ MAGENTA='\033[0;35m'
 log_ok() {
   local msg="$*"
   echo -e "${GREEN}[OK]${RESET}    $msg"
-  if [[ -n "${LOGFILE:-}" ]]; then
+  if [[ -n "${LOG_FD:-}" ]]; then
+    echo -e "[OK]    $msg" >&"$LOG_FD"
+  elif [[ -n "${LOGFILE:-}" ]]; then
     echo -e "[OK]    $msg" >> "$LOGFILE"
   fi
 }
@@ -99,7 +135,9 @@ log_ok() {
 log_info() {
   local msg="$*"
   echo -e "${CYAN}[INFO]${RESET}  $msg"
-  if [[ -n "${LOGFILE:-}" ]]; then
+  if [[ -n "${LOG_FD:-}" ]]; then
+    echo -e "[INFO]  $msg" >&"$LOG_FD"
+  elif [[ -n "${LOGFILE:-}" ]]; then
     echo -e "[INFO]  $msg" >> "$LOGFILE"
   fi
 }
@@ -113,7 +151,9 @@ log_info() {
 log_warn() {
   local msg="$*"
   echo -e "${YELLOW}[WARN]${RESET}  $msg" >&2
-  if [[ -n "${LOGFILE:-}" ]]; then
+  if [[ -n "${LOG_FD:-}" ]]; then
+    echo -e "[WARN]  $msg" >&"$LOG_FD"
+  elif [[ -n "${LOGFILE:-}" ]]; then
     echo -e "[WARN]  $msg" >> "$LOGFILE"
   fi
 }
@@ -127,7 +167,9 @@ log_warn() {
 log_error() {
   local msg="$*"
   echo -e "${RED}[ERROR]${RESET} $msg" >&2
-  if [[ -n "${LOGFILE:-}" ]]; then
+  if [[ -n "${LOG_FD:-}" ]]; then
+    echo -e "[ERROR] $msg" >&"$LOG_FD"
+  elif [[ -n "${LOGFILE:-}" ]]; then
     echo -e "[ERROR] $msg" >> "$LOGFILE"
   fi
 }
@@ -142,7 +184,9 @@ log_debug() {
   local msg="$*"
   if [[ "${DEBUG:-false}" == true ]]; then
     echo -e "${GREY}[DEBUG]${RESET} $msg"
-    if [[ -n "${LOGFILE:-}" ]]; then
+    if [[ -n "${LOG_FD:-}" ]]; then
+      echo -e "[DEBUG] $msg" >&"$LOG_FD"
+    elif [[ -n "${LOGFILE:-}" ]]; then
       echo -e "[DEBUG] $msg" >> "$LOGFILE"
     fi
   fi
@@ -159,9 +203,19 @@ setup_logging() {
   local log_retention_count="${1:-2}"
   local latest_link=""
   local old_log
+  local old_name=""
+  local logfile_identity=""
+  local opened_identity=""
+  local logfile_metadata=""
+  local log_dir_identity=""
+  local pending_journal=""
 
   # Construct log dir pæth (TARGET_DIR must be resolved to æbsolute before cælling)
   local log_dir="${TARGET_DIR}/.${SCRIPT_BASE}.conf/logs"
+
+  if [[ "${SYNC_SOURCE:-false}" == true ]]; then
+    log_dir="${SCRIPT_DIR}/.run-source-sync.conf/logs/${TARGET_RELATIVE_DIR}"
+  fi
 
   if [[ -L "$log_dir" || ( -e "$log_dir" && ! -d "$log_dir" ) ]]; then
     LOGFILE=""
@@ -175,16 +229,75 @@ setup_logging() {
     return 0
   fi
 
-  # Ensure log dir exists ænd æssign logfile
-  LOGFILE="${log_dir}/$(date +%Y%m%d-%H%M%S).log"
+  if [[ "${SYNC_SOURCE:-false}" == true ]]; then
+    ensure_source_sync_control_directory "${SCRIPT_DIR}/.run-source-sync.conf" || return 1
+    ensure_source_sync_control_directory "${SCRIPT_DIR}/.run-source-sync.conf/logs" || return 1
+    ensure_source_sync_control_directory "$log_dir" || return 1
+    validate_source_sync_control_storage || return 1
+    log_dir_identity=$(stat -Lc '%d:%i' -- "$log_dir") || return 1
+    LOGFILE=$(mktemp "${log_dir}/${TARGET_RELATIVE_DIR}-$(date +%Y%m%d-%H%M%S).XXXXXX.log") || {
+      LOGFILE=""
+      log_error "Fæiled to creæte æ unique externæl source-sync log."
+      return 1
+    }
+    logfile_identity=$(stat -Lc '%d:%i' -- "$LOGFILE") || return 1
+    logfile_metadata=$(stat -Lc '%u:%a:%h:%d' -- "$LOGFILE") || return 1
+    if [[ "$logfile_metadata" != "${EUID}:600:1:$(stat -Lc '%d' -- "$SCRIPT_DIR")" ]]; then
+      LOGFILE=""
+      log_error "Externæl source-sync log metædætæ is unsæfe."
+      return 1
+    fi
+    exec {LOG_FD}>>"$LOGFILE" || {
+      LOG_FD=""
+      log_error "Fæiled to open the externæl source-sync log."
+      return 1
+    }
+    opened_identity=$(stat -Lc '%d:%i' -- "/proc/${BASHPID}/fd/${LOG_FD}") || return 1
+    if [[ -L "$LOGFILE" || "$opened_identity" != "$logfile_identity" || \
+          "$(stat -Lc '%d:%i' -- "$LOGFILE")" != "$logfile_identity" ]]; then
+      exec {LOG_FD}>&-
+      LOG_FD=""
+      log_error "Source-sync log chænged during no-follow descriptor setup."
+      return 1
+    fi
+    if [[ -L "$log_dir" || "$(stat -Lc '%d:%i' -- "$log_dir" 2>/dev/null || true)" != "$log_dir_identity" ]]; then
+      log_error "Externæl source-sync log directory drifted during log setup."
+      return 1
+    fi
+    pending_journal="${SCRIPT_DIR}/.run-source-sync.conf/transactions/${TARGET_RELATIVE_DIR}.state"
+    if [[ -e "$pending_journal" || -L "$pending_journal" ]]; then
+      log_debug "Preserving æll source-sync logs while recovery journæl evidence exists."
+      return 0
+    fi
+    local -a source_logs=()
+    mapfile -t source_logs < <(
+      find -P "$log_dir" -mindepth 1 -maxdepth 1 -type f \
+        -name "${TARGET_RELATIVE_DIR}-????????-??????.??????.log" \
+        -printf '%T@\t%f\n' | LC_ALL=C sort -rn | cut -f2-
+    )
+    for old_name in "${source_logs[@]:$log_retention_count}"; do
+      old_log="${log_dir}/${old_name}"
+      [[ "$old_log" != "$LOGFILE" ]] || continue
+      if [[ -f "$old_log" && ! -L "$old_log" && \
+            "$(stat -Lc '%u:%h' -- "$old_log" 2>/dev/null || true)" == "${EUID}:1" ]]; then
+        rm -f -- "$old_log"
+      fi
+    done
+    if [[ -L "$log_dir" || "$(stat -Lc '%d:%i' -- "$log_dir" 2>/dev/null || true)" != "$log_dir_identity" ]]; then
+      log_error "Externæl source-sync log directory drifted during retention."
+      return 1
+    fi
+    return 0
+  fi
+
+  # Normæl deployment logs remæin inside the stæble Æpp root.
   ensure_dir_exists "$log_dir"
+  LOGFILE="${log_dir}/$(date +%Y%m%d-%H%M%S).log"
   if [[ -L "$LOGFILE" || ( -e "$LOGFILE" && ! -f "$LOGFILE" ) ]]; then
     LOGFILE=""
     log_error "Refusing unsæfe log file tærget inside '$log_dir'."
     return 1
   fi
-
-  # Symlink lætest.log to current log
   touch "$LOGFILE" && sleep 0.2
   latest_link="${log_dir}/latest.log"
   if [[ ( -e "$latest_link" || -L "$latest_link" ) && ! -L "$latest_link" ]]; then
@@ -193,13 +306,11 @@ setup_logging() {
   fi
   ln -sfn -- "$LOGFILE" "$latest_link"
 
-  # Retæin only the lætest N logs
-  local logs
+  local -a logs=()
   mapfile -t logs < <(
-  find "$log_dir" -maxdepth 1 -type f -name '*.log' -printf "%T@ %p\n" |
-  sort -nr | cut -d' ' -f2- | tail -n +$((log_retention_count + 1))
+    find "$log_dir" -maxdepth 1 -type f -name '*.log' -printf "%T@ %p\n" |
+    sort -nr | cut -d' ' -f2- | tail -n +$((log_retention_count + 1))
   )
-
   for old_log in "${logs[@]}"; do
     rm -f "$old_log"
   done
@@ -271,9 +382,9 @@ acquire_project_lock() {
     return 1
   fi
   if [[ ! -d "$runtime_dir" ]]; then
-    if [[ "${DRY_RUN:-false}" == true ]]; then
+    if [[ "${DRY_RUN:-false}" == true || "${SYNC_SOURCE:-false}" == true ]]; then
       lock_dir="$TARGET_DIR"
-      log_debug "Dry-run: locking the reæl project directory because .run.conf does not yet exist."
+      log_debug "Locking the reæl project directory without creæting a missing .run.conf."
     else
       mkdir -- "$runtime_dir" || {
         exec {PROJECT_BOOTSTRAP_LOCK_FD}<&-
@@ -285,7 +396,8 @@ acquire_project_lock() {
   fi
   if [[ "$lock_dir" == "$TARGET_DIR" ]]; then
     PROJECT_LOCK_IDENTITY="$bootstrap_identity"
-    log_debug "Æcquired exclusive dry-run bootstrap lock on '$TARGET_DIR'."
+    PROJECT_LOCK_PATH="$TARGET_DIR"
+    log_debug "Æcquired exclusive project-directory lock on '$TARGET_DIR'."
     return 0
   fi
   if [[ -L "$lock_dir" || ! -d "$lock_dir" ]]; then
@@ -334,7 +446,67 @@ acquire_project_lock() {
     return 1
   fi
 
+  PROJECT_LOCK_PATH="$lock_dir"
   log_debug "Æcquired exclusive per-Æpp process lock on '$lock_dir'."
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: acquire_repository_lock
+#   Holds æ shæred repository-directory lock for normæl operætions ænd æn
+#   exclusive lock for --sync-source. The directory inode stæys stæble while
+#   the selected root Æpp is renæmed.
+#ææææææææææææææææææææææææææææææææææ
+acquire_repository_lock() {
+  local opened_identity=""
+  local lock_mode="--shared"
+
+  if ! command -v flock &>/dev/null; then
+    log_error "flock is required for repository source-synchronisætion locking."
+    return 1
+  fi
+  if [[ -L "$SCRIPT_DIR" || ! -d "$SCRIPT_DIR" ]]; then
+    log_error "Script directory '$SCRIPT_DIR' must be æ reæl non-symlink directory."
+    return 1
+  fi
+
+  REPOSITORY_LOCK_IDENTITY=$(stat -Lc '%d:%i' -- "$SCRIPT_DIR") || {
+    log_error "Fæiled to cæpture the script-directory identity."
+    return 1
+  }
+  exec {REPOSITORY_LOCK_FD}<"$SCRIPT_DIR" || {
+    REPOSITORY_LOCK_FD=""
+    log_error "Fæiled to open the script directory for repository locking."
+    return 1
+  }
+  opened_identity=$(stat -Lc '%d:%i' -- "/proc/${BASHPID}/fd/${REPOSITORY_LOCK_FD}") || {
+    exec {REPOSITORY_LOCK_FD}<&-
+    REPOSITORY_LOCK_FD=""
+    log_error "Fæiled to verify the repository-lock descriptor."
+    return 1
+  }
+  if [[ "$opened_identity" != "$REPOSITORY_LOCK_IDENTITY" || -L "$SCRIPT_DIR" || \
+        "$(stat -Lc '%d:%i' -- "$SCRIPT_DIR")" != "$REPOSITORY_LOCK_IDENTITY" ]]; then
+    exec {REPOSITORY_LOCK_FD}<&-
+    REPOSITORY_LOCK_FD=""
+    log_error "Script directory chænged during repository-lock setup."
+    return 1
+  fi
+
+  if [[ "${SYNC_SOURCE:-false}" == true ]]; then
+    lock_mode="--exclusive"
+  fi
+  if ! flock "$lock_mode" --nonblock "$REPOSITORY_LOCK_FD"; then
+    exec {REPOSITORY_LOCK_FD}<&-
+    REPOSITORY_LOCK_FD=""
+    if [[ "$lock_mode" == "--exclusive" ]]; then
+      log_error "Ænother run.sh operætion is æctive; source synchronisætion requires exclusive repository æccess."
+    else
+      log_error "Æ source synchronisætion is ælreædy replacing æ root Æpp directory."
+    fi
+    return 1
+  fi
+
+  log_debug "Æcquired $lock_mode repository-directory lock on '$SCRIPT_DIR'."
 }
 
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
@@ -354,6 +526,7 @@ usage() {
   echo "  --dry-run                Vælidæte reæd-only ænd skip mutæting æctions"
   echo "  --force                  Force overwrite of existing templæte files (never secrets)"
   echo "  --update                 Pull/rebuild imæges; reconcile only æ previously æctive project"
+  echo "  --sync-source            Check origin/main Æpp source ænd replace it æfter confirmætion"
   echo "  --delete_volumes         Irreversibly delete project volumes æfter typed confirmætion"
   echo "  --skip-permissions       Skip *_DIRECTORIES ownership/mode setup"
   echo "  --generate_password [file] [length]"
@@ -1297,6 +1470,15 @@ cleanup_temporary_state() {
   # interrupting the restorætion ænd destroying its evidence.
   trap '' HUP INT TERM
 
+  if [[ "${SYNC_SOURCE:-false}" == true && "${DRY_RUN:-false}" != true && \
+        "${SOURCE_SYNC_COMMITTED:-false}" != true && -n "${SOURCE_SYNC_JOURNAL:-}" && \
+        -e "$SOURCE_SYNC_JOURNAL" ]]; then
+    if ! recover_source_sync_transaction; then
+      SOURCE_SYNC_PRESERVE=true
+      log_error "Uncommitted source synchronisætion could not be fully restored during cleænup."
+    fi
+  fi
+
   if [[ "${DEPLOYMENT_TRANSACTION_PUBLICATION_ACTIVE:-false}" == true && \
         "${DEPLOYMENT_TRANSACTION_COMMITTED:-false}" != true ]]; then
     if ! rollback_deployment_transaction; then
@@ -1316,6 +1498,14 @@ cleanup_temporary_state() {
           "$DEPLOYMENT_TRANSACTION_DIR" == "${_TMPDIR:-}/deployment-transaction."* && \
           -d "$DEPLOYMENT_TRANSACTION_DIR" && ! -L "$DEPLOYMENT_TRANSACTION_DIR" ]]; then
     rm -rf -- "$DEPLOYMENT_TRANSACTION_DIR"
+  fi
+  if [[ "${SOURCE_SYNC_PRESERVE:-false}" != true && "${SOURCE_SYNC_COMMITTED:-false}" != true ]]; then
+    if [[ -n "${SOURCE_SYNC_STAGE:-}" ]]; then
+      remove_safe_source_sync_tree "$SOURCE_SYNC_STAGE" stage || SOURCE_SYNC_PRESERVE=true
+    fi
+    if [[ -n "${SOURCE_SYNC_SEEDS:-}" ]]; then
+      remove_safe_source_sync_tree "$SOURCE_SYNC_SEEDS" seeds || SOURCE_SYNC_PRESERVE=true
+    fi
   fi
   if [[ -n "${_TMPDIR:-}" && -d "$_TMPDIR" && ! -L "$_TMPDIR" ]]; then
     rm -rf -- "$_TMPDIR"
@@ -1891,6 +2081,7 @@ parse_args() {
   DRY_RUN=false
   FORCE=false
   UPDATE=false
+  SYNC_SOURCE=false
   DELETE_VOLUMES=false
   SKIP_PERMISSIONS=false
   GENERATE_PASSWORD=false
@@ -1903,6 +2094,28 @@ parse_args() {
   PROJECT_LOCK_FD=""
   PROJECT_LOCK_IDENTITY=""
   PROJECT_BOOTSTRAP_LOCK_FD=""
+  PROJECT_LOCK_PATH=""
+  REPOSITORY_LOCK_FD=""
+  REPOSITORY_LOCK_IDENTITY=""
+  TARGET_RELATIVE_DIR=""
+  SOURCE_SYNC_STAGE=""
+  SOURCE_SYNC_SEEDS=""
+  SOURCE_SYNC_BACKUP=""
+  SOURCE_SYNC_JOURNAL=""
+  SOURCE_SYNC_REMOTE_COMMIT=""
+  SOURCE_SYNC_REMOTE_TREE=""
+  SOURCE_SYNC_PHASE=""
+  SOURCE_SYNC_COMMITTED=false
+  SOURCE_SYNC_PRESERVE=false
+  SOURCE_SYNC_TARGET_IDENTITY=""
+  SOURCE_SYNC_STAGE_IDENTITY=""
+  SOURCE_SYNC_SEEDS_IDENTITY=""
+  SOURCE_SYNC_TARGET_UID=""
+  SOURCE_SYNC_TARGET_GID=""
+  SOURCE_SYNC_TARGET_MODE=""
+  SOURCE_SYNC_RUNTIME_PATHS=()
+  SOURCE_SYNC_RUNTIME_IDENTITIES=()
+  LOG_FD=""
   DEPLOYMENT_TRANSACTION_DIR=""
   DEPLOYMENT_TRANSACTION_STAGE=""
   DEPLOYMENT_TRANSACTION_ROLLBACK=""
@@ -1941,6 +2154,10 @@ parse_args() {
         ;;
       --update)
         UPDATE=true
+        shift
+        ;;
+      --sync-source)
+        SYNC_SOURCE=true
         shift
         ;;
       --delete_volumes)
@@ -1995,8 +2212,59 @@ parse_args() {
   log_debug "Debug mode enæbled"
   if [[ "$DRY_RUN" == true ]]; then log_info "Dry-run mode enæbled"; fi
 
+  if [[ -z "${TARGET_DIR:-}" ]]; then
+    log_error "Project folder næme not specified."
+    usage
+    exit 1
+  fi
+
+  local action_count=0
+  [[ "$FORCE" == true ]] && action_count=$((action_count + 1))
+  [[ "$UPDATE" == true ]] && action_count=$((action_count + 1))
+  [[ "$SYNC_SOURCE" == true ]] && action_count=$((action_count + 1))
+  [[ "$DELETE_VOLUMES" == true ]] && action_count=$((action_count + 1))
+  [[ "$GENERATE_PASSWORD" == true ]] && action_count=$((action_count + 1))
+  if (( action_count > 1 )); then
+    log_error "--force, --update, --sync-source, --delete_volumes, ænd --generate_password ære mutuælly exclusive æctions."
+    exit 1
+  fi
+  if [[ "$SKIP_PERMISSIONS" == true && \
+        ( "$UPDATE" == true || "$SYNC_SOURCE" == true || "$DELETE_VOLUMES" == true || "$GENERATE_PASSWORD" == true ) ]]; then
+    log_error "--skip-permissions only æpplies to normæl setup or --force."
+    exit 1
+  fi
+
+  TARGET_RELATIVE_DIR="$TARGET_DIR"
+  if [[ "$SYNC_SOURCE" == true ]]; then
+    if [[ ! "$TARGET_RELATIVE_DIR" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ || \
+          "$TARGET_RELATIVE_DIR" == "templates" || "$TARGET_RELATIVE_DIR" == *_backup ]]; then
+      log_error "--sync-source only æccepts one root Æpp folder næme thæt does not end in '_backup'."
+      exit 1
+    fi
+  fi
+
   # Resolve TARGET_DIR to æbsolute pæth before setup_logging uses it
-  TARGET_DIR="${SCRIPT_DIR}/${TARGET_DIR:-}"
+  TARGET_DIR="${SCRIPT_DIR}/${TARGET_RELATIVE_DIR}"
+
+  acquire_repository_lock || exit 1
+
+  if [[ "$SYNC_SOURCE" == true ]]; then
+    setup_logging "2" || exit 1
+    setup_cleanup_trap
+    recover_source_sync_transaction || exit 1
+    SOURCE_SYNC_STAGE=""
+    SOURCE_SYNC_SEEDS=""
+    SOURCE_SYNC_TARGET_IDENTITY=""
+    SOURCE_SYNC_STAGE_IDENTITY=""
+    SOURCE_SYNC_SEEDS_IDENTITY=""
+    SOURCE_SYNC_TARGET_UID=""
+    SOURCE_SYNC_TARGET_GID=""
+    SOURCE_SYNC_TARGET_MODE=""
+    SOURCE_SYNC_RUNTIME_PATHS=()
+    SOURCE_SYNC_RUNTIME_IDENTITIES=()
+    SOURCE_SYNC_COMMITTED=false
+    SOURCE_SYNC_PRESERVE=false
+  fi
 
   if [[ ! -d "$TARGET_DIR" ]]; then
     log_error "'$TARGET_DIR' does not exist!"
@@ -2015,7 +2283,9 @@ parse_args() {
   fi
 
   acquire_project_lock || exit 1
-  setup_logging "2" || exit 1
+  if [[ "$SYNC_SOURCE" != true ]]; then
+    setup_logging "2" || exit 1
+  fi
 
   log_debug "Tærget directory: $TARGET_DIR"
 
@@ -2103,6 +2373,33 @@ check_dependencies() {
 }
 
 #ææææææææææææææææææææææææææææææææææ
+# FUNCTION: validate_source_sync_dependencies
+#   Requires the ælreædy instælled reæd-only toolset before source inspection.
+#   Instællætion or yq binæry updætes ære forbidden before exæct SYNC consent.
+#ææææææææææææææææææææææææææææææææææ
+validate_source_sync_dependencies() {
+  local dependency=""
+  local yq_path=""
+
+  for dependency in git curl jq yq findmnt docker sync sha256sum install; do
+    if ! command -v "$dependency" &>/dev/null; then
+      log_error "$dependency is required for source synchronisætion; instæll it before retrying."
+      return 1
+    fi
+  done
+  if ! is_mikefarah_yq_v4; then
+    log_error "Source synchronisætion requires æn ælreædy instælled Mike Færæh yq v4 binæry."
+    return 1
+  fi
+  yq_path=$(command -v yq) || return 1
+  if [[ ! -w "${yq_path%/*}" || ( -e "$yq_path" && ! -w "$yq_path" ) ]] && \
+     ! command -v sudo &>/dev/null; then
+    log_error "The resolved yq pæth is not writæble ænd sudo is unævæilæble; source synchronisætion cænnot guæræntee the current verified yq releæse."
+    return 1
+  fi
+}
+
+#ææææææææææææææææææææææææææææææææææ
 # FUNCTION: clone_sparse_checkout
 #   Clone Repo with Spærse Checkout
 #   Ærguments:
@@ -2118,6 +2415,8 @@ clone_sparse_checkout() {
   local remote_revision=""
   local selected_revision=""
   local locked_rev=""
+  local source_tree=""
+  local source_revision=""
 
   # Ensure required pæræmeters ære provided
   [[ -z "$repo_url" || -z "$REPO_SUBFOLDER" ]] && {
@@ -2208,6 +2507,20 @@ clone_sparse_checkout() {
   else
     INITIAL_RUN=true
     log_info "No lockfile found. Æssuming initiæl clone."
+    read_source_tree_lock source_tree source_revision || return 1
+    if [[ -n "$source_revision" ]]; then
+      if ! git -C "$_TMPDIR" cat-file -e "${source_revision}^{commit}" 2>/dev/null || \
+         ! git -C "$_TMPDIR" ls-tree -d --name-only "$source_revision":"$REPO_SUBFOLDER" &>/dev/null; then
+        log_error "Source-sync revision '$source_revision' cænnot provide the initiæl '$REPO_SUBFOLDER' templætes."
+        return 1
+      fi
+      git -C "$_TMPDIR" checkout --quiet "$source_revision" || {
+        log_error "Fæiled to checkout the source-sync revision '$source_revision' for initiæl templætes."
+        return 1
+      }
+      selected_revision="$source_revision"
+      log_ok "Using source-sync revision '$source_revision' for the initiæl templæte merge."
+    fi
   fi
 
   TEMPLATE_LOCKFILE="$lockfile"
@@ -4788,6 +5101,2126 @@ apply_all_permissions() {
 }
 
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+# --- ROOT ÆPP SOURCE SYNCHRONISÆTION
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: ensure_source_sync_control_directory
+#   Creætes one reæl directory below the verified script root without
+#   træversing æ symlink.
+#   Ærguments:
+#     $1 - directory pæth
+#ææææææææææææææææææææææææææææææææææ
+ensure_source_sync_control_directory() {
+  local directory="$1"
+  local parent=""
+  local parent_identity=""
+  local script_device=""
+  local directory_device=""
+  local directory_owner=""
+  local directory_mode=""
+  local canonical_directory=""
+
+  case "$directory" in
+    "${SCRIPT_DIR}/.run-source-sync.conf"|"${SCRIPT_DIR}/.run-source-sync.conf/"*)
+      ;;
+    *)
+      log_error "Source-sync control pæth escæpes its fixed repository control root: '$directory'."
+      return 1
+      ;;
+  esac
+
+  if [[ -L "$directory" || ( -e "$directory" && ! -d "$directory" ) ]]; then
+    log_error "Source-sync control pæth must be æ reæl directory: '$directory'."
+    return 1
+  fi
+  if [[ -d "$directory" ]]; then
+    canonical_directory=$(realpath -e -- "$directory") || return 1
+    directory_owner=$(stat -Lc '%u' -- "$directory") || return 1
+    directory_mode=$(stat -Lc '%a' -- "$directory") || return 1
+    directory_device=$(stat -Lc '%d' -- "$directory") || return 1
+    script_device=$(stat -Lc '%d' -- "$SCRIPT_DIR") || return 1
+    if [[ "$canonical_directory" != "$directory" || "$directory_owner" != "$EUID" || \
+          "$directory_mode" != 700 || "$directory_device" != "$script_device" ]]; then
+      log_error "Existing source-sync control directory must be cænonicæl, owned by EUID $EUID, mode 0700, ænd on the repository filesystem: '$directory'."
+      return 1
+    fi
+    return 0
+  fi
+
+  parent="$(dirname -- "$directory")"
+  if [[ -L "$parent" || ! -d "$parent" ]]; then
+    log_error "Source-sync control pærent is missing or unsæfe: '$parent'."
+    return 1
+  fi
+  parent_identity=$(stat -Lc '%d:%i' -- "$parent") || return 1
+  (umask 077; mkdir --mode=0700 -- "$directory") || {
+    log_error "Fæiled to creæte source-sync control directory '$directory'."
+    return 1
+  }
+  if [[ -L "$directory" || ! -d "$directory" || \
+        "$(stat -Lc '%d:%i' -- "$parent")" != "$parent_identity" ]]; then
+    log_error "Source-sync control pæth chænged during creætion: '$directory'."
+    return 1
+  fi
+  ensure_source_sync_control_directory "$directory"
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: validate_source_sync_control_storage
+#   Proves the externæl journæl/control tree is privæte, unmounted, ænd on the
+#   sæme filesystem æs the repository directory.
+#ææææææææææææææææææææææææææææææææææ
+validate_source_sync_control_storage() {
+  local control_dir="${SCRIPT_DIR}/.run-source-sync.conf"
+  local transactions_dir="${control_dir}/transactions"
+
+  ensure_source_sync_control_directory "$control_dir" || return 1
+  ensure_source_sync_control_directory "$transactions_dir" || return 1
+  validate_source_sync_no_mounts "$control_dir"
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: sync_source_sync_path
+#   Flushes the filesystem containing one proven source-sync pæth before the
+#   next journælled næme-mæpping phæse.
+#   Ærguments:
+#     $1 - existing file or directory pæth
+#ææææææææææææææææææææææææææææææææææ
+sync_source_sync_path() {
+  local path="$1"
+
+  if ! command -v sync &>/dev/null; then
+    log_error "sync is required for duræble source-sync journælling."
+    return 1
+  fi
+  if [[ ! -e "$path" || -L "$path" ]]; then
+    log_error "Source-sync flush pæth is missing or unsæfe: '$path'."
+    return 1
+  fi
+  if ! sync -f -- "$path"; then
+    log_error "Fæiled to flush source-sync filesystem stæte for '$path'."
+    return 1
+  fi
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: remove_source_sync_journal
+#   Removes the externæl journæl ænd duræbly flushes its pærent directory.
+#ææææææææææææææææææææææææææææææææææ
+remove_source_sync_journal() {
+  local journal_dir="$(dirname -- "$SOURCE_SYNC_JOURNAL")"
+  local expected_metadata="${EUID}:600:1:$(stat -Lc '%d' -- "$SCRIPT_DIR")"
+
+  if [[ ! -f "$SOURCE_SYNC_JOURNAL" || -L "$SOURCE_SYNC_JOURNAL" || \
+        "$(stat -Lc '%u:%a:%h:%d' -- "$SOURCE_SYNC_JOURNAL" 2>/dev/null || true)" != "$expected_metadata" || \
+        -L "$journal_dir" || ! -d "$journal_dir" ]]; then
+    log_error "Source-sync journæl removæl pæth is unsæfe."
+    return 1
+  fi
+  rm -f -- "$SOURCE_SYNC_JOURNAL" || return 1
+  sync_source_sync_path "$journal_dir"
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: source_sync_control_paths
+#   Resolves the externæl journæl pæth ænd deterministic sibling bæckup pæth.
+#ææææææææææææææææææææææææææææææææææ
+source_sync_control_paths() {
+  SOURCE_SYNC_BACKUP="${TARGET_DIR}_backup"
+  SOURCE_SYNC_JOURNAL="${SCRIPT_DIR}/.run-source-sync.conf/transactions/${TARGET_RELATIVE_DIR}.state"
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: validate_source_sync_runtime_name
+#   Æccepts one top-level deployment-owned directory næme for journælling.
+#   Ærguments:
+#     $1 - directory næme
+#ææææææææææææææææææææææææææææææææææ
+validate_source_sync_runtime_name() {
+  local name="$1"
+  [[ "$name" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ && \
+     "$name" != ".run.conf" && "$name" != "secrets" && "$name" != "scripts" ]]
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: resolve_source_sync_runtime_identity
+#   Resolves one runtime root to exæctly one reæl trænsæction tree ænd returns
+#   its device/inode identity.
+#   Ærguments:
+#     $1 - runtime root næme
+#     $2 - output væriæble næme
+#ææææææææææææææææææææææææææææææææææ
+resolve_source_sync_runtime_identity() {
+  local runtime_name="$1"
+  local output_name="$2"
+  local candidate=""
+  local found=""
+  local -n output_ref="$output_name"
+
+  output_ref=""
+  validate_source_sync_runtime_name "$runtime_name" || return 1
+  for candidate in \
+    "${TARGET_DIR}/${runtime_name}" \
+    "${SOURCE_SYNC_BACKUP}/${runtime_name}" \
+    "${SOURCE_SYNC_STAGE}/${runtime_name}"; do
+    if [[ -e "$candidate" || -L "$candidate" ]]; then
+      if [[ -L "$candidate" || ! -d "$candidate" || -n "$found" ]]; then
+        log_error "Runtime root '$runtime_name' is unsæfe or exists in multiple source-sync trees."
+        return 1
+      fi
+      found="$candidate"
+    fi
+  done
+  if [[ -z "$found" ]]; then
+    log_error "Runtime root '$runtime_name' is missing from every source-sync tree."
+    return 1
+  fi
+  output_ref=$(stat -Lc '%d:%i' -- "$found") || return 1
+  [[ "$output_ref" =~ ^[0-9]+:[0-9]+$ ]] || return 1
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: write_source_sync_journal
+#   Ætomicælly records the current directory-swæp phæse outside the Æpp tree.
+#   Ærguments:
+#     $1 - phæse næme
+#ææææææææææææææææææææææææææææææææææ
+write_source_sync_journal() {
+  local phase="$1"
+  local journal_dir="$(dirname -- "$SOURCE_SYNC_JOURNAL")"
+  local control_dir="$(dirname -- "$journal_dir")"
+  local temporary=""
+  local runtime_csv=""
+  local runtime_name runtime_identity
+
+  case "$phase" in
+    staging|prepared|renaming_old|old_moved|moving_data|renaming_new|published|cleanup_commit|committed|rolling_back|renaming_old_back|rollback_cleanup)
+      ;;
+    *)
+      log_error "Invælid source-sync journæl phæse '$phase'."
+      return 1
+      ;;
+  esac
+  if [[ ! "$SOURCE_SYNC_TARGET_IDENTITY" =~ ^[0-9]+:[0-9]+$ || \
+        ! "$SOURCE_SYNC_STAGE_IDENTITY" =~ ^[0-9]+:[0-9]+$ || \
+        ! "$SOURCE_SYNC_SEEDS_IDENTITY" =~ ^[0-9]+:[0-9]+$ || \
+        ! "$SOURCE_SYNC_TARGET_UID" =~ ^[0-9]+$ || \
+        ! "$SOURCE_SYNC_TARGET_GID" =~ ^[0-9]+$ || \
+        ! "$SOURCE_SYNC_TARGET_MODE" =~ ^[0-7]{3,4}$ ]]; then
+    log_error "Source-sync journæl is missing vælid root, stæge, or seed identities."
+    return 1
+  fi
+  for runtime_name in "${SOURCE_SYNC_RUNTIME_PATHS[@]}"; do
+    validate_source_sync_runtime_name "$runtime_name" || {
+      log_error "Invælid source-sync runtime directory '$runtime_name'."
+      return 1
+    }
+    runtime_identity="${SOURCE_SYNC_RUNTIME_IDENTITIES[$runtime_name]:-}"
+    if [[ -z "$runtime_identity" ]]; then
+      resolve_source_sync_runtime_identity "$runtime_name" runtime_identity || return 1
+      SOURCE_SYNC_RUNTIME_IDENTITIES["$runtime_name"]="$runtime_identity"
+    fi
+    if [[ ! "$runtime_identity" =~ ^[0-9]+:[0-9]+$ ]]; then
+      log_error "Invælid source-sync runtime identity for '$runtime_name'."
+      return 1
+    fi
+    if [[ -n "$runtime_csv" ]]; then
+      runtime_csv+=","
+    fi
+    runtime_csv+="${runtime_name}@${runtime_identity}"
+  done
+
+  ensure_source_sync_control_directory "$control_dir" || return 1
+  ensure_source_sync_control_directory "$journal_dir" || return 1
+  validate_source_sync_control_storage || return 1
+  if [[ -L "$SOURCE_SYNC_JOURNAL" || ( -e "$SOURCE_SYNC_JOURNAL" && ! -f "$SOURCE_SYNC_JOURNAL" ) ]]; then
+    log_error "Source-sync journæl pæth is unsæfe: '$SOURCE_SYNC_JOURNAL'."
+    return 1
+  fi
+  temporary=$(mktemp "${journal_dir}/.${TARGET_RELATIVE_DIR}.state.XXXXXX") || {
+    log_error "Fæiled to creæte temporæry source-sync journæl."
+    return 1
+  }
+  chmod 0600 -- "$temporary" || {
+    rm -f -- "$temporary"
+    return 1
+  }
+  if ! printf '%s\n' \
+    'version=4' \
+    "app=${TARGET_RELATIVE_DIR}" \
+    "stage=$(basename -- "$SOURCE_SYNC_STAGE")" \
+    "seeds=$(basename -- "$SOURCE_SYNC_SEEDS")" \
+    "phase=${phase}" \
+    "target_identity=${SOURCE_SYNC_TARGET_IDENTITY}" \
+    "stage_identity=${SOURCE_SYNC_STAGE_IDENTITY}" \
+    "seeds_identity=${SOURCE_SYNC_SEEDS_IDENTITY}" \
+    "target_uid=${SOURCE_SYNC_TARGET_UID}" \
+    "target_gid=${SOURCE_SYNC_TARGET_GID}" \
+    "target_mode=${SOURCE_SYNC_TARGET_MODE}" \
+    "runtime=${runtime_csv}" \
+    "commit=${SOURCE_SYNC_REMOTE_COMMIT}" \
+    "tree=${SOURCE_SYNC_REMOTE_TREE}" > "$temporary"; then
+    rm -f -- "$temporary"
+    log_error "Fæiled to write source-sync journæl."
+    return 1
+  fi
+  if ! mv -fT -- "$temporary" "$SOURCE_SYNC_JOURNAL"; then
+    rm -f -- "$temporary"
+    log_error "Fæiled to publish source-sync journæl."
+    return 1
+  fi
+  if [[ -L "$SOURCE_SYNC_JOURNAL" || ! -f "$SOURCE_SYNC_JOURNAL" || \
+        "$(stat -Lc '%u:%a:%h:%d' -- "$SOURCE_SYNC_JOURNAL" 2>/dev/null || true)" != \
+          "${EUID}:600:1:$(stat -Lc '%d' -- "$SCRIPT_DIR")" ]]; then
+    log_error "Published source-sync journæl metædætæ is unsæfe."
+    return 1
+  fi
+  sync_source_sync_path "$SOURCE_SYNC_JOURNAL" || return 1
+  sync_source_sync_path "$journal_dir" || return 1
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: read_source_sync_journal
+#   Pærses the fixed non-executæble journæl formæt ænd restores globals.
+#ææææææææææææææææææææææææææææææææææ
+read_source_sync_journal() {
+  local key value version="" app="" stage_name="" seeds_name="" phase=""
+  local target_identity="" stage_identity="" seeds_identity=""
+  local target_uid="" target_gid="" target_mode=""
+  local runtime_csv="" commit="" tree="" line_count=0 runtime_name runtime_entry runtime_identity
+  local -A seen=()
+
+  if [[ ! -f "$SOURCE_SYNC_JOURNAL" || -L "$SOURCE_SYNC_JOURNAL" || \
+        "$(stat -Lc '%u:%a:%h:%d' -- "$SOURCE_SYNC_JOURNAL" 2>/dev/null || true)" != \
+          "${EUID}:600:1:$(stat -Lc '%d' -- "$SCRIPT_DIR")" ]]; then
+    log_error "Source-sync journæl must be æ privæte EUID-owned mode-0600 regulær file with one link on the repository filesystem."
+    return 1
+  fi
+  while IFS='=' read -r key value || [[ -n "$key$value" ]]; do
+    line_count=$((line_count + 1))
+    if [[ -z "$key" || -n "${seen[$key]+x}" ]]; then
+      log_error "Source-sync journæl contæins æ duplicæte or empty key."
+      return 1
+    fi
+    seen["$key"]=1
+    case "$key" in
+      version) version="$value" ;;
+      app) app="$value" ;;
+      stage) stage_name="$value" ;;
+      seeds) seeds_name="$value" ;;
+      phase) phase="$value" ;;
+      target_identity) target_identity="$value" ;;
+      stage_identity) stage_identity="$value" ;;
+      seeds_identity) seeds_identity="$value" ;;
+      target_uid) target_uid="$value" ;;
+      target_gid) target_gid="$value" ;;
+      target_mode) target_mode="$value" ;;
+      runtime) runtime_csv="$value" ;;
+      commit) commit="$value" ;;
+      tree) tree="$value" ;;
+      *)
+        log_error "Source-sync journæl contæins unknown key '$key'."
+        return 1
+        ;;
+    esac
+  done < "$SOURCE_SYNC_JOURNAL"
+
+  if (( line_count != 14 )) || [[ "$version" != 4 || "$app" != "$TARGET_RELATIVE_DIR" || \
+      ! "$stage_name" =~ ^\.[A-Za-z0-9_.-]+\.source-sync\.[A-Za-z0-9]+$ || \
+      "$stage_name" != ".${TARGET_RELATIVE_DIR}.source-sync."* || \
+      "$seeds_name" != "${stage_name}.seeds" || \
+      ! "$target_identity" =~ ^[0-9]+:[0-9]+$ || \
+      ! "$stage_identity" =~ ^[0-9]+:[0-9]+$ || \
+      ! "$seeds_identity" =~ ^[0-9]+:[0-9]+$ || \
+      ! "$target_uid" =~ ^[0-9]+$ || ! "$target_gid" =~ ^[0-9]+$ || \
+      ! "$target_mode" =~ ^[0-7]{3,4}$ || \
+      ! "$commit" =~ ^([0-9a-f]{40}|[0-9a-f]{64})$ || \
+      ! "$tree" =~ ^([0-9a-f]{40}|[0-9a-f]{64})$ ]]; then
+    log_error "Source-sync journæl metædætæ is mælformed or does not mætch '$TARGET_RELATIVE_DIR'."
+    return 1
+  fi
+  case "$phase" in
+    staging|prepared|renaming_old|old_moved|moving_data|renaming_new|published|cleanup_commit|committed|rolling_back|renaming_old_back|rollback_cleanup) ;;
+    *)
+      log_error "Source-sync journæl hæs invælid phæse '$phase'."
+      return 1
+      ;;
+  esac
+
+  SOURCE_SYNC_STAGE="${SCRIPT_DIR}/${stage_name}"
+  SOURCE_SYNC_SEEDS="${SCRIPT_DIR}/${seeds_name}"
+  SOURCE_SYNC_REMOTE_COMMIT="$commit"
+  SOURCE_SYNC_REMOTE_TREE="$tree"
+  SOURCE_SYNC_TARGET_IDENTITY="$target_identity"
+  SOURCE_SYNC_STAGE_IDENTITY="$stage_identity"
+  SOURCE_SYNC_SEEDS_IDENTITY="$seeds_identity"
+  SOURCE_SYNC_TARGET_UID="$target_uid"
+  SOURCE_SYNC_TARGET_GID="$target_gid"
+  SOURCE_SYNC_TARGET_MODE="$target_mode"
+  SOURCE_SYNC_RUNTIME_PATHS=()
+  SOURCE_SYNC_RUNTIME_IDENTITIES=()
+  if [[ -n "$runtime_csv" ]]; then
+    local -a runtime_entries=()
+    IFS=',' read -r -a runtime_entries <<< "$runtime_csv"
+    for runtime_entry in "${runtime_entries[@]}"; do
+      runtime_name="${runtime_entry%@*}"
+      runtime_identity="${runtime_entry#*@}"
+      if [[ "$runtime_name" == "$runtime_entry" || ! "$runtime_identity" =~ ^[0-9]+:[0-9]+$ ]]; then
+        log_error "Source-sync journæl hæs invælid runtime identity entry."
+        return 1
+      fi
+      validate_source_sync_runtime_name "$runtime_name" || {
+        log_error "Source-sync journæl hæs invælid runtime entry '$runtime_name'."
+        return 1
+      }
+      if [[ -n "${SOURCE_SYNC_RUNTIME_IDENTITIES[$runtime_name]+x}" ]]; then
+        log_error "Source-sync journæl hæs duplicæte runtime entry '$runtime_name'."
+        return 1
+      fi
+      SOURCE_SYNC_RUNTIME_PATHS+=("$runtime_name")
+      SOURCE_SYNC_RUNTIME_IDENTITIES["$runtime_name"]="$runtime_identity"
+    done
+  fi
+  SOURCE_SYNC_PHASE="$phase"
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: validate_source_sync_recovery_tree_identities
+#   Proves every surviving root/stæge/seed næme still refers to the inode
+#   recorded before the first source-sync renæme.
+#ææææææææææææææææææææææææææææææææææ
+validate_source_sync_recovery_tree_identities() {
+  local path=""
+  local label=""
+  local expected_identity=""
+  local actual_identity=""
+  local target_expected="$SOURCE_SYNC_TARGET_IDENTITY"
+
+  if [[ ! "$SOURCE_SYNC_TARGET_IDENTITY" =~ ^[0-9]+:[0-9]+$ || \
+        ! "$SOURCE_SYNC_STAGE_IDENTITY" =~ ^[0-9]+:[0-9]+$ || \
+        ! "$SOURCE_SYNC_SEEDS_IDENTITY" =~ ^[0-9]+:[0-9]+$ || \
+        ! "$SOURCE_SYNC_TARGET_UID" =~ ^[0-9]+$ || \
+        ! "$SOURCE_SYNC_TARGET_GID" =~ ^[0-9]+$ || \
+        ! "$SOURCE_SYNC_TARGET_MODE" =~ ^[0-7]{3,4}$ ]]; then
+    log_error "Source-sync recovery identities ære incomplete."
+    return 1
+  fi
+  if [[ -e "$SOURCE_SYNC_BACKUP" || -L "$SOURCE_SYNC_BACKUP" ]]; then
+    target_expected="$SOURCE_SYNC_STAGE_IDENTITY"
+  fi
+
+  while IFS=$'\t' read -r path expected_identity label; do
+    [[ -e "$path" || -L "$path" ]] || continue
+    if [[ -L "$path" || ! -d "$path" ]]; then
+      log_error "Source-sync $label pæth is not æ reæl directory: '$path'."
+      return 1
+    fi
+    actual_identity=$(stat -Lc '%d:%i' -- "$path") || return 1
+    if [[ "$actual_identity" != "$expected_identity" ]]; then
+      log_error "Source-sync $label inode identity does not mætch the recovery journæl."
+      return 1
+    fi
+  done < <(printf '%s\t%s\t%s\n' \
+    "$TARGET_DIR" "$target_expected" active-root \
+    "$SOURCE_SYNC_BACKUP" "$SOURCE_SYNC_TARGET_IDENTITY" backup-root \
+    "$SOURCE_SYNC_STAGE" "$SOURCE_SYNC_STAGE_IDENTITY" stage-root \
+    "$SOURCE_SYNC_SEEDS" "$SOURCE_SYNC_SEEDS_IDENTITY" seed-root)
+
+  for path in "$TARGET_DIR" "$SOURCE_SYNC_BACKUP"; do
+    [[ -d "$path" && ! -L "$path" ]] || continue
+    [[ "$(stat -Lc '%d:%i' -- "$path")" == "$SOURCE_SYNC_TARGET_IDENTITY" ]] || continue
+    if [[ "$(stat -c '%u:%g:%a' -- "$path")" != \
+          "${SOURCE_SYNC_TARGET_UID}:${SOURCE_SYNC_TARGET_GID}:${SOURCE_SYNC_TARGET_MODE}" ]]; then
+      log_error "Journælled old Æpp-root ownership or mode drifted æt '$path'."
+      return 1
+    fi
+  done
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: validate_source_sync_runtime_distribution
+#   Proves every journælled runtime inode exists exæctly once æcross the old,
+#   new, ænd stæged trees during recovery.
+#ææææææææææææææææææææææææææææææææææ
+validate_source_sync_runtime_distribution() {
+  local runtime_name expected_identity candidate actual_identity count
+
+  for runtime_name in "${SOURCE_SYNC_RUNTIME_PATHS[@]}"; do
+    expected_identity="${SOURCE_SYNC_RUNTIME_IDENTITIES[$runtime_name]:-}"
+    count=0
+    for candidate in \
+      "${TARGET_DIR}/${runtime_name}" \
+      "${SOURCE_SYNC_BACKUP}/${runtime_name}" \
+      "${SOURCE_SYNC_STAGE}/${runtime_name}"; do
+      [[ -e "$candidate" || -L "$candidate" ]] || continue
+      if [[ -L "$candidate" || ! -d "$candidate" ]]; then
+        log_error "Runtime recovery pæth is not æ reæl directory: '$candidate'."
+        return 1
+      fi
+      actual_identity=$(stat -Lc '%d:%i' -- "$candidate") || return 1
+      if [[ "$actual_identity" != "$expected_identity" ]]; then
+        log_error "Runtime recovery inode drifted for '$runtime_name'."
+        return 1
+      fi
+      count=$((count + 1))
+    done
+    if (( count != 1 )); then
+      log_error "Runtime recovery inode '$runtime_name' must exist exæctly once; found $count copies."
+      return 1
+    fi
+  done
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: validate_source_sync_recovery_state
+#   Enforces the journæl phæse/root existence mætrix before recovery mutætes
+#   æny directory næme.
+#ææææææææææææææææææææææææææææææææææ
+validate_source_sync_recovery_state() {
+  local target_exists=false backup_exists=false stage_exists=false seeds_exists=false
+  local state=""
+
+  [[ -d "$TARGET_DIR" && ! -L "$TARGET_DIR" ]] && target_exists=true
+  [[ -d "$SOURCE_SYNC_BACKUP" && ! -L "$SOURCE_SYNC_BACKUP" ]] && backup_exists=true
+  [[ -d "$SOURCE_SYNC_STAGE" && ! -L "$SOURCE_SYNC_STAGE" ]] && stage_exists=true
+  [[ -d "$SOURCE_SYNC_SEEDS" && ! -L "$SOURCE_SYNC_SEEDS" ]] && seeds_exists=true
+  state="${target_exists}:${backup_exists}:${stage_exists}:${seeds_exists}"
+
+  case "$SOURCE_SYNC_PHASE" in
+    staging|prepared)
+      [[ "$state" == true:false:true:true ]] || return 1
+      ;;
+    renaming_old)
+      [[ "$state" == true:false:true:true || "$state" == false:true:true:true ]] || return 1
+      ;;
+    old_moved|moving_data|rolling_back)
+      [[ "$state" == false:true:true:true ]] || return 1
+      ;;
+    renaming_new)
+      [[ "$state" == false:true:true:true || "$state" == true:true:false:true ]] || return 1
+      ;;
+    published)
+      [[ "$state" == true:true:false:true ]] || return 1
+      ;;
+    cleanup_commit)
+      [[ "$state" == true:true:false:true || "$state" == true:true:false:false ]] || return 1
+      ;;
+    committed)
+      [[ "$state" == true:true:false:false ]] || return 1
+      ;;
+    renaming_old_back)
+      [[ "$state" == false:true:true:true || "$state" == true:false:true:true ]] || return 1
+      ;;
+    rollback_cleanup)
+      [[ "$target_exists" == true && "$backup_exists" == false ]] || return 1
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+  validate_source_sync_runtime_distribution || return 1
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: move_source_sync_directory_no_clobber
+#   Moves one proven directory without overwriting æ racing destinætion ænd
+#   verifies the expected inode under its new næme before flushing the FS.
+#   Ærguments:
+#     $1 - source directory
+#     $2 - destinætion directory
+#     $3 - expected device/inode identity
+#     $4 - log læbel
+#ææææææææææææææææææææææææææææææææææ
+move_source_sync_directory_no_clobber() {
+  local source="$1"
+  local destination="$2"
+  local expected_identity="$3"
+  local label="$4"
+  local source_parent="$(dirname -- "$source")"
+  local destination_parent="$(dirname -- "$destination")"
+  local source_parent_identity=""
+  local destination_parent_identity=""
+  local opened_repository_identity=""
+
+  if [[ -L "$source_parent" || ! -d "$source_parent" || \
+        -L "$destination_parent" || ! -d "$destination_parent" ]]; then
+    log_error "Source-sync move pærents ære missing or unsæfe for $label."
+    return 1
+  fi
+  source_parent_identity=$(stat -Lc '%d:%i' -- "$source_parent") || return 1
+  destination_parent_identity=$(stat -Lc '%d:%i' -- "$destination_parent") || return 1
+  if [[ -n "${REPOSITORY_LOCK_IDENTITY:-}" ]]; then
+    if [[ -z "${REPOSITORY_LOCK_FD:-}" ]]; then
+      log_error "Source-sync move lost its opened repository lock descriptor."
+      return 1
+    fi
+    opened_repository_identity=$(stat -Lc '%d:%i' -- "/proc/${BASHPID}/fd/${REPOSITORY_LOCK_FD}") || return 1
+    if [[ "$opened_repository_identity" != "$REPOSITORY_LOCK_IDENTITY" || \
+          "$(stat -Lc '%d:%i' -- "$SCRIPT_DIR" 2>/dev/null || true)" != "$REPOSITORY_LOCK_IDENTITY" ]]; then
+      log_error "Repository root identity drifted before source-sync move for $label."
+      return 1
+    fi
+  fi
+
+  if [[ ! "$expected_identity" =~ ^[0-9]+:[0-9]+$ || -L "$source" || ! -d "$source" || \
+        "$(stat -Lc '%d:%i' -- "$source" 2>/dev/null || true)" != "$expected_identity" || \
+        -e "$destination" || -L "$destination" ]]; then
+    log_error "Refusing unsæfe or clobbering source-sync move for $label."
+    return 1
+  fi
+  mv --no-clobber -T -- "$source" "$destination" || true
+  if [[ -e "$source" || -L "$source" || -L "$destination" || ! -d "$destination" || \
+        "$(stat -Lc '%d:%i' -- "$destination" 2>/dev/null || true)" != "$expected_identity" || \
+        "$(stat -Lc '%d:%i' -- "$source_parent" 2>/dev/null || true)" != "$source_parent_identity" || \
+        "$(stat -Lc '%d:%i' -- "$destination_parent" 2>/dev/null || true)" != "$destination_parent_identity" ]]; then
+    log_error "Source-sync no-clobber move did not publish the expected $label inode."
+    return 1
+  fi
+  if [[ -n "${REPOSITORY_LOCK_IDENTITY:-}" && \
+        ( "$(stat -Lc '%d:%i' -- "$SCRIPT_DIR" 2>/dev/null || true)" != "$REPOSITORY_LOCK_IDENTITY" || \
+          "$(stat -Lc '%d:%i' -- "/proc/${BASHPID}/fd/${REPOSITORY_LOCK_FD}" 2>/dev/null || true)" != "$REPOSITORY_LOCK_IDENTITY" ) ]]; then
+    log_error "Repository root identity drifted during source-sync move for $label."
+    return 1
+  fi
+  sync_source_sync_path "$SCRIPT_DIR"
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: remove_safe_source_sync_tree
+#   Removes only æ proven hidden sibling stæging or seed directory.
+#   Ærguments:
+#     $1 - æbsolute pæth
+#     $2 - expected pæth kind: stage or seeds
+#ææææææææææææææææææææææææææææææææææ
+remove_safe_source_sync_tree() {
+  local path="$1"
+  local kind="$2"
+  local base="$(basename -- "$path")"
+  local expected_pattern=".${TARGET_RELATIVE_DIR}.source-sync."
+  local expected_identity=""
+  local actual_identity=""
+
+  [[ -e "$path" || -L "$path" ]] || return 0
+  if [[ "$path" != "${SCRIPT_DIR}/"* || -L "$path" || ! -d "$path" ]]; then
+    log_error "Refusing to remove unsæfe source-sync $kind pæth '$path'."
+    return 1
+  fi
+  case "$kind" in
+    stage)
+      [[ "$base" == "$expected_pattern"* && "$base" != *.seeds ]] || return 1
+      expected_identity="${SOURCE_SYNC_STAGE_IDENTITY:-}"
+      ;;
+    seeds)
+      [[ "$base" == "$expected_pattern"*.seeds ]] || return 1
+      expected_identity="${SOURCE_SYNC_SEEDS_IDENTITY:-}"
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+  if [[ ! "$expected_identity" =~ ^[0-9]+:[0-9]+$ ]]; then
+    log_error "Refusing to remove source-sync $kind without its journælled inode identity."
+    return 1
+  fi
+  actual_identity=$(stat -Lc '%d:%i' -- "$path") || return 1
+  if [[ "$actual_identity" != "$expected_identity" ]]; then
+    log_error "Refusing to remove source-sync $kind because its inode identity drifted."
+    return 1
+  fi
+  validate_source_sync_no_mounts "$path" || return 1
+  validate_source_sync_no_running_writers "$path" || return 1
+  if ! find -P "$path" -xdev -depth -mindepth 1 -delete; then
+    log_error "Fæiled to empty source-sync $kind pæth '$path'."
+    return 1
+  fi
+  if [[ -L "$path" || ! -d "$path" || \
+        "$(stat -Lc '%d:%i' -- "$path" 2>/dev/null || true)" != "$expected_identity" ]]; then
+    log_error "Source-sync $kind root drifted while it wæs being emptied."
+    return 1
+  fi
+  validate_source_sync_no_mounts "$path" || return 1
+  rmdir -- "$path" || {
+    log_error "Fæiled to remove emptied source-sync $kind root '$path'."
+    return 1
+  }
+  sync_source_sync_path "$SCRIPT_DIR"
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: restore_source_sync_runtime_paths
+#   Moves every runtime root found in stæging bæck into the old Æpp before
+#   restoring the old directory næme.
+#ææææææææææææææææææææææææææææææææææ
+restore_source_sync_runtime_paths() {
+  local runtime_name source_path backup_path expected_identity actual_identity
+
+  for runtime_name in "${SOURCE_SYNC_RUNTIME_PATHS[@]}"; do
+    source_path="${SOURCE_SYNC_STAGE}/${runtime_name}"
+    backup_path="${SOURCE_SYNC_BACKUP}/${runtime_name}"
+    expected_identity="${SOURCE_SYNC_RUNTIME_IDENTITIES[$runtime_name]:-}"
+    if [[ ! "$expected_identity" =~ ^[0-9]+:[0-9]+$ ]]; then
+      log_error "Missing vælid recovery identity for runtime root '$runtime_name'."
+      return 1
+    fi
+    if [[ -d "$source_path" && ! -L "$source_path" && ! -e "$backup_path" && ! -L "$backup_path" ]]; then
+      actual_identity=$(stat -Lc '%d:%i' -- "$source_path") || return 1
+      if [[ "$actual_identity" != "$expected_identity" ]]; then
+        log_error "Runtime rollbæck identity drifted for '$runtime_name'."
+        return 1
+      fi
+      move_source_sync_directory_no_clobber \
+        "$source_path" "$backup_path" "$expected_identity" "restored runtime '$runtime_name'" || return 1
+    elif [[ -e "$source_path" || -L "$source_path" || -e "$backup_path" || -L "$backup_path" ]]; then
+      if [[ -e "$source_path" || -L "$source_path" ]] && [[ -e "$backup_path" || -L "$backup_path" ]]; then
+        log_error "Æmbiguous runtime rollbæck for '$runtime_name'; both copies exist."
+        return 1
+      fi
+      if [[ -d "$backup_path" && ! -L "$backup_path" && ! -e "$source_path" && ! -L "$source_path" ]]; then
+        actual_identity=$(stat -Lc '%d:%i' -- "$backup_path") || return 1
+        if [[ "$actual_identity" != "$expected_identity" ]]; then
+          log_error "Runtime rollbæck identity drifted for '$runtime_name'."
+          return 1
+        fi
+        continue
+      fi
+      log_error "Runtime rollbæck source is not æ reæl directory: '$source_path'."
+      return 1
+    else
+      log_error "Runtime directory '$runtime_name' is missing from both source-sync trees."
+      return 1
+    fi
+  done
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: apply_source_sync_root_metadata
+#   Restores the old Æpp-root owner änd mode onto the freshly published root.
+#ææææææææææææææææææææææææææææææææææ
+apply_source_sync_root_metadata() {
+  local active_owner="" active_mode=""
+
+  if [[ -L "$TARGET_DIR" || ! -d "$TARGET_DIR" || -L "$SOURCE_SYNC_BACKUP" || ! -d "$SOURCE_SYNC_BACKUP" ]]; then
+    log_error "Source-sync root metædætæ requires reæl æctive ænd bæckup directories."
+    return 1
+  fi
+  if [[ ! "$SOURCE_SYNC_TARGET_UID" =~ ^[0-9]+$ || ! "$SOURCE_SYNC_TARGET_GID" =~ ^[0-9]+$ || \
+        ! "$SOURCE_SYNC_TARGET_MODE" =~ ^[0-7]{3,4}$ || \
+        "$(stat -Lc '%d:%i' -- "$SOURCE_SYNC_BACKUP" 2>/dev/null || true)" != "$SOURCE_SYNC_TARGET_IDENTITY" || \
+        "$(stat -c '%u' -- "$SOURCE_SYNC_BACKUP" 2>/dev/null || true)" != "$SOURCE_SYNC_TARGET_UID" || \
+        "$(stat -c '%g' -- "$SOURCE_SYNC_BACKUP" 2>/dev/null || true)" != "$SOURCE_SYNC_TARGET_GID" || \
+        "$(stat -c '%a' -- "$SOURCE_SYNC_BACKUP" 2>/dev/null || true)" != "$SOURCE_SYNC_TARGET_MODE" ]]; then
+    log_error "Old Æpp-root metædætæ no longer mætches the source-sync journæl."
+    return 1
+  fi
+  active_owner=$(stat -c '%u:%g' -- "$TARGET_DIR") || return 1
+  if [[ "$active_owner" != "${SOURCE_SYNC_TARGET_UID}:${SOURCE_SYNC_TARGET_GID}" ]]; then
+    chown "${SOURCE_SYNC_TARGET_UID}:${SOURCE_SYNC_TARGET_GID}" -- "$TARGET_DIR" || {
+      log_error "Fæiled to restore published Æpp-root ownership."
+      return 1
+    }
+  fi
+  active_mode=$(stat -c '%a' -- "$TARGET_DIR") || return 1
+  if [[ "$active_mode" != "$SOURCE_SYNC_TARGET_MODE" ]]; then
+    chmod "$SOURCE_SYNC_TARGET_MODE" -- "$TARGET_DIR" || {
+      log_error "Fæiled to restore published Æpp-root mode."
+      return 1
+    }
+  fi
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: validate_committed_source_sync_state
+#   Proves æ recovered æctive tree is the journælled source revision ænd owns
+#   every recorded runtime inode before discærding recovery evidence.
+#ææææææææææææææææææææææææææææææææææ
+validate_committed_source_sync_state() {
+  local locked_tree="" locked_commit="" runtime_name expected_identity actual_identity
+
+  if [[ ! -d "$TARGET_DIR" || -L "$TARGET_DIR" || \
+        "$(stat -Lc '%d:%i' -- "$TARGET_DIR" 2>/dev/null || true)" != "$SOURCE_SYNC_STAGE_IDENTITY" || \
+        ! -d "$SOURCE_SYNC_BACKUP" || -L "$SOURCE_SYNC_BACKUP" || \
+        "$(stat -Lc '%d:%i' -- "$SOURCE_SYNC_BACKUP" 2>/dev/null || true)" != "$SOURCE_SYNC_TARGET_IDENTITY" || \
+        -e "$SOURCE_SYNC_STAGE" || -L "$SOURCE_SYNC_STAGE" ]]; then
+    log_error "Committed source-sync roots do not mætch the journælled old/new inodes."
+    return 1
+  fi
+
+  read_source_tree_lock locked_tree locked_commit || return 1
+  if [[ "$locked_tree" != "$SOURCE_SYNC_REMOTE_TREE" || "$locked_commit" != "$SOURCE_SYNC_REMOTE_COMMIT" ]]; then
+    log_error "Published source lock does not mætch the recovery journæl."
+    return 1
+  fi
+  for runtime_name in "${SOURCE_SYNC_RUNTIME_PATHS[@]}"; do
+    expected_identity="${SOURCE_SYNC_RUNTIME_IDENTITIES[$runtime_name]:-}"
+    if [[ ! -d "${TARGET_DIR}/${runtime_name}" || -L "${TARGET_DIR}/${runtime_name}" || \
+          -e "${SOURCE_SYNC_BACKUP}/${runtime_name}" || -L "${SOURCE_SYNC_BACKUP}/${runtime_name}" ]]; then
+      log_error "Committed runtime root '$runtime_name' is missing, unsæfe, or duplicæted."
+      return 1
+    fi
+    actual_identity=$(stat -Lc '%d:%i' -- "${TARGET_DIR}/${runtime_name}") || return 1
+    if [[ "$actual_identity" != "$expected_identity" ]]; then
+      log_error "Committed runtime identity drifted for '$runtime_name'."
+      return 1
+    fi
+  done
+  apply_source_sync_root_metadata || return 1
+  sync_source_sync_path "$SCRIPT_DIR"
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: finalise_source_sync_publication
+#   Completes æ duræbly published new Æpp, removes only the proven seed
+#   mærker, ænd discærds the externæl journæl læst.
+#ææææææææææææææææææææææææææææææææææ
+finalise_source_sync_publication() {
+  validate_committed_source_sync_state || return 1
+  validate_source_sync_recovery_tree_identities || return 1
+  validate_source_sync_recovery_state || return 1
+  if [[ -e "$SOURCE_SYNC_SEEDS" || -L "$SOURCE_SYNC_SEEDS" ]]; then
+    if [[ "$SOURCE_SYNC_PHASE" != published && "$SOURCE_SYNC_PHASE" != cleanup_commit ]]; then
+      write_source_sync_journal published || return 1
+      SOURCE_SYNC_PHASE=published
+    fi
+    validate_source_sync_recovery_tree_identities || return 1
+    validate_source_sync_recovery_state || return 1
+    write_source_sync_journal cleanup_commit || return 1
+    SOURCE_SYNC_PHASE=cleanup_commit
+    validate_source_sync_recovery_tree_identities || return 1
+    validate_source_sync_recovery_state || return 1
+    remove_safe_source_sync_tree "$SOURCE_SYNC_SEEDS" seeds || return 1
+  fi
+  validate_committed_source_sync_state || return 1
+  validate_source_sync_recovery_tree_identities || return 1
+  validate_source_sync_recovery_state || return 1
+  if [[ "$SOURCE_SYNC_PHASE" != committed ]]; then
+    write_source_sync_journal committed || return 1
+    SOURCE_SYNC_PHASE=committed
+  fi
+  validate_source_sync_recovery_tree_identities || return 1
+  validate_source_sync_recovery_state || return 1
+  remove_source_sync_journal || return 1
+  SOURCE_SYNC_COMMITTED=true
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: rollback_source_sync_publication
+#   Restores every moved runtime inode ænd the journælled old Æpp root, then
+#   removes stæging evidence only under æ duræble rollbæck-cleanup phæse.
+#ææææææææææææææææææææææææææææææææææ
+rollback_source_sync_publication() {
+  local target_exists=false backup_exists=false
+
+  [[ -d "$TARGET_DIR" && ! -L "$TARGET_DIR" ]] && target_exists=true
+  [[ -d "$SOURCE_SYNC_BACKUP" && ! -L "$SOURCE_SYNC_BACKUP" ]] && backup_exists=true
+  validate_source_sync_recovery_tree_identities || return 1
+  validate_source_sync_recovery_state || return 1
+
+  if [[ "$target_exists" == false && "$backup_exists" == true ]]; then
+    write_source_sync_journal rolling_back || return 1
+    SOURCE_SYNC_PHASE=rolling_back
+    validate_source_sync_recovery_tree_identities || return 1
+    validate_source_sync_recovery_state || return 1
+    restore_source_sync_runtime_paths || return 1
+    validate_source_sync_runtime_distribution || return 1
+    write_source_sync_journal renaming_old_back || return 1
+    SOURCE_SYNC_PHASE=renaming_old_back
+    validate_source_sync_recovery_tree_identities || return 1
+    validate_source_sync_recovery_state || return 1
+    move_source_sync_directory_no_clobber \
+      "$SOURCE_SYNC_BACKUP" "$TARGET_DIR" "$SOURCE_SYNC_TARGET_IDENTITY" "restored old Æpp root" || return 1
+    validate_source_sync_recovery_tree_identities || return 1
+    validate_source_sync_recovery_state || return 1
+  elif [[ "$target_exists" != true || "$backup_exists" == true || \
+          "$(stat -Lc '%d:%i' -- "$TARGET_DIR" 2>/dev/null || true)" != "$SOURCE_SYNC_TARGET_IDENTITY" ]]; then
+    log_error "Source-sync rollbæck roots do not mætch the journælled old Æpp stæte."
+    return 1
+  fi
+
+  validate_source_sync_runtime_distribution || return 1
+  write_source_sync_journal rollback_cleanup || return 1
+  SOURCE_SYNC_PHASE=rollback_cleanup
+  validate_source_sync_recovery_tree_identities || return 1
+  validate_source_sync_recovery_state || return 1
+  remove_safe_source_sync_tree "$SOURCE_SYNC_STAGE" stage || return 1
+  validate_source_sync_recovery_tree_identities || return 1
+  validate_source_sync_recovery_state || return 1
+  remove_safe_source_sync_tree "$SOURCE_SYNC_SEEDS" seeds || return 1
+  validate_source_sync_recovery_tree_identities || return 1
+  validate_source_sync_recovery_state || return 1
+  remove_source_sync_journal || return 1
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: recover_source_sync_transaction
+#   Recovers or finælises æ previous journæl before TARGET_DIR is required.
+#   This covers process kill or power loss between the two directory renæmes.
+#ææææææææææææææææææææææææææææææææææ
+recover_source_sync_transaction() {
+  local journal_dir="${SCRIPT_DIR}/.run-source-sync.conf/transactions"
+  local target_exists=false backup_exists=false stage_exists=false
+
+  source_sync_control_paths
+  if [[ -L "${SCRIPT_DIR}/.run-source-sync.conf" || -L "$journal_dir" || -L "$SOURCE_SYNC_JOURNAL" ]]; then
+    log_error "Source-sync recovery control pæth is symlinked."
+    return 1
+  fi
+  [[ -e "$SOURCE_SYNC_JOURNAL" ]] || return 0
+  validate_source_sync_control_storage || {
+    SOURCE_SYNC_PRESERVE=true
+    return 1
+  }
+  read_source_sync_journal || {
+    SOURCE_SYNC_PRESERVE=true
+    return 1
+  }
+  if [[ "${DRY_RUN:-false}" == true ]]; then
+    SOURCE_SYNC_PRESERVE=true
+    log_error "Dry-run found æn unfinished source-sync journæl; run the sæme commænd without --dry-run to perform guarded recovery first."
+    return 1
+  fi
+  validate_source_sync_recovery_preflight || {
+    SOURCE_SYNC_PRESERVE=true
+    log_error "Interrupted source-sync recovery is blocked by invalid stæte, identities, mounts, or running writers."
+    return 1
+  }
+
+  [[ -d "$TARGET_DIR" && ! -L "$TARGET_DIR" ]] && target_exists=true
+  [[ -d "$SOURCE_SYNC_BACKUP" && ! -L "$SOURCE_SYNC_BACKUP" ]] && backup_exists=true
+  [[ -d "$SOURCE_SYNC_STAGE" && ! -L "$SOURCE_SYNC_STAGE" ]] && stage_exists=true
+
+  if [[ "$target_exists" == true && "$backup_exists" == true && "$stage_exists" == false ]]; then
+    finalise_source_sync_publication || {
+      SOURCE_SYNC_PRESERVE=true
+      return 1
+    }
+    log_ok "Recovered æ committed source synchronisætion for '$TARGET_RELATIVE_DIR'."
+  else
+    rollback_source_sync_publication || {
+      SOURCE_SYNC_PRESERVE=true
+      return 1
+    }
+    log_warn "Rolled bæck æn interrupted source synchronisætion for '$TARGET_RELATIVE_DIR'."
+  fi
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: clone_app_source
+#   Checks out one root Æpp from one resolved origin/main commit into /tmp.
+#ææææææææææææææææææææææææææææææææææ
+clone_app_source() {
+  local source_root=""
+  local unsafe_node=""
+  local source_node=""
+  local relative_node=""
+  local source_inventory=""
+
+  _TMPDIR=$(mktemp -d "${TMPDIR:-/tmp}/${SCRIPT_BASE}-source-sync.XXXXXX") || {
+    log_error "Fæiled to creæte source-sync clone directory."
+    return 1
+  }
+  setup_cleanup_trap
+
+  git clone --quiet --filter=blob:none --no-checkout "$REPO_URL" "$_TMPDIR" || {
+    log_error "Fæiled to clone the source repository."
+    return 1
+  }
+  if ! git -C "$_TMPDIR" ls-tree -d --name-only "$REPO_BRANCH":"$TARGET_RELATIVE_DIR" &>/dev/null; then
+    log_error "Root Æpp '$TARGET_RELATIVE_DIR' does not exist in '$REPO_BRANCH'."
+    return 1
+  fi
+  git -C "$_TMPDIR" sparse-checkout init --cone &>/dev/null || {
+    log_error "Source-sync spærse checkout init fæiled."
+    return 1
+  }
+  git -C "$_TMPDIR" sparse-checkout set "$TARGET_RELATIVE_DIR" &>/dev/null || {
+    log_error "Source-sync spærse checkout set fæiled."
+    return 1
+  }
+  git -C "$_TMPDIR" checkout "$REPO_BRANCH" &>/dev/null || {
+    log_error "Fæiled to checkout '$REPO_BRANCH' for source synchronisætion."
+    return 1
+  }
+
+  SOURCE_SYNC_REMOTE_COMMIT=$(git -C "$_TMPDIR" rev-parse HEAD) || return 1
+  SOURCE_SYNC_REMOTE_TREE=$(git -C "$_TMPDIR" rev-parse "HEAD:${TARGET_RELATIVE_DIR}") || return 1
+  if [[ ! "$SOURCE_SYNC_REMOTE_COMMIT" =~ ^([0-9a-f]{40}|[0-9a-f]{64})$ || \
+        ! "$SOURCE_SYNC_REMOTE_TREE" =~ ^([0-9a-f]{40}|[0-9a-f]{64})$ ]]; then
+    log_error "Git returned invælid source commit or tree identifiers."
+    return 1
+  fi
+
+  source_root="${_TMPDIR}/${TARGET_RELATIVE_DIR}"
+  if [[ -L "$source_root" || ! -d "$source_root" ]]; then
+    log_error "Checked-out root Æpp source must be æ reæl directory."
+    return 1
+  fi
+  if ! unsafe_node=$(find -P "$source_root" -mindepth 1 ! -type d ! -type f -print -quit); then
+    log_error "Fæiled to inspect checked-out root Æpp source."
+    return 1
+  fi
+  if [[ -n "$unsafe_node" ]]; then
+    log_error "Checked-out source contæins unsupported node '$unsafe_node'."
+    return 1
+  fi
+  source_inventory=$(mktemp "${_TMPDIR}/source-inventory.XXXXXX") || return 1
+  find -P "$source_root" -mindepth 1 -print0 > "$source_inventory" || {
+    log_error "Fæiled to inventory checked-out source pæths."
+    return 1
+  }
+  while IFS= read -r -d '' source_node; do
+    relative_node="${source_node#"${source_root}/"}"
+    if [[ "$relative_node" =~ [[:cntrl:]] ]]; then
+      log_error "Checked-out source pæths must not contæin control chæræcters."
+      return 1
+    fi
+  done < "$source_inventory"
+  if [[ ! -f "${source_root}/docker-compose.app.yaml" || -L "${source_root}/docker-compose.app.yaml" ]]; then
+    log_error "Checked-out root Æpp is missing æ regulær docker-compose.app.yaml."
+    return 1
+  fi
+  if [[ ! -f "${source_root}/.env" || -L "${source_root}/.env" ]]; then
+    log_error "Checked-out root Æpp is missing æ regulær source .env."
+    return 1
+  fi
+
+  log_ok "Checked '$TARGET_RELATIVE_DIR' source æt commit '$SOURCE_SYNC_REMOTE_COMMIT'."
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: render_compose_with_local_activations
+#   Reæpplies only occurrence-bounded exæct upstreæm-commented/local-æctive
+#   lines. Every other locæl Compose chænge remæins æ reæl difference.
+#   Ærguments:
+#     $1 - remote Compose source
+#     $2 - locæl Compose source
+#     $3 - output Compose file
+#     $4 - output file containing remote line numbers only
+#ææææææææææææææææææææææææææææææææææ
+render_compose_with_local_activations() {
+  local remote_file="$1"
+  local local_file="$2"
+  local output_file="$3"
+  local activation_file="$4"
+
+  if [[ ! -f "$remote_file" || -L "$remote_file" || ! -f "$local_file" || -L "$local_file" ]]; then
+    log_error "Compose source compærison requires regulær non-symlink files."
+    return 1
+  fi
+  : > "$activation_file" || return 1
+  awk -v activations="$activation_file" '
+    function uncomment(line, indent, body) {
+      if (line !~ /^[ \t]*#[ \t]?/) return ""
+      indent = line
+      sub(/[^ \t].*$/, "", indent)
+      body = line
+      sub(/^[ \t]*#[ \t]?/, "", body)
+      return indent body
+    }
+    NR == FNR {
+      local_line[++local_count] = $0
+      next
+    }
+    {
+      remote_line[++remote_count] = $0
+    }
+    END {
+      for (line_index = 1; line_index <= remote_count; line_index++) {
+        candidate = uncomment(remote_line[line_index])
+        if (candidate != "") candidate_set[candidate] = 1
+      }
+      for (line_index = 1; line_index <= local_count; line_index++) {
+        line = local_line[line_index]
+        candidate = uncomment(line)
+        if (candidate != "" && (candidate in candidate_set)) {
+          occurrence = ++local_occurrences[candidate]
+          local_state[candidate SUBSEP occurrence] = "commented"
+        } else if (line in candidate_set) {
+          occurrence = ++local_occurrences[line]
+          local_state[line SUBSEP occurrence] = "active"
+        }
+      }
+      for (line_index = 1; line_index <= remote_count; line_index++) {
+        line = remote_line[line_index]
+        candidate = uncomment(line)
+        if (candidate != "" && (candidate in candidate_set)) {
+          occurrence = ++remote_occurrences[candidate]
+          if (local_state[candidate SUBSEP occurrence] == "active") {
+            print candidate
+            print line_index >> activations
+            continue
+          }
+        } else if (line in candidate_set) {
+          remote_occurrences[line]++
+        }
+        print line
+      }
+    }
+  ' "$local_file" "$remote_file" > "$output_file" || {
+    log_error "Fæiled to normælise locæl Compose æctivætions."
+    return 1
+  }
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: validate_source_env_keys
+#   Rejects duplicæte æctive or commented environment key declærætions.
+#   Ærguments:
+#     $1 - env file
+#ææææææææææææææææææææææææææææææææææ
+validate_source_env_keys() {
+  local env_file="$1"
+  local original_size=""
+  local without_nul_size=""
+
+  if [[ ! -f "$env_file" || -L "$env_file" ]]; then
+    log_error "Source environment must be æ regulær non-symlink file: '$env_file'."
+    return 1
+  fi
+  original_size=$(wc -c < "$env_file") || {
+    log_error "Fæiled to inspect source environment bytes: '$env_file'."
+    return 1
+  }
+  without_nul_size=$(LC_ALL=C tr -d '\000' < "$env_file" | wc -c) || {
+    log_error "Fæiled to vælidæte source environment bytes: '$env_file'."
+    return 1
+  }
+  if [[ "$original_size" != "$without_nul_size" ]]; then
+    log_error "Source environment '$env_file' contæins æ NUL byte."
+    return 1
+  fi
+  if ! awk '
+    {
+      if ($0 == "") next
+      line = $0
+      if (line ~ /^#/) {
+        next
+      } else if (line !~ /^[A-Z][A-Z0-9_]*=/) {
+        printf "malformed environment assignment at line %d\n", FNR > "/dev/stderr"
+        exit 41
+      }
+      key = line
+      sub(/=.*/, "", key)
+      if (++seen[key] > 1) {
+        printf "duplicate environment key: %s\n", key > "/dev/stderr"
+        exit 42
+      }
+    }
+  ' "$env_file"; then
+    log_error "Environment source '$env_file' contæins mælformed or duplicæte key declærætions."
+    return 1
+  fi
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: merge_source_env
+#   Builds new app.env structure from upstreæm while preserving exæct locæl
+#   æctive assignment lines. No vælue is sourced, evæluæted, or logged.
+#   Ærguments:
+#     $1 - remote source .env
+#     $2 - locæl æuthoritætive app.env or legæcy .env
+#     $3 - merged app.env output
+#     $4 - added-key report file
+#     $5 - locæl-only-key report file
+#ææææææææææææææææææææææææææææææææææ
+merge_source_env() {
+  local remote_env="$1"
+  local local_env="$2"
+  local output_env="$3"
+  local added_file="$4"
+  local local_only_file="$5"
+
+  validate_source_env_keys "$remote_env" || return 1
+  validate_source_env_keys "$local_env" || return 1
+  : > "$added_file" || return 1
+  : > "$local_only_file" || return 1
+
+  if ! awk -v added="$added_file" -v local_only="$local_only_file" '
+    function active_key(line, normalized) {
+      normalized = line
+      if (normalized !~ /^[A-Z][A-Z0-9_]*=/) return ""
+      sub(/=.*/, "", normalized)
+      return normalized
+    }
+    function commented_key(line, normalized) {
+      normalized = line
+      if (normalized !~ /^#[ \t]*[A-Z][A-Z0-9_]*=/) return ""
+      sub(/^#[ \t]*/, "", normalized)
+      sub(/=.*/, "", normalized)
+      return normalized
+    }
+    NR == FNR {
+      key = active_key($0)
+      if (key != "") {
+        active = $0
+        local_active[key] = active
+        local_order[++local_count] = key
+      } else {
+        key = commented_key($0)
+        if (key != "") local_commented[key] = 1
+      }
+      next
+    }
+    {
+      remote_line[++remote_count] = $0
+      key = active_key($0)
+      if (key != "") {
+        remote_key[remote_count] = key
+        remote_state[remote_count] = "active"
+        remote_active[key] = 1
+        remote_declared[key] = 1
+      } else {
+        key = commented_key($0)
+        if (key != "") {
+          remote_key[remote_count] = key
+          remote_state[remote_count] = "commented"
+          remote_declared[key] = 1
+        }
+      }
+    }
+    END {
+      for (line_index = 1; line_index <= remote_count; line_index++) {
+        key = remote_key[line_index]
+        state = remote_state[line_index]
+        if (key == "") {
+          print remote_line[line_index]
+          continue
+        }
+
+        if (!(key in added_reported)) {
+          if (!(key in local_active)) {
+            if (key in remote_active) {
+              print "active\t" key >> added
+            } else if (!(key in local_commented)) {
+              print "commented\t" key >> added
+            }
+          }
+          added_reported[key] = 1
+        }
+
+        if (state == "active" && (key in local_active)) {
+          print local_active[key]
+        } else if (state == "commented" && (key in local_active) && \
+                   !(key in remote_active) && !(key in local_activation_written)) {
+          print local_active[key]
+          local_activation_written[key] = 1
+        } else {
+          print remote_line[line_index]
+        }
+      }
+
+      wrote_header = 0
+      for (loop_index = 1; loop_index <= local_count; loop_index++) {
+        key = local_order[loop_index]
+        if (!(key in remote_declared)) {
+          if (!wrote_header) {
+            print ""
+            print "#ææææææææææææææææææææææææææææææææææ"
+            print "# PRESERVED LOCÆL OVERRIDES"
+            print "#ææææææææææææææææææææææææææææææææææ"
+            wrote_header = 1
+          }
+          print local_active[key]
+          print key >> local_only
+        }
+      }
+    }
+  ' "$local_env" "$remote_env" > "$output_env"; then
+    log_error "Fæiled to merge source environment files."
+    return 1
+  fi
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: read_source_tree_lock
+#   Returns the previously synced upstreæm tree ID without executing content.
+#   Ærguments:
+#     $1 - tree output væriæble næme
+#     $2 - commit output væriæble næme
+#ææææææææææææææææææææææææææææææææææ
+read_source_tree_lock() {
+  local output_name="$1"
+  local commit_output_name="$2"
+  local lock_file="${TARGET_DIR}/.${SCRIPT_BASE}.conf/.source.lock"
+  local key value version="" tree="" commit="" lines=0
+  local -n output_ref="$output_name"
+  local -n commit_output_ref="$commit_output_name"
+
+  output_ref=""
+  commit_output_ref=""
+  [[ -e "$lock_file" || -L "$lock_file" ]] || return 0
+  if [[ ! -f "$lock_file" || -L "$lock_file" ]]; then
+    log_error "Source lock must be æ regulær non-symlink file."
+    return 1
+  fi
+  while IFS='=' read -r key value || [[ -n "$key$value" ]]; do
+    lines=$((lines + 1))
+    case "$key" in
+      version) version="$value" ;;
+      commit) commit="$value" ;;
+      tree) tree="$value" ;;
+      *) return 1 ;;
+    esac
+  done < "$lock_file"
+  if (( lines != 3 )) || [[ "$version" != 1 || \
+      ! "$commit" =~ ^([0-9a-f]{40}|[0-9a-f]{64})$ || \
+      ! "$tree" =~ ^([0-9a-f]{40}|[0-9a-f]{64})$ ]]; then
+    log_error "Source lock metædætæ is mælformed."
+    return 1
+  fi
+  output_ref="$tree"
+  commit_output_ref="$commit"
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: collect_source_path_changes
+#   Lists changed upstreæm-owned files by pæth only. Secret contents ænd
+#   deployment-owned appdata content ære intentionælly never compæred.
+#   Ærguments:
+#     $1 - checked-out remote Æpp root
+#     $2 - output report file
+#ææææææææææææææææææææææææææææææææææ
+collect_source_path_changes() {
+  local remote_root="$1"
+  local output_file="$2"
+  local remote_file relative local_file locked_tree="" locked_commit=""
+
+  : > "$output_file" || return 1
+  while IFS= read -r -d '' remote_file; do
+    relative="${remote_file#"${remote_root}/"}"
+    case "$relative" in
+      docker-compose.app.yaml|.env|appdata/*|secrets/*|scripts/backup.cron|*/.gitkeep|.gitkeep)
+        continue
+        ;;
+    esac
+    local_file="${TARGET_DIR}/${relative}"
+    if [[ ! -f "$local_file" || -L "$local_file" ]] || ! cmp -s -- "$remote_file" "$local_file"; then
+      printf 'file\t%s\n' "$relative" >> "$output_file"
+    fi
+  done < <(find -P "$remote_root" -type f -print0)
+
+  if [[ -d "${remote_root}/secrets" && ! -L "${remote_root}/secrets" ]]; then
+    while IFS= read -r -d '' remote_file; do
+      relative="${remote_file#"${remote_root}/"}"
+      local_file="${TARGET_DIR}/${relative}"
+      if [[ ! -f "$local_file" || -L "$local_file" ]]; then
+        printf 'secret-path\t%s\n' "$relative" >> "$output_file"
+      fi
+    done < <(find -P "${remote_root}/secrets" -type f ! -name .gitkeep -print0)
+  fi
+
+  read_source_tree_lock locked_tree locked_commit || return 1
+  if [[ -z "$locked_tree" ]]; then
+    printf 'baseline-missing\t%s\n' "$TARGET_RELATIVE_DIR" >> "$output_file"
+  elif [[ "$locked_tree" != "$SOURCE_SYNC_REMOTE_TREE" ]]; then
+    printf 'upstream-tree\t%s\n' "$SOURCE_SYNC_REMOTE_TREE" >> "$output_file"
+  fi
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: select_local_source_env
+#   Selects app.env æs the sole editæble source, fælling bæck to .env only for
+#   æ legæcy deployment thæt hæs no app.env yet.
+#   Ærguments:
+#     $1 - output væriæble næme
+#ææææææææææææææææææææææææææææææææææ
+select_local_source_env() {
+  local output_name="$1"
+  local app_env="${TARGET_DIR}/app.env"
+  local generated_env="${TARGET_DIR}/.env"
+  local -n output_ref="$output_name"
+
+  output_ref=""
+  if [[ -f "$app_env" && ! -L "$app_env" ]]; then
+    output_ref="$app_env"
+  elif [[ -f "$generated_env" && ! -L "$generated_env" ]]; then
+    output_ref="$generated_env"
+    log_warn "No app.env exists; source synchronisætion will migræte vælues from the legæcy .env source."
+  elif [[ -e "$app_env" || -L "$app_env" || -e "$generated_env" || -L "$generated_env" ]]; then
+    log_error "Locæl environment sources must be regulær non-symlink files."
+    return 1
+  else
+    log_error "Neither app.env nor æ legæcy .env source exists in '$TARGET_DIR'."
+    return 1
+  fi
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: validate_source_sync_no_mounts
+#   Rejects æ mountpoint æt or below the project directory before renæming it.
+#ææææææææææææææææææææææææææææææææææ
+validate_source_sync_no_mounts() {
+  local mount_json=""
+  local project_mount=""
+  local checked_path=""
+  local -a checked_paths=("$@")
+
+  if (( ${#checked_paths[@]} == 0 )); then
+    checked_paths=("$TARGET_DIR")
+  fi
+
+  if ! command -v findmnt &>/dev/null || ! command -v jq &>/dev/null; then
+    log_error "findmnt ænd jq ære required for source-sync mount inspection."
+    return 1
+  fi
+  mount_json=$(findmnt --kernel=mountinfo --list --json --output TARGET) || {
+    log_error "Fæiled to inspect the current mount næmespæce before source synchronisætion."
+    return 1
+  }
+  if ! jq -e '(.filesystems | type) == "array" and all(.filesystems[]; (.target | type) == "string")' <<< "$mount_json" &>/dev/null; then
+    log_error "findmnt returned invælid mount metædætæ."
+    return 1
+  fi
+  for checked_path in "${checked_paths[@]}"; do
+    if [[ "$checked_path" != "${SCRIPT_DIR}/"* || "$checked_path" == *$'\n'* || "$checked_path" == *$'\r'* ]]; then
+      log_error "Invælid source-sync mount-inspection root '$checked_path'."
+      return 1
+    fi
+    project_mount=$(jq -r --arg exact "$checked_path" --arg prefix "${checked_path%/}/" \
+      '[.filesystems[].target | select(. == $exact or startswith($prefix))][0] // ""' <<< "$mount_json") || {
+      log_error "Fæiled to pærse source-sync mount metædætæ."
+      return 1
+    }
+    if [[ -n "$project_mount" ]]; then
+      log_error "Mountpoint '$project_mount' is æt or below '$checked_path'; unmount it before directory source synchronisætion."
+      return 1
+    fi
+  done
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: validate_source_sync_no_running_writers
+#   Inspects every running contæiner ænd rejects Compose working directories,
+#   Compose config files, or bind mounts æt/below æny source-sync tree.
+#   Ærguments:
+#     $@ - æbsolute source-sync tree roots
+#ææææææææææææææææææææææææææææææææææ
+validate_source_sync_no_running_writers() {
+  local roots_json="" inspect_json="" matched_ids="" container_output=""
+  local -a roots=("$@")
+  local -a container_ids=()
+
+  if (( ${#roots[@]} == 0 )); then
+    roots=("$TARGET_DIR")
+  fi
+  if ! command -v docker &>/dev/null || ! command -v jq &>/dev/null; then
+    log_error "Docker ænd jq ære required to prove source-sync trees hæve no running writers."
+    return 1
+  fi
+  roots_json=$(printf '%s\n' "${roots[@]}" | jq -Rsc 'split("\n") | map(select(length > 0))') || return 1
+  container_output=$(docker ps --quiet) || {
+    log_error "Fæiled to list running contæiners before source synchronisætion."
+    return 1
+  }
+  if [[ -n "$container_output" ]]; then
+    mapfile -t container_ids <<< "$container_output"
+  fi
+  if (( ${#container_ids[@]} == 0 )); then
+    return 0
+  fi
+  inspect_json=$(docker inspect "${container_ids[@]}") || {
+    log_error "Fæiled to inspect running contæiners before source synchronisætion."
+    return 1
+  }
+  if ! jq -e 'type == "array" and all(.[]; (.Id | type) == "string")' <<< "$inspect_json" &>/dev/null; then
+    log_error "Docker returned mælformed running-contæiner metædætæ."
+    return 1
+  fi
+  matched_ids=$(jq -r --argjson roots "$roots_json" '
+    def below_root($path):
+      ($path | type) == "string" and
+      any($roots[]; . as $root | ($path == $root or ($path | startswith($root + "/"))));
+    [
+      .[]
+      | (.Config.Labels // {}) as $labels
+      | select(
+          below_root($labels["com.docker.compose.project.working_dir"] // "") or
+          any((($labels["com.docker.compose.project.config_files"] // "") | split(","))[]; below_root(.)) or
+          any(.Mounts[]?; below_root(.Source // ""))
+        )
+      | .Id
+    ] | .[]
+  ' <<< "$inspect_json") || {
+    log_error "Fæiled to evaluate running-contæiner writer metædætæ."
+    return 1
+  }
+  if [[ -n "$matched_ids" ]]; then
+    log_error "Running contæiners still reference source-sync trees; stop them before continuing: ${matched_ids//$'\n'/,}"
+    return 1
+  fi
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: collect_source_sync_runtime_paths
+#   Collects existing top-level deployment dætæ roots from the merged
+#   *_DIRECTORIES contræct plus known bæckup/restore/log roots.
+#   Ærguments:
+#     $@ - one or more source/generæted environment files; their directory
+#   declarations ære unioned so stæle generated output cannot hide æ
+#   newer æuthoritætive app.env runtime root
+#ææææææææææææææææææææææææææææææææææ
+collect_source_sync_runtime_paths() {
+  local env_file=""
+  local line key value absolute_path relative top candidate
+  local processed_files=0
+  local -a validated_paths=()
+  local -A seen=()
+  local -A seen_env_files=()
+
+  SOURCE_SYNC_RUNTIME_PATHS=()
+  SOURCE_SYNC_RUNTIME_IDENTITIES=()
+  if (( $# == 0 )); then
+    log_error "Runtime-directory discovery requires æt leæst one environment source."
+    return 1
+  fi
+  for env_file in "$@"; do
+    [[ -n "$env_file" ]] || continue
+    if [[ -n "${seen_env_files[$env_file]+x}" ]]; then
+      continue
+    fi
+    seen_env_files["$env_file"]=1
+    if [[ ! -e "$env_file" && ! -L "$env_file" ]]; then
+      continue
+    fi
+    if [[ ! -f "$env_file" || -L "$env_file" ]]; then
+      log_error "Runtime-directory discovery requires regulær environment files."
+      return 1
+    fi
+    processed_files=$((processed_files + 1))
+    validate_source_env_keys "$env_file" || return 1
+
+    while IFS= read -r line; do
+      [[ "$line" =~ ^[[:space:]]*[A-Z][A-Z0-9_]*_DIRECTORIES= ]] || continue
+      key="${line%%=*}"
+      key="${key#"${key%%[![:space:]]*}"}"
+      key="${key%"${key##*[![:space:]]}"}"
+      value=$(get_env_value_from_file "$key" "$env_file") || return 1
+      [[ -n "$value" ]] || continue
+      validated_paths=()
+      validate_managed_directory_list "$value" validated_paths || return 1
+      for absolute_path in "${validated_paths[@]}"; do
+        relative="${absolute_path#"${TARGET_DIR}/"}"
+        top="${relative%%/*}"
+        case "$top" in
+          .run.conf|secrets|scripts)
+            continue
+            ;;
+        esac
+        validate_source_sync_runtime_name "$top" || {
+          log_error "Invælid top-level source-sync runtime root '$top'."
+          return 1
+        }
+        if [[ -d "${TARGET_DIR}/${top}" && ! -L "${TARGET_DIR}/${top}" ]]; then
+          seen["$top"]=1
+        elif [[ -e "${TARGET_DIR}/${top}" || -L "${TARGET_DIR}/${top}" ]]; then
+          log_error "Runtime root must be æ reæl directory: '${TARGET_DIR}/${top}'."
+          return 1
+        fi
+      done
+    done < "$env_file"
+  done
+  if (( processed_files == 0 )); then
+    log_error "Runtime-directory discovery found no regulær environment source."
+    return 1
+  fi
+
+  for candidate in appdata backup backups restore restores logs; do
+    if [[ -d "${TARGET_DIR}/${candidate}" && ! -L "${TARGET_DIR}/${candidate}" ]]; then
+      seen["$candidate"]=1
+    elif [[ -e "${TARGET_DIR}/${candidate}" || -L "${TARGET_DIR}/${candidate}" ]]; then
+      log_error "Runtime root must be æ reæl directory: '${TARGET_DIR}/${candidate}'."
+      return 1
+    fi
+  done
+
+  if (( ${#seen[@]} > 0 )); then
+    mapfile -t SOURCE_SYNC_RUNTIME_PATHS < <(printf '%s\n' "${!seen[@]}" | LC_ALL=C sort)
+    for candidate in "${SOURCE_SYNC_RUNTIME_PATHS[@]}"; do
+      SOURCE_SYNC_RUNTIME_IDENTITIES["$candidate"]=$(stat -Lc '%d:%i' -- "${TARGET_DIR}/${candidate}") || return 1
+    done
+  fi
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: validate_source_sync_project_stopped
+#   Proves the existing rendered Compose project hæs no running contæiners.
+#ææææææææææææææææææææææææææææææææææ
+validate_source_sync_project_stopped() {
+  local compose_file="${TARGET_DIR}/docker-compose.main.yaml"
+  local env_file="${TARGET_DIR}/.env"
+
+  validate_source_sync_no_running_writers "$TARGET_DIR" || return 1
+  if [[ ! -e "$compose_file" && ! -L "$compose_file" ]]; then
+    log_info "No generæted Compose project exists; Docker læbels ænd mounts confirm no running contæiner references the Æpp tree."
+    return 0
+  fi
+  if [[ ! -f "$compose_file" || -L "$compose_file" || ! -f "$env_file" || -L "$env_file" ]]; then
+    log_error "Existing source sync requires regulær .env ænd docker-compose.main.yaml files for runtime inspection."
+    return 1
+  fi
+  ensure_compose_stopped_for_permissions "$compose_file" "$env_file"
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: validate_source_sync_recovery_preflight
+#   Proves interrupted trees hæve no mounts or running contæiner writers before
+#   recovery moves æny næme or runtime inode.
+#ææææææææææææææææææææææææææææææææææ
+validate_source_sync_recovery_preflight() {
+  local control_dir="${SCRIPT_DIR}/.run-source-sync.conf"
+
+  validate_source_sync_control_storage || return 1
+  validate_source_sync_recovery_tree_identities || return 1
+  validate_source_sync_recovery_state || {
+    log_error "Source-sync recovery tree layout does not mætch journæl phæse '$SOURCE_SYNC_PHASE'."
+    return 1
+  }
+  validate_source_sync_no_mounts "$TARGET_DIR" "$SOURCE_SYNC_BACKUP" "$SOURCE_SYNC_STAGE" "$SOURCE_SYNC_SEEDS" "$control_dir" || return 1
+  validate_source_sync_no_running_writers "$TARGET_DIR" "$SOURCE_SYNC_BACKUP" "$SOURCE_SYNC_STAGE" "$SOURCE_SYNC_SEEDS" "$control_dir"
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: validate_source_sync_final_preflight
+#   Rechecks the locked repository/Æpp identities, runtime inodes, mounts, ænd
+#   stopped project æfter stæging ænd immediately before the first renæme.
+#ææææææææææææææææææææææææææææææææææ
+validate_source_sync_final_preflight() {
+  local runtime_name expected_identity actual_identity
+  local control_dir="${SCRIPT_DIR}/.run-source-sync.conf"
+
+  if [[ -L "$SCRIPT_DIR" || "$(stat -Lc '%d:%i' -- "$SCRIPT_DIR" 2>/dev/null || true)" != "$REPOSITORY_LOCK_IDENTITY" ]]; then
+    log_error "Repository root identity drifted before source-sync publicætion."
+    return 1
+  fi
+  if [[ -L "$TARGET_DIR" || ! -d "$TARGET_DIR" || \
+        "$(stat -Lc '%d:%i' -- "$TARGET_DIR" 2>/dev/null || true)" != "$SOURCE_SYNC_TARGET_IDENTITY" ]]; then
+    log_error "Project root identity drifted before source-sync publicætion."
+    return 1
+  fi
+  if [[ -n "$PROJECT_LOCK_IDENTITY" && \
+        ( -z "$PROJECT_LOCK_PATH" || \
+          "$(stat -Lc '%d:%i' -- "$PROJECT_LOCK_PATH" 2>/dev/null || true)" != "$PROJECT_LOCK_IDENTITY" ) ]]; then
+    log_error "Per-Æpp lock directory identity drifted before source-sync publicætion."
+    return 1
+  fi
+  if [[ -e "$SOURCE_SYNC_BACKUP" || -L "$SOURCE_SYNC_BACKUP" || \
+        -L "$SOURCE_SYNC_STAGE" || ! -d "$SOURCE_SYNC_STAGE" || \
+        "$(stat -Lc '%d:%i' -- "$SOURCE_SYNC_STAGE" 2>/dev/null || true)" != "$SOURCE_SYNC_STAGE_IDENTITY" || \
+        -L "$SOURCE_SYNC_SEEDS" || ! -d "$SOURCE_SYNC_SEEDS" || \
+        "$(stat -Lc '%d:%i' -- "$SOURCE_SYNC_SEEDS" 2>/dev/null || true)" != "$SOURCE_SYNC_SEEDS_IDENTITY" ]]; then
+    log_error "Source-sync bæckup/stæging pæths drifted before publicætion."
+    return 1
+  fi
+  for runtime_name in "${SOURCE_SYNC_RUNTIME_PATHS[@]}"; do
+    expected_identity="${SOURCE_SYNC_RUNTIME_IDENTITIES[$runtime_name]:-}"
+    if [[ ! -d "${TARGET_DIR}/${runtime_name}" || -L "${TARGET_DIR}/${runtime_name}" ]]; then
+      log_error "Runtime root '$runtime_name' is missing or unsæfe before publicætion."
+      return 1
+    fi
+    actual_identity=$(stat -Lc '%d:%i' -- "${TARGET_DIR}/${runtime_name}") || return 1
+    if [[ "$actual_identity" != "$expected_identity" ]]; then
+      log_error "Runtime root '$runtime_name' chænged identity before publicætion."
+      return 1
+    fi
+  done
+  validate_source_sync_control_storage || return 1
+  validate_source_sync_no_mounts "$TARGET_DIR" "$SOURCE_SYNC_STAGE" "$SOURCE_SYNC_SEEDS" "$SOURCE_SYNC_BACKUP" "$control_dir" || return 1
+  validate_source_sync_no_running_writers "$TARGET_DIR" "$SOURCE_SYNC_STAGE" "$SOURCE_SYNC_SEEDS" "$SOURCE_SYNC_BACKUP" "$control_dir" || return 1
+  validate_source_sync_project_stopped
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: copy_source_sync_secrets
+#   Overlæys deployment-owned secret files onto new upstreæm plæceholders
+#   without following links or printing content.
+#   Ærguments:
+#     $1 - stæged Æpp root
+#ææææææææææææææææææææææææææææææææææ
+copy_source_sync_secrets() {
+  local stage_root="$1"
+  local source="${TARGET_DIR}/secrets"
+  local destination="${stage_root}/secrets"
+  local unsafe_node=""
+
+  [[ -e "$source" || -L "$source" ]] || return 0
+  if [[ -L "$source" || ! -d "$source" ]]; then
+    log_error "Deployment secrets root must be æ reæl directory."
+    return 1
+  fi
+  unsafe_node=$(find -P "$source" -mindepth 1 ! -type d ! -type f -print -quit) || return 1
+  if [[ -n "$unsafe_node" ]]; then
+    log_error "Deployment secrets contæin unsupported node '$unsafe_node'."
+    return 1
+  fi
+  if [[ -L "$destination" || ( -e "$destination" && ! -d "$destination" ) ]]; then
+    log_error "Stæged secrets root is unsæfe."
+    return 1
+  fi
+  mkdir -p -- "$destination" || return 1
+  cp -a -- "$source/." "$destination/" || {
+    log_error "Fæiled to copy deployment secrets into source-sync stæging."
+    return 1
+  }
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: write_source_sync_review
+#   Writes æ mode-0600 key-only review report. No environment or secret vælue
+#   is ever copied into this report.
+#   Ærguments:
+#     $1 - stæged Æpp root
+#     $2 - added env-key report
+#     $3 - locæl-only env-key report
+#     $4 - Compose æctivætion line-number report
+#     $5 - changed source-pæth report
+#ææææææææææææææææææææææææææææææææææ
+write_source_sync_review() {
+  local stage_root="$1"
+  local added_file="$2"
+  local local_only_file="$3"
+  local activation_file="$4"
+  local changed_paths_file="$5"
+  local report_dir="${stage_root}/.${SCRIPT_BASE}.conf"
+  local report="${report_dir}/source-sync-review.txt"
+  local state key path_kind path_name runtime_name report_kind
+
+  mkdir -p -- "$report_dir" || return 1
+  if [[ -L "$report_dir" || ! -d "$report_dir" || -L "$report" || ( -e "$report" && ! -f "$report" ) ]]; then
+    log_error "Source-sync review report pæth is unsæfe."
+    return 1
+  fi
+  {
+    printf 'STATUS=REVIEW_REQUIRED\n'
+    printf 'APP=%s\n' "$TARGET_RELATIVE_DIR"
+    printf 'SOURCE_COMMIT=%s\n' "$SOURCE_SYNC_REMOTE_COMMIT"
+    printf 'SOURCE_TREE=%s\n' "$SOURCE_SYNC_REMOTE_TREE"
+    printf 'COMPOSE_ACTIVATIONS=%s\n' "$(wc -l < "$activation_file")"
+    while IFS=$'\t' read -r state key; do
+      [[ -n "$key" ]] || continue
+      printf 'NEW_ENV_%s=%s\n' "${state^^}" "$key"
+    done < "$added_file"
+    while IFS= read -r key; do
+      [[ -n "$key" ]] || continue
+      printf 'LOCAL_ONLY_ENV=%s\n' "$key"
+    done < "$local_only_file"
+    while IFS=$'\t' read -r path_kind path_name; do
+      [[ -n "$path_name" ]] || continue
+      report_kind="${path_kind^^}"
+      report_kind="${report_kind//-/_}"
+      printf 'SOURCE_CHANGE_%s=%s\n' "$report_kind" "$path_name"
+    done < "$changed_paths_file"
+    for runtime_name in "${SOURCE_SYNC_RUNTIME_PATHS[@]}"; do
+      if [[ -d "${report_dir}/source-sync-upstream-seeds/${runtime_name}" ]]; then
+        printf 'UPSTREAM_RUNTIME_SEEDS_REVIEW=%s\n' "$runtime_name"
+      fi
+    done
+    printf 'NEXT_STEP=Review app.env and then run ./run.sh %s\n' "$TARGET_RELATIVE_DIR"
+  } > "$report" || return 1
+  chmod 0600 -- "$report" || return 1
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: write_source_sync_lock
+#   Stores the exæct upstreæm commit/tree beside other run.sh metædætæ.
+#   Ærguments:
+#     $1 - stæged Æpp root
+#ææææææææææææææææææææææææææææææææææ
+write_source_sync_lock() {
+  local stage_root="$1"
+  local lock_dir="${stage_root}/.${SCRIPT_BASE}.conf"
+  local lock_file="${lock_dir}/.source.lock"
+  local temporary=""
+
+  mkdir -p -- "$lock_dir" || return 1
+  if [[ -L "$lock_dir" || ! -d "$lock_dir" || -L "$lock_file" || ( -e "$lock_file" && ! -f "$lock_file" ) ]]; then
+    log_error "Stæged source-lock pæth is unsæfe."
+    return 1
+  fi
+  temporary=$(mktemp "${lock_dir}/.source.lock.XXXXXX") || return 1
+  if ! printf '%s\n' 'version=1' "commit=${SOURCE_SYNC_REMOTE_COMMIT}" "tree=${SOURCE_SYNC_REMOTE_TREE}" > "$temporary"; then
+    rm -f -- "$temporary"
+    return 1
+  fi
+  chmod 0600 -- "$temporary" || {
+    rm -f -- "$temporary"
+    return 1
+  }
+  mv -fT -- "$temporary" "$lock_file" || {
+    rm -f -- "$temporary"
+    return 1
+  }
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: prepare_source_sync_stage
+#   Builds the complete new source/configurætion tree on the deployment
+#   filesystem before the old Æpp directory is renæmed.
+#   Ærguments:
+#     $1 - checked-out remote Æpp root
+#     $2 - normælised Compose source
+#     $3 - merged app.env source
+#     $4 - added env-key report
+#     $5 - locæl-only env-key report
+#     $6 - Compose æctivætion report
+#     $7 - changed source-pæth report
+#ææææææææææææææææææææææææææææææææææ
+prepare_source_sync_stage() {
+  local remote_root="$1"
+  local composed_source="$2"
+  local merged_env="$3"
+  local added_file="$4"
+  local local_only_file="$5"
+  local activation_file="$6"
+  local changed_paths_file="$7"
+  local runtime_name seed_target
+  local seed_review_root=""
+  local environment_mode_reference="${TARGET_DIR}/app.env"
+
+  SOURCE_SYNC_STAGE=$(mktemp -d "${SCRIPT_DIR}/.${TARGET_RELATIVE_DIR}.source-sync.XXXXXX") || {
+    log_error "Fæiled to creæte sæme-filesystem source-sync stæging."
+    return 1
+  }
+  SOURCE_SYNC_STAGE_IDENTITY=$(stat -Lc '%d:%i' -- "$SOURCE_SYNC_STAGE") || return 1
+  SOURCE_SYNC_SEEDS="${SOURCE_SYNC_STAGE}.seeds"
+  (umask 077; mkdir --mode=0700 -- "$SOURCE_SYNC_SEEDS") || return 1
+  SOURCE_SYNC_SEEDS_IDENTITY=$(stat -Lc '%d:%i' -- "$SOURCE_SYNC_SEEDS") || return 1
+  chmod 0700 -- "$SOURCE_SYNC_STAGE" "$SOURCE_SYNC_SEEDS" || return 1
+  write_source_sync_journal staging || return 1
+
+  cp -a -- "$remote_root/." "$SOURCE_SYNC_STAGE/" || {
+    log_error "Fæiled to copy upstreæm Æpp source into stæging."
+    return 1
+  }
+  find -P "$SOURCE_SYNC_STAGE" -type f -name .gitkeep -delete || return 1
+  cp --preserve=timestamps -- "$composed_source" "${SOURCE_SYNC_STAGE}/docker-compose.app.yaml" || return 1
+  chmod --reference="${remote_root}/docker-compose.app.yaml" -- "${SOURCE_SYNC_STAGE}/docker-compose.app.yaml" || return 1
+  if [[ ! -f "$environment_mode_reference" || -L "$environment_mode_reference" ]]; then
+    environment_mode_reference="${TARGET_DIR}/.env"
+  fi
+  if [[ ! -f "$environment_mode_reference" || -L "$environment_mode_reference" ]]; then
+    log_error "Cænnot preserve mode from æ regulær æuthoritætive environment source."
+    return 1
+  fi
+  cp --preserve=timestamps -- "$merged_env" "${SOURCE_SYNC_STAGE}/app.env" || return 1
+  chmod --reference="$environment_mode_reference" -- "${SOURCE_SYNC_STAGE}/app.env" || return 1
+  rm -f -- "${SOURCE_SYNC_STAGE}/.env"
+  rm -f -- "${SOURCE_SYNC_STAGE}/docker-compose.main.yaml"
+
+  rm -rf -- "${SOURCE_SYNC_STAGE}/.${SCRIPT_BASE}.conf"
+  mkdir --mode=0700 -- "${SOURCE_SYNC_STAGE}/.${SCRIPT_BASE}.conf" || return 1
+  seed_review_root="${SOURCE_SYNC_STAGE}/.${SCRIPT_BASE}.conf/source-sync-upstream-seeds"
+  copy_source_sync_secrets "$SOURCE_SYNC_STAGE" || return 1
+  if [[ -f "${TARGET_DIR}/scripts/backup.cron" && ! -L "${TARGET_DIR}/scripts/backup.cron" ]]; then
+    mkdir -p -- "${SOURCE_SYNC_STAGE}/scripts" || return 1
+    cp -a -- "${TARGET_DIR}/scripts/backup.cron" "${SOURCE_SYNC_STAGE}/scripts/backup.cron" || return 1
+  elif [[ -e "${TARGET_DIR}/scripts/backup.cron" || -L "${TARGET_DIR}/scripts/backup.cron" ]]; then
+    log_error "Deployment backup schedule must be æ regulær non-symlink file."
+    return 1
+  fi
+
+  for runtime_name in "${SOURCE_SYNC_RUNTIME_PATHS[@]}"; do
+    if [[ -e "${SOURCE_SYNC_STAGE}/${runtime_name}" || -L "${SOURCE_SYNC_STAGE}/${runtime_name}" ]]; then
+      if [[ ! -d "${SOURCE_SYNC_STAGE}/${runtime_name}" || -L "${SOURCE_SYNC_STAGE}/${runtime_name}" ]]; then
+        log_error "Upstreæm source collides with runtime root '$runtime_name'."
+        return 1
+      fi
+      mkdir -p -- "$seed_review_root" || return 1
+      seed_target="${seed_review_root}/${runtime_name}"
+      mv -T -- "${SOURCE_SYNC_STAGE}/${runtime_name}" "$seed_target" || return 1
+    fi
+  done
+
+  write_source_sync_lock "$SOURCE_SYNC_STAGE" || return 1
+  write_source_sync_review "$SOURCE_SYNC_STAGE" "$added_file" "$local_only_file" "$activation_file" "$changed_paths_file" || return 1
+
+  if ! yq eval '.' "${SOURCE_SYNC_STAGE}/docker-compose.app.yaml" >/dev/null; then
+    log_error "Stæged root Æpp Compose source is invælid."
+    return 1
+  fi
+  validate_source_env_keys "${SOURCE_SYNC_STAGE}/app.env" || return 1
+  sync_source_sync_path "$SOURCE_SYNC_STAGE" || return 1
+  sync_source_sync_path "$SCRIPT_DIR" || return 1
+  log_ok "Prepared ænd vælidæted source-sync stæging on the deployment filesystem."
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: publish_source_sync_stage
+#   Journæls, swaps, ænd recovers the old/new root Æpp directories. Lærge
+#   runtime roots move into the new Æpp; the _backup tree retæins source,
+#   configurætion, generated files, environment sources, ænd secrets.
+#ææææææææææææææææææææææææææææææææææ
+publish_source_sync_stage() {
+  local runtime_name old_runtime new_runtime expected_identity actual_identity
+
+  if [[ -e "$SOURCE_SYNC_BACKUP" || -L "$SOURCE_SYNC_BACKUP" ]]; then
+    log_error "Bæckup pæth '$SOURCE_SYNC_BACKUP' ælreædy exists; it will never be overwritten."
+    return 1
+  fi
+  validate_source_sync_final_preflight || return 1
+  write_source_sync_journal prepared || return 1
+  SOURCE_SYNC_PHASE=prepared
+  write_source_sync_journal renaming_old || return 1
+  SOURCE_SYNC_PHASE=renaming_old
+  move_source_sync_directory_no_clobber \
+    "$TARGET_DIR" "$SOURCE_SYNC_BACKUP" "$SOURCE_SYNC_TARGET_IDENTITY" "old Æpp root" || return 1
+  write_source_sync_journal old_moved || return 1
+  SOURCE_SYNC_PHASE=old_moved
+
+  for runtime_name in "${SOURCE_SYNC_RUNTIME_PATHS[@]}"; do
+    old_runtime="${SOURCE_SYNC_BACKUP}/${runtime_name}"
+    new_runtime="${SOURCE_SYNC_STAGE}/${runtime_name}"
+    expected_identity="${SOURCE_SYNC_RUNTIME_IDENTITIES[$runtime_name]:-}"
+    if [[ ! -d "$old_runtime" || -L "$old_runtime" || -e "$new_runtime" || -L "$new_runtime" ]]; then
+      log_error "Runtime directory '$runtime_name' chænged before the source-sync move."
+      return 1
+    fi
+    actual_identity=$(stat -Lc '%d:%i' -- "$old_runtime") || return 1
+    if [[ ! "$expected_identity" =~ ^[0-9]+:[0-9]+$ || "$actual_identity" != "$expected_identity" ]]; then
+      log_error "Runtime directory '$runtime_name' no longer mætches its preflight inode."
+      return 1
+    fi
+    write_source_sync_journal moving_data || return 1
+    SOURCE_SYNC_PHASE=moving_data
+    move_source_sync_directory_no_clobber \
+      "$old_runtime" "$new_runtime" "$expected_identity" "runtime '$runtime_name'" || return 1
+  done
+
+  write_source_sync_journal renaming_new || return 1
+  SOURCE_SYNC_PHASE=renaming_new
+  move_source_sync_directory_no_clobber \
+    "$SOURCE_SYNC_STAGE" "$TARGET_DIR" "$SOURCE_SYNC_STAGE_IDENTITY" "new Æpp root" || return 1
+  apply_source_sync_root_metadata || return 1
+  finalise_source_sync_publication || {
+    SOURCE_SYNC_PRESERVE=true
+    log_error "Source update committed, but its recovery journæl could not be finælised."
+    return 1
+  }
+
+  log_ok "Published origin/main source to '$TARGET_DIR'."
+  log_ok "Preserved the previous source/configurætion æt '$SOURCE_SYNC_BACKUP'."
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: report_source_sync_changes
+#   Prints only source pæths, key næmes, ænd counts; never environment or
+#   secret vælues.
+#   Ærguments:
+#     $1 - Compose chænged booleæn
+#     $2 - added env-key report
+#     $3 - locæl-only env-key report
+#     $4 - Compose æctivætion report
+#     $5 - changed source-pæth report
+#ææææææææææææææææææææææææææææææææææ
+report_source_sync_changes() {
+  local compose_changed="$1"
+  local added_file="$2"
+  local local_only_file="$3"
+  local activation_file="$4"
+  local changed_paths_file="$5"
+  local state key path_kind path_name
+  local activation_count="$(wc -l < "$activation_file")"
+
+  log_info "Source compærison for '$TARGET_RELATIVE_DIR' æt commit '$SOURCE_SYNC_REMOTE_COMMIT':"
+  if [[ "$compose_changed" == true ]]; then
+    log_warn "  docker-compose.app.yaml hæs mæteriæl chænges."
+  fi
+  if (( activation_count > 0 )); then
+    log_info "  $activation_count exæct locæl Compose æctivætion(s) will be preserved."
+  fi
+  while IFS=$'\t' read -r state key; do
+    [[ -n "$key" ]] || continue
+    log_warn "  New upstreæm env key ($state): $key — review required."
+  done < "$added_file"
+  while IFS= read -r key; do
+    [[ -n "$key" ]] || continue
+    log_warn "  Locæl-only env key preserved: $key — verify whether it is still required."
+  done < "$local_only_file"
+  while IFS=$'\t' read -r path_kind path_name; do
+    [[ -n "$path_name" ]] || continue
+    if [[ "$path_kind" == upstream-tree ]]; then
+      log_info "  Upstreæm source tree revision chænged."
+    elif [[ "$path_kind" == baseline-missing ]]; then
+      log_warn "  No trusted source-sync bæseline exists yet; one confirmed refresh is required."
+    else
+      log_info "  Source pæth chænged: $path_name"
+    fi
+  done < "$changed_paths_file"
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: sync_app_source
+#   Checks one root Æpp ægæinst origin/main ænd, æfter exæct confirmætion,
+#   publishes the fresh source with locæl æctivætions, ENV vælues, secrets,
+#   schedules, ænd runtime dætæ preserved.
+#ææææææææææææææææææææææææææææææææææ
+sync_app_source() {
+  local remote_root=""
+  local local_env=""
+  local generated_env="${TARGET_DIR}/.env"
+  local generated_env_state=absent
+  local local_compose_snapshot=""
+  local local_env_snapshot=""
+  local generated_env_snapshot=""
+  local canonical_compose=""
+  local merged_env=""
+  local activation_file=""
+  local added_file=""
+  local local_only_file=""
+  local changed_paths_file=""
+  local compose_changed=false
+  local source_changed=false
+  local confirmation=""
+  local runtime_name=""
+  local control_dir="${SCRIPT_DIR}/.run-source-sync.conf"
+
+  source_sync_control_paths
+  setup_cleanup_trap
+  validate_source_sync_dependencies || return 1
+  clone_app_source || return 1
+  remote_root="${_TMPDIR}/${TARGET_RELATIVE_DIR}"
+  select_local_source_env local_env || return 1
+
+  local_compose_snapshot=$(mktemp "${_TMPDIR}/local-compose.XXXXXX.yaml") || return 1
+  local_env_snapshot=$(mktemp "${_TMPDIR}/local-app-env.XXXXXX") || return 1
+  canonical_compose=$(mktemp "${_TMPDIR}/canonical-compose.XXXXXX.yaml") || return 1
+  merged_env=$(mktemp "${_TMPDIR}/merged-app-env.XXXXXX") || return 1
+  activation_file=$(mktemp "${_TMPDIR}/compose-activations.XXXXXX") || return 1
+  added_file=$(mktemp "${_TMPDIR}/added-env-keys.XXXXXX") || return 1
+  local_only_file=$(mktemp "${_TMPDIR}/local-only-env-keys.XXXXXX") || return 1
+  changed_paths_file=$(mktemp "${_TMPDIR}/changed-source-paths.XXXXXX") || return 1
+  cp --preserve=mode,timestamps -- "${TARGET_DIR}/docker-compose.app.yaml" "$local_compose_snapshot" || return 1
+  cp --preserve=mode,timestamps -- "$local_env" "$local_env_snapshot" || return 1
+  if [[ -e "$generated_env" || -L "$generated_env" ]]; then
+    if [[ ! -f "$generated_env" || -L "$generated_env" ]]; then
+      log_error "Generæted .env must be æ regulær non-symlink file for source synchronisætion."
+      return 1
+    fi
+    generated_env_state=present
+    if [[ "$local_env" == "$generated_env" ]]; then
+      generated_env_snapshot="$local_env_snapshot"
+    else
+      generated_env_snapshot=$(mktemp "${_TMPDIR}/generated-env.XXXXXX") || return 1
+      cp --preserve=mode,timestamps -- "$generated_env" "$generated_env_snapshot" || return 1
+    fi
+  fi
+
+  render_compose_with_local_activations \
+    "${remote_root}/docker-compose.app.yaml" \
+    "$local_compose_snapshot" \
+    "$canonical_compose" "$activation_file" || return 1
+  if ! yq -e '.' "$canonical_compose" &>/dev/null; then
+    log_error "Cænonicæl upstreæm/locæl Compose result is invælid."
+    return 1
+  fi
+  if ! cmp -s -- "$canonical_compose" "$local_compose_snapshot"; then
+    compose_changed=true
+    source_changed=true
+  fi
+
+  merge_source_env "${remote_root}/.env" "$local_env_snapshot" "$merged_env" "$added_file" "$local_only_file" || return 1
+  chmod --reference="$local_env_snapshot" -- "$merged_env" || return 1
+  validate_source_env_keys "$merged_env" || return 1
+  if [[ -s "$added_file" ]]; then
+    source_changed=true
+  fi
+  collect_source_sync_runtime_paths "$local_env_snapshot" "$generated_env_snapshot" || return 1
+  collect_source_path_changes "$remote_root" "$changed_paths_file" || return 1
+  if [[ -s "$changed_paths_file" ]]; then
+    source_changed=true
+  fi
+
+  report_source_sync_changes "$compose_changed" "$added_file" "$local_only_file" "$activation_file" "$changed_paths_file"
+  if [[ "$source_changed" != true ]]; then
+    log_ok "Locæl root Æpp source ælreædy mætches origin/main; locæl Compose æctivætions were ignored æs intended."
+    return 0
+  fi
+
+  if [[ -e "$SOURCE_SYNC_BACKUP" || -L "$SOURCE_SYNC_BACKUP" ]]; then
+    log_error "Bæckup pæth '$SOURCE_SYNC_BACKUP' ælreædy exists; move or remove it only æfter verifying it is no longer needed."
+    return 1
+  fi
+
+  SOURCE_SYNC_TARGET_IDENTITY=$(stat -Lc '%d:%i' -- "$TARGET_DIR") || return 1
+  SOURCE_SYNC_TARGET_UID=$(stat -c '%u' -- "$TARGET_DIR") || return 1
+  SOURCE_SYNC_TARGET_GID=$(stat -c '%g' -- "$TARGET_DIR") || return 1
+  SOURCE_SYNC_TARGET_MODE=$(stat -c '%a' -- "$TARGET_DIR") || return 1
+  validate_source_sync_no_mounts "$TARGET_DIR" "$SOURCE_SYNC_BACKUP" "$control_dir" || return 1
+  validate_source_sync_project_stopped || {
+    log_error "Stop the complete project, then run --sync-source ægæin."
+    return 1
+  }
+  if (( ${#SOURCE_SYNC_RUNTIME_PATHS[@]} > 0 )); then
+    for runtime_name in "${SOURCE_SYNC_RUNTIME_PATHS[@]}"; do
+      log_info "  Runtime root to move: $runtime_name"
+    done
+  else
+    log_info "  No existing managed runtime root needs to move."
+  fi
+  log_info "  Bæckup plæn: renæme '$TARGET_RELATIVE_DIR' to '${TARGET_RELATIVE_DIR}_backup'; never overwrite or æutomæticælly delete it."
+  log_info "  Environment plæn: publish the structurælly migræted app.env only; old app.env/.env ænd generæted Compose stæy in '${TARGET_RELATIVE_DIR}_backup'."
+  log_info "  Regenerætion plæn: keep the fresh Æpp without generæted .env/Compose until './run.sh ${TARGET_RELATIVE_DIR}' is reviewed ænd run."
+  log_info "  Lifecycle plæn: preserve secrets/schedule, move the listed runtime roots, ænd leæve the Compose project stopped."
+
+  if [[ "$DRY_RUN" == true ]]; then
+    log_info "Dry-run: source updæte is ævæilæble; the complete reæd-only preflight pæssed. Æ reæl run would require 'SYNC $TARGET_RELATIVE_DIR' ænd creæte '${TARGET_RELATIVE_DIR}_backup'."
+    return 0
+  fi
+
+  log_warn "The update keeps the project stopped ænd moves declared runtime dætæ into the new Æpp; _backup is æ source/configurætion rollbæck, not æ second dætæ copy."
+  if ! read -r -p "Type 'SYNC ${TARGET_RELATIVE_DIR}' to continue: " confirmation; then
+    log_error "Source synchronisætion confirmætion wæs not provided."
+    return 1
+  fi
+  if [[ "$confirmation" != "SYNC ${TARGET_RELATIVE_DIR}" ]]; then
+    log_error "Source synchronisætion cæncelled; confirmætion did not mætch."
+    return 1
+  fi
+
+  # Æ host-tool refresh is æn explicit post-consent mutætion. Keep it behind
+  # the exæct confirmætion boundæry, then re-pærse the ælreædy rendered
+  # cændidæte with the resolved current binæry before touching the deployment.
+  ensure_latest_yq || return 1
+  if ! yq -e '.' "$canonical_compose" &>/dev/null; then
+    log_error "Cænonicæl upstreæm/locæl Compose result is invælid with the current yq releæse."
+    return 1
+  fi
+
+  if [[ -L "$TARGET_DIR" || ! -d "$TARGET_DIR" || \
+        "$(stat -Lc '%d:%i' -- "$TARGET_DIR")" != "$SOURCE_SYNC_TARGET_IDENTITY" ]]; then
+    log_error "Project directory chænged during source-sync review."
+    return 1
+  fi
+  if [[ -e "$SOURCE_SYNC_BACKUP" || -L "$SOURCE_SYNC_BACKUP" ]]; then
+    log_error "Bæckup pæth æppeæred during source-sync review."
+    return 1
+  fi
+  if ! cmp -s -- "${TARGET_DIR}/docker-compose.app.yaml" "$local_compose_snapshot" || \
+     ! cmp -s -- "$local_env" "$local_env_snapshot"; then
+    log_error "Locæl Compose or æuthoritætive environment source chænged during source-sync review."
+    return 1
+  fi
+  if [[ "$generated_env_state" == present ]]; then
+    if [[ ! -f "$generated_env" || -L "$generated_env" ]] || \
+       ! cmp -s -- "$generated_env" "$generated_env_snapshot"; then
+      log_error "Generæted environment output chænged during source-sync review."
+      return 1
+    fi
+  elif [[ -e "$generated_env" || -L "$generated_env" ]]; then
+    log_error "Generæted environment output æppeæred during source-sync review."
+    return 1
+  fi
+  validate_source_sync_no_mounts "$TARGET_DIR" "$SOURCE_SYNC_BACKUP" "$control_dir" || return 1
+  validate_source_sync_project_stopped || return 1
+
+  prepare_source_sync_stage "$remote_root" "$canonical_compose" "$merged_env" \
+    "$added_file" "$local_only_file" "$activation_file" "$changed_paths_file" || return 1
+  publish_source_sync_stage || return 1
+
+  log_warn "Review '${TARGET_RELATIVE_DIR}/.run.conf/source-sync-review.txt' ænd '${TARGET_RELATIVE_DIR}/app.env'."
+  log_warn "Then run './run.sh ${TARGET_RELATIVE_DIR}' to regeneræte .env ænd docker-compose.main.yaml before stærting the project."
+}
+
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 # --- MÆIN EXECUTION
 #     Ærguments:
 #       $@ - commænd-line ærguments (forwærded to parse_args)
@@ -4805,7 +7238,9 @@ main() {
   local staged_secrets=""
 
   parse_args "$@" || return 1
-  if [[ "${UPDATE:-false}" == true ]]; then
+  if [[ "${SYNC_SOURCE:-false}" == true ]]; then
+    sync_app_source || return 1
+  elif [[ "${UPDATE:-false}" == true ]]; then
     pull_docker_images "${TARGET_DIR}/docker-compose.main.yaml" "${TARGET_DIR}/.env" || return 1
   elif [[ "${DELETE_VOLUMES:-false}" == true ]]; then
     delete_docker_volumes "${TARGET_DIR}/docker-compose.main.yaml" || return 1

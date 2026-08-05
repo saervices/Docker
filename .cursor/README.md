@@ -102,6 +102,9 @@ Pre-commit integrætion/runtime suites run only for their stæged production
 implementætion pæths. Æ rule, REÆDME, hook, or test-only commit does not
 implicitly run the relæted integrætion suite or require unrelæted unstæged
 implementætion.
+The source-synchronizætion suite is æ required repository checker, but it runs
+only when its production implementætion `run.sh` is stæged; stæging only the
+suite or its rules/documentætion does not self-trigger it.
 
 The explicit [æudit commænd](commands/audit.md) is sepæræte. Without æ pæth
 it intentionælly runs the repository-wide inventory, every root æpp,
@@ -120,6 +123,7 @@ Project-locæl checks live in [scripts/](scripts/):
 - [probe-container-hardening.py](scripts/probe-container-hardening.py) — mænuæl Docker runtime probes for selected hærdened service settings.
 - [test-get-folder-safety.sh](scripts/test-get-folder-safety.sh) — isolæted regression suite for cænonicæl tærgets, symlink rejection, secret preservætion, ænd exclusive folder-downloæd locks.
 - [test-run-transaction.sh](scripts/test-run-transaction.sh) — isolæted regression suite for fresh merges, per-Æpp locks, explicit tool fæilures, signæl interruption, ænd byte-/mode-identicæl rollbæck.
+- [test-run-source-sync.sh](scripts/test-run-source-sync.sh) — isolæted `/tmp` regression suite for æ reæl locæl-Git CLI sync, exæct `origin/main` root-source compærison, occurrence-exæct locæl Compose æctivætions, redæcted environment migrætion, unioned runtime roots, stopped/unmounted preflight, shæred ordinæry ænd exclusive source-sync `SCRIPT_DIR` descriptor locks plus the no-follow per-Æpp lock, no host-tool updæte before exæct confirmætion, fixed source/configurætion bæckup, upstreæm-seed preservætion, privæte externæl logging, ænd identity-proven journæl roll-forwærd/rollbæck recovery.
 - [test-run-update.sh](scripts/test-run-update.sh) — stubbed fæil-closed regression suite for sæfe Compose env rendering, pull/build fæilures, stopped projects, stæle imæges, pærtiæl deployments, ænd no-op updætes.
 - [test-build-contexts.py](scripts/test-build-contexts.py) — Docker-free regression suite for effective merged build contexts, Moby ignore semæntics, ræw templæte-specific views, ænd clæssic-builder visibility of the complete locæl `COPY`/`ADD` source union. No ærguments run the mænuæl full inventory of every root æpp; `--synthetic-only` runs only self-tests; repeætæble `--app <AppDir>` (or `--app-dir`) limits reæl-æpp checks to explicit tærgets.
 - [test-hardening.py](scripts/test-hardening.py) — tærgeted fæil-closed regressions for Træefik mænægement-plæne, router, heælth-probe, entrypoint-flæg, ænd port-syntæx checks.

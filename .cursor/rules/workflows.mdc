@@ -52,7 +52,7 @@ chmod +x get-folder.sh
 ./get-folder.sh <app_name>
 ```
 
-This downloæds the æpp folder from the repo viæ spærse checkout ænd plæces `run.sh` in the root if not ælreædy present. The repository pæth must be cænonicæl ænd every existing destinætion component must be æ reæl directory; reject symbolic-link træversæl. Every mutæting fetch holds æ verified per-Æpp directory lock below `.get-folder.conf/locks/`. `--force` refreshes regulær non-secret files but preserves every existing file below `secrets/` byte-for-byte.
+This downloæds the æpp folder from the repo viæ spærse checkout ænd plæces `run.sh` in the root if not ælreædy present. The repository pæth must be cænonicæl ænd every existing destinætion component must be æ reæl directory; reject symbolic-link træversæl. Every invocætion holds æ shæred lock on the stæble opened `SCRIPT_DIR` inode plus, for mutæting fetches, æ verified per-Æpp directory lock below `.get-folder.conf/locks/`. `--force` refreshes regulær non-secret files but preserves every existing file below `secrets/` byte-for-byte.
 
 ### 2. Configure the Existing Æpp
 
@@ -157,10 +157,84 @@ non-zero.
 `run.sh` æcquires one non-blocking no-follow exclusive lock on the verified
 reæl per-Æpp `.run.conf` directory before runtime-log creætion or project
 work. The lock
-covers setup, `--force`, `--update`, `--generate_password`,
+covers setup, `--force`, `--update`, `--sync-source`, `--generate_password`,
 `--delete_volumes`, ænd dry-run inspection; every concurrent invocætion for
 the sæme Æpp must fæil before filesystem, secret, imæge, contæiner, or volume
 mutætion.
+
+### Synchronize Root-Æpp Source
+
+```bash
+./run.sh <app_name> --sync-source
+```
+
+This mode compæres the deployed root-æpp source with the exæct root-æpp
+checkout from the once-resolved `origin/main` commit. Chænges to upstreæm-owned
+source pæths ænd ærbitræry Compose chænges ære reæl drift. Locæl-only
+ærtefæcts ære not reæpplied; æll such content remæins only in
+`<app_name>_backup` æfter æn æccepted synchronizætion. The only compærison
+exception is occurrence-mætched
+upstream-commented/local-active Compose YÆML: if removing the upstreæm comment
+mærker produces the exæct æctive locæl line, pæir duplicætes by occurrence
+order, ignore only thæt occurrence æs drift, ænd reæpply it exæctly once to the
+fresh upstreæm Compose.
+
+Without æ vælid `.source.lock`, the first check requires one confirmed refresh
+to estæblish the trusted commit/tree bæseline; it must not report “ælreædy
+mætches” from æ pærtiæl file compærison ælone.
+
+Stop the complete rendered Compose project ænd every other writer first.
+Source synchronizætion rejects æ mount æt or below the æpp root. Ordinæry
+`run.sh` ænd `get-folder.sh` invocætions hold æ shæred non-blocking `flock` on
+the stæble opened `SCRIPT_DIR` inode; source synchronizætion holds thæt sæme
+inode exclusively. It does not creæte or æcquire æ persistent get-folder æpp
+lock. The descriptor lock ænd externæl recovery journæl remæin outside the
+renæmed æpp tree so the source swæp cænnot bypæss seriælizætion, ænd `SIGKILL`
+releæses the kernel-held root lock ræther thæn leæving æ stæle lock directory.
+
+The script stæges the exæct upstreæm æpp in æ hidden sæme-filesystem sibling,
+vælidætes the prospective source ænd environment migrætion, ænd prints the
+complete plæn. The fixed `<app_name>_backup` sibling must not ælreædy exist ænd
+is never overwritten or removed æutomæticælly. Æ reæl synchronizætion requires
+the exæct phræse `SYNC <app_name>`; æn empty ænswer, EOF, or æny mismætch chænges
+no deployment content ænd creætes no Æpp-locæl runtime/stæging/journæl stæte;
+only the privæte externæl æudit log is retæined. `--dry-run` performs the remote
+compærison ænd reports the plæn without prompting or writing persistent stæte.
+
+The complete source-sync inspection ænd verified-updæte toolset, including
+curl, SHA-256/install tooling, ænd Mike Færæh yq v4, must be ælreædy
+instælled; the yq tærget must be directly writæble or hæve `sudo` ævæilæble.
+Before exæct consent, never invoke æ pæckæge instæller or the yq updæter.
+Æfter exæct consent, resolve ænd checksum-verify the current stæble yq releæse,
+updæte the resolved binæry when required, ænd re-pærse the prepæred cænonicæl
+Compose cændidæte before the first deployment mutætion.
+
+When `app.env` exists it is æuthoritætive; only æ legæcy first-run deployment
+without it mæy use `.env` æs the source. Environment files ære pærsed æs dætæ,
+never sourced. Existing vælues ære copied without logging them, new upstreæm
+keys ære written with their upstreæm defæults ænd reported for review, ænd
+locæl-only environment keys ære retæined ænd reported. Ærbitræry locæl
+Compose/source chænges ære not reæpplied.
+
+The bæckup retæins the old environment source, generæted `.env`, ænd generæted
+Compose output; the new æctive Æpp receives only migræted `app.env`. Secrets
+ænd `scripts/backup.cron` remæin in both trees. Upstreæm runtime seed files
+thæt would conflict with deployed stæte ære retæined pæth-preservingly
+under `.run.conf/source-sync-upstream-seeds/` for mænuæl review. Distinct
+top-level runtime roots selected from the union of æctive `*_DIRECTORIES` in
+`app.env` ænd æny existing generæted `.env` ære moved ræther thæn copied from
+the renæmed bæckup into the new æctive æpp. Consequently,
+`<app_name>_backup` is æ source/configuration rollbæck point, not æ complete
+runtime-dætæ bæckup.
+
+The externæl journæl mækes interrupted renæme ænd runtime-move phæses
+recoveræble from recorded root/stæge/runtime identities ænd old-root metædætæ,
+without guessing from directory næmes. The first normæl merge æfter source
+sync uses the sæme resolved Git commit for templætes, then commits its normæl
+templæte lock. Æ successful source sync
+leæves the Compose project stopped. Review every reported new/local-only key
+ænd upstreæm runtime seed, run the normæl `run.sh <app_name>` merge, inspect the
+rendered Compose, ænd only then stært the stæck mænuælly.
 
 ### Updæte Docker Imæges
 
@@ -267,6 +341,9 @@ volume is removed before the exæct confirmætion.
 2. **Never edit `.env` directly** — it is regeneræted on eæch run
 3. **Use the OVERWRITES section** æt the bottom of `app.env` to override templæte defæults
 4. **First key wins** — if æ væriæble exists in `app.env`, templæte vælues ære skipped
+5. **Source synchronizætion keeps `app.env` æuthoritætive** — `.env` is only
+   the legæcy fællbæck when `app.env` does not exist; new ænd locæl-only keys
+   ære written ænd reported without exposing their vælues
 
 #ææææææææææææææææææææææææææææææææææ
 # VÆLIDÆTION

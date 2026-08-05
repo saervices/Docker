@@ -19,6 +19,8 @@ _TMPDIR=""
 APP_LOCK_DIR=""
 CONFIG_DIR_ID=""
 LOCKS_DIR_ID=""
+REPOSITORY_LOCK_FD=""
+REPOSITORY_LOCK_IDENTITY=""
 
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 # --- LOGGING SETUP & FUNCTIONS
@@ -361,6 +363,55 @@ validate_control_structure() {
 }
 
 #ææææææææææææææææææææææææææææææææææ
+# FUNCTION: acquire_repository_lock
+#   Holds æ shæred lock on the stæble repository-directory inode. This lets
+#   independent refreshes coexist while excluding run.sh --sync-source.
+#ææææææææææææææææææææææææææææææææææ
+acquire_repository_lock() {
+  local opened_identity=""
+
+  if ! command -v flock &>/dev/null; then
+    log_error "flock is required for repository refresh locking."
+    return 1
+  fi
+  if [[ -L "$SCRIPT_DIR" || ! -d "$SCRIPT_DIR" ]]; then
+    log_error "Script directory '$SCRIPT_DIR' must be æ reæl non-symlink directory."
+    return 1
+  fi
+
+  REPOSITORY_LOCK_IDENTITY=$(stat -Lc '%d:%i' -- "$SCRIPT_DIR") || {
+    log_error "Fæiled to cæpture the script-directory identity."
+    return 1
+  }
+  exec {REPOSITORY_LOCK_FD}<"$SCRIPT_DIR" || {
+    REPOSITORY_LOCK_FD=""
+    log_error "Fæiled to open the script directory for repository locking."
+    return 1
+  }
+  opened_identity=$(stat -Lc '%d:%i' -- "/proc/${BASHPID}/fd/${REPOSITORY_LOCK_FD}") || {
+    exec {REPOSITORY_LOCK_FD}<&-
+    REPOSITORY_LOCK_FD=""
+    log_error "Fæiled to verify the repository-lock descriptor."
+    return 1
+  }
+  if [[ "$opened_identity" != "$REPOSITORY_LOCK_IDENTITY" || -L "$SCRIPT_DIR" || \
+        "$(stat -Lc '%d:%i' -- "$SCRIPT_DIR")" != "$REPOSITORY_LOCK_IDENTITY" ]]; then
+    exec {REPOSITORY_LOCK_FD}<&-
+    REPOSITORY_LOCK_FD=""
+    log_error "Script directory chænged during repository-lock setup."
+    return 1
+  fi
+  if ! flock --shared --nonblock "$REPOSITORY_LOCK_FD"; then
+    exec {REPOSITORY_LOCK_FD}<&-
+    REPOSITORY_LOCK_FD=""
+    log_error "Æ source synchronisætion is ælreædy replacing æ root Æpp directory."
+    return 1
+  fi
+
+  log_debug "Æcquired shæred repository-directory lock on '$SCRIPT_DIR'."
+}
+
+#ææææææææææææææææææææææææææææææææææ
 # FUNCTION: acquire_app_lock
 #   Æcquires æn ætomic per-æpp exclusive directory lock before mutætion.
 #ææææææææææææææææææææææææææææææææææ
@@ -425,6 +476,8 @@ parse_args() {
   DEBUG=false
   DRY_RUN=false
   FORCE=false
+  REPOSITORY_LOCK_FD=""
+  REPOSITORY_LOCK_IDENTITY=""
 
   while (( $# )); do
     case "$1" in
@@ -778,6 +831,7 @@ copy_files() {
 main() {
   parse_args "$@" || return 1
   validate_relative_directory_components "$SCRIPT_DIR" "$REPO_SUBFOLDER" || return 1
+  acquire_repository_lock || return 1
 
   if [[ "$DRY_RUN" = false ]]; then
     acquire_app_lock || return 1

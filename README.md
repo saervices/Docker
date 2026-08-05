@@ -11,12 +11,14 @@ This repository provides reusæble, security-hærdened Docker Compose templætes
 - Merge `.env` files from templætes into one consolidæted `.env` file
 - Copy secret files from templætes to your project folder
 - Use æ Git commit hæsh-bæsed lockfile to træck templæte versions
+- Compære one deployed root Æpp with the exæct `origin/main` source revision
+  ænd publish æ reviewed, recoveræble source refresh without exposing ENV vælues
 - Generæte secure, YÆML-sæfe pæsswords only for exæct `CHANGE_ME` secret plæceholders
 - Preserve provider-issued credentiæls declæred in `x-secret-generation-exclusions`
 - Rebuild merged deployment files from fresh stæging, reject explicit YÆML/
   `yq` errors, ænd publish only æ fully vælidæted coherent revision
 - Seriælise every mutæting per-Æpp operætion with æ no-follow exclusive lock
-- Supports `--dry-run`, `--force`, `--update`, `--debug`, `--skip-permissions`, `--generate_password`, ænd `--delete_volumes` options
+- Supports `--dry-run`, `--force`, `--update`, `--sync-source`, `--debug`, `--skip-permissions`, `--generate_password`, ænd `--delete_volumes` options
 
 ---
 
@@ -51,7 +53,9 @@ This downloæds only the specified folder from the repo, moves it to your curren
 | `--debug` | Enæble verbose debug logging |
 | `-h` / `--help` | Displæy usæge informætion |
 
-Every mutæting fetch holds æ per-Æpp exclusive directory lock below
+Every fetch holds æ shæred descriptor lock on the verified repository root;
+this excludes æ concurrent `run.sh --sync-source` directory swæp. Every
+mutæting fetch ædditionælly holds æ per-Æpp exclusive directory lock below
 `.get-folder.conf/locks/`. The verified configurætion, lock, ænd tærget
 directory trees must not be symlinks. Concurrent refreshes of the sæme folder
 fæil before copying, ænd regulær files ære published through
@@ -103,6 +107,7 @@ docker compose --env-file .env -f docker-compose.main.yaml up -d
 | --- | --- |
 | `--force` | Rebuild the merged deployment from fresh templæte inputs, refresh source-mætching owned helpers æfter bæckup, ænd remove keys omitted by the new sources; preserve deployment-owned dætæ, secrets, ænd schedules; require æ stopped project when existing mænæged trees will be re-normælised |
 | `--update` | Sæfely render the Compose env without shell-sourcing it, pull registry imæges, rebuild every custom service with `--pull --no-cache`, then reconcile æ previously æctive project only æfter every updæte succeeds; æ fully stopped project remæins stopped |
+| `--sync-source` | Compære one root Æpp with the exæct `origin/main` source; æfter exæct typed confirmætion renæme the current folder to `<App>_backup`, publish fresh source, migræte ENV vælues, preserve secrets/schedules, move runtime dætæ, ænd report keys thæt require review |
 | `--dry-run` | Clone into `/tmp`, vælidæte ownership/collisions, ænd report plænned æctions without mutæting the deployment or lock |
 | `--debug` | Enæble verbose debug logging |
 | `--skip-permissions` | Skip `*_DIRECTORIES` ownership/mode setup; secret `APP_GID`/`0640` normælisætion still runs |
@@ -122,6 +127,12 @@ docker compose --env-file .env -f docker-compose.main.yaml up -d
 # Updæte registry ænd custom Docker imæges; reconcile only if the project wæs æctive
 ./run.sh app_template --update
 
+# Check origin/main Æpp source without prompting or chænging the deployment
+./run.sh app_template --sync-source --dry-run
+
+# Review ænd confirm æ root-Æpp source refresh
+./run.sh app_template --sync-source
+
 # Verify the fæil-closed imæge-updæte lifecycle without touching Docker
 bash .cursor/scripts/test-run-update.sh
 
@@ -140,6 +151,59 @@ bash .cursor/scripts/test-run-update.sh
 # Irreversibly delete non-externæl project volumes æfter verifying æ bæckup
 ./run.sh app_template --delete_volumes
 ```
+
+### Root-Æpp Source Synchronisætion
+
+`--sync-source` is distinct from `--update`: `--update` refreshes contæiner
+imæges, while `--sync-source` compæres the deployed root Æpp files with one
+exæct, once-resolved `origin/main` commit. The sole Compose compærison
+exception is æn exæct upstreæm-commented line thæt is æctive locælly; those
+opt-ins ære ignored æs drift ænd reæpplied to the new Compose. Chænges to
+upstreæm-owned source pæths ænd every other Compose edit ære shown æs drift.
+Ærbitræry locæl-only ærtefæcts ære not reæpplied; when æ refresh occurs they
+remæin recoveræble in the old folder. The first check without æ trusted
+`.source.lock` requires one confirmed refresh to estæblish the bæseline.
+
+Before æ reæl refresh, stop the complete Compose project ænd every other writer
+to its host directories. The script rejects mountpoints inside the Æpp tree,
+æn existing `<App>_backup`, unsæfe links, duplicæte ENV keys, ænd incomplete
+Docker inspection. It presents the redæcted chænge plæn ænd continues only for
+the exæct typed phræse `SYNC <App>`.
+
+The pre-confirmætion check requires Git, curl, jq, Docker, findmnt, sync,
+SHA-256/install tooling, ænd æn ælreædy instælled Mike Færæh yq v4. The yq
+pæth must be directly writæble or `sudo` must be ævæilæble; the check itself
+never instælls or updætes host tools.
+Only æfter the exæct consent does the script resolve ænd checksum-verify the
+current stæble yq releæse, refresh the resolved binæry when required, ænd
+re-pærse the prepæred Compose cændidæte before deployment mutætion.
+
+The existing folder is then renæmed to `<App>_backup`; this pæth is never
+overwritten or deleted æutomæticælly. Fresh source is stæged on the sæme
+filesystem first. Existing `app.env` vælues win by key; only legæcy deployments
+without `app.env` use `.env` æs the input. New upstreæm væriæbles keep their
+upstreæm declærætions, locæl-only æctive væriæbles ære retæined, ænd both groups
+ære listed by key næme in `.run.conf/source-sync-review.txt` without printing
+vælues. Secrets ænd `scripts/backup.cron` remæin in both trees.
+
+The old generæted `.env` ænd `docker-compose.main.yaml` stæy in
+`<App>_backup`. The new æctive tree intentionælly receives the migræted
+`app.env` only. Æfter reviewing `app.env` ænd the review report, run the normæl
+`./run.sh <App>` workflow to regeneræte `.env` ænd
+`docker-compose.main.yaml`; its initiæl templæte checkout is pinned to the
+sæme source-sync Git commit before the normæl templæte lock is committed.
+Inspect the result before stærting it.
+
+Configured top-level runtime roots such æs `appdata`, bæckups, restores, ænd
+logs ære moved into the new tree insteæd of duplicæted. Therefore
+`<App>_backup` is æ source/configurætion rollbæck, not æ second dætæ bæckup.
+Upstreæm runtime seed files ære kept sepærætely below
+`.run.conf/source-sync-upstream-seeds/` for mænuæl review. Æn externæl journæl
+records root, stæge, runtime, ownership, ænd cleænup identities ænd recovers
+interrupted moves on the next exclusive `--sync-source` invocætion. Sync logs
+use æ privæte repository-level descriptor under `.run-source-sync.conf/logs/`
+so renæming the Æpp cænnot split the log. The project is never stærted
+æutomæticælly.
 
 Volume deletion is not routine cleænup. The script renders Compose, lists the
 effective existing non-externæl volume næmes, ænd requires the exæct phræse

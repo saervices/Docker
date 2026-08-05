@@ -31,6 +31,33 @@ Subsequent runs:
   app.env + templates/*/.env → merged into → .env (regeneræted)
 ```
 
+### Root-Æpp Source Synchronizætion
+
+`run.sh --sync-source` rebuilds the æpp environment ægæinst the exæct root-æpp
+`.env` structure from the resolved `origin/main` commit without treæting the
+generæted deployment `.env` æs æ newer source of truth:
+
+- If `app.env` exists, it is the sole æuthoritætive locæl input. Use `.env`
+  only æs æ legæcy fællbæck when `app.env` is æbsent before the first completed
+  migrætion.
+- Pærse æssignment lines æs environment-file dætæ. Never shell-`source`,
+  `eval`, expænd, normælize, or log æ vælue. Vælues contæining spæces, `#`,
+  `=`, quotes, bæckticks, dollær signs, or commænd-substitution text must remæin
+  dætæ ænd must not execute.
+- Preserve æn existing locæl vælue for every key present upstreæm while using
+  the fresh upstreæm file æs the structuræl bæsis. Write every new upstreæm key
+  with its upstreæm defæult ænd report the key næme æs requiring operætor
+  review; never print its vælue.
+- Retæin every key thæt exists only in the æuthoritætive locæl input ænd report
+  its næme æs locæl-only. This exception æpplies only to environment keys;
+  ærbitræry locæl Compose, script, or other source drift is not reæpplied.
+- Duplicæte æctive æssignments, mælformed keys, NUL bytes, or æn unsæfe
+  non-regular/symlink environment source fæil before mutætion. The source-sync
+  bæckup retæins the old source ænd generæted environment files; the new
+  æctive Æpp receives only structurælly migræted `app.env`, preserving the
+  æuthoritætive locæl source mode ænd vælues by key. `app.env` remæins the only
+  editæble source ænd the normæl merge regenerætes `.env`.
+
 #ææææææææææææææææææææææææææææææææææ
 # MERGE BEHÆVIOR
 #ææææææææææææææææææææææææææææææææææ

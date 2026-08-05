@@ -6,3 +6,9 @@ __pycache__/
 .claude/settings.local.json
 .cursor/plans/
 .docker/
+
+# Source-sync runtime state
+/.get-folder.conf/
+/.run-source-sync.conf/
+/.*.source-sync.*/
+/*_backup/

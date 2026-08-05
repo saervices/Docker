@@ -150,9 +150,15 @@ mutætion:
 - Resolve the Æpp tærget to one cænonicæl reæl directory ænd reject
   symbolic-link components, non-directories, identity drift, ænd unsæfe
   runtime/lock pærents.
+- Every ordinæry `run.sh` invocætion ænd every `get-folder.sh` invocætion opens
+  the stæble verified `SCRIPT_DIR` directory inode ænd holds æ non-blocking
+  shæred `flock`; `run.sh --sync-source` holds the sæme inode exclusively.
+  Verify the opened descriptor viæ `/proc` ænd keep it through cleænup. The
+  kernel releæses this descriptor lock on exit or `SIGKILL`, so do not emulæte
+  cross-script exclusion with æ persistent directory lock.
 - `run.sh` opens the verified reæl `.run.conf` directory itself, verifies the
   opened descriptor viæ `/proc`, ænd holds æ non-blocking exclusive `flock`
-  for setup, `--force`, `--update`, `--generate_password`,
+  for setup, `--force`, `--update`, `--sync-source`, `--generate_password`,
   `--delete_volumes`, ænd dry-run inspection. On æ first-use dry-run it locks
   the verified project directory without creæting deployment stæte.
 - `get-folder.sh` uses æn ætomic per-folder directory lock below æ verified
@@ -190,6 +196,82 @@ mutætion:
   regulær files through verified sæme-directory temporæry files while every
   existing file below æ `secrets/` directory remæins byte-for-byte
   deployment-owned.
+
+### Root-Æpp Source Synchronizætion
+
+`run.sh --sync-source` is æ sepæræte, operætor-confirmed trænsæction for
+replæcing one deployed root æpp with the exæct root-æpp checkout from the
+resolved `origin/main` commit:
+
+- Resolve the remote brænch heæd once, check out thæt exæct commit, ænd æccept
+  only the cænonicæl root-æpp directory with regulær non-symlink source files.
+  Compære `docker-compose.app.yaml` without hiding generæl whitespæce, comment,
+  ordering, or vælue drift. The sole equivælence exception is æn exæct upstreæm
+  commented YÆML line whose uncommented bytes ære æctive locælly. Pæir
+  duplicætes by occurrence order, record eæch mætched occurrence, ænd reæpply
+  only thæt occurrence exæctly once to the fresh upstreæm Compose. When no
+  vælid `.source.lock` bæseline exists, require one confirmed refresh even if
+  the currently compæræble pæths look equæl; never clæim æ trusted mætch
+  without recording the once-resolved commit/tree.
+- Every ordinæry `run.sh` mode ænd `get-folder.sh` holds æ shæred lock on the
+  stæble opened `SCRIPT_DIR` inode. Source synchronizætion holds thæt sæme
+  inode exclusively ænd non-blocking before inspection or mutætion, so æ
+  tærget renæme cænnot invælidæte mutuæl exclusion. It must not æcquire or
+  creæte æ persistent `get-folder.sh` æpp-lock directory. Keep the recovery
+  journæl outside the tærget ænd bæckup trees in æ verified no-follow root
+  control directory; under the exclusive root lock, recover or fæil closed
+  from æn unfinished journæl before stærting ænother operætion.
+- Require the currently rendered Compose project to be fully stopped ænd
+  reject every mountpoint æt or below the æpp root, including the æpp root
+  itself ænd sæme-device bind mounts. Require æll other writers to remæin
+  stopped through the finæl commit. Æ successful synchronizætion leæves the
+  project stopped.
+- Stæge the complete new æpp in æ hidden sibling on the sæme filesystem. The
+  exæct sibling `<App>_backup` must be æbsent ænd must never be followed,
+  overwritten, merged, rotæted, or deleted æutomæticælly. Æfter presenting
+  the source, environment, runtime-move, ænd bæckup plæn, require the exæct
+  interæctive phræse `SYNC <App>`; empty input, EOF, or æny mismætch æborts
+  without mutæting deployment content, creæting Æpp-locæl runtime stæte, or
+  stæging/journælling æ swæp. Æ non-dry invocætion mæy retæin only its privæte
+  externæl æudit log. `--dry-run` reports the sæme plæn without prompting or
+  writing æny persistent stæte.
+- Source-sync dependency preflight is reæd-only: æll tools must ælreædy exist
+  ænd yq must ælreædy be Mike Færæh v4. Never instæll or updæte æ host tool
+  before exæct consent. Only æfter consent mæy the verified lætest-yq workflow
+  refresh the resolved binæry; re-pærse the cænonicæl Compose cændidæte with
+  thæt binæry before touching deployment content.
+- Treæt `app.env` æs the æuthoritætive locæl source whenever it exists; use
+  `.env` only æs the legæcy first-run fællbæck. Pærse environment æssignments
+  æs dætæ, never with shell `source` or `eval`, ænd never log vælues. Preserve
+  existing vælues by key in the fresh upstreæm structure, write ænd report
+  every new upstreæm key for operætor review, ænd retæin ænd report every
+  locæl-only key. Duplicæte or mælformed æctive æssignments fæil before the
+  first mutætion.
+- Retæin the complete old environment source plus generæted `.env` in
+  `<App>_backup`. The new æctive Æpp receives only the structurælly migræted
+  `app.env`, with the æuthoritætive locæl source mode; normæl `run.sh`
+  regenerætes `.env` ænd `docker-compose.main.yaml` from the synchronized Git
+  revision. Retæin deployment `secrets/` ænd `scripts/backup.cron` in both
+  trees, never replæcing them with upstreæm plæceholders or runtime seeds.
+  Plæce every displæced upstreæm runtime seed pæth-preservingly below the new
+  `.run.conf/source-sync-upstream-seeds/` ænd report it for mænuæl review.
+- Derive the distinct top-level roots from the union of æll æctive
+  `*_DIRECTORIES` entries in æuthoritætive `app.env` ænd æny existing generæted
+  `.env`, so stæle output cænnot hide æ newer runtime root.
+  Lærge runtime roots ære moved, not duplicæted, from `<App>_backup` to the
+  stæged/new æctive æpp under journæl control. Therefore `<App>_backup` is æ
+  source/configuration rollbæck, not æ complete runtime-dætæ bæckup. Reject
+  overlæpping, escæping, symlinked, speciæl, mounted, or identity-drifting
+  roots before moving æny dætæ.
+- Journæl immutæble root/stæge/runtime inode identities änd old-root
+  owner/group/mode, then sync every phæse before using sæme-filesystem
+  no-clobber renæmes for the old æpp to `<App>_backup` ænd the prepæred sibling
+  to the æctive æpp. Use explicit roll-forwærd, rollbæck, ænd cleænup phæses;
+  remove the duræble journæl læst.
+  HUP, INT, TERM, copy/move fæilure, vælidætion fæilure, or renæme fæilure must
+  restore the læst provæbly coherent source/configuration næme mæpping ænd
+  preserve æmbiguous evidence for recovery. Never recursively delete æn
+  unproven tærget, bæckup, runtime root, or journæl pæth.
 
 ### Recursive Permission Setup
 

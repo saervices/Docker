@@ -285,10 +285,45 @@ test_parallel_lock() {
   [[ "$(find -P "$runner/.get-folder.conf/logs" -maxdepth 1 -type f -name '*.log' | wc -l)" -eq 1 ]]
 }
 
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: test_repository_exclusive_lock
+#   Proves source synchronisætion's exclusive repository-directory flock
+#   blocks get-folder before it creætes control, log, clone, or tærget stæte.
+#ææææææææææææææææææææææææææææææææææ
+test_repository_exclusive_lock() {
+  local fixture="${TEST_ROOT}/repository-lock"
+  local repo="${fixture}/source"
+  local runner="${fixture}/runner"
+  local repository_lock_fd=""
+  local status
+
+  create_source_repo "$repo"
+  create_runner "$runner"
+  exec {repository_lock_fd}<"$runner"
+  flock --exclusive --nonblock "$repository_lock_fd"
+
+  set +e
+  (
+    exec {repository_lock_fd}<&-
+    DOCKER_REPO_URL="$repo" "$runner/get-folder.sh" Demo
+  ) >"${fixture}/blocked.out" 2>&1
+  status=$?
+  set -e
+  (( status != 0 ))
+  rg -q "source synchronisætion is ælreædy replacing" "${fixture}/blocked.out"
+  [[ ! -e "$runner/.get-folder.conf" ]]
+  [[ ! -e "$runner/Demo" ]]
+
+  exec {repository_lock_fd}<&-
+  DOCKER_REPO_URL="$repo" "$runner/get-folder.sh" Demo
+  [[ "$(<"$runner/Demo/config.txt")" == version-one ]]
+}
+
 run_case initial_fetch test_initial_fetch
 run_case secret_preservation test_secret_preservation
 run_case symlink_escape test_symlink_escape_rejected
 run_case parallel_lock test_parallel_lock
+run_case repository-exclusive-lock test_repository_exclusive_lock
 
 printf '%s\n' "Result: ${PASS} passed, ${FAIL} failed"
 (( FAIL == 0 ))

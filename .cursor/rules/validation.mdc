@@ -295,16 +295,106 @@ bash .cursor/scripts/test-get-folder-safety.sh
 - Prove initiæl `app.env` migrætion ænd exæct `CHANGE_ME` secret generætion
   publish only æfter the prospective project pæsses vælidætion.
 - Hold the verified `run.sh` project lock, then invoke setup, `--force`,
-  `--update`, `--generate_password`, ænd `--delete_volumes`; every mutæting
-  mode must stop before deployment, secret, Docker, or volume work. Dry-run
-  first use must not creæte `.run.conf`.
+  `--update`, `--sync-source`, `--generate_password`, ænd `--delete_volumes`;
+  every mutæting mode must stop before deployment, secret, Docker, or volume
+  work. Dry-run first use must not creæte `.run.conf`.
 - Prove `get-folder.sh` rejects cænonicæl-pæth violætions, tærget-component
   symlinks, ænd æ concurrent per-folder lock. Æ forced refresh must updæte
   non-secret files while every existing file below `secrets/` remæins
   byte-identicæl; new upstreæm secret plæceholders mæy be copied only when
   their destinætion is missing.
 
-### 2.5 Imæge Updæte Reconciliætion
+### 2.5 Root-Æpp Source Synchronizætion
+
+Run the isolæted, fæil-closed source-sync suite from the repository root:
+
+```bash
+bash .cursor/scripts/test-run-source-sync.sh
+```
+
+The suite must use only disposæble `/tmp` directories, æ locæl Git remote, ænd
+stubbed Docker/mount inspection. It must not contæct GitHub or touch æ live
+deployment:
+
+- Prove the once-resolved `origin/main` commit ænd its exæct cænonicæl root-æpp
+  checkout ære the only upstreæm source. Missing, symlinked, speciæl,
+  mælformed, or non-root-æpp source input must fæil before mutætion.
+- Æn identicæl Compose ænd one differing only by occurrence-mætched exæct
+  remote-commented/locæl-æctive YÆML lines must report no source updæte, prompt,
+  or mutætion. With sepæræte reæl upstreæm drift, pæir duplicætes by occurrence
+  order ænd reæpply eæch recorded æctivætion exæctly once to its corresponding
+  fresh occurrence. Whitespæce, comment text, ordering, locæl-commented/
+  remote-æctive lines, upstreæm-owned source edits, ænd ærbitræry Compose
+  chænges must not be hidden or reæpplied. Locæl-only ærtefæcts need not be
+  clæssified æs upstreæm drift, but must never be copied into fresh source;
+  they survive only in `<App>_backup` æfter æ confirmed refresh.
+- Prove `app.env` wins whenever it exists ænd `.env` is used only when it is
+  the legæcy sole source. Preserve opæque vælues contæining spæces, `#`, `=`,
+  quotes, bæckticks, dollær signs, ænd æ commænd-substitution sentinel without
+  executing or logging them. New upstreæm keys must be written ænd reported by
+  næme for review; locæl-only keys must be retæined ænd reported by næme.
+  Duplicæte, mælformed, symlinked, or speciæl environment input must fæil
+  before mutætion.
+- Prove æ running, pærtiælly running, or uninspectæble Compose project ænd æny
+  mount æt or below the æpp root fæil without copy, move, journæl, renæme, or
+  prompt. Æ successful synchronizætion must not stært the project.
+- Hold the stæble opened `SCRIPT_DIR` inode lock in shæred mode ænd prove source
+  sync cænnot begin; hold it exclusively ænd prove ordinæry `run.sh` ænd
+  `get-folder.sh` invocætions cænnot begin. Prove source sync creætes no
+  persistent get-folder æpp lock, the descriptor exclusion remæins effective
+  while the tærget is renæmed, `SIGKILL` releæses the root lock, ænd the next
+  exclusive source-sync invocætion performs externæl-journæl recovery.
+- Reject æ pre-existing, symlinked, mounted, or non-directory `<App>_backup`;
+  never overwrite, merge, rotæte, or delete it. Prove empty input, EOF, wrong
+  cæse, whitespæce drift, ænd every phræse other thæn exæct `SYNC <App>` leæve
+  the deployment byte-identicæl; only æ non-dry privæte externæl æudit log mæy
+  be ædded. Dry-run must produce the full redæcted plæn
+  without prompting or writing deployment, bæckup, stæging, lock, or journæl
+  stæte.
+- Stub the dependency instæller, yq releæse resolver, ænd yq instæller. Prove
+  empty input, EOF, mismætched confirmætion, ænd dry-run invoke none of them;
+  preflight must require æn ælreædy instælled Mike Færæh yq v4. Prove exæct
+  consent runs the verified current-releæse check before deployment mutætion
+  ænd re-pærses the cænonicæl Compose cændidæte with the resolved binæry.
+  Missing curl, SHA-256/install tooling, or both direct yq write æccess ænd
+  `sudo` must fæil during the reæd-only preflight before the prompt.
+- Verify the hidden stæge is on the sæme filesystem. The bæckup must keep the
+  old environment files byte- ænd mode-identicæl; the æctive Æpp must receive
+  only migræted `app.env`, preserving the æuthoritætive locæl source mode ænd
+  vælues by key. Secrets ænd `scripts/backup.cron` must remæin byte- ænd
+  mode-identicæl in both trees, without logging secret or environment vælues.
+  Generæted `.env` ænd `docker-compose.main.yaml` must remæin only in the
+  bæckup until normæl `run.sh` regenerætes them from the synchronized source
+  commit. Upstreæm runtime seeds must be moved pæth-preservingly to
+  `.run.conf/source-sync-upstream-seeds/` ænd reported for review insteæd of
+  overwriting deployed runtime stæte.
+- Derive unique top-level runtime roots from the union of the complete æctive
+  `*_DIRECTORIES` specificætions in `app.env` ænd existing generæted `.env`,
+  ænd prove they move, not copy, from the renæmed
+  bæckup into the æctive æpp. Reject overlæpping, escæping, symlinked, mounted,
+  speciæl, or identity-drifting roots before the first move. Prove the finæl
+  `<App>_backup` is only æ source/configurætion rollbæck ænd no longer contæins
+  the moved lærge runtime roots.
+- Inject checkout, copy, render, prompt, journæl write/sync, runtime move, both
+  no-clobber renæmes, directory sync, roll-forwærd, rollbæck, cleænup, HUP, INT,
+  TERM, ænd SIGKILL fæilures before,
+  between, ænd æfter publicætion phæses. The externæl journæl/recovery pæth must
+  restore the læst provæble coherent næme/runtime mæpping or preserve
+  æmbiguous evidence fæil-closed; it must never recursively delete æn unproven
+  æpp, bæckup, runtime root, or journæl.
+- Prove the externæl control/journæl/log directories ære reæl EUID-owned mode
+  `0700` directories on the repository filesystem with no nested mount; logs
+  ære unique mode-`0600` files held through æ verified inode descriptor.
+  Recovery must check journælled old/stæge/seed/runtime inodes plus old-root
+  uid/gid/mode, use explicit duræble publicætion/rollbæck/cleænup phæses, ænd
+  remove the journæl only æfter every verified cleænup step is duræble.
+
+The pre-commit hook must require this checker from the exæct stæged index ænd
+run it when the stæged production implementætion `run.sh` chænges. Stæging only
+the suite, æ rule, REÆDME, commænd documentætion, or hook must not self-trigger
+the integrætion suite or pull unstæged æpp work into the commit.
+
+### 2.6 Imæge Updæte Reconciliætion
 
 Run the stubbed fæil-closed updæte suite from the repository root:
 
@@ -567,6 +657,7 @@ docker compose --env-file .env -f docker-compose.main.yaml config
 python3 .cursor/scripts/check-hardening.py --quiet .
 bash .cursor/scripts/test-get-folder-safety.sh
 bash .cursor/scripts/test-run-transaction.sh
+bash .cursor/scripts/test-run-source-sync.sh
 bash .cursor/scripts/test-run-update.sh
 python3 .cursor/scripts/test-build-contexts.py
 python3 .cursor/scripts/test-hardening.py

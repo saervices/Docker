@@ -29,6 +29,7 @@ readonly -a REQUIRED_SHELL_STUBS=(
   ".cursor/scripts/test-redis-secret-runtime.sh"
   ".cursor/scripts/test-get-folder-safety.sh"
   ".cursor/scripts/test-run-transaction.sh"
+  ".cursor/scripts/test-run-source-sync.sh"
   ".cursor/scripts/test-run-update.sh"
   ".cursor/scripts/test-run-permissions.sh"
   ".cursor/scripts/test-mariadb-maintenance-safety.sh"
@@ -756,6 +757,17 @@ case_pre_commit_run_test_does_not_self_trigger() {
   (cd -- "$root" && EXPECTED_SHELLCHECK_FILES="$checker" PATH="$root/tool-bin:$PATH" bash .githooks/pre-commit)
 }
 
+case_pre_commit_source_sync_test_does_not_self_trigger() {
+  local checker=".cursor/scripts/test-run-source-sync.sh"
+  local root=""
+  root="$(create_case_repo pre-commit-source-sync-test-does-not-self-trigger)"
+  prepare_pre_commit_repo "$root"
+  write_shell_stub "$root" "$checker" 71
+  git -C "$root" add -- "$checker"
+  write_shellcheck_stub "$root" 0
+  (cd -- "$root" && EXPECTED_SHELLCHECK_FILES="$checker" PATH="$root/tool-bin:$PATH" bash .githooks/pre-commit)
+}
+
 case_pre_commit_integration_test_does_not_self_trigger() {
   local checker=".cursor/scripts/test-kimai-wrapper.sh"
   local root=""
@@ -826,6 +838,7 @@ expect_success pre-commit-build-helper-does-not-trigger-context-suite case_pre_c
 expect_success pre-commit-run-runs-synthetic-context-suite case_pre_commit_run_runs_synthetic_context_suite
 expect_success pre-commit-rules-do-not-trigger-integration-suites case_pre_commit_rules_do_not_trigger_integration_suites
 expect_success pre-commit-run-test-does-not-self-trigger case_pre_commit_run_test_does_not_self_trigger
+expect_success pre-commit-source-sync-test-does-not-self-trigger case_pre_commit_source_sync_test_does_not_self_trigger
 expect_success pre-commit-integration-test-does-not-self-trigger case_pre_commit_integration_test_does_not_self_trigger
 expect_success pre-commit-honors-alternate-index case_pre_commit_honors_alternate_index
 
