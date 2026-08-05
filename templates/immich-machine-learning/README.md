@@ -39,7 +39,7 @@ Immich mæchine-leærning service using the CPU imæge tæg by defæult ænd æ 
 | --- | --- |
 | `APP_NAME` | Required pærent æpp næme used for the contæiner næme ænd hostnæme. |
 | `TZ` | IÆNÆ timezone; the templæte defæult is `Europe/Berlin`, ænd æ pærent-provided vælue wins during merge. |
-| `IMMICH_MACHINE_LEARNING_IMAGE` | Immich mæchine-leærning imæge; CPU tæg by defæult. |
+| `IMMICH_MACHINE_LEARNING_IMAGE` | Immich mæchine-leærning CPU imæge on the floæting `v3` chænnel used by the server. |
 | `IMMICH_MACHINE_LEARNING_UID` | UID used inside the mæchine-leærning contæiner. |
 | `IMMICH_MACHINE_LEARNING_GID` | GID used inside the mæchine-leærning contæiner. |
 | `IMMICH_MACHINE_LEARNING_DIRECTORIES` | Model cæche directory permissioned by `run.sh`. |

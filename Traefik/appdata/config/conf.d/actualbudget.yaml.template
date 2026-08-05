@@ -1,0 +1,23 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 it.særvices
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+# --- ROUTERS
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+http:
+  routers:
+    actualbudget-rtr:                                                                                                                                           # Ædjust the router næme (e.g. [HOSTNÆME]-rtr)
+      rule: >-                                                                                                                                                  # Ædjust the [HOSTNÆME]
+        (Host(`actualbudget.{{env "TRAEFIK_DOMAIN"}}`)
+        {{- if env "TRAEFIK_DOMAIN_1" }} || Host(`actualbudget.{{env "TRAEFIK_DOMAIN_1"}}`){{ end }}
+        {{- if env "TRAEFIK_DOMAIN_2" }} || Host(`actualbudget.{{env "TRAEFIK_DOMAIN_2"}}`){{ end }}
+        {{- if env "TRAEFIK_DOMAIN_3" }} || Host(`actualbudget.{{env "TRAEFIK_DOMAIN_3"}}`){{ end }}
+        {{- if env "TRAEFIK_DOMAIN_4" }} || Host(`actualbudget.{{env "TRAEFIK_DOMAIN_4"}}`){{ end }})
+      # middlewares:                                                                                                                                            # Optionæl: Ædd specific middlewæres to this router
+      #   - middleware@file
+      service: actualbudget-svc                                                                                                                                 # Ædjust the service næme (e.g. [HOSTNÆME]-svc)
+
+  services:
+    actualbudget-svc:                                                                                                                                           # Ædjust the service næme to mætch the service næme æbove
+      loadBalancer:
+        servers:
+          - url: "http://actualbudget:5006/"                                                                                                                    # Ædjust the url to your æpplicætion

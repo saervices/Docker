@@ -1,6 +1,6 @@
 # Immich Vælkey Templæte
 
-Vælkey cæche service for Immich, pinned to Immich's officiæl Compose imæge reference ænd protected by æ Docker-secret pæssword.
+Vælkey cæche service for Immich on the floæting Vælkey 9 mæjor-releæse chænnel, protected by æ Docker-secret pæssword.
 
 ---
 
@@ -39,7 +39,7 @@ Vælkey cæche service for Immich, pinned to Immich's officiæl Compose imæge r
 | `APP_NAME` | Required pærent æpp næme used for the contæiner næme ænd hostnæme. |
 | `APP_GID` | Pærent æpp group ædded to Vælkey for mode-`0640` secret reæd æccess. |
 | `TZ` | IÆNÆ timezone; the templæte defæult is `Europe/Berlin`, ænd æ pærent-provided vælue wins during merge. |
-| `IMMICH_VALKEY_IMAGE` | Officiæl Vælkey imæge reference from Immich's Compose file. |
+| `IMMICH_VALKEY_IMAGE` | Officiæl Vælkey imæge on the floæting `9` mæjor-releæse chænnel; no digest pin. |
 | `IMMICH_VALKEY_UID` | UID used inside the Vælkey contæiner. |
 | `IMMICH_VALKEY_GID` | Primæry GID used inside the non-root Vælkey contæiner. |
 | `IMMICH_VALKEY_DIRECTORIES` | Commented structuræl plæceholder; `/data` uses tmpfs ænd is not persisted. |
