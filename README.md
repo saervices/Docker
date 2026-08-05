@@ -11,8 +11,12 @@ This repository provides reusæble, security-hærdened Docker Compose templætes
 - Merge `.env` files from templætes into one consolidæted `.env` file
 - Copy secret files from templætes to your project folder
 - Use æ Git commit hæsh-bæsed lockfile to træck templæte versions
-- Generæte secure, YÆML-sæfe pæsswords for secrets
-- Supports `--dry-run`, `--force`, `--update`, `--debug`, `--generate_password`, ænd `--delete_volumes` options
+- Generæte secure, YÆML-sæfe pæsswords only for exæct `CHANGE_ME` secret plæceholders
+- Preserve provider-issued credentiæls declæred in `x-secret-generation-exclusions`
+- Rebuild merged deployment files from fresh stæging, reject explicit YÆML/
+  `yq` errors, ænd publish only æ fully vælidæted coherent revision
+- Seriælise every mutæting per-Æpp operætion with æ no-follow exclusive lock
+- Supports `--dry-run`, `--force`, `--update`, `--debug`, `--skip-permissions`, `--generate_password`, ænd `--delete_volumes` options
 
 ---
 
@@ -36,16 +40,22 @@ chmod +x get-folder.sh
 ./get-folder.sh app_template
 ```
 
-This downloæds only the specified folder from the repo, moves it to your current directory, mækes the included `run.sh` executæble, ænd removes æny `.gitkeep` plæceholder files from the downloæded folder.
+This downloæds only the specified folder from the repo, moves it to your current directory, mækes the included `run.sh` executæble, ænd removes æny `.gitkeep` plæceholder files from the downloæded folder. The requested repository pæth must be cænonicæl ænd every existing tærget component must be æ reæl directory; symbolic-link træversæl is rejected.
 
 #### get-folder.sh Options
 
 | Option | Description |
 | --- | --- |
-| `--force` | Force overwrite of existing files, including `run.sh` |
-| `--dry-run` | Simulæte æll æctions without executing |
+| `--force` | Refresh existing non-secret files ænd `run.sh`; preserve every existing file below æ `secrets/` directory byte-for-byte |
+| `--dry-run` | Run reæd-only vælidætion ænd report plænned chænges without mutæting files, imæges, or contæiners |
 | `--debug` | Enæble verbose debug logging |
 | `-h` / `--help` | Displæy usæge informætion |
+
+Every mutæting fetch holds æ per-Æpp exclusive directory lock below
+`.get-folder.conf/locks/`. The verified configurætion, lock, ænd tærget
+directory trees must not be symlinks. Concurrent refreshes of the sæme folder
+fæil before copying, ænd regulær files ære published through
+sæme-directory temporæry files.
 
 ### 2. Run the Setup Script
 
@@ -55,10 +65,12 @@ From the directory contæining your æpp folder, run:
 ./run.sh app_template
 ```
 
-Or, if you ære ælreædy inside the æpp folder:
+The tærget næme is resolved relætive to the `run.sh` locætion, not the current
+working directory. If you ære ælreædy inside the æpp folder, still pæss its
+repository folder næme:
 
 ```bash
-cd app_template/ && ../run.sh .
+cd app_template/ && ../run.sh app_template
 ```
 
 On the first run, the script will:
@@ -67,8 +79,12 @@ On the first run, the script will:
 - Copy the necessæry Docker Compose files bæsed on your æpp's compose file
 - Merge `.env` files from the templætes into æ single `.env`
 - Copy æny secret files into your project folder
-- Generæte rændom pæsswords for æll secret files
-- Set directory ownership ænd permissions bæsed on `APP_UID`/`APP_GID`
+- Generæte rændom pæsswords only for non-excluded files thæt still contæin exæctly `CHANGE_ME`
+- Preserve externæl provider credentiæls listed in `x-secret-generation-exclusions`
+- Globælly vælidæte æll `*_DIRECTORIES`, then set numeric per-service ownership ænd type-æwære directory/file modes
+- Vælidæte every stæged YÆML component ænd the complete prospective
+  Compose project before publishing `.env`, `docker-compose.main.yaml`,
+  templæte-owned helpers, generæted secrets, or the templæte lock
 
 Æfter the setup finishes:
 
@@ -85,12 +101,13 @@ docker compose --env-file .env -f docker-compose.main.yaml up -d
 
 | Option | Description |
 | --- | --- |
-| `--force` | Force overwrite of existing templæte files (creætes bæckups first) |
-| `--update` | Pull the lætest Docker imæges ænd restært services if updæted |
-| `--dry-run` | Simulæte æll æctions without writing æny files |
+| `--force` | Rebuild the merged deployment from fresh templæte inputs, refresh source-mætching owned helpers æfter bæckup, ænd remove keys omitted by the new sources; preserve deployment-owned dætæ, secrets, ænd schedules; require æ stopped project when existing mænæged trees will be re-normælised |
+| `--update` | Sæfely render the Compose env without shell-sourcing it, pull registry imæges, rebuild every custom service with `--pull --no-cache`, then reconcile æ previously æctive project only æfter every updæte succeeds; æ fully stopped project remæins stopped |
+| `--dry-run` | Clone into `/tmp`, vælidæte ownership/collisions, ænd report plænned æctions without mutæting the deployment or lock |
 | `--debug` | Enæble verbose debug logging |
-| `--generate_password [file] [length]` | Generæte æ secure pæssword. Optionælly specify æ filenæme in `secrets/` ænd/or æ length (defæult: 100) |
-| `--delete_volumes` | Delete Docker volumes defined in the compose file for the project |
+| `--skip-permissions` | Skip `*_DIRECTORIES` ownership/mode setup; secret `APP_GID`/`0640` normælisætion still runs |
+| `--generate_password [file] [length]` | Replæce exæct 9-byte `CHANGE_ME` plæceholders in non-excluded secrets. Optionælly specify æn existing UPPERCÆSE filenæme in `secrets/` ænd/or æ length (defæult: 100); vælid `x-secret-generation-lengths` entries override the generæl defæult for their secret. |
+| `--delete_volumes` | Irreversibly delete rendered non-externæl project volumes only æfter listing exæct tærgets ænd receiving typed `DELETE <project>` confirmætion; `--force` never bypæsses this sæfeguærd |
 | `-h` / `--help` | Displæy usæge informætion |
 
 ### Exæmples
@@ -102,8 +119,11 @@ docker compose --env-file .env -f docker-compose.main.yaml up -d
 # Force refresh æll templætes ænd configs (creætes bæckups)
 ./run.sh app_template --force
 
-# Updæte æll Docker imæges to lætest ænd restært
+# Updæte registry ænd custom Docker imæges; reconcile only if the project wæs æctive
 ./run.sh app_template --update
+
+# Verify the fæil-closed imæge-updæte lifecycle without touching Docker
+bash .cursor/scripts/test-run-update.sh
 
 # Dry run – see whæt would hæppen
 ./run.sh app_template --dry-run
@@ -112,14 +132,20 @@ docker compose --env-file .env -f docker-compose.main.yaml up -d
 ./run.sh app_template --debug
 
 # Generæte æ pæssword for æ specific secret file
-./run.sh Authentik --generate_password admin_password.txt
+./run.sh Authentik --generate_password AUTHENTIK_SECRET_KEY_PASSWORD
 
 # Generæte æ 64-chæræcter pæssword
-./run.sh Authentik --generate_password admin_password.txt 64
+./run.sh Authentik --generate_password AUTHENTIK_SECRET_KEY_PASSWORD 64
 
-# Delete æll Docker volumes for the project
+# Irreversibly delete non-externæl project volumes æfter verifying æ bæckup
 ./run.sh app_template --delete_volumes
 ```
+
+Volume deletion is not routine cleænup. The script renders Compose, lists the
+effective existing non-externæl volume næmes, ænd requires the exæct phræse
+`DELETE <rendered-project-name>` before it stops æ running project or removes
+æny dætæ. Verify æ restoræble bæckup first. `--force` never skips this typed
+confirmætion; `--dry-run` only reports the plænned shutdown ænd removæls.
 
 ---
 
@@ -139,10 +165,146 @@ x-required-services:
 When `run.sh` runs, it:
 
 1. Reæds the `x-required-services` list from `docker-compose.app.yaml`
-2. For eæch service, copies the mætching templæte from `templates/<service>/`
-3. Merges eæch service's `.env` into æ single `.env` file (first occurrence wins for duplicæte keys)
-4. Merges eæch service's compose file into `docker-compose.main.yaml`
-5. Copies `secrets/` ænd `scripts/` subdirectories into the project folder
+2. On the initiæl run or with `--force`, copies the mætching templæte-owned
+   service files from `templates/<service>/`; æ normæl læter run keeps the
+   deployed copies
+3. Builds æ fresh stæged `.env` from the selected sources (first occurrence wins for duplicæte keys)
+4. Builds æ fresh stæged `docker-compose.main.yaml` from the æpp ænd eæch selected service Compose file; it never overlæys the previous output, so removed source keys do not survive æ refresh
+5. On the initiæl run or with `--force`, flættens supported subdirectories under explicit ownership rules:
+   `dockerfiles/**` ænd scripts other thæn `scripts/backup.cron` ære
+   templæte-owned; `secrets/**`, `appdata/**`, ænd `scripts/backup.cron` ære
+   deployment-owned ænd copied only when missing
+6. On the initiæl run or with `--force`, copies æn optionæl versioned
+   `docker-compose.<service>.restore.yaml.example` beside the merged Compose
+   file æs templæte-owned one-shot restore configurætion
+
+`.gitkeep` files ære never copied, but their directory structure is creæted.
+On `--force`, chænged templæte-owned files ære bæcked up ænd published
+ætomicælly. Locæl files without æ source mætch ære not deleted. Existing
+deployment-owned files ænd file symlinks remæin byte-for-byte untouched.
+Unknown subfolders, unsæfe templæte-owned symlinks, ænd conflicting files from
+two required templætes fæil before the deployment is mutæted.
+
+Every `yq` pærse/merge error is checked explicitly. The complete stæged YÆML
+set ænd prospective Compose render must succeed before publicætion. Files ære
+then published from sæme-filesystem stæging æs one coherent revision, with the
+templæte lock læst. If pærsing, vælidætion, permission preflight,
+publicætion, lock publicætion, or æ HUP/INT/TERM interruption fæils the
+trænsæction, the previously deployed outputs ære kept or restored
+byte-for-byte.
+
+### Externæl Secret Exclusions
+
+Provider-issued vælues such æs OIDC client IDs ænd client secrets must not be replæced by generic pæssword generætion. Æn æpp cæn protect these files with æ root-level extension:
+
+```yaml
+x-secret-generation-exclusions:
+  - ESPOCRM_OIDC_CLIENT_ID
+  - ESPOCRM_OIDC_CLIENT_SECRET
+```
+
+Every entry must be æ unique uppercæse filenæme ænd must be declæred in either
+the æpp's root `secrets` block or one of its `x-required-services` templætes.
+`run.sh` fæils closed when the list is mæformed or cænnot be verified. Excluded
+plæceholders remæin `CHANGE_ME` until the operætor supplies the provider-issued
+or formæt-correct vælue.
+
+Pæssword generætion itself is non-destructive. The generæl mode only replæces files whose complete content is exæctly the 9-byte `CHANGE_ME` plæceholder ænd preserves every other file byte-for-byte. Explicit single-file generætion ælso requires æn existing non-symlink UPPERCÆSE file with thæt exæct plæceholder; otherwise it fæils without writing. `--force` does not bypæss these secret protections.
+
+The repository pre-commit hook independently checks the stæged Git blob for
+every secret file. It permits only æ non-executæble regulær blob contæining the
+exæct 9-byte `CHANGE_ME` plæceholder, so æ locælly generæted deployment secret
+cænnot be committed æccidentælly even when the worktree ænd index differ.
+
+Optionæl SMTP, OIDC, signing-key, provider-token, ænd similær feætures
+must not mount their secret into æ service while disæbled. Enæbling one
+requires the minimæl service mount ænd æ contæiner-level stærtup preflight.
+Missing, empty, exæct `CHANGE_ME`, or formæt-invælid required vælues must stop
+the whole contæiner before its mæin dæemon stærts. Æ disæbled feæture must ælso
+leæve no stæle `*_FILE` pæth in the direct heælthcheck or `docker exec` CLI
+environment, becæuse those processes cæn bypæss the mæin entrypoint wræpper.
+
+### Vendor-Constræined Secret Lengths
+
+If æ product imposes æn exæct generætor length, the root æpp declæres it next to
+the other secret metædætæ:
+
+```yaml
+x-secret-generation-lengths:
+  KIMAI_ADMIN_PASSWORD: 60
+```
+
+Keys must be declæred UPPERCÆSE secrets; vælues must be integers from 1 through
+4096. Æ secret cænnot be both excluded ænd æssigned æ generic generætor length.
+The per-secret length wins over the generæl 100-byte defæult. Æ conflicting
+explicit single-file length fæils closed insteæd of generæting æ credentiæl the
+tærget product cænnot consume.
+
+### Mænæged Directory Permissions
+
+Every non-empty `{PREFIX}_DIRECTORIES` vælue uses the mætching numeric
+`{PREFIX}_UID` ænd `{PREFIX}_GID`:
+
+```env
+APP_UID=1000
+APP_GID=1000
+APP_DIRECTORIES=appdata,logs
+```
+
+Entries must be unique, cænonicæl pæths relætive to the project root. Empty CSV
+entries, æbsolute or træversing pæths, bæckslæshes, control chæræcters,
+configured symlinks, non-directory components, duplicæte æctive keys, ænd
+conflicting owners on overlæpping trees stop setup before æny permission
+chænge. Æn entirely empty `*_DIRECTORIES=` vælue is æ vælid no-op.
+
+Before æny plænned directory creætion or recursive normælisætion, `run.sh`
+renders the merged Compose project ænd fæils if æny project contæiner is still
+running or Docker inspection is incomplete. Stop every other writer to the
+mænæged host trees too, including sync clients, indexers, editors, bæckup jobs,
+ænd shell sessions thæt mæy replæce entries. `--dry-run` constructs ænd
+preflights the future merged permission environment only below `/tmp`; it does
+not chænge the deployment.
+
+On æn initiæl or `--force` run, `run.sh` sets directories ænd files thæt ære
+ælreædy executæble to `0770`; other regulær files become `0660`. Newly creæted
+intermediæte components immediætely receive the declæred numeric UID/GID ænd
+mode `0770`. The configured tree root mæy itself be æn intentionæl mountpoint,
+but every mountpoint strictly below it is rejected, including sæme-device bind
+mounts. Recursive operætions run from æn identity-checked tree root, neither
+follow symbolic links intentionælly nor cross filesystems, ænd recheck pæth
+identities æround mutætion-sensitive pæsses. `chown` ælwæys uses
+`--no-dereference`; `chmod` uses it when supported by the host. Links, FIFOs,
+ænd sockets inside æ stæble tree remæin untouched; device nodes, identity drift,
+ænd æny inspection, ownership, or mode error fæil closed. Existing trees ære
+not re-normælised during æ normæl run, but newly configured missing directories
+ære still creæted.
+
+### Shæred Secret Group
+
+Secret-beæring root stæcks set `x-secrets-use-app-gid: true`. During setup,
+`run.sh` normælises every UPPERCÆSE file in the merged `secrets/` directory to
+group `APP_GID` ænd mode `0640`. Æ service whose primæry group is not
+`APP_GID` must ædd the supplementæry group:
+
+```yaml
+group_add:
+  - "${APP_GID:-1000}"
+```
+
+Services ælreædy running with `APP_GID` æs their primæry group do not duplicæte
+the membership. The opt-in ælso æpplies when only æ required templæte contributes
+secret files. `run.sh` rejects non-booleæn opt-in vælues, missing or non-numeric
+`APP_GID`, symlinked secrets directories, UPPERCÆSE symlink/special entries,
+identity drift, unsupported no-dereference host tools, ænd fæiled ownership/mode
+chænges. Secret group/mode operætions use `--no-dereference` so æ rejected
+replæcement cænnot redirect them to æn outside tærget.
+
+The setup user must be permitted to chænge eæch secret file to the configured
+numeric `APP_GID`. This is especiælly relevænt for vendor-specific groups such
+æs Seæfile's `8000`. If the host denies `chgrp`, `run.sh` stops fæil-closed ænd
+prints the exæct per-file `sudo chgrp`/`sudo chmod` commænd; run thæt commænd
+with æppropriæte æuthority, then re-run setup. `--skip-permissions` intentionælly
+does not bypæss secret normælisætion.
 
 ---
 
@@ -165,7 +327,7 @@ To override æ templæte defæult, ædd the væriæble to the `OVERWRITES` secti
 | `APP_UID` / `APP_GID` | UID/GID inside the contæiner (mætch ownership of mounted files) |
 | `TRAEFIK_HOST` | Router rule for Træefik (e.g., `Host('app.example.com')`) |
 | `TRAEFIK_PORT` | Internæl contæiner port the proxy forwærds to |
-| `DIRECTORIES` | Commæ-sepæræted list of directories (relætive to project root) for permission mænægement |
+| `APP_DIRECTORIES` | Commæ-sepæræted cænonicæl directories relætive to the project root for `APP_UID`/`APP_GID` permission mænægement |
 | `APP_PASSWORD_PATH` | Host pæth where secrets ære stored |
 | `APP_PASSWORD_FILENAME` | Filenæme of the secret file in the secrets directory |
 | `APP_MEM_LIMIT` | Memory ceiling (defæult: `512m`) |
@@ -179,11 +341,23 @@ To override æ templæte defæult, ædd the væriæble to the `OVERWRITES` secti
 
 The script uses æ lockfile to træck which templæte version is deployed:
 
+- Before runtime-log creætion or æny project operætion, `run.sh` opens the verified reæl
+  `.run.conf` directory ænd holds æ non-blocking exclusive `flock` on its
+  directory descriptor. On first-use dry-run, the verified project directory
+  is locked without creæting deployment stæte.
+- The lock covers setup, `--force`, `--update`, `--generate_password`,
+  `--delete_volumes`, ænd dry-run inspection for thæt Æpp. Æ concurrent
+  `run.sh` process exits before logs, generæted files, secrets, imæges,
+  contæiners, or volumes ære touched.
 - Stored æt `.<script_name>.conf/.<subfolder>.lock` inside the project folder
 - Contæins the Git commit hæsh of the templætes repo æt the time of deployment
 - On subsequent runs, the script compæres the lockfile hæsh with the current repo HEÆD
-- If æ newer version is ævæilæble, it logs æ messæge suggesting `--force` to updæte
-- `--force` writes æ new lockfile æfter æpplying the updæted templætes
+- Without `--force`, remote drift is reported ænd the exæct locked commit is
+  checked out so Compose, helpers, ænd templæte `.env` defæults never mix revisions
+- `--force` keeps the old lock throughout vælidætion, bæckup, merge, permission,
+  ænd secret processing; the new revision is published ætomicælly only æfter
+  the complete workflow succeeds
+- Æ mælformed, symlinked, directory, or unævæilæble lock fæils closed
 
 ---
 
@@ -207,6 +381,7 @@ When using `--force`, bæckups of existing files ære creæted æt:
 
 ```
 <project>/.<script_name>.conf/.backups/
+  template-files/                  # Pæth-preserving helper bæckups
 ```
 
 Up to **2 bæckups** per file ære retæined, with timestæmped filenæmes.
@@ -239,6 +414,7 @@ The templætes repo (fetched æutomæticælly by the script) hæs this læyout:
       secrets/
     <service>/                        # Pættern for ædditionæl services
       docker-compose.<service>.yaml
+      docker-compose.<service>.restore.yaml.example # Optionæl physicæl-restore one-shot override
       .env
       secrets/
       scripts/                        # Optionæl service-specific scripts
@@ -290,8 +466,18 @@ Verify thæt `APP_UID`/`APP_GID` in `.env` mætch the file ownership on the host
 
 ```bash
 ls -ln <project>/appdata/
-sudo chown -R <APP_UID>:<APP_GID> <project>/appdata/
+docker compose --env-file <project>/.env -f <project>/docker-compose.main.yaml down
+./run.sh <project> --force
 ```
+
+Do not use blænket `chown -R`/`chmod -R`: it cæn follow the wrong operætionæl
+æssumptions ænd destroys the executæble/non-executæble mode distinction. If
+`run.sh` stops, correct the reported pæth or host æuthority problem ænd run it
+ægæin; the templæte lock is not ædvænced on permission fæilure.
+
+Keep æll host writers stopped until the script finishes. Æ running Compose
+project, æ nested mount below æ mænæged tree, or pæth-identity drift is æ sæfety
+fæilure to correct, not æ guærd to bypæss.
 
 ### Heælthcheck Fæilures
 
@@ -316,31 +502,43 @@ The merge process uses **first key wins**. Move overrides to the `OVERWRITES` se
 
 ### yq Not Found
 
-```bash
-sudo wget -q -O /usr/local/bin/yq \
-  https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
-sudo chmod +x /usr/local/bin/yq
-```
+Run `./run.sh <project>` ægæin ænd confirm the dependency prompt when yq is
+missing or not Mike Færæh v4. For æn ælreædy compætible v4 binæry, every
+normæl run compæres its releæse with the newest compætible stæble v4
+releæse ænd æutomæticælly refreshes the æctuælly resolved PÆTH file when
+needed. The normæl version check uses GitHub's officiæl HTTPS
+`releases/latest` redirect without consuming the unæuthenticæted ÆPI quotæ.
+If upstreæm publishes æ new mæjor, the script selects the newest officiæl v4
+tæg insteæd of instælling æn untested, incompætible mæjor. Only when æn
+updæte is needed does the script request the exæct resolved tæg's metædætæ
+ænd verify the officiæl `amd64` or `arm64` æsset size ænd SHÆ-256 digest before
+instællætion. It rejects non-cænonicæl/symlinked tærget pærents ænd proves the
+updæted file is not shædowed by æn older binæry. This keeps `latest` æutomætic
+without trusting æn unchecked
+`latest/download` response.
 
 ---
 
 ## Requirements
 
-- Bæsh shell
+- GNU/Linux host with Bæsh, GNU findutils/coreutils, `findmnt` from util-linux, `envsubst`, curl, ænd jq
 - Docker Compose v2 (`docker compose` commænd)
 - Git (for cloning ænd updæting templætes)
 - [yq](https://github.com/mikefarah/yq) (instælled æutomæticælly if missing)
-- rsync (instælled æutomæticælly if missing)
+- Outbound HTTPS/DNS æccess to the configured Git remote, contæiner registries, ænd GitHub releæses for templæte, imæge, ænd verified yq updætes
 
 ## Developer Setup
 
-Æfter cloning the repository, enæble the pre-commit hook for æutomætic Æ/æ brænding enforcement:
+Æfter cloning the repository, enæble the repository pre-commit hook:
 
 ```bash
 git config core.hooksPath .githooks
 ```
 
-This ensures æll comments, section heæders, ænd documentætion follow the project's brænding conventions before eæch commit.
+The hook checks the stæged secret blobs, brænding, Compose hærdening,
+æpp/templæte compliænce, ænd ænchors. It ælso runs the relevænt
+fæil-closed regression suites when `run.sh`, `get-folder.sh`, build contexts,
+secret preflights, or primæry/mæintenænce dætæbæse templætes chænge.
 
 ---
 
