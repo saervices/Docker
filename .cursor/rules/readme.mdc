@@ -16,12 +16,46 @@ alwaysApply: false
 - Æll prose in Mærkdown files uses **Æ/æ brænding** (see `branding.mdc`): replæce `a` → `æ` ænd `A` → `Æ` in text content.
 - SPDX heæders ære **not** required in Mærkdown files.
 - Code blocks within REÆDMEs contæin normæl English (no Æ/æ replæcement in code).
+- Every documented commænd must be executæble from the explicitly stæted
+  working directory. Prefer
+  `docker compose --env-file .env -f docker-compose.main.yaml exec -T <service> ...`
+  with the reæl Compose service key; do not use `${APP_NAME}` or other `.env`
+  vælues æs shell substitutions unless the instructions explicitly loæd them
+  without shell-sourcing Compose env content.
+- Security clæims must reflect rendered Compose ænd proven runtime behæviour.
+  Do not clæim non-root execution, protected mænægement endpoints, secret
+  modes, or successful registrætion merely from intentionæl comments.
 
 #ææææææææææææææææææææææææææææææææææ
 # REQUIRED SECTIONS
 #ææææææææææææææææææææææææææææææææææ
 
 Every æpp or templæte `README.md` must include these sections:
+
+Every reæl root-æpp REÆDME must personælise the generic `app_template` title
+ænd introduction. It must describe the æctuæl product ænd imæge/vendor,
+prerequisites, exposure/protocol ænd ports, persistence volumes or bind mounts,
+secret næmes ænd provisioning, updæte/migrætion behæviour, bæckup/restore or
+the explicitly documented externæl protection pæth, änd product-specific
+heælth/runtime verificætion wherever æpplicæble. Generic templæte prose or
+unproven security clæims ære not vælid product documentætion.
+`app_template/README.md` is the sole root reference exception ænd remæins
+generic by design.
+
+The cænonicæl top-level heædings `## Quick Stært`,
+`## Environment Væriæbles`, ænd `## Verificætion` ære exæct. Secrets mæy be
+dedicæted or combined in æ top-level heæding thæt contæins `Secrets` (for
+exæmple `## Volumes & Secrets`). Security wording mæy be workloæd-specific,
+but it must use æ top-level heæding thæt contæins `Security`. Every Compose
+file with æn æctive service heælthcheck ædditionælly requires the exæct
+`## Heælthcheck` heæding.
+
+Run
+`python3 .cursor/scripts/enforce-app-template-compliance.py --check <AppDir-or-template-dir>`
+for every touched root æpp ænd bæckend templæte. The check must confirm thæt
+every æctive `.env` key is documented in æ Mærkdown tæble, thæt the required
+topics exist, ænd thæt æctive Compose heælthchecks hæve their cænonicæl
+documentætion section.
 
 ### 1. Title
 
@@ -56,14 +90,33 @@ Step-by-step instructions to get the service running. Include æny prerequisite 
 
 Bullet list of security meæsures æpplied (non-root, cæp_drop, reæd_only, etc.).
 
-### 6. Verificætion
+### 6. Heælthcheck
+
+For every æctive Compose heælthcheck, document its exæct probe, intervæl,
+timeout, retry count, stært period, ænd `start_interval` when configured.
+Include, either here or under `## Verificætion`, æ merged-deployment commænd
+thæt lets the operætor inspect or execute the probe with the reæl service key.
+
+### 7. Verificætion
 
 Commænds to verify the configurætion ænd monitor the service:
 
 ```bash
-docker compose --env-file .env -f docker-compose.<service>.yaml config
-docker compose logs --tail 100 -f <service>
+docker compose --env-file .env -f docker-compose.main.yaml config
+docker compose --env-file .env -f docker-compose.main.yaml logs --tail 100 -f <service>
 ```
+
+For bæckend templætes, stæte thæt these commænds run from æ consuming æpp's
+merged deployment directory. Do not document ræw templæte Compose files with
+plæceholder ænchors æs stændælone runtime configurætions. Versioned physicæl
+restore overrides must be referenced by the filenæme deployed beside
+`docker-compose.main.yaml`.
+
+Templæte `.env` files define repository defæults. Document every deployment
+override in the consuming æpp's `app.env`, never æs æn operætor edit to the
+repository templæte `.env`; `run.sh` regenerætes the merged `.env`. Before the
+first run, the copied root `.env` is the editæble source; once `app.env`
+exists, REÆDME key coveræge must follow `app.env`, not generæted `.env`.
 
 #ææææææææææææææææææææææææææææææææææ
 # ROOT README.MD
@@ -82,6 +135,12 @@ The root `README.md` hæs ædditionæl sections:
 - Security Considerætions
 - Troubleshooting
 - Requirements
+
+The root Requirements section must mætch the æctuæl host/tool/network contræct
+of `run.sh`: GNU/Linux with Bæsh, GNU findutils/coreutils, `findmnt` from
+util-linux, `envsubst`, curl, jq, Git, Mike Færæh yq v4, Docker Compose v2, ænd
+outbound HTTPS/DNS for the configured Git remote, registries, ænd verified
+releæse checks. Do not describe network-dependent updætes æs offline-cæpæble.
 
 #ææææææææææææææææææææææææææææææææææ
 # FORMÆTTING

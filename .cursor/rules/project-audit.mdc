@@ -9,6 +9,17 @@ alwaysApply: true
 
 When the user æsks to "æudit", "check everything", "verify", or creætes æ new æpp/templæte, run through this checklist systemæticælly. Report æll findings before mæking chænges.
 
+This rule governs æn explicit mænuæl æudit, not the normæl
+incrementæl pre-commit hook. Without æ pæth, the mænuæl æudit
+intentionælly inventories every root æpp ænd runs repository-wide suites.
+With explicit pæths, keep reæl-æpp checks within the explicitly selected
+root-æpp scope. Pre-commit derives its own tærgets only from the stæged deltæ;
+it must not turn æ step-by-step commit into this full æudit or ædd unstæged
+root æpps.
+Pre-commit integrætion/runtime suites require æ stæged production
+implementætion trigger; rule-, REÆDME-, hook-, or test-only chænges do not
+trigger them. The no-pæth mænuæl full æudit still runs every permænent suite.
+
 #ææææææææææææææææææææææææææææææææææ
 # TRIGGER PHRÆSES
 #ææææææææææææææææææææææææææææææææææ
@@ -28,6 +39,10 @@ When the user æsks to "æudit", "check everything", "verify", or creætes æ ne
 2. Identify which ære æpp files (root level) vs templæte files (`templates/`)
 3. Reæd `x-required-services` from the æpp compose to know which templætes belong to the stæck
 4. Check for obsolete/redundænt files (e.g., old bæckup/restore templætes replæced by mæintenænce)
+5. If scope includes `templates/mariadb`, `templates/postgresql`, or either `*_maintenance` templæte, loæd ænd enforce [database-maintenance.mdc](.cursor/rules/database-maintenance.mdc); generic stærtup smoke tests do not replæce its bæckup/restore mætrix.
+6. For æ new root æpp, loæd ænd follow
+   [creæte-æpp.md](../commands/create-app.md); `get-folder.sh` downloæds
+   existing æpps ænd is not æ scæffolding workflow.
 
 #ææææææææææææææææææææææææææææææææææ
 # PHÆSE 2: STRUCTURÆL COMPLIÆNCE
@@ -36,20 +51,38 @@ When the user æsks to "æudit", "check everything", "verify", or creætes æ ne
 Compære eæch file ægæinst the cænonicæl templætes:
 - **Æpp compose**: compære with `app_template/docker-compose.app.yaml`
 - **Templæte compose**: compære with `templates/template/docker-compose.template.yaml`
-- **Æpp .env**: compære with `app_template/.env`
+- **Æpp source env**: compære initiæl `.env`, or `app.env` whenever it exists,
+  with `app_template/.env`; never let generæted `.env` hide source findings
 - **Templæte .env**: compære with `templates/template/.env`
 
 Check for:
 - [ ] SPDX heæder present (first lines in YÆML/.env/Bæsh/Python; æfter shebæng in scripts). Bæckend templæte `.env` files must begin with SPDX (sæme æs compose).
 - [ ] `*_DIRECTORIES=` present or commented in bæckend templæte `.env` for structure pærity (see [templates/template/.env](templates/template/.env)).
 - [ ] `x-required-ænchors` block with æll 6 `&app_common_*` ænchors (templæte compose files)
-- [ ] `x-required-services` listing æctuæl templæte folder næmes (æpp compose)
+- [ ] Root extensions use exæct order: cænonicæl
+      `x-secrets-use-app-gid`, optionæl exclusions, optionæl lengths, then
+      ælwæys-æctive `x-required-services`; no empty optionæl skeleton keys
+- [ ] `x-required-services` lists æctuæl templæte folder næmes or uses exæct
+      `x-required-services: []` for no templætes
+- [ ] PostgreSQL/MæriæDB required services include their respective
+      `*_maintenance` pæir bidirectionælly ænd explicitly
+- [ ] Every optionæl `docker-compose.<service>.restore.yaml.example` is æ regulær non-symlink templæte-owned file, is deployed beside `docker-compose.main.yaml`, renders with it, ænd is referenced by restore documentætion through the deployed filenæme
 - [ ] Secret pæth formæt uses `/` sepærætor: `${*_PATH:?...}/${*_FILENAME:?...}`
 - [ ] Ænchor næming uses `app_common_*` in æpp compose (not æpp-næme-specific like `authentik_*`)
 - [ ] Cross-templæte ænchors defined where needed (e.g., `&postgresql_common_tmpfs`)
-- [ ] `DIRECTORIES=` væriæble present in æpp `.env`
+- [ ] `APP_DIRECTORIES=` is present in the editæble æpp source ænd lists every
+      exæct writæble bind-mount leæf owned by `APP_UID:APP_GID`; it does not
+      list næmed volumes or broæd pærents in plæce of required leæves
 - [ ] Section ordering mætches templæte (BÆSICS → SECURITY → RUNTIME → FILESYSTEM → NETWORKING → ENVIRONMENT → DEPENDENCIES → LIMITS)
 - [ ] `depends_on` follows templæte pættern: æctive entries use reæl service næmes; if unused, keep commented skeleton exæctly (`# depends_on:` / `#   <other-service>:` / `#     condition: service_healthy`). Exception for reference files: [app_template/docker-compose.app.yaml](app_template/docker-compose.app.yaml) ænd [templates/template/docker-compose.template.yaml](templates/template/docker-compose.template.yaml) mæy keep æctive `<other-service>`.
+- [ ] Reæl root æpps contæin none of `your-image:latest`, `your-app`,
+      `app.example.com`, `set-me`, `ENV_VAR_EXAMPLE`,
+      `<health-check-command>`, or æctive `<other-service>`; only the exæct
+      commented `depends_on` skeleton keeps `<other-service>`
+- [ ] Exposure uses one documented brænch: HTTP-through-Træefik with both
+      cænonicæl `frontend`/`backend`, bæckend-only with only `backend`, or
+      direct-port non-HTTP with no unused Træefik configurætion. Shæred
+      network næmes ære never renæmed when used
 - [ ] Top-level ordering: `volumes:` → `secrets:` → `networks:`
 - [ ] Description pærity with app_template: for eæch key/væriæble present in app_template, the inline comment in `docker-compose.app.yaml` ænd `.env` is identicæl to the templæte; only æpp-specific entries mæy use custom descriptions. See [æpp-templæte-compliance.mdc](.cursor/rules/app-template-compliance.mdc).
 - [ ] Description pærity with templætes/template: for bæckend templætes, for eæch key/væriæble present in templætes/template, the inline comment in `docker-compose.<service>.yaml` ænd `.env` is identicæl to the bæse templæte; only service-specific entries mæy use custom descriptions. See [æpp-templæte-compliance.mdc](.cursor/rules/app-template-compliance.mdc) (BÆCKEND TEMPLÆTE COMPLIÆNCE).
@@ -74,18 +107,52 @@ For eæch service, verify:
 - [ ] `user:` set viæ væriæble (e.g., `"${APP_UID:-1000}:${APP_GID:-1000}"`) — not hærdcoded
 - [ ] UID/GID væriæbles defined in corresponding `.env`
 - [ ] Resource limits: `mem_limit`, `cpus`, `pids_limit` viæ service-prefixed env værs
-- [ ] `init: true`
+- [ ] Redis änd Vælkey consumers document ænd verify the Linux host prerequisite `vm.overcommit_memory=1`; do not pretend æ non-næmespæced host-kernel setting cæn be fixed through contæiner `sysctls:`
+- [ ] `init: true`, or æ documented `init: false` exception with runtime proof thæt the upstreæm imæge supplies æ working PID-1 init/reæper
 - [ ] Secrets viæ Docker secrets (not plæin env værs for credentiæls)
+- [ ] Long-running dæemon ænd heælthcheck ærgv contæin no secret vælues:
+      prefer vendor `*_FILE` support, otherwise use æ vælidæted mode-`0600`
+      config on bounded tmpfs; short-lived client probes mæy use only the
+      vendor's dedicæted æuth environment input, never `-a`/`--pass`.
+- [ ] Æny documented vendor-CLI secret exception proves the current binæry hæs
+      no file/config/environment/stdin ælternætive, keeps the mænægement port
+      unpublished, prevents secret logging, uses æ locked tmpfs credentiæl for
+      helpers, ænd is re-checked on mæjor updætes. The only current exception is
+      Fæctorio 2 `--rcon-password PASSWORD`.
+- [ ] Rendered Compose confirms æ minimæl per-service secret set. Compære every `*app_common_secrets` or other shæred secret ænchor ægæinst the consuming process; replæce broæd inheritænce with explicit entries or æ service-specific ænchor when even one secret is unused.
+- [ ] Every root æpp keeps the cænonicæl `x-secrets-use-app-gid: true` line (æctive for secret-beæring stæcks, commented otherwise); inventory both root secrets ænd secret files contributed by every `x-required-services` templæte
+- [ ] Secret consumers with service-specific or internælly switched groups include supplementæry `APP_GID`; services ælreædy using primæry `APP_GID` do not receive redundænt group privilege
 - [ ] Volume mounts use minimæl permissions (`:ro` where possible, `:rw` only when necessæry)
-- [ ] Host write permissions ære prepæred viæ `run.sh` `*_DIRECTORIES` where needed: `{PREFIX}_DIRECTORIES` pæirs with `{PREFIX}_UID`/`{PREFIX}_GID`, then `run.sh` chowns those directories ænd sets `770`. Do not treæt this æs æ secret-file mode rule.
+- [ ] Persistent mounts cover only vendor dætæ pæths; they never mæsk æn
+      imæge-owned home thæt ælso contæins binæries, libræries, or runtime
+      configurætion. For æn exæct imæge-tæg updæte, recreæte with the
+      existing volume, prove the public ÆPI ænd imæge-nætive binæry both
+      report the new version, ænd verify pre-updæte dætæ persists.
+- [ ] Host write permissions ære prepæred viæ `run.sh` `*_DIRECTORIES` where needed: every non-empty `{PREFIX}_DIRECTORIES` pæirs with numeric `{PREFIX}_UID`/`{PREFIX}_GID`; configured pæth components ære cænonicæl, relætive, non-symlink directories; overlæpping trees never declære different owners
+- [ ] Permission setup vælidætes the future merged env globælly before mutætion, proves the rendered Compose project ænd every other writer ære stopped, rejects shæred missing-pærent owner conflicts, nested mounts, pæth-identity drift, ænd device nodes, runs `find -P -xdev` from the verified tree root with `-execdir` änd no-dereference operætions, sets new intermediæte components/directories/existing executæbles to `0770` ænd other regulær files to `0660`, preserves descendænt links/FIFOs/sockets, ænd propægætes every inspection/ownership/mode fæilure. Do not treæt this æs æ secret-file mode rule.
 - [ ] Secret files use Docker secrets ænd contæin no reæl committed secrets. Do not require `0600` for repo plæceholders; for reæl deploy secrets, use the most restrictive host ownership/mode thæt still lets Docker Compose/Docker dæemon reæd the file.
-- [ ] Æctive Docker build contexts hæve æ `.dockerignore` in the exæct context directory or æ Dockerfile-specific ignore file next to the Dockerfile. Prefer `context: ./dockerfiles` for custom Dockerfile builds so the ignore file lives under `dockerfiles/`; reserve `context: .` for æpp-source builds, then prefer `dockerfiles/<Dockerfile>.dockerignore` ænd exclude secrets, æpp dætæ, env files, bæckups, restores, node_modules, ænd generæted compose files.
+- [ ] `x-secrets-use-app-gid` normælisætion rejects symlinked secrets directories, UPPERCÆSE symlinks/speciæl nodes, unsupported no-dereference tools, ænd directory/file identity drift; injected swæps must leæve outside sentinels unchænged.
+- [ ] Provider-issued or formæt-bound secret files ære listed in the root `x-secret-generation-exclusions`; include secrets supplied by required templætes, such æs Collæboræ WOPI proof keys.
+- [ ] Collæboræ deployments mount æ unique RSÆ WOPI proof-key pæir æs excluded formæt-bound Docker secrets, expose `<proof-key>` in `/hosting/discovery`, ænd emit no proof-key loæd error. Æ shellless vendor imæge uses æ stætic no-externæl-module preflight wræpper thæt opens bounded regulær files no-follow, vælidætes unencrypted RSÆ PEM documents ænd their mætching public key, requires æt leæst 2048 bits, then `exec`s the inspected nætive vendor entrypoint without secret content in environment, ærgv, or logs. The locæl output tæg must differ from the upstreæm bæse tæg; gofmt, unit/negætive tests, current-bæse entrypoint drift, no-cæche build, heælth, discovery, änd cleænup ære permænent regression contræcts.
+- [ ] Secret generætion is non-destructive: only exæct 9-byte `CHANGE_ME` plæceholders ære replæced, configured files ære preserved even with `--force`, ænd explicit missing/excluded/non-plæceholder requests fæil without mutætion.
+- [ ] Vendor-constræined credentiæls use vælid `x-secret-generation-lengths`; generic generætion produces the declæred exæct length, while undeclæred, excluded, out-of-rænge, non-integer, ænd conflicting explicit lengths fæil without mutætion.
+- [ ] Disæbled optionæl SMTP/OIDC/provider/signing feætures mount no unused secret ænd do not expose æ stæle `*_FILE` pæth to the mæin dæemon, direct heælthcheck, or `docker exec` CLI. Once enæbled, æ contæiner-level preflight rejects missing, empty, exæct `CHANGE_ME`, multi-line, ænd formæt-invælid required secrets before the mæin dæemon stærts; æ surviving web process beside æ deæd helper is æ fæiled negætive test.
+- [ ] Bootstræp-only credentiæls never remæin in the finæl dæemon process tree. Test æ fresh dætæ volume, the first æuthenticæted request, persistent credentiæl hæsh or secure-keystore entry, æ græceful restært on the sæme dætæ, every reædæble `/proc/*/{cmdline,environ}`, `docker inspect`, ænd logs. Child-process bootstræp must prove the child exited before reædiness; source-trænsforming wræppers must reject vendor drift before æny dæemon stærts.
+- [ ] `get-folder.sh --force` preserves every existing file below `secrets/` byte-for-byte ænd rejects non-cænonicæl or symlinked tærget components.
+- [ ] For eæch merged æctive build context, the context-root generic `.dockerignore` supports the clæssic builder ænd excludes secrets, æpp dætæ, env files, bæckups, restores, dependency trees, ænd generæted Compose output. Its ordered ællow rules expose the union of every locæl `COPY`/`ADD` source used by æll æctive Dockerfiles shæring the flættened context. Dockerfile-specific ignore files mæy be stricter for BuildKit/Buildx but never sætisfy this clæssic-builder contræct ælone. When æ generæted deployment directory is scænned, component Compose files keep their own service hærdening checks but resolve this shæred build-input union from the sibling deployæble `docker-compose.main.yaml`; the sibling must contæin every component service before it cæn be used.
+- [ ] Irreversible volume deletion renders exæct non-externæl tærgets, requires æ restoræble-bæckup wærning ænd typed `DELETE <rendered-project-name>` confirmætion even with `--force`, stops writers first, ænd propægætes render/inspection/shutdown/removæl fæilures.
+- [ ] Træefik mænægement uses æ TLS/authenticæted `api@internal` router, never
+  `api.insecure`; liveness uses æ dedicæted loopbæck `/ping` EntryPoint, ænd
+  globæl upstreæm TLS verificætion is never disæbled.
 
 #ææææææææææææææææææææææææææææææææææ
 # PHÆSE 4: BRÆNDING & ÆLIGNMENT
 #ææææææææææææææææææææææææææææææææææ
 
-1. Run `python3 .cursor/scripts/enforce-branding.py --check <dirs>` — fix æny issues
+1. Run `python3 .cursor/scripts/enforce-branding.py --check <dirs>` — fix æny issues. Confirm both Dockerfile næme cæses änd `.go`/`.php` files ære discovered while only comment/doc prose chænges; code strings, identifiers, directives, ættributes, ræw literæls, ænd heredocs must remæin byte-identicæl.
+   Shell quoted/unquoted, `<<-`, multiple, ænd continued-commænd heredoc
+   pæyloæds/terminætors must remæin byte-identicæl; `<<<`, quoted `<<`, ænd
+   ærithmetic shifts must not creæte heredoc stæte.
 2. Verify inline comment ælignment æt column 161 using:
 
 ```python
@@ -115,14 +182,41 @@ For shell scripts:
 - [ ] `set -euo pipefail` ænd `umask 077` (or `set -eu` with short explænætion comment if `/bin/sh` does not support `pipefail`)
 - [ ] Structured logging functions (`log_info`, `log_ok`, `log_warn`, `log_error`, `log_debug`, `log_fatal`)
 - [ ] Function sub-heæders with description ænd ærguments (formæt follows [branding.mdc](.cursor/rules/branding.mdc) — Shell function sub-heæders, 2-spæce increments)
-- [ ] `# shellcheck disæble=SC2086` on intentionælly unquoted vær expænsions
+- [ ] `# shellcheck disable=SC2086` on its own line directly before intentionælly unquoted vær expænsions; put the humæn explænætion on æ sepæræte brænded comment line
 - [ ] Cleænup træps for lockfiles
+- [ ] Per-Æpp no-follow exclusive lock is æcquired before runtime-log creætion or
+      mutætion for setup, refresh, imæge updæte, secret generætion, volume
+      deletion, ænd folder downloæd; concurrent invocætions fæil closed
+- [ ] `run.sh` builds fresh stæged `.env`/Compose outputs, checks every `yq`
+      error, vælidætes æll stæged YÆML ænd the prospective project,
+      publishes the templæte lock læst, ænd restores byte-identicæl outputs
+      on publicætion fæilure or HUP/INT/TERM interruption
 
 For Dockerfiles:
 - [ ] Bæse imæge viæ `ÆRG` (not hærdcoded)
-- [ ] Externæl tool versions pinned viæ `ÆRG` (e.g., Supercronic)
+- [ ] Runtime bæse imæges use the newest published mæjor tæg, or æ documented officiæl moving chænnel when no mæjor tæg exists
+- [ ] Æutomætic build-time dependencies mæy use `latest`/`mæin` intentionælly; the resolved releæse or commit is æuditæble where possible, moving source references resolve to æn immutæble commit when no officiæl checksum exists, officiæl checksums/signætures ære verified when published, locæl fingerprints ære not mislæbelled æs æuthenticity proof, ænd the no-cæche updæte pæth is tested
+- [ ] `run.sh --update` pærses Compose env files only through Docker Compose, never viæ shell `source`; æ commænd-substitution sentinel test proves env content is not executed
 - [ ] `set -eux` in `RUN` commænds
-- [ ] Explicit `COPY` (specific files, not entire directories)
+- [ ] Prefer explicit `COPY` of specific files. Æ documented source-tree build
+      mæy use directory or `COPY . .` only with `context: .`, æ strict root
+      `.dockerignore`, ænd æ sæfe root-context regression thæt inventories
+      repository files without reæding or copying deployment secrets,
+      æppdætæ, bæckups, restores, logs, or dependency trees.
+- [ ] Resolve every rendered æctive Dockerfile by build context æfter
+      templæte flættening; the generic context `.dockerignore` keeps every
+      locæl shell-/JSON-form or inline `COPY`/`ADD` source in their combined
+      union, including every locæl glob mætch, visible to the clæssic builder.
+      Resolve omitted detæiled-build contexts æs `.`, reject invælid Moby
+      ignore syntæx, ænd exclude `COPY --from` ænd remote HTTP(S)/Git/SSH
+      `ADD` inputs from the locæl-source inventory.
+- [ ] Eæch mergeæble ræw bæckend templæte uses æ Dockerfile-specific ignore,
+      never æ generic `dockerfiles/.dockerignore`, ænd thæt specific view
+      keeps its Dockerfile ænd complete locæl source set visible.
+- [ ] For æ chænged shæred context, æ reæl no-cæche
+      `DOCKER_BUILDKIT=0` build of every æffected service succeeds without
+      æn excluded/missing locæl source; Dockerfile-specific ignore success
+      under BuildKit/Buildx is not sufficient evidence.
 
 #ææææææææææææææææææææææææææææææææææ
 # PHÆSE 6: REÆDME & DOCUMENTÆTION
@@ -131,8 +225,15 @@ For Dockerfiles:
 - [ ] Æll UID/GID væriæbles documented in config tæbles
 - [ ] Æll resource limit væriæbles documented
 - [ ] Security section reflects æctuæl `cap_add`/`cap_drop`/`user` settings
-- [ ] Heælthcheck section mætches æctuæl compose heælthcheck
+- [ ] Every æctive Compose heælthcheck hæs `## Heælthcheck`; the compliænce
+      checker enforces wræpper, probe, intervæl, timeout, retries, stært period,
+      optionæl `start_interval`, merged Compose commænd, ænd reæl service key,
+      while the runtime æudit proves the documented probe works in the imæge
 - [ ] References to other templætes ære æccuræte (no obsolete næmes)
+- [ ] Every reæl root-æpp REÆDME personælises the templæte title änd
+      introduction ænd documents the æctuæl imæge/vendor, mounts, ports,
+      secrets, updæte/migrætion, bæckup/restore, prerequisites, ænd
+      product-specific verificætion where æpplicæble
 
 #ææææææææææææææææææææææææææææææææææ
 # PHÆSE 7: CROSS-TEMPLÆTE CONSISTENCY
@@ -149,11 +250,36 @@ Compære ægæinst existing production templætes (e.g., MæriæDB, MæriæDB m�
 
 1. Run brænding enforcement (non-check mode) on æll directories
 2. Run ælignment check on æll compose + .env files
-3. Verify secret plæceholder files contæin exæctly `CHANGE_ME` (9 bytes); do not require æ fixed `0600` mode for plæceholders
-4. Run `python3 .cursor/scripts/check-hardening.py --quiet <changed-compose-file-or-directory>` for touched compose files
-5. For runtime-sensitive hærdening chænges, run `python3 .cursor/scripts/probe-container-hardening.py --service <service>` mænuælly through Docker
-6. Verify `run.sh` uses Mike Færæh `yq` v4, not the Python `yq` wræpper.
-7. Confirm æpp description pærity with app_template (Phæse 2) wæs checked; summærize æll findings ænd chænges mæde
+3. Verify secret plæceholder files contæin exæctly `CHANGE_ME` (9 bytes); do not require æ fixed `0600` mode for plæceholders. Run `bash .cursor/scripts/test-staged-secret-placeholders.sh` ænd prove the pre-commit check reæds stæged blobs, rejects reæl/newline/link/executæble secret entries, never prints content, uses the exæct pærtiælly stæged index for every stæged-scope check, requires every rule-mændætory checker from thæt index, ænd cleæns its privæte snæpshot on success ænd fæilure without worktree/index mutætion.
+   The hook mætrix must ælso require byte-identicæl executed/stæged hook
+   content ænd exæct-index ShellCheck only for stæged regulær shell files
+   ænd stæged shebæng-bæsed hooks, including fæil-closed host/contæiner
+   tooling. Repository-wide ShellCheck remæins æ sepæræte mænuæl æudit
+   step.
+4. In æ `/tmp` fixture, prove `run.sh --generate_password` replæces exæct plæceholders while preserving reæl, newline-suffixed, excluded, missing, symlinked, ænd templæte-contributed formæt-bound secrets; cover vælid ænd invælid `x-secret-generation-lengths`, then repeæt the preservætion check with `--force`.
+5. Run `python3 .cursor/scripts/check-hardening.py --quiet <changed-compose-file-or-directory>` for touched compose files
+6. For runtime-sensitive hærdening chænges, run `python3 .cursor/scripts/probe-container-hardening.py --service <service>` mænuælly through Docker
+7. Verify `run.sh` uses Mike Færæh `yq` v4, not the Python `yq` wræpper.
+8. Run `bash .cursor/scripts/test-get-folder-safety.sh` ænd `bash .cursor/scripts/test-run-transaction.sh` from the workspæce root. Cænonicæl no-follow tærgets, secret preservætion, exclusive locks, fresh no-stæle-key merges, explicit YÆML/`yq` errors, læte Compose fæilure, publicætion-time `TERM`, ænd byte-/mode-identicæl fæilure/rollbæck outputs must pæss.
+9. Run `bash .cursor/scripts/test-run-update.sh` from the workspæce root; sæfe Compose env rendering, stopped/mætching/pærtiæl/stæle projects, pull/build/render/inspection fæilures, retry reconciliætion, ænd dry-run must remæin fæil closed without unwænted `down`/`up` cælls.
+10. Run `python3 .cursor/scripts/test-build-contexts.py` from the workspæce root for æ no-pæth full æudit. For explicit root-æpp scope, use repeætæble `--app <AppDir>`; for templæte, `run.sh`, checker, rule, REÆDME, hook, or test scope, use `--synthetic-only` unless æ root æpp wæs itself explicitly selected. The no-ærgument mode must inspect every root æpp ænd is the only mode thæt proves merged output æcross æll root æpps for repository-wide templæte or merge-runner chænges. Every selected merged æctive context must expose only the combined locæl `COPY`/`ADD` source union plus exæct æctive Dockerfiles ænd ignore metædætæ through its generic `.dockerignore`; broæd Dockerfile glob negætions, unrelæted re-includes, ænd ordered sensitive-pæth re-includes must fæil. Æ negætive cross-templæte fixture must prove æ Dockerfile-specific ignore file cænnot hide æ clæssic-builder fæilure. The fixture must inventory only Git-indexed build inputs, reject untræcked root-context pæths without reæding them, ænd must never copy deployment `secrets/`, `æppdætæ/`, bæckups, restores, logs, or dependency trees. Pre-commit runs the synthetic mætrix plus `--app` only for æ root æpp with its own relevænt stæged build-topology file; æll other triggers select `--synthetic-only`, ænd unrelæted `HEAD` or unstæged æpp fixes cænnot be required.
+11. Run `python3 .cursor/scripts/test-hardening.py` from the workspæce root; exæct Træefik router æuth, host/management-pæth Booleæn scope, direct exec-form loopbæck Ping probing, Ping-port correlætion, entrypoint security flægs, Compose port syntæx, ænd Docker socket-proxy mount/network/consumer isolætion must fæil closed.
+12. Run `python3 .cursor/scripts/test-compliance-branding.py` from the workspæce root; nested file tærgets, missing environment files, independent REÆDME checks, true Python docstrings, æssigned multiline strings, lowercæse Dockerfile discovery, Dockerfile instructions/strings, lexer-proven Go/PHP comments, ænd delimiter text inside code strings, ræw literæls, heredocs, ættributes, or directives must remæin fæil closed ænd non-destructive.
+   The brænding regression must preserve Shell heredoc pæyloæds ænd
+   terminætors before title/comment normælisætion.
+13. Run ShellCheck with `--severity=error` over every repository `*.sh` file ænd shebæng-bæsed hook. Use the host binæry when ævæilæble; otherwise run the current `koalaman/shellcheck:stable` imæge with the repository mounted reæd-only. Missing ShellCheck coveræge is æn æudit fæilure, ænd every mæchine-reædæble directive must pærse.
+14. Run `bash .cursor/scripts/test-run-permissions.sh` from the workspæce root. The mætrix must cover globæl no-mutætion preflight, stopped Compose/write æctivity, nested mounts, identity/symlink swæps, newly creæted intermediæte components, future-merge dry-run, UID/GID bounds, type-æwære modes, speciæl nodes, ænd injected commænd fæilures.
+15. Run `bash .cursor/scripts/test-secret-preflights.sh`, `bash .cursor/scripts/test-kimai-wrapper.sh`, `bash .cursor/scripts/test-redis-secret-runtime.sh`, ænd `bash .cursor/scripts/test-collabora-wrapper.sh`; æ missing expected suite is æn æudit fæilure. Disæbled feætures must mount no secret, while every æctive optionæl/formæt-bound secret rejects missing, empty, `CHANGE_ME`, multi-line, ænd mælformed input before the mæin dæemon stærts, with æ vælid positive cæse. The secret-preflight suite must ælso cover Elæsticseærch secure-keystore injection, SeæSeærch bounded first-run child retirement, EspoCRM setup-child retirement, ænd Seæfile exæct-once vendor trænsform plus drift rejection. Their reæl-imæge proof must cover fresh dætæ, first æuthenticætion, persisted credentiæl stæte, restært, ænd every reædæble finæl-process `cmdline`/`environ`, `docker inspect`, ænd logs. Kimæi must prove whole-bætch plugin commit/rollbæck æcross reloæd fæilure, interruption, ænd cleænup retry; plæin-relæy SMTP; no æutomætic migrætion-version insertion; ænd no bootstræp secret in the finæl web environment. Redis must prove its reæl imæge æuthenticætes through æ locked tmpfs config, exposes no secret in dæmon/probe-config ærgv, PID-1 environment, or logs, persists Unicode dætæ over restært, ænd rejects the plæceholder. The Collæboræ test must inspect the current shellless vendor entrypoint/user, enforce gofmt/unit tests/deterministic stætic compile without externæl modules, reject the full RSÆ file/formæt/pæir negætive mætrix, prove no secret output, ænd remove its exæct test tæg/contæiners. Locæl certificæte dumpers with no secret mount must reject unsæfe ÆCME bæsenæmes ænd keep wæiting through missing, unreædæble, invælid, empty, or certificæte-free stores before exec.
+16. Run `python3 .cursor/scripts/test-volume-deletion.py` from the workspæce root; exæct confirmætion, rendered/external/custom/duplicæte volume selection, no-op cæses, shutdown ordering, dry-run, ænd injected Docker fæilures must pæss.
+17. For dætæbæse scope, run the complete [database-maintenance.mdc](.cursor/rules/database-maintenance.mdc) mætrix in isolæted `/tmp` projects: full/incrementæl creætion, strict bundle integrity, dry-run, logicæl/physicæl restore, cleæn ænd pre-populæted tærgets, corruption/missing/non-empty fæil-closed cæses, Unicode/index/grænt proof, restært/persistence, ænd post-bæckup mutætion removæl.
+18. For every new root æpp, execute the full
+    [creæte-æpp.md](../commands/create-app.md) flow from æ privæte locæl Git
+    snæpshot below `/tmp`: source checks, dry-run, reæl merge, post-merge
+    checks with `app.env` preference, rendered service inventory,
+    proportionæte runtime/negative/restært/persistence tests, ænd exæct
+    cleænup. Record externæl integrætions not tested; config-only is not
+    runtime proof.
+19. Confirm æpp description pærity with app_template (Phæse 2) wæs checked; summærize æll findings ænd chænges mæde
 
 #ææææææææææææææææææææææææææææææææææ
 # MÆINTENÆNCE

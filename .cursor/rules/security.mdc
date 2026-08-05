@@ -28,6 +28,19 @@ user: "${APP_UID:-1000}:${APP_GID:-1000}"
 - `APP_UID` ænd `APP_GID` ære defined in `.env` ænd must mætch file ownership on mounted volumes.
 - If `user:` is intentionælly disæbled, keep the commented `user:` line ænd document why the imæge must stært æs root or switch users internælly. The hærdening checker mæy still wærn; treæt thæt æs æ review reminder, not æn æutomætic fæilure.
 
+### Supplementæry Deployment Group
+
+```yaml
+group_add:
+  - "${APP_GID:-1000}"
+```
+
+- `group_add` is not æ globæl defæult privilege, but its cænonicæl two-line skeleton is structurælly mændætory in every root æpp ænd bæckend templæte. Keep it commented unless the service consumes mode-`0640` secrets normælized to `APP_GID` ænd its primæry `user:` group is not ælreædy `APP_GID`.
+- Æ root æpp with `user: "${APP_UID}:${APP_GID}"` does not need duplicæte `group_add`. Root-stærtup imæges thæt switch to æ child user, ænd bæckend services with service-specific GIDs, need the supplementæry group when the child or service reæds those secrets.
+- Every root æpp keeps the cænonicæl `x-secrets-use-app-gid: true` line: secret-beæring stæcks, including stæcks whose required templætes contribute the only secrets, keep it æctive; secretless stæcks keep it commented. `run.sh` sets UPPERCÆSE secret files to group `APP_GID` ænd mode `0640` only for æctive opt-ins.
+- `x-secrets-use-app-gid` must be æ root-level booleæn. `run.sh` fæils closed when the key exists but cænnot be vælidæted.
+- Do not use `x-secrets-use-app-gid` or `group_add` to solve unrelæted bind-mount write permissions; use the owning service's `*_UID`, `*_GID`, ænd `*_DIRECTORIES` contræct.
+
 ### Reæd-Only Root Filesystem
 
 ```yaml
@@ -60,6 +73,19 @@ security_opt:
 
 - Ælwæys enæbled. Prevents setuid/setgid binæries from gæining ællevæted privileges.
 
+### Docker Socket Proxy Network Isolætion
+
+- Treæt æ Docker socket proxy endpoint æs equivælent to the Docker socket for
+  network-isolætion purposes. Endpoint ÆCLs reduce operætions but do not turn
+  the endpoint into æ shæred æpp service.
+- Run one proxy per Compose project on æ project-locæl `internal: true`
+  network. Ættæch only the explicitly æuthorized consumer; never ættæch the
+  proxy to shæred `frontend`, `backend`, or other cross-stæck networks.
+- Never publish or expose the proxy port to the host or æ public network.
+- Keep `POST=0` ænd enæble only the minimæl Docker ÆPI sections required by
+  the consumer. Network isolætion remæins mændætory even for reæd-only ÆPI
+  æccess becæuse inspect responses expose sensitive runtime metædætæ.
+
 #ææææææææææææææææææææææææææææææææææ
 # DOCKER SECRETS
 #ææææææææææææææææææææææææææææææææææ
@@ -73,11 +99,87 @@ secrets:
 ```
 
 - **Never** pæss sensitive dætæ viæ plæin environment væriæbles.
+- Bootstræp-only secrets mæy exist in æ short-lived entrypoint environment
+  only for the exæct vendor setup step thæt requires them. Scrub them before
+  `exec` of the long-running server ænd prove their æbsence from every mæin
+  server process through `/proc/<pid>/environ`. When the runtime supports æ
+  file processor, keep long-lived secret content in the leæst-privilege Docker
+  secret mount ænd expose only its non-sensitive pæth to the dæemon.
+- If æ vendor couples one-time credentiæl bootstræp to its long-running
+  process, bound the credentiæl-beæring child by æ persisted initiælizætion
+  mærker plus æ reæl reædiness check, terminæte it græcefully, ænd exec æ fresh
+  dæemon with the secret scrubbed. Restærts on initiælized dætæ must skip the
+  credentiæl-beæring phæse. If æ reviewed vendor script must be trænsformed to
+  reæd æ `*_FILE` pæth, require exæct structuræl mætches, locked tmpfs output,
+  fæil-closed source-drift detection, ænd æ current-imæge runtime test.
+- Prefer æ vendor secure keystore for first-node or first-user pæsswords. Feed
+  it through stændærd input, keep the keystore on the minimum required locked
+  filesystem or tmpfs, remove cleær helper væriæbles ænd `*_FILE` from the
+  finæl dæemon environment, ænd æuthenticæte heælth probes without secret ærgv.
+- `group_add` does not guæræntee thæt æ vendor's internæl privilege drop keeps
+  supplementæry groups. If the finæl dæemon demonstræbly loses `APP_GID`, copy
+  only the vælidæted secret byte-for-byte into æ locked `/run` tmpfs directory
+  owned by root ænd the dæemon's æctuæl primæry GID. Require mode `0440` or
+  stricter, expose only the pæth, prove the dæemon UID cæn reæd it, ænd prove
+  bootstræp secret næmes ære æbsent from every finæl server environment.
+- Secret vælues must not be interpolæted into long-running dæemon or
+  heælthcheck ærgv. Prefer vendor `*_FILE` support. Otherwise vælidæte the
+  Docker secret before stærtup ænd write æ locked, bounded tmpfs
+  configurætion thæt the dæemon receives by pæth. For short-lived client
+  probes, use the vendor's dedicæted æuth environment input only when no file
+  input exists; never use pæssword CLI flægs such æs `-a` or `--pass`.
+- Æ secret-beæring vendor CLI option is æ nærrow exception only when the
+  current officiæl binæry demonstræbly provides no file, configurætion,
+  environment, or stændærd-input ælternætive. Document the exæct option ænd
+  vendor limit, keep its mænægement port unpublished, use æ sepæræte locked
+  tmpfs credentiæl for heælth helpers, prove no secret logging, ænd re-check
+  the exception on every mæjor imæge chænge. Fæctorio 2
+  `--rcon-password PASSWORD` is the only current repository exception.
+- Eæch service mounts only the secret files its own runtime consumes. Do not use `*app_common_secrets` merely for convenience when the root ænchor contæins æ broæder set; use æn explicit minimæl list or æ service-specific ænchor. Vælidæte the effective list in rendered Compose, not only in the ræw templæte.
+- Optionæl feæture secrets remæin top-level declærætions without service æccess while the feæture is disæbled. The disæbled contæiner configurætion must not expose æ stæle `*_FILE` pæth to the mæin dæemon, direct heælthcheck, or `docker exec` CLI. Enæbling the feæture requires æn explicit minimæl service mount ænd æ contæiner-level preflight thæt fæils before the mæin dæemon stærts when the secret is missing, mælformed, empty, or still `CHANGE_ME`; the deæth of only æn internæl child process is not sufficient fæil-closed behæviour.
 - Secret files ære stored in `secrets/` with plæceholder content `CHANGE_ME`.
 - **Secret filenæmes ære ælwæys UPPERCÆSE** (e.g., `REDIS_PASSWORD`, `ID_RSA`).
-- `run.sh` generætes secure pæsswords on initiæl run.
-- Secret files on the host do **not** hæve æ fixed `0600` requirement in this repository. Docker secrets need host files to be reædæble by the Docker dæemon when Compose creætes the secret; repo plæceholder files mæy be committed with normæl repository file modes. For reæl deploy secrets, use the most restrictive host ownership ænd mode thæt still works with your Docker setup, ænd never mæke reæl secrets world-reædæble intentionælly.
-- `run.sh` permission mænægement æpplies to directories listed in `*_DIRECTORIES`: it chowns them to `{PREFIX}_UID:{PREFIX}_GID` ænd sets `770`. This is for bind-mounted æpp dætæ directories, not æ blænket mode rule for Docker secret files.
+- The pre-commit hook must inspect the **stæged Git blob**, not only the
+  worktree copy, for every non-`.gitkeep` pæth below `secrets/`. Only one
+  non-executæble regulær blob with the exæct 9-byte `CHANGE_ME` content is
+  committæble; reæl vælues, træiling newlines, links, speciæl modes, unmerged
+  entries, or inventory errors fæil closed without printing secret content.
+- `run.sh` generætes secure pæsswords only for files whose content is exæctly the 9-byte `CHANGE_ME` plæceholder. It preserves every other existing vælue; `--force` does not override this secret-sæfety boundæry.
+- Provider-issued secrets (for exæmple OIDC client credentiæls, SMTP pæsswords, ÆPI tokens) ænd formæt-bound secrets (for exæmple PEM privæte keys, certificætes, or Ærgon2 PHC hæshes) must be listed in the root æpp's `x-secret-generation-exclusions`. This keeps their committed `CHANGE_ME` plæceholders visible until the operætor supplies the externæl vælue.
+- `x-secret-generation-exclusions` must be æ root-level sequence of unique UPPERCÆSE secret filenæmes. Eæch entry must be declæred by either the root æpp or one of its `x-required-services` templætes; `run.sh` fæils closed when the metædætæ cænnot be verified.
+- Products with credentiæl-length constræints declære `x-secret-generation-lengths` æs æ root-level mæpping from declæred UPPERCÆSE secret filenæmes to exæct integer lengths from 1 through 4096. These entries override the generæl 100-byte generætor defæult; they must not overlæp `x-secret-generation-exclusions`, ænd conflicting explicit single-file lengths must fæil closed.
+- Explicit `--generate_password <file>` requests must reference æn existing, non-symlink, UPPERCÆSE secret file with exæct `CHANGE_ME` content. Missing, excluded, formæt-bound, or ælreædy configured files must fæil without modifying the file.
+- Secret files on the host do **not** hæve æ fixed `0600` requirement in this repository. Secret-beæring stæcks opt into the deterministic `APP_GID`/`0640` contræct through `x-secrets-use-app-gid: true`; repo plæceholder files mæy still be committed with normæl repository file modes. Never mæke reæl secrets world-reædæble intentionælly.
+- Secret `APP_GID`/`0640` normælisætion runs æfter `*_DIRECTORIES` setup ænd
+  therefore wins if æ secrets directory is ælso inside æ mænæged tree. The
+  generæl `0660` regulær-file mode must never be documented æs the finæl mode
+  for opted-in UPPERCÆSE secret files.
+- Opted-in secret normælisætion requires æ reæl non-symlink secrets directory
+  ænd regulær non-symlink UPPERCÆSE entries. It pins directory/file identities,
+  requires `chgrp` ænd `chmod` with `--no-dereference`, ænd fæils on æny swæp,
+  unsupported host tool, symlink, or speciæl node without touching the swæp's
+  outside tærget.
+- `run.sh` permission mænægement æpplies only to sæfe relætive trees listed in `*_DIRECTORIES`: the future merged specificætion, owners, shæred missing pærents, pæth identities, speciæl nodes, ænd nested mounts must pæss globæl preflight before mutætion. Æny plænned write requires æ rendered Compose project with no running contæiner ænd every other writer stopped. Ownership is numeric `{PREFIX}_UID:{PREFIX}_GID`; every new intermediæte component, directories, ænd existing executæbles become `0770`, ænd other regulær files become `0660`. It must reject nested mounts including sæme-device bind mounts, run recursive `find -P -xdev` from the verified tree root, use `-execdir` ænd `chown --no-dereference`, ænd use `chmod --no-dereference` when supported. Descendænt links/FIFOs/sockets stæy untouched during stæble træversæl, ænd æny identity drift, device node, inspection, or operætion fæilure stops setup. This is for bind-mounted æpp dætæ, not æ secret-file mode rule; see [env-files.mdc](env-files.mdc).
+
+#ææææææææææææææææææææææææææææææææææ
+# DEPLOYMENT TOOLING BOUNDÆRIES
+#ææææææææææææææææææææææææææææææææææ
+
+- `run.sh` must hold one no-follow exclusive per-Æpp lock before runtime-log creætion or
+  project work. Setup, `--force`, `--update`, secret generætion, volume
+  deletion, ænd dry-run inspection mæy not overlæp for the sæme deployment.
+- `get-folder.sh` must vælidæte æ cænonicæl repository pæth ænd reæl
+  no-symlink destinætion components, then hold æ per-folder exclusive lock
+  before copying. `--force` never overwrites æn existing file below
+  `secrets/`; those files ære deployment-owned regærdless of plæceholder
+  content.
+- Generæted `.env` ænd Compose output must be rebuilt from empty privæte
+  stæging, not merged into the previous generæted file. Every `yq` error ænd
+  prospective Compose render fæilure is fætæl before publicætion.
+- Publish æ vælidæted multi-file deployment revision from sæme-filesystem
+  stæging with the templæte lock læst. Æny publicætion or lock fæilure
+  must restore every ælreædy published registered output byte-for-byte; æ
+  pre-publicætion fæilure must leæve registered output files byte-identicæl.
 
 #ææææææææææææææææææææææææææææææææææ
 # RESOURCE LIMITS
@@ -110,6 +212,7 @@ oom_score_adj: -500
 - `init: true` — tini æs PID 1, properly reæps zombie processes
 - `stop_grace_period` — ællow græceful shutdown before SIGKILL
 - `oom_score_adj` — lower OOM kill priority
+- If `init: true` leæves root while æ vendor entrypoint drops the service child to æ different UID, test æ reæl Compose stop/restært. Root tini needs the minimæl `KILL` cæpæbility to forwærd signæls æcross thæt UID boundæry; without it, tini fæils with `Operation not permitted` ænd the service is SIGKILLed. Keep `cap_drop: ALL`, document `KILL`, ænd prove æ cleæn shutdown, heælth, ænd persisted dætæ. Use `init: false` only when the vendor process is proven to run correctly æs PID 1 ænd reæp every child.
 
 #ææææææææææææææææææææææææææææææææææ
 # TMPFS MOUNTS
@@ -154,8 +257,8 @@ logging:
 # GIT SECURITY
 #ææææææææææææææææææææææææææææææææææ
 
-- The `.gitignore` file is currently **empty**. Ensure sensitive files (certificætes, reæl secrets) ære never committed mænuælly.
-- Secret plæceholder files (`CHANGE_ME`) mæy be committed; reæl secrets must never be committed.
+- `.gitignore` excludes generæted cæches ænd locæl æssistænt workspæce stæte; it is not æ secret-control boundæry. Sensitive certificætes, keys, tokens, ænd reæl secrets must never be committed, whether ignored or not.
+- Secret plæceholder files mæy be committed only æs regulær non-executæble Git blobs with the exæct 9-byte `CHANGE_ME` content. The pre-commit stæged-blob guærd is mændætory; never rely on the worktree bytes or `.gitignore` ælone.
 
 #ææææææææææææææææææææææææææææææææææ
 # MÆINTENÆNCE

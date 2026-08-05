@@ -1,90 +1,448 @@
 #!/usr/bin/env bash
-# Pre-commit hook: enforce Æ/æ brænding, æpp-templæte compliænce, ænd ænchor verificætion
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 it.særvices
+# Pre-commit hook: check stæged-scope brænding, hærdening, compliænce, ænd ænchors without mutæting the worktree or index
 set -euo pipefail
+umask 077
 
-REPO_ROOT="$(git rev-parse --show-toplevel)"
-cd "$REPO_ROOT"
+readonly REPO_ROOT="$(git rev-parse --show-toplevel)"
+readonly REAL_GIT_DIR="$(git rev-parse --absolute-git-dir)"
+if ! EXECUTED_HOOK="$(realpath -e -- "$0")" || [[ ! -f "$EXECUTED_HOOK" ]]; then
+  echo "[pre-commit] Cannot resolve the currently executed hook." >&2
+  exit 1
+fi
+readonly EXECUTED_HOOK
+REAL_INDEX_FILE="$(git rev-parse --git-path index)"
+if [[ "$REAL_INDEX_FILE" != /* ]]; then
+  REAL_INDEX_FILE="${REPO_ROOT}/${REAL_INDEX_FILE}"
+fi
+readonly REAL_INDEX_FILE
+SNAPSHOT_ROOT=""
 
-# Get stæged files (excluding deleted)
-staged_files=$(git diff --cached --name-only --diff-filter=d)
-[[ -z "$staged_files" ]] && exit 0
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: cleanup_snapshot
+#   Removes only the privæte stæged-index snapshot ænd preserves hook stætus.
+#ææææææææææææææææææææææææææææææææææ
+cleanup_snapshot() {
+  local exit_status=$?
 
-# --- Brænding ---
-SCRIPT_BRANDING=".cursor/scripts/enforce-branding.py"
-has_branding=false
-while IFS= read -r file; do
-    case "$file" in
-        *.yaml|*.yml|*.env|*.md|*.mdc|*.py|*.sh|.githooks/*) has_branding=true; break ;;
+  trap - EXIT HUP INT TERM
+  if [[ -n "$SNAPSHOT_ROOT" && -d "$SNAPSHOT_ROOT" && ! -L "$SNAPSHOT_ROOT" ]]; then
+    case "${SNAPSHOT_ROOT##*/}" in
+      pre-commit-index.*)
+        rm -rf -- "$SNAPSHOT_ROOT"
+        ;;
+      *)
+        printf '[pre-commit] Refusing unsafe snapshot cleanup path: %q\n' "$SNAPSHOT_ROOT" >&2
+        exit_status=1
+        ;;
     esac
-done <<< "$staged_files"
+  fi
+  exit "$exit_status"
+}
+trap cleanup_snapshot EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
-if [[ "$has_branding" == true ]] && [[ -f "$SCRIPT_BRANDING" ]]; then
-    if ! python3 "$SCRIPT_BRANDING" --check . >/dev/null 2>&1; then
-        echo "[pre-commit] Branding issues detected — auto-fixing..."
-        python3 "$SCRIPT_BRANDING" .
-        while IFS= read -r file; do
-            [[ -f "$file" ]] && git add "$file"
-        done <<< "$staged_files"
-        echo "[pre-commit] Branding fixed and re-staged."
-    fi
+cd "$REPO_ROOT"
+mapfile -d '' -t staged_files < <(git diff --cached --name-only -z)
+(( ${#staged_files[@]} == 0 )) && exit 0
+
+if ! SNAPSHOT_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/pre-commit-index.XXXXXX")"; then
+  echo "[pre-commit] Cannot create private staged-index snapshot." >&2
+  exit 1
+fi
+SNAPSHOT_ROOT="$(cd -- "$SNAPSHOT_ROOT" && pwd -P)"
+if ! git checkout-index --all --force --prefix="${SNAPSHOT_ROOT}/"; then
+  echo "[pre-commit] Cannot materialize the staged Git index." >&2
+  exit 1
 fi
 
-# --- Æpp-templæte compliænce ænd ænchor verificætion ---
-# Find æpp dirs with stæged docker-compose.app.yaml or .env / app.env
-app_dirs=""
-hardening_paths=""
-while IFS= read -r file; do
-    case "$file" in
-        *docker-compose*.yaml|*docker-compose*.yml)
-            hardening_paths="$hardening_paths $file"
-            ;;
-    esac
-    case "$file" in
-        */*)
-            dir="${file%%/*}"
-            case "$file" in
-                "$dir/docker-compose.app.yaml"|"$dir/.env"|"$dir/app.env")
-                    [[ -f "$dir/docker-compose.app.yaml" ]] && app_dirs="$app_dirs $dir"
-                    ;;
-            esac
-            ;;
-    esac
-done <<< "$staged_files"
-app_dirs=$(echo "$app_dirs" | tr ' ' '\n' | sort -u | tr '\n' ' ')
-hardening_paths=$(echo "$hardening_paths" | tr ' ' '\n' | sort -u | tr '\n' ' ')
+readonly STAGED_HOOK="${SNAPSHOT_ROOT}/.githooks/pre-commit"
+if [[ ! -f "$STAGED_HOOK" || -L "$STAGED_HOOK" ]]; then
+  echo "[pre-commit] The staged pre-commit hook is missing or not a regular file." >&2
+  exit 1
+fi
+if ! cmp -s -- "$EXECUTED_HOOK" "$STAGED_HOOK"; then
+  echo "[pre-commit] The executed pre-commit hook does not match the staged hook bytes." >&2
+  echo "[pre-commit] Stage the complete hook change or restore its unstaged bytes." >&2
+  exit 1
+fi
+
+readonly -a REQUIRED_REPOSITORY_CHECKERS=(
+  ".githooks/pre-commit"
+  ".cursor/scripts/check-staged-secret-placeholders.sh"
+  ".cursor/scripts/enforce-branding.py"
+  ".cursor/scripts/check-hardening.py"
+  ".cursor/scripts/test-build-contexts.py"
+  ".cursor/scripts/test-collabora-wrapper.sh"
+  ".cursor/scripts/test-kimai-wrapper.sh"
+  ".cursor/scripts/test-redis-secret-runtime.sh"
+  ".cursor/scripts/test-get-folder-safety.sh"
+  ".cursor/scripts/test-run-transaction.sh"
+  ".cursor/scripts/test-run-update.sh"
+  ".cursor/scripts/test-run-permissions.sh"
+  ".cursor/scripts/test-volume-deletion.py"
+  ".cursor/scripts/test-mariadb-maintenance-safety.sh"
+  ".cursor/scripts/test-postgresql-maintenance-safety.sh"
+  ".cursor/scripts/test-secret-preflights.sh"
+  ".cursor/scripts/test-staged-secret-placeholders.sh"
+  ".cursor/scripts/test-hardening.py"
+  ".cursor/scripts/test-compliance-branding.py"
+  ".cursor/scripts/enforce-app-template-compliance.py"
+  ".cursor/scripts/verify-anchors.py"
+)
+
+missing_checker=false
+for checker in "${REQUIRED_REPOSITORY_CHECKERS[@]}"; do
+  if [[ ! -f "${SNAPSHOT_ROOT}/${checker}" || -L "${SNAPSHOT_ROOT}/${checker}" ]]; then
+    printf '[pre-commit] Required staged checker is missing or not a regular file: %s\n' "$checker" >&2
+    missing_checker=true
+  fi
+done
+if [[ "$missing_checker" == true ]]; then
+  exit 1
+fi
+
+STAGED_SECRET_PLACEHOLDERS="${SNAPSHOT_ROOT}/.cursor/scripts/check-staged-secret-placeholders.sh"
+if ! GIT_DIR="$REAL_GIT_DIR" GIT_WORK_TREE="$REPO_ROOT" GIT_INDEX_FILE="$REAL_INDEX_FILE" \
+  bash "$STAGED_SECRET_PLACEHOLDERS"; then
+  echo "[pre-commit] Staged secret files must remain exact CHANGE_ME placeholders." >&2
+  exit 1
+fi
+
+while IFS= read -r git_local_env; do
+  unset "$git_local_env"
+done < <(git rev-parse --local-env-vars)
+if ! git -C "$SNAPSHOT_ROOT" init --quiet \
+  || ! git -C "$SNAPSHOT_ROOT" add --all --force; then
+  echo "[pre-commit] Cannot initialize private Git metadata for staged checks." >&2
+  exit 1
+fi
+cd "$SNAPSHOT_ROOT"
+
+declare -a branding_files=()
+declare -a shellcheck_files=()
+declare -A app_dirs=()
+declare -A build_context_apps=()
+declare -A compliance_targets=()
+declare -A hardening_paths=()
+build_context_synthetics_required=false
+build_context_topology_changed=false
+get_folder_regressions_required=false
+run_transaction_regressions_required=false
+run_update_regressions_required=false
+run_permissions_regressions_required=false
+volume_deletion_regressions_required=false
+mariadb_maintenance_regressions_required=false
+postgresql_maintenance_regressions_required=false
+staged_secret_regressions_required=false
+collabora_wrapper_regressions_required=false
+kimai_wrapper_regressions_required=false
+redis_secret_runtime_regressions_required=false
+
+for file in "${staged_files[@]}"; do
+  case "$file" in
+    *.yaml|*.yml|*.env|*.md|*.mdc|*.py|*.go|*.php|*.sh|Dockerfile|*/Dockerfile|Dockerfile.*|*/Dockerfile.*|dockerfile|*/dockerfile|dockerfile.*|*/dockerfile.*|.githooks/*)
+      [[ -f "$file" && ! -L "$file" ]] && branding_files+=("$file")
+      ;;
+  esac
+  case "$file" in
+    *.sh)
+      [[ -f "$file" && ! -L "$file" ]] && shellcheck_files+=("$file")
+      ;;
+    .githooks/*)
+      if [[ -f "$file" && ! -L "$file" ]]; then
+        first_line=""
+        IFS= read -r first_line <"$file" || true
+        if [[ "$first_line" == '#!'* ]] \
+          && [[ "$first_line" == *bash* || "$first_line" == *'/sh'* ]]; then
+          shellcheck_files+=("$file")
+        fi
+      fi
+      ;;
+  esac
+  case "$file" in
+    get-folder.sh)
+      get_folder_regressions_required=true
+      ;;
+  esac
+  case "$file" in
+    run.sh)
+      run_transaction_regressions_required=true
+      ;;
+  esac
+  case "$file" in
+    run.sh)
+      run_update_regressions_required=true
+      ;;
+  esac
+  case "$file" in
+    run.sh)
+      run_permissions_regressions_required=true
+      ;;
+  esac
+  case "$file" in
+    run.sh)
+      volume_deletion_regressions_required=true
+      ;;
+  esac
+  case "$file" in
+    templates/mariadb/.env|templates/mariadb/docker-compose*.yaml|templates/mariadb/dockerfiles/*|templates/mariadb/scripts/*|templates/mariadb_maintenance/.env|templates/mariadb_maintenance/docker-compose*.yaml|templates/mariadb_maintenance/dockerfiles/*|templates/mariadb_maintenance/scripts/*)
+      mariadb_maintenance_regressions_required=true
+      ;;
+  esac
+  case "$file" in
+    templates/postgresql/.env|templates/postgresql/docker-compose*.yaml|templates/postgresql/dockerfiles/*|templates/postgresql/scripts/*|templates/postgresql_maintenance/.env|templates/postgresql_maintenance/docker-compose*.yaml|templates/postgresql_maintenance/dockerfiles/*|templates/postgresql_maintenance/scripts/*)
+      postgresql_maintenance_regressions_required=true
+      ;;
+  esac
+  case "$file" in
+    .githooks/pre-commit|.cursor/scripts/check-staged-secret-placeholders.sh|.cursor/scripts/test-staged-secret-placeholders.sh|.cursor/rules/git.mdc|.cursor/rules/validation.mdc|.cursor/rules/project-audit.mdc|.cursor/README.md|.cursor/commands/audit.md)
+      staged_secret_regressions_required=true
+      ;;
+  esac
+  case "$file" in
+    templates/collabora/.env|templates/collabora/docker-compose*.yaml|templates/collabora/dockerfiles/*|templates/collabora/scripts/*)
+      collabora_wrapper_regressions_required=true
+      ;;
+  esac
+  case "$file" in
+    Kimai/.env|Kimai/docker-compose*.yaml|Kimai/dockerfiles/*|Kimai/scripts/*)
+      kimai_wrapper_regressions_required=true
+      ;;
+  esac
+  case "$file" in
+    templates/redis/.env|templates/redis/docker-compose*.yaml|templates/redis/dockerfiles/*|templates/redis/scripts/*)
+      redis_secret_runtime_regressions_required=true
+      ;;
+  esac
+  case "$file" in
+    *docker-compose*.yaml|*docker-compose*.yml)
+      [[ -f "$file" && ! -L "$file" ]] && hardening_paths["$file"]=1
+      ;;
+  esac
+  case "$file" in
+    run.sh|.cursor/scripts/test-build-contexts.py|.cursor/scripts/check-hardening.py)
+      build_context_synthetics_required=true
+      ;;
+  esac
+  case "$file" in
+    templates/*)
+      template_rest="${file#templates/}"
+      template_relative="${template_rest#*/}"
+      case "$template_relative" in
+        docker-compose*.yaml|docker-compose*.yml|.dockerignore|Dockerfile|Dockerfile.*|dockerfile|dockerfile.*|dockerfiles/.dockerignore|dockerfiles/*.dockerignore|dockerfiles/Dockerfile|dockerfiles/Dockerfile.*|dockerfiles/dockerfile|dockerfiles/dockerfile.*)
+          build_context_topology_changed=true
+          ;;
+      esac
+      ;;
+    */*)
+      app_root="${file%%/*}"
+      app_relative="${file#*/}"
+      case "$app_relative" in
+        docker-compose.app.yaml|.dockerignore|Dockerfile|Dockerfile.*|dockerfile|dockerfile.*|dockerfiles/.dockerignore|dockerfiles/*.dockerignore|dockerfiles/Dockerfile|dockerfiles/Dockerfile.*|dockerfiles/dockerfile|dockerfiles/dockerfile.*)
+          if [[ -f "${app_root}/docker-compose.app.yaml" ]]; then
+            build_context_apps["$app_root"]=1
+          fi
+          build_context_topology_changed=true
+          ;;
+      esac
+      ;;
+  esac
+
+  case "$file" in
+    templates/*/*)
+      template_rest="${file#templates/}"
+      template_name="${template_rest%%/*}"
+      template_root="templates/${template_name}"
+      if [[ -f "${template_root}/docker-compose.${template_name}.yaml" ]] \
+        || [[ -f "${template_root}/docker-compose.template.yaml" ]]; then
+        compliance_targets["$template_root"]=1
+      fi
+      ;;
+    */*)
+      app_root="${file%%/*}"
+      if [[ -f "${app_root}/docker-compose.app.yaml" ]]; then
+        app_dirs["$app_root"]=1
+        compliance_targets["$app_root"]=1
+      fi
+      ;;
+  esac
+done
+
+if (( ${#shellcheck_files[@]} > 0 )); then
+  if command -v shellcheck >/dev/null 2>&1; then
+    if ! shellcheck --severity=error -- "${shellcheck_files[@]}"; then
+      echo "[pre-commit] ShellCheck found errors in stæged shell files." >&2
+      exit 1
+    fi
+  else
+    if ! command -v docker >/dev/null 2>&1; then
+      echo "[pre-commit] ShellCheck is unavailable and Docker cannot provide the fallback." >&2
+      exit 1
+    fi
+    if ! docker run --rm \
+      --network none \
+      --volume "${SNAPSHOT_ROOT}:/workspace:ro" \
+      --workdir /workspace \
+      koalaman/shellcheck:stable \
+      --severity=error -- "${shellcheck_files[@]}"; then
+      echo "[pre-commit] Containerized ShellCheck failed for stæged shell files." >&2
+      exit 1
+    fi
+  fi
+fi
+
+SCRIPT_BRANDING=".cursor/scripts/enforce-branding.py"
+if (( ${#branding_files[@]} > 0 )); then
+  if ! PYTHONDONTWRITEBYTECODE=1 python3 "$SCRIPT_BRANDING" --check "${branding_files[@]}"; then
+    echo "[pre-commit] Branding issues found in staged-scope files." >&2
+    echo "[pre-commit] Run the branding command explicitly, inspect its changes, and stage only the intended paths." >&2
+    exit 1
+  fi
+fi
 
 HARDENING=".cursor/scripts/check-hardening.py"
-if [[ -n "$hardening_paths" ]] && [[ -f "$HARDENING" ]]; then
-    if ! python3 "$HARDENING" --quiet $hardening_paths; then
-        echo "[pre-commit] Hardening issues found. Fix them before committing." >&2
-        exit 1
-    fi
+if (( ${#hardening_paths[@]} > 0 )); then
+  if ! PYTHONDONTWRITEBYTECODE=1 python3 "$HARDENING" --quiet "${!hardening_paths[@]}"; then
+    echo "[pre-commit] Hardening issues found. Fix them before committing." >&2
+    exit 1
+  fi
+fi
+
+BUILD_CONTEXT_REGRESSIONS=".cursor/scripts/test-build-contexts.py"
+if (( ${#build_context_apps[@]} > 0 )); then
+  declare -a build_context_args=()
+  for app_root in "${!build_context_apps[@]}"; do
+    build_context_args+=(--app "$app_root")
+  done
+  if ! PYTHONDONTWRITEBYTECODE=1 python3 "$BUILD_CONTEXT_REGRESSIONS" "${build_context_args[@]}"; then
+    echo "[pre-commit] Build-context regression tests failed. Fix them before committing." >&2
+    exit 1
+  fi
+elif [[ "$build_context_synthetics_required" == true || "$build_context_topology_changed" == true ]]; then
+  if ! PYTHONDONTWRITEBYTECODE=1 python3 "$BUILD_CONTEXT_REGRESSIONS" --synthetic-only; then
+    echo "[pre-commit] Synthetic build-context regression tests failed. Fix them before committing." >&2
+    exit 1
+  fi
+fi
+
+COLLABORA_WRAPPER_REGRESSIONS=".cursor/scripts/test-collabora-wrapper.sh"
+if [[ "$collabora_wrapper_regressions_required" == true ]]; then
+  if ! bash "$COLLABORA_WRAPPER_REGRESSIONS"; then
+    echo "[pre-commit] Collæboræ wrapper regression tests failed. Fix them before committing." >&2
+    exit 1
+  fi
+fi
+
+KIMAI_WRAPPER_REGRESSIONS=".cursor/scripts/test-kimai-wrapper.sh"
+if [[ "$kimai_wrapper_regressions_required" == true ]]; then
+  if ! bash "$KIMAI_WRAPPER_REGRESSIONS"; then
+    echo "[pre-commit] Kimæi wrapper regression tests failed. Fix them before committing." >&2
+    exit 1
+  fi
+fi
+
+REDIS_SECRET_RUNTIME_REGRESSIONS=".cursor/scripts/test-redis-secret-runtime.sh"
+if [[ "$redis_secret_runtime_regressions_required" == true ]]; then
+  if ! bash "$REDIS_SECRET_RUNTIME_REGRESSIONS"; then
+    echo "[pre-commit] Redis secret-runtime regression tests failed. Fix them before committing." >&2
+    exit 1
+  fi
+fi
+
+GET_FOLDER_REGRESSIONS=".cursor/scripts/test-get-folder-safety.sh"
+if [[ "$get_folder_regressions_required" == true ]]; then
+  if ! bash "$GET_FOLDER_REGRESSIONS"; then
+    echo "[pre-commit] Folder-download safety regression tests failed. Fix them before committing." >&2
+    exit 1
+  fi
+fi
+
+RUN_TRANSACTION_REGRESSIONS=".cursor/scripts/test-run-transaction.sh"
+if [[ "$run_transaction_regressions_required" == true ]]; then
+  if ! bash "$RUN_TRANSACTION_REGRESSIONS"; then
+    echo "[pre-commit] Deployment-transaction regression tests failed. Fix them before committing." >&2
+    exit 1
+  fi
+fi
+
+RUN_UPDATE_REGRESSIONS=".cursor/scripts/test-run-update.sh"
+if [[ "$run_update_regressions_required" == true ]]; then
+  if ! bash "$RUN_UPDATE_REGRESSIONS"; then
+    echo "[pre-commit] Image-update regression tests failed. Fix them before committing." >&2
+    exit 1
+  fi
+fi
+
+RUN_PERMISSIONS_REGRESSIONS=".cursor/scripts/test-run-permissions.sh"
+if [[ "$run_permissions_regressions_required" == true ]]; then
+  if ! bash "$RUN_PERMISSIONS_REGRESSIONS"; then
+    echo "[pre-commit] Deployment-permission regression tests failed. Fix them before committing." >&2
+    exit 1
+  fi
+fi
+
+VOLUME_DELETION_REGRESSIONS=".cursor/scripts/test-volume-deletion.py"
+if [[ "$volume_deletion_regressions_required" == true ]]; then
+  if ! PYTHONDONTWRITEBYTECODE=1 python3 "$VOLUME_DELETION_REGRESSIONS"; then
+    echo "[pre-commit] Volume-deletion regression tests failed. Fix them before committing." >&2
+    exit 1
+  fi
+fi
+
+MARIADB_MAINTENANCE_REGRESSIONS=".cursor/scripts/test-mariadb-maintenance-safety.sh"
+if [[ "$mariadb_maintenance_regressions_required" == true ]]; then
+  if ! bash "$MARIADB_MAINTENANCE_REGRESSIONS"; then
+    echo "[pre-commit] MariaDB maintenance safety regression tests failed. Fix them before committing." >&2
+    exit 1
+  fi
+fi
+
+POSTGRESQL_MAINTENANCE_REGRESSIONS=".cursor/scripts/test-postgresql-maintenance-safety.sh"
+if [[ "$postgresql_maintenance_regressions_required" == true ]]; then
+  if ! bash "$POSTGRESQL_MAINTENANCE_REGRESSIONS"; then
+    echo "[pre-commit] PostgreSQL maintenance safety regression tests failed. Fix them before committing." >&2
+    exit 1
+  fi
+fi
+
+STAGED_SECRET_REGRESSIONS=".cursor/scripts/test-staged-secret-placeholders.sh"
+if [[ "$staged_secret_regressions_required" == true ]]; then
+  if ! bash "$STAGED_SECRET_REGRESSIONS"; then
+    echo "[pre-commit] Staged-secret placeholder regression tests failed. Fix them before committing." >&2
+    exit 1
+  fi
+fi
+
+HARDENING_REGRESSIONS=".cursor/scripts/test-hardening.py"
+if ! PYTHONDONTWRITEBYTECODE=1 python3 "$HARDENING_REGRESSIONS"; then
+  echo "[pre-commit] Hardening regression tests failed. Fix them before committing." >&2
+  exit 1
+fi
+
+COMPLIANCE_BRANDING_REGRESSIONS=".cursor/scripts/test-compliance-branding.py"
+if ! PYTHONDONTWRITEBYTECODE=1 python3 "$COMPLIANCE_BRANDING_REGRESSIONS"; then
+  echo "[pre-commit] Compliance/branding regression tests failed. Fix them before committing." >&2
+  exit 1
 fi
 
 COMPLIANCE=".cursor/scripts/enforce-app-template-compliance.py"
+for target in "${!compliance_targets[@]}"; do
+  if ! PYTHONDONTWRITEBYTECODE=1 python3 "$COMPLIANCE" --check "$target"; then
+    echo "[pre-commit] Compliance issues in $target. Run the fixer explicitly and review the diff before staging." >&2
+    exit 1
+  fi
+done
+
 ANCHORS=".cursor/scripts/verify-anchors.py"
-for app in $app_dirs; do
-    [[ -z "$app" ]] && continue
-    if [[ -f "$COMPLIANCE" ]]; then
-        if ! python3 "$COMPLIANCE" --check "$app" >/dev/null 2>&1; then
-            echo "[pre-commit] Compliance issues in $app — auto-fixing..."
-            python3 "$COMPLIANCE" "$app"
-            git add "$app/docker-compose.app.yaml" "$app/.env" "$app/app.env" 2>/dev/null || true
-            echo "[pre-commit] Compliance fixed and re-staged for $app."
-        fi
-    fi
-    if [[ -f "$ANCHORS" ]]; then
-        if ! python3 "$ANCHORS" "$app"; then
-            echo "[pre-commit] Anchor issues in $app — auto-fixing deterministic cases..."
-            python3 "$ANCHORS" --fix "$app" || true
-            git add "$app" templates/ 2>/dev/null || true
-            if ! python3 "$ANCHORS" "$app"; then
-                echo "[pre-commit] Unresolved anchor issues in $app. Fix them before committing." >&2
-                exit 1
-            fi
-            echo "[pre-commit] Anchor issues fixed and re-staged for $app."
-        fi
-    fi
+for app in "${!app_dirs[@]}"; do
+  if ! PYTHONDONTWRITEBYTECODE=1 python3 "$ANCHORS" "$app"; then
+    echo "[pre-commit] Anchor issues in $app. Run --fix explicitly and review the diff before staging." >&2
+    exit 1
+  fi
 done
 
 exit 0

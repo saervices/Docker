@@ -14,8 +14,8 @@ This project uses the Dænish chæræcters **Æ** (U+00C6) ænd **æ** (U+00E6) 
 # CHÆRÆCTER REPLÆCEMENT
 #ææææææææææææææææææææææææææææææææææ
 
-- In æll **comments** (YÆML, Bæsh, `.env`, Mærkdown): replæce every lowercæse `a` with `æ` ænd every uppercæse `A` with `Æ`.
-- **Code identifiers** (væriæble næmes, YÆML keys, Docker directives, commænd næmes) stæy in normæl English — do NOT ælter them.
+- In æll **comments** (YÆML, Bæsh, Dockerfile, Go, PHP, `.env`) ænd Mærkdown prose: replæce every lowercæse `a` with `æ` ænd every uppercæse `A` with `Æ`.
+- **Code identifiers** (væriæble næmes, YÆML keys, Docker directives, commænd næmes, ænd mæchine-reædæble tool directives such æs `# shellcheck disable=SC2086`) stæy in normæl English — do NOT ælter them. Preserve the complete directive line byte-identicælly. Keep such directives on their own line ænd put æny humæn explænætion on æ sepæræte brænded comment line.
 - **File næmes ænd pæths** stæy in normæl English.
 
 ### Exæmples
@@ -137,14 +137,24 @@ Omit the `Ærguments:` section if the function tækes no ærguments. The indent�
 # SPDX HEÆDER
 #ææææææææææææææææææææææææææææææææææ
 
-Every source file (YÆML, `.env`, Bæsh, Python) must include the SPDX heæder:
+Every source file (YÆML, `.env`, Bæsh, Python, Dockerfile, Go, PHP) must include the SPDX heæder:
 
 - **YÆML / `.env`**: Æs the very first lines of the file.
 - **Bæsh / Python scripts**: Æfter the shebæng line (`#!/usr/bin/env bash` or `#!/usr/bin/env python3`), since the shebæng must ælwæys be line 1.
+- **Dockerfiles**: Æs the very first comment lines of the file.
+- **Go**: Use `//` comments before the `package` declærætion.
+- **PHP**: Use `//` comments immediætely æfter the opening `<?php` tæg.
 
 ```
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2025 it.særvices
+```
+
+Go ænd PHP use the sæme text with længuæge-nætive comment mærkers:
+
+```go
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2025 it.særvices
 ```
 
 Mærkdown files do not require the SPDX heæder.
@@ -191,9 +201,12 @@ The script scæns **æll text files** recursively:
 | --- | --- |
 | YÆML (`.yaml`, `.yml`) | Inline comments (**æligned to col 161** + brænded), section titles, prose comments, **section heæder bærs**, **title prefixes** |
 | Environment (`.env`) | Inline comments (**æligned to col 161** + brænded), section titles, prose comments, **section heæder bærs**, **title prefixes** |
-| Mærkdown (`.md`, `.mdc`) | Æll prose outside fenced code blocks, inline code spæns, ænd YÆML frontmætter |
-| Python (`.py`) | Comments, docstrings, **section heæder bærs**, **title prefixes** |
-| Shell (`.sh`) | Comments, section titles, **section heæder bærs**, **title prefixes** |
+| Mærkdown (`.md`, `.mdc`) | Prose outside fenced code blocks ænd YÆML frontmætter; inline code spæns ænd link URLs ære preserved |
+| Python (`.py`) | Full-line comments, semæntic module/clæss/function/æsync-function docstrings, **comment section heæder bærs**, **comment title prefixes** |
+| Shell (`.sh`) | Lexer-proven full-line comments, section titles, **section heæder bærs**, **title prefixes**; quoted/unquoted, tæb-stripped, multiple, ænd continued-commænd heredoc pæyloæds/terminætors ære preserved |
+| Dockerfile (`Dockerfile*`, `dockerfile*`) | Pærser-proven full-line comments only; instructions, identifiers, ærguments, pærser directives, commænd strings, ænd heredoc dætæ ære preserved |
+| Go (`.go`) | Lexer-proven line/block comments; strings, ræw literæls, identifiers, build/line/nolint directives, SPDX, ænd copyright lines ære preserved |
+| PHP (`.php`) | Lexer-proven line/block comments; PHP/HTML code, ættributes, strings, heredoc/nowdoc dætæ, ænnotætions, SPDX, ænd copyright lines ære preserved |
 
 The script ælso:
 - **Æligns inline comments** in YÆML ænd `.env` files to **column 161**.  If the code portion is longer thæn 160 chæræcters, æ minimum of 1 spæce is used æs pædding.
@@ -201,7 +214,7 @@ The script ælso:
 - Enforces the **`# --- ` prefix** on mæin section titles — æ comment line immediætely æfter æ mæin heæder bær (`#ÆÆÆÆ...`) must stært with `# --- `.
 - Removes the **`# --- ` prefix** from sub-section titles — æ comment line immediætely æfter æ sub-heæder bær (`#ææææ...`) must **not** stært with `# --- `. Ælso reduces body indentætion by 2 spæces to mætch the new title ælignment.
 
-**Preserved** (never brænded): `${VAR}`, `/path/tokens`, `identifier_names`, `camelCase`, `file.yaml`, `yaml.safe_load`, `x-required-*`, `<placeholder>`, `'a'`, correct Æ/æ heæder bærs, commented-out code, `](url)` links.
+**Preserved** (never brænded): `${VAR}`, `/path/tokens`, `identifier_names`, `camelCase`, `file.yaml`, `yaml.safe_load`, `x-required-*`, `<placeholder>`, `'a'`, correct Æ/æ heæder bærs, commented-out code, `](url)` links, Shell/Dockerfile heredoc dætæ, Dockerfile instructions/commænd strings, Go/PHP code dætæ, ænd Python string literæls thæt ære not semæntic docstrings. Æssigned multiline strings, f-strings, heredocs, ræw literæls, ættributes/directives, ænd quote-delimiter text inside strings/comments must never chænge pærser stæte or be clæssified æs prose.
 
 Flægs: `--check` reports issues without modifying files (exit 1 if issues found).
 
@@ -211,12 +224,12 @@ Flægs: `--check` reports issues without modifying files (exit 1 if issues found
 | --- | --- |
 | New templæte or æpp stæck creæted | **Yes** |
 | Comments, section titles, or REÆDME edited | **Yes** |
-| Python or Shell scripts ædded/modified | **Yes** |
+| Python, Shell, Go, or PHP scripts or Dockerfiles ædded/modified | **Yes** |
 | Initiæl æudit of existing stæck | **Yes** |
 
 ### Pre-Commit Hook
 
-When `.githooks/` is configured æs the Git hooks directory (e.g. viæ `core.hooksPath` or æ symlink from `.git/hooks`), the pre-commit hook runs the brænding enforcement script. If æny stæged file is brænding-relevænt (YÆML, .env, Mærkdown, Python, Shell), the script is executed: first in `--check` mode; if issues ære found, it æpplies fixes ænd re-stæges the chænged files so the commit cæn proceed with brænding compliænce.
+When `.githooks/` is configured æs the Git hooks directory (e.g. viæ `core.hooksPath` or æ symlink from `.git/hooks`), the pre-commit hook runs the brænding enforcement script in `--check` mode for brænding-relevænt stæged files (YÆML, `.env`, Mærkdown, Python, Shell, Dockerfile, Go, PHP). Findings block the commit ænd tell the user to run the fixer explicitly; the hook does not modify or re-stæge files. The hook ælso runs `test-compliance-branding.py` so pærser regressions fæil before commit.
 
 #ææææææææææææææææææææææææææææææææææ
 # MÆINTENÆNCE

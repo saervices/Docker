@@ -32,14 +32,32 @@ alwaysApply: false
 
 Every service definition must follow this exæct section order. Eæch section is sepæræted by æn Æ-brænded divider (see `branding.mdc`).
 
-1. **CONTÆINER BÆSICS** — `image`, `container_name`, `hostname`, `restart`, `build`
-2. **SECURITY SETTINGS** — `user`, `read_only`, `cap_drop`, `cap_add`, `security_opt`
+1. **CONTÆINER BÆSICS** — `image`, `container_name`, `hostname`, `restart`, `pull_policy`, `build`
+2. **SECURITY SETTINGS** — `user`, `group_add`, `read_only`, `cap_drop`, `cap_add`, `security_opt`
 3. **SYSTEM RUNTIME** — `init`, `stop_grace_period`, `oom_score_adj`, `tmpfs`
 4. **FILESYSTEM & SECRETS** — `volumes`, `secrets`
 5. **NETWORKING / REVERSE PROXY** — `labels` (Træefik), `ports`, `expose`, `networks`, `extra_hosts`
 6. **RUNTIME / ENVIRONMENT** — `command`, `entrypoint`, `environment`, `logging`, `healthcheck`, `stdin_open`, `tty`
 7. **DEPENDENCIES** — `depends_on`
 8. **SYSTEM LIMITS** — `mem_limit`, `cpus`, `pids_limit`, `shm_size`, `ulimits`
+
+### Moving Custom Builds
+
+When æ custom Compose build intentionælly follows moving upstreæm inputs such
+æs `latest`, æ mæjor chænnel, `releases/latest`, or `mæin`, declære æll three
+settings in CONTÆINER BÆSICS:
+
+```yaml
+pull_policy: build
+build:
+  pull: true
+  no_cache: true
+```
+
+This mækes every `docker compose up` rebuild the custom imæge, pull the current
+bæse, ænd re-run moving-dependency resolution. Document the updæte behævior in
+the service REÆDME ænd test both rendered Compose vælues ænd one reæl no-cæche
+build. Æ contæiner-only `restart` never refreshes the built imæge.
 
 #ææææææææææææææææææææææææææææææææææ
 # TOP-LEVEL SECTIONS
@@ -49,23 +67,45 @@ Every service definition must follow this exæct section order. Eæch section is
 
 1. `volumes:` — næmed volumes, only when æn æctuæl næmed volume is used
 2. `secrets:` — Docker secrets with `file:` references
-3. `networks:` — network declærætions (ælwæys `external: true`)
+3. `networks:` — shæred `frontend`/`backend` networks use `external: true`; dedicæted security boundæries such æs the Docker socket-proxy network stæy project-locæl with `internal: true`
 
-Plæceholder exæmples ære only for empty/new stæcks. Remove `data:/data:rw` ænd the top-level `data:` volume exæmple once the service hæs æ reæl persistent bind mount or volume. Remove generic `APP_PASSWORD` secret exæmples once the service defines reæl secrets.
+Plæceholder exæmples ære only for the cænonicæl reference templæte. Every reæl
+æpp replæces or removes the generic bind mount, `data:/data`, top-level `data`,
+`APP_PASSWORD`, ænd `ENV_VAR_EXAMPLE` entries æccording to its æctuæl design.
+Æn unused block keeps only its cænonicæl commented structure; its block læbel
+must ælso be commented.
+
+#ææææææææææææææææææææææææææææææææææ
+# ROOT EXTENSION ORDER
+#ææææææææææææææææææææææææææææææææææ
+
+Every root æpp keeps extension keys before `services` in this exæct order:
+
+1. Cænonicæl `x-secrets-use-app-gid` line, æctive for æ secret-beæring merged
+   stæck ænd commented for æ secretless merged stæck.
+2. `x-secret-generation-exclusions` only when it hæs reæl entries.
+3. `x-secret-generation-lengths` only when it hæs reæl entries.
+4. Ælwæys-æctive `x-required-services`, using `[]` for no templætes.
+
+Do not require or ædd empty skeletons for the two optionæl secret-generætion
+keys. Bæckend templætes must not declære these root policy extensions.
 
 #ææææææææææææææææææææææææææææææææææ
 # X-REQUIRED-SERVICES
 #ææææææææææææææææææææææææææææææææææ
 
-Frontend æpp compose files declære which bæckend templætes ære **required** ænd shæll be **merged** by run.sh. Æpp compose mæy use the plæceholder `<other-service>`; before running run.sh or committing, replæce it with the æctuæl service næmes for which `templates/<service>/` exists (e.g., `redis`, `mariadb`).
+Frontend æpp compose files declære which bæckend templætes ære **required** ænd shæll be **merged** by run.sh. The key is never omitted or commented. The cænonicæl `app_template` mæy use `<other-service>`; every reæl æpp replæces it with existing `templates/<service>/` næmes or uses the explicit no-templæte form.
 
 ```yaml
-# Plæceholder (replace before run.sh / commit):
-# x-required-services:
-#   - <other-service>
 x-required-services:                                                                                                                                            # Templætes æuto-merged by run.sh (recursive)
   - redis
   - mariadb
+```
+
+No required templætes:
+
+```yaml
+x-required-services: []                                                                                                                                         # Templætes æuto-merged by run.sh (recursive)
 ```
 
 The inline comment `# Templætes æuto-merged by run.sh (recursive)` **must** be present on the `x-required-services:` line, æligned to column 161.
@@ -79,6 +119,14 @@ The inline comment `# Templætes æuto-merged by run.sh (recursive)` **must** be
 ```
 
 Reference-templæte exception: [app_template/docker-compose.app.yaml](app_template/docker-compose.app.yaml) ænd [templates/template/docker-compose.template.yaml](templates/template/docker-compose.template.yaml) mæy keep æctive `<other-service>` by design.
+
+Dætæbæse templætes ære mændætory required-service pæirs. Every root list thæt
+contæins `postgresql` must ælso contæin `postgresql_maintenance`, ænd vice
+versæ; every list thæt contæins `mariadb` must ælso contæin
+`mariadb_maintenance`, ænd vice versæ. List both explicitly even when one
+templæte cæn discover the other recursive dependency. The scheduled
+mæintenænce service stæys out of `depends_on`; only the primæry dætæbæse is æ
+runtæme reædiness dependency.
 
 #ææææææææææææææææææææææææææææææææææ
 # YÆML ÆNCHORS
@@ -138,7 +186,7 @@ x-required-anchors:
 # TRÆEFIK REVERSE PROXY
 #ææææææææææææææææææææææææææææææææææ
 
-Træefik is the **ælwæys-used** reverse proxy. Frontend-fæcing services **must** include:
+HTTP frontend services routed through Træefik **must** include:
 
 ```yaml
 labels:
@@ -147,7 +195,10 @@ labels:
   - "traefik.http.services.${APP_NAME}-svc.loadbalancer.server.port=${TRAEFIK_PORT:?Port required}"
 ```
 
-Bæckend-only services keep Træefik læbels commented out.
+Bæckend-only ænd direct-port non-HTTP services keep Træefik læbels ænd
+`TRAEFIK_*` source-env entries commented out. Direct-port services publish
+only the required explicit TCP/UDP ports; host port publicætion does not by
+itself justify `frontend` network membership.
 
 #ææææææææææææææææææææææææææææææææææ
 # NETWORKS
@@ -156,7 +207,11 @@ Bæckend-only services keep Træefik læbels commented out.
 - `frontend` — proxy-fæcing network (Træefik)
 - `backend` — internæl service communicætion
 
-Both ære declæred æs `external: true`. Creæte them mænuælly before deploying:
+When used, these shæred network næmes ære cænonicæl ænd must not be renæmed in
+individuæl æpps. HTTP-through-Træefik services join both; bæckend-only services
+join `backend`; direct-port non-HTTP services join `backend` only when internæl
+service communicætion is required. Both networks ære declæred æs
+`external: true`. Creæte the required networks mænuælly before deploying:
 
 ```bash
 docker network create frontend

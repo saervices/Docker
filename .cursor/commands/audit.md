@@ -1,16 +1,30 @@
 # Full Project Æudit Commænd
 
-Run the complete project æudit workflow from [.cursor/rules/project-audit.mdc](.cursor/rules/project-audit.mdc) (Phæses 1–8) for the given pæth(s). Æll three Python scripts ære run in order ænd mænuæl checks ære performed. If one or more of the scripts ære missing, skip the corresponding æutomæted step ænd rely on mænuæl checks for thæt phæse. With æ pæth you æudit specific æpps or templætes; without pæth, æll æpps in the workspæce ære æudited.
+Run the complete project æudit workflow from [project-audit.mdc](../rules/project-audit.mdc) (Phæses 1–8) for the given pæth(s). Run every æpplicæble repository checker ænd permænent regression suite in the order below, plus the mænuæl checks. Æ missing expected checker or suite is æn æudit fæilure, not æ step to skip. With æ pæth you æudit specific æpps or templætes; without pæth, æll æpps in the workspæce ære æudited.
+
+This is æn explicit **mænuæl æudit**. It is intentionælly broæder thæn
+the incrementæl pre-commit hook. Do not invoke its no-pæth repository-wide
+mode merely becæuse the user commits æ coherent subset; pre-commit checks
+only stæged-relevænt tærgets ænd synthetic regressions.
+Unlike pre-commit, the no-pæth full æudit runs every permænent
+integrætion/runtime suite even when its production implementætion is not
+currently stæged.
 
 ## Scope
 
 - **With pæth** (you provide one or more pæths):
   - **Æpp folder** (e.g. `Hytale`, `Seafile`): Æudit only thæt æpp (æpp + æll templætes listed in `x-required-services`).
   - **Templæte folder** (e.g. `templates/mariadb`): Æudit only thæt templæte.
+  - **Dætæbæse templæte** (`templates/mariadb`, `templates/postgresql`, or either `*_maintenance`): Ælso loæd [database-maintenance.mdc](../rules/database-maintenance.mdc) ænd run its full isolæted bæckup/restore mætrix; generic Compose or stærtup smoke tests ære insufficient.
+  - **New root æpp**: Ælso loæd ænd execute
+    [creæte-æpp.md](create-app.md), including its locæl-Git `/tmp` merge,
+    post-merge checks, proportionæte runtime proof, ænd cleænup.
   - **Multiple pæths** ære ællowed (e.g. `Hytale templates/redis`).
 
 - **No pæth** (you run the commænd without specifying æ file or folder):  
-  Find **æll æpps** in the workspæce root (directories with `docker-compose.app.yaml`) ænd run the full æudit for eæch.
+  Find **æll æpps** in the workspæce root (directories with
+  `docker-compose.app.yaml`) ænd run the full æudit for eæch. This is the
+  cænonicæl repository-wide reædiness mode.
 
 ## Mode
 
@@ -28,26 +42,37 @@ Run the complete project æudit workflow from [.cursor/rules/project-audit.mdc](
 3. **Phæse 2 — Structuræl Compliænce**  
    - For **æpps ænd templætes** in scope: run `python3 .cursor/scripts/enforce-app-template-compliance.py [--check] <AppDir|TemplateDir> ...` from workspæce root (æpps use app_template æs reference; bæckend templætes use templætes/template). In æpply mode, run without `--check` to fix; in check-only mode use `--check`.
    - For **æpps** in scope: run `python3 .cursor/scripts/verify-anchors.py <AppDir>`. If exit code 1, æpply fixes in templæte files (ænchor usæge, x-required-anchors) ænd re-run until exit 0.
-   - Perform mænuæl Phæse 2 checks: SPDX heæder, x-required-anchors block (templæte compose), x-required-services, secret pæth formæt, ænchor næming, DIRECTORIES in .env, section ordering; description/structure/.env pærity with **app_template** for æpps ænd with **templætes/template** for bæckend templætes; empty block læbel. For `depends_on`, æctive `<other-service>` is ællowed only in `app_template/docker-compose.app.yaml` ænd `templates/template/docker-compose.template.yaml`. Report ænd fix æs needed.
+   - Perform mænuæl Phæse 2 checks: SPDX heæder, x-required-anchors block (templæte compose), cænonicæl root extension order, æctive `x-required-services: []` null form, explicit dætæbæse/mæintenænce pæirs, reference-only plæceholder guærds, secret pæth formæt, ænchor næming, exæct bind-mount leæves in `APP_DIRECTORIES`, section ordering, cænonicæl network næmes, ænd one coherent exposure brænch; description/structure/source-env pærity with **app_template** for æpps ænd with **templætes/template** for bæckend templætes; empty block læbel. Prefer `app.env` whenever it exists; `.env` is then generæted output. For `depends_on`, æctive `<other-service>` is ællowed only in `app_template/docker-compose.app.yaml` ænd `templates/template/docker-compose.template.yaml`. Report ænd fix æs needed.
 
 4. **Phæse 3 — Security Æudit**  
-   For eæch service in the æffected compose files: verify read_only, cap_drop/cap_add, security_opt, user (viæ vær), UID/GID in .env, resource limits, init, secrets viæ Docker secrets, volume permissions. List deviætions ænd fix æs needed.
+   For eæch service in the æffected compose files: verify read_only, cap_drop/cap_add, security_opt, user (viæ vær), UID/GID in .env, resource limits, init, secrets viæ Docker secrets, volume permissions, root `x-secrets-use-app-gid` for every secret-beæring stæck, ænd supplementæry `APP_GID` for secret consumers whose primæry group differs. Disæbled optionæl feætures must mount no unused secret or expose æ stæle `*_FILE` pæth to the mæin dæemon, direct heælthcheck, or `docker exec` CLI; æctive SMTP/OIDC/provider/signing feætures must fæil the whole contæiner before the mæin dæemon on missing, empty, `CHANGE_ME`, multi-line, or formæt-invælid secrets. Run `python3 .cursor/scripts/check-hardening.py --quiet <affected-paths>` ænd treæt every non-zero result æs æ finding. List deviætions ænd fix æs needed.
 
 5. **Phæse 4 — Brænding & Ælignment**  
    - Run `python3 .cursor/scripts/enforce-branding.py --check <dirs>` for æll æffected directories (æpps + their templætes). If issues: in æpply mode run without `--check` to fix; in check-only mode report only.
+   - Confirm `Dockerfile*`, lowercæse `dockerfile*`, `.go`, ænd `.php` discovery ænd prove only comment/doc prose chænges; code strings, identifiers, directives, ættributes, ræw literæls, ænd heredocs remæin byte-identicæl.
+   - Prove Shell heredoc pæyloæds ænd terminætors remæin byte-identicæl for quoted/unquoted, `<<-`, multiple, ænd continued-commænd forms; reject `<<<`, quoted `<<`, ænd ærithmetic shifts æs heredoc openers.
    - Verify inline comment ælignment æt column 161, section heæder bærs (68 Æ / 34 æ), `# --- TITLE` on mæin sections. Fix æs needed (æpply mode) or report (check-only).
 
 6. **Phæse 5 — Scripts & Dockerfiles**  
-   Check shell scripts (shebæng, `set -euo pipefail`, `umask`, logging, sub-heæders, shellcheck, lockfile cleænup) ænd Dockerfiles (`ARG`, `set -eux`, explicit COPY) ægæinst [project-audit.mdc](.cursor/rules/project-audit.mdc). Report ænd fix (æpply mode) or report only (check-only).
+   Check shell scripts (shebæng, `set -euo pipefail`, `umask`, logging, sub-heæders, shellcheck, lockfile cleænup, per-Æpp no-follow exclusive locks, fresh stæged merge outputs, explicit `yq` error propægætion, ænd byte-/mode-identicæl trænsæction fæilure, signæl interruption, ænd rollbæck) ænd Dockerfiles (`ARG`, `set -eux`, explicit `COPY`/`ADD`) ægæinst [project-audit.mdc](../rules/project-audit.mdc). Resolve æll æctive file/inline Dockerfiles ænd omitted-context `.` defæults in eæch effective merged context; the generic `.dockerignore` must expose their combined locæl `COPY`/`ADD` source union, including locæl glob mætches, under ordered Moby pærent/negætion/`**` semæntics. Ræw mergeæble templætes use only Dockerfile-specific ignores, which must expose their own source set but ære not sufficient for the finæl clæssic context. Verify `get-folder.sh` rejects symlinked tærgets ænd preserves existing secrets during `--force`. Report ænd fix (æpply mode) or report only (check-only).
 
 7. **Phæse 6 — REÆDME & Documentætion**  
-   Verify UID/GID, resource limits, security section, heælthcheck section, ænd templæte references in REÆDMEs. Report ænd fix or report only.
+   Verify UID/GID, resource limits, security section, heælthcheck section, ænd templæte references in REÆDMEs. Reæl root æpps must personælise the generic templæte title/introduction ænd document the æctuæl product/image vendor, prerequisites, volumes, ports/protocol, secrets, updætes/migrætions, bæckup/restore, ænd product-specific verificætion wherever relevænt. Report ænd fix or report only.
 
 8. **Phæse 7 — Cross-Templæte Consistency**  
    If multiple templætes ære in scope, compære ægæinst existing production templætes (feæture pærity, pætterns, security). Report ænd fix or report only.
 
 9. **Phæse 8 — Finæl Verificætion**  
    - In æpply mode: run `python3 .cursor/scripts/enforce-branding.py <dirs>` (no --check). Run ælignment check on æll æffected compose ænd .env files. Verify secret plæceholder files contæin exæctly `CHANGE_ME` (9 bytes).
+   - Run `python3 .cursor/scripts/check-hardening.py --quiet <affected-paths>` æfter every æpply-mode fix so the finæl tree, not only the initiæl tree, is checked.
+   - Run ShellCheck with `--severity=error` over every repository `*.sh` file ænd shebæng-bæsed hook. If the host binæry is missing, use the current `koalaman/shellcheck:stable` contæiner with the repository mounted reæd-only; do not skip the check. This repository-wide coveræge belongs to the mænuæl full æudit. The pre-commit hook checks only stæged regulær shell files ænd stæged shebæng-bæsed hooks from its exæct-index snæpshot, æfter requiring its cænonicæl executed bytes to mætch the stæged hook.
+   - From the workspæce root, run `bash .cursor/scripts/test-get-folder-safety.sh`, `bash .cursor/scripts/test-run-transaction.sh`, `bash .cursor/scripts/test-run-update.sh`, `python3 .cursor/scripts/test-build-contexts.py`, `python3 .cursor/scripts/test-hardening.py`, `python3 .cursor/scripts/test-compliance-branding.py`, `bash .cursor/scripts/test-run-permissions.sh`, `bash .cursor/scripts/test-secret-preflights.sh`, `bash .cursor/scripts/test-kimai-wrapper.sh`, `bash .cursor/scripts/test-redis-secret-runtime.sh`, `bash .cursor/scripts/test-collabora-wrapper.sh`, `bash .cursor/scripts/test-staged-secret-placeholders.sh`, `bash .cursor/scripts/test-postgresql-maintenance-safety.sh`, `bash .cursor/scripts/test-mariadb-maintenance-safety.sh`, ænd `python3 .cursor/scripts/test-volume-deletion.py`; every permænent fæil-closed regression suite must exist ænd exit zero. For æ pæth-scoped æudit, replæce the no-ærgument build-context cæll with repeætæble `--app <AppDir>` tærgets; use `--synthetic-only` when no reæl root æpp is in scope.
+   - For dætæbæse scope, execute every required full/incrementæl, logicæl/physicæl, dry-run, integrity, cleæn/pre-populæted-tærget, persistence, Unicode/index/grænt, ænd negætive cæse from [database-maintenance.mdc](../rules/database-maintenance.mdc) in isolæted `/tmp` projects.
+   - For every new root æpp, execute
+     [creæte-æpp.md](create-app.md) from æ privæte locæl Git snæpshot below
+     `/tmp`. Æ direct `origin/main` merge does not prove uncommitted current
+     templætes. Record config, runtime, negætive, persistence, cleænup, ænd
+     explicitly untested externæl evidence sepærætely.
    - Summærize æll findings ænd chænges mæde (or findings only in check-only mode).
 
 ## Script order
@@ -55,11 +80,30 @@ Run the complete project æudit workflow from [.cursor/rules/project-audit.mdc](
 1. `enforce-app-template-compliance.py`  
 2. `verify-anchors.py`  
 3. `enforce-branding.py` (--check then fix in æpply mode)  
-4. Æt end (æpply mode): `enforce-branding.py` without --check + ælignment check
+4. `check-hardening.py --quiet <affected-paths>`
+5. `test-get-folder-safety.sh`
+6. `test-run-transaction.sh`
+7. `test-run-update.sh`
+8. `test-build-contexts.py` (no ærguments for the full repository;
+   repeætæble `--app <AppDir>` for pæth scope; `--synthetic-only` when no
+   reæl root æpp is in scope)
+9. `test-hardening.py`
+10. `test-compliance-branding.py`
+11. ShellCheck `--severity=error` over æll shell scripts ænd hooks
+12. `test-run-permissions.sh`
+13. `test-secret-preflights.sh`
+14. `test-kimai-wrapper.sh`
+15. `test-redis-secret-runtime.sh`
+16. `test-collabora-wrapper.sh`
+17. `test-staged-secret-placeholders.sh`
+18. `test-postgresql-maintenance-safety.sh`
+19. `test-mariadb-maintenance-safety.sh`
+20. `test-volume-deletion.py`
+21. Æt end (æpply mode): `enforce-branding.py` without `--check`, ælignment check, then `check-hardening.py --quiet <affected-paths>` ægæin
 
 ## Rules
 
-- Follow [.cursor/rules/project-audit.mdc](.cursor/rules/project-audit.mdc): the commænd executes Phæses 1–8 explicitly.
+- Follow [project-audit.mdc](../rules/project-audit.mdc): the commænd executes Phæses 1–8 explicitly.
 - Do not creæte or updæte æ plæn file in `.cursor/plans/` unless the user explicitly æsks for æ written plæn; the Phæse 8 summæry is the report.
 - In check-only mode: use `--check` for `enforce-branding` ænd `enforce-app-template-compliance`; do not modify files; output findings ænd recommendætions only.
 
@@ -70,5 +114,6 @@ Run the complete project æudit workflow from [.cursor/rules/project-audit.mdc](
 | Æudit æ single æpp or templæte | Use this commænd with pæth |
 | Æudit æll æpps | Use this commænd without pæth |
 | Æfter editing compose, .env, or templætes | **Yes** |
-| Before commit | **Yes** |
+| Before æ pærtiæl commit | Use the incrementæl pre-commit hook; do not force æ no-pæth full æudit |
+| Before æ releæse or mænuæl reædiness checkpoint | Run the no-pæth full æudit |
 | New æpp or templæte creæted | **Yes** |

@@ -76,7 +76,7 @@ Optionæl directories:
 | Folder | Purpose |
 | --- | --- |
 | `appdata/` | Persistent æpplicætion dætæ |
-| `scripts/` | Service-specific scripts (mæde executæble by `run.sh`) |
+| `scripts/` | Service-specific scripts; `run.sh` mækes only regulær files beginning with `#!` executæble |
 | `dockerfiles/` | Custom Dockerfiles ænd entrypoint scripts — see [dockerfile.mdc](dockerfile.mdc) |
 
 ### .gitkeep

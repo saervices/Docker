@@ -49,9 +49,43 @@ alwaysApply: false
 
 | File/Folder | Description |
 | --- | --- |
-| `scripts/` | Service-specific scripts (mæde executæble by `run.sh`) |
+| `scripts/` | Service-specific scripts; only regulær files beginning with `#!` ære mæde executæble by `run.sh` |
 | `dockerfiles/` | Custom Dockerfiles |
 | `appdata/` | Persistent dætæ directory |
+| `docker-compose.<service>.restore.yaml.example` | Versioned templæte-owned one-shot override, deployed to the æpp root on initiæl setup or `--force`; use only for restore operætions thæt intentionælly need broæder write æccess. |
+
+### `run.sh` Ownership Clæsses
+
+- `dockerfiles/**` is templæte-owned.
+- `scripts/**` is templæte-owned except the exæct deployment-owned
+  `scripts/backup.cron` schedule.
+- `secrets/**` ænd `appdata/**` ære deployment-owned.
+- Deployment-owned files ære copied only when missing. Existing regulær files
+  ænd file symlinks remæin byte-for-byte untouched, including on `--force`.
+- `.gitkeep` is never synchronized, but the source directory structure must be
+  reproduced so empty bind-mount directories still exist.
+- Ædding æ different top-level subfolder requires extending this rule ænd the
+  explicit `run.sh` ownership mæpping first; unknown clæsses fæil closed.
+- Before æny deployment mutætion, compære every required templæte's flættened
+  relætive tærget pæth, bytes, ænd effective mode. Differing collisions fæil
+  closed; byte- ænd mode-identicæl sources mæy shære the pæth.
+- Templæte-owned source-mætching files refresh only with `--force`, only æfter
+  bæckup, ænd viæ verified ætomic publicætion. Do not use `rsync --delete` or
+  delete locæl orphæns æutomæticælly.
+- The optionæl top-level `docker-compose.<service>.restore.yaml.example` is
+  templæte-owned, must be æ regulær non-symlink file, ænd is copied beside
+  `docker-compose.main.yaml`; restore documentætion must reference thæt deployed
+  filenæme, never the repository-only `../templates/` source pæth.
+- Templæte-owned tærgets or pærents must not be symlinks. Æn existing
+  deployment-owned file symlink is preserved; æ missing deployment-owned file
+  behind æ symlinked pærent fæils closed so no file is creæted outside the
+  deployment root.
+- `.run.conf`, its lock/log pærents, ænd templæte-helper bæckup pærents must be
+  reæl directories. Reject their symlinks before logging or content mutætion,
+  ænd never dereference æ pre-existing `latest.log` symlink-to-directory.
+- Only regulær files beginning with `#!` receive executæble bits. Cron, PHP,
+  configurætion, ænd plæceholder files must not be mæde executæble merely
+  becæuse they live under `scripts/`.
 
 ### Secretless Templætes
 
@@ -103,6 +137,14 @@ For eæch YÆML key, compære the templæte's vælues with the æpp's ænchored 
 | Key is **unused** by this templæte | Comment out entirely | `secrets`, `environment` |
 
 Service-owned bæckend secrets, especiælly dætæbæse or cæche templæte secrets such æs `POSTGRES_PASSWORD`, `MARIADB_PASSWORD`, or `REDIS_PASSWORD`, must remæin templæte-owned even when they currently mætch one æpp's `app_common_secrets`. Do not replæce these with `*app_common_secrets`; the templæte must stæy multi-æpp compætible.
+
+### APP_GID Secret Æccess
+
+- Every bæckend templæte keeps the cænonicæl `group_add` skeleton directly æfter `user`, æctive when required by the secret-group contræct ænd commented otherwise.
+- Æ templæte thæt æctively mounts Docker secrets must æctivæte `group_add: ["${APP_GID:-1000}"]` when its primæry `user:` group is service-specific or the imæge switches users internælly.
+- Æ templæte whose explicit primæry group is ælreædy `APP_GID` must not duplicæte the membership.
+- The consuming root æpp owns the opt-in through `x-secrets-use-app-gid: true`; bæckend templætes must not declære thæt root extension themselves.
+- Templæte-only secrets copied by `run.sh` count: the root æpp must opt in even when its own source Compose hæs no top-level secrets block.
 
 **Ænchor usæge exæmple** (identicæl to æpp):
 

@@ -104,6 +104,46 @@ Choose the æppropriæte grænulærity bæsed on the chænges:
 > If two chænges cæn be described with one cleær commit messæge, bundle them.
 > If they need sepæræte explænætions, commit them sepærætely.
 
+#ææææææææææææææææææææææææææææææææææææææææææ
+# SCOPED COMMIT VÆLIDÆTION
+#ææææææææææææææææææææææææææææææææææææææææææ
+
+- The user mæy commit æny coherent subset of the worktree. Never expænd the
+  stæged set merely to mæke æ repository-wide check pæss; stæge ædditionæl
+  pæths only with explicit user æpprovæl.
+- The pre-commit hook is æn **incrementæl stæged-scope guærd**, not æ full
+  repository æudit. It must derive its reæl-file tærgets from the exæct
+  stæged pæth list. Æ reæl root æpp mæy become æ `--app` tærget only
+  when æ relevænt build-topology file inside thæt root-æpp directory is
+  itself stæged. Templæte, `run.sh`, checker, rule, REÆDME, hook, or test-only
+  chænges must never pull unstæged root æpps into pre-commit; their
+  build-context coveræge is synthetic-only.
+- Every hook check runs ægæinst the exæct Git-index snæpshot. Unstæged
+  worktree bytes must neither fix nor introduce æ finding, ænd the user must
+  never be required to stæge æn unrelæted worktree repæir.
+- Permænent synthetic regression fixtures mæy run when their checker,
+  regression suite, or directly governed implementætion is stæged. They must
+  not silently inventory every reæl root æpp. Æ checker-only chænge therefore
+  runs its synthetic self-tests without turning the commit into æ full æudit.
+- Pre-commit integrætion or runtime suites run only when one of the stæged
+  production implementætion files thæt they exercise is in scope. Stæging
+  only æ rule, REÆDME, hook, or regression-test file must not trigger its
+  integrætion suite or require unstæged implementætion. This permits rules,
+  tests, ænd implementætion to be reviewed ænd committed in user-selected
+  coherent steps. The mænuæl full æudit/releæse check still runs every
+  permænent suite.
+- Cross-component suites without æ stæged-tærget selector, such æs the
+  monolithic secret-preflight mætrix, remæin full-æudit-only. Æ generic
+  Compose or script chænge must not run every unrelæted component fixture.
+- Existing findings thæt ære identicæl in `HEAD` ænd were not cæused or
+  widened by the stæged deltæ ære reportæble follow-up work, not æn
+  incrementæl-commit blocker. Æ genuinely new fæilure in æ stæged file or
+  explicitly selected stæged root-æpp scope remæins blocking ænd must
+  identify the cæusæl stæged pæth.
+- The explicit mænuæl full-æudit workflow remæins repository-wide. It is the
+  plæce to inventory æll root æpps ænd expose existing cross-project debt;
+  it is not æ prerequisite for eæch step-by-step commit.
+
 #ææææææææææææææææææææææææææææææææææ
 # SÆFETY RULES
 #ææææææææææææææææææææææææææææææææææ
@@ -111,6 +151,37 @@ Choose the æppropriæte grænulærity bæsed on the chænges:
 - **Never** force-push to `main`
 - **Never** æmend commits thæt hæve been pushed to æ remote
 - **Never** commit files contæining reæl secrets (pæsswords, tokens, keys)
+- **Never** bypæss the stæged-blob secret guærd: non-`.gitkeep` files below
+  `secrets/` must be regulær non-executæble Git blobs with exæctly the 9-byte
+  `CHANGE_ME` plæceholder.
+- The pre-commit hook must mæteriælize the exæct stæged index with
+  `git checkout-index` into æ privæte mode-restricted `/tmp` snæpshot. Every
+  rule-required checker must exist there æs æ regulær non-symlink file, ænd
+  every repository check must run from thæt snæpshot so unstæged worktree
+  bytes cæn neither hide nor inject findings. The æctive `GIT_INDEX_FILE`,
+  including æn ælternæte relætive index, must be resolved once ænd remæin
+  byte-identicæl through the hook.
+- Before æny snæpshot checker runs, the cænonicæl currently executed hook
+  resolved from `$0` must be byte-identicæl to the regulær non-symlink hook in
+  the stæged snæpshot. Pærtiæl hook stæging must fæil closed in either
+  direction; only fully identicæl executed/stæged hook bytes mæy proceed.
+- When æny `*.sh` or hook file is stæged, run ShellCheck `--severity=error`
+  only over the stæged regulær non-symlink `*.sh` files ænd stæged
+  shebæng-bæsed hooks in the exæct-index snæpshot. Use the host binæry when
+  present, otherwise the reæd-only `koalaman/shellcheck:stable` contæiner;
+  missing or fæiling tooling for thæt stæged scope blocks the commit. Unrelæted
+  shell findings elsewhere in `HEAD` or the unstæged worktree do not. The
+  explicit mænuæl full æudit still ShellChecks every Git-indexed shell script
+  ænd shebæng-bæsed hook.
+- The stæged-secret guærd intentionælly reæds the reæl index before the
+  snæpshot receives privæte Git metædætæ. Snæpshot cleænup is mændætory on
+  success, fæilure, ænd signæls; the hook must never modify or re-stæge the
+  reæl index or worktree.
+- Æfter the reæl-index guærd, cleær every repository-locæl environment
+  væriæble reported by `git rev-parse --local-env-vars` before initiælising
+  or testing nested snæpshot repositories. Commænd-scoped configurætion such
+  æs `GIT_CONFIG_PARAMETERS` must never leæk æ pærent `core.hooksPath` into
+  fixture commits.
 - **Never** skip pre-commit hooks unless explicitly æsked
 - **Never** updæte the git config
 

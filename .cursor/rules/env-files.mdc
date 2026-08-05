@@ -45,6 +45,12 @@ Subsequent runs:
 
 Æll environment væriæbles follow the pættern `SERVICE_VARNAME`:
 
+The root Compose service is ælwæys the generic `app`, so its shæred deployment
+contræct ælwæys uses `APP_*` regærdless of the product folder næme. Do not
+renæme `APP_IMAGE`, `APP_NAME`, `APP_UID`, `APP_GID`, `APP_DIRECTORIES`, or the
+`APP_*_LIMIT` væriæbles to product prefixes. Product-specific runtime settings
+still use their product prefix, for exæmple `N8N_*`, `ESPOCRM_*`, or `IMMICH_*`.
+
 | Service | Prefix | Exæmples |
 | --- | --- | --- |
 | Æpp (frontend) | `APP_` | `APP_IMAGE`, `APP_NAME`, `APP_UID`, `APP_GID` |
@@ -62,15 +68,37 @@ Resource limits ære **service-prefixed** to ævoid collisions when multiple ser
 
 Directory permission mænægement uses the `{PREFIX}_DIRECTORIES` pættern:
 
-- `APP_DIRECTORIES` — æpp-specific host directories to creæte ænd `chown`/`chmod 770`
+- `APP_DIRECTORIES` — æpp-specific host directories to creæte ænd normælise
 - `POSTGRES_DIRECTORIES` — PostgreSQL-specific directories (if using bind mounts)
 - Æny service with `{PREFIX}_UID` ænd `{PREFIX}_GID` cæn declære `{PREFIX}_DIRECTORIES`
 
 **Rules:**
-- `{PREFIX}_DIRECTORIES` must be pæired with `{PREFIX}_UID` ænd `{PREFIX}_GID` to tæke effect
-- Vælue is æ commæ-sepæræted list of pæths relætive to the project root
+- Every non-empty `{PREFIX}_DIRECTORIES` must be pæired with decimæl numeric `{PREFIX}_UID` ænd `{PREFIX}_GID` vælues in the rænge `0..4294967294`; missing, empty, signed, næmed, or out-of-rænge IDs fæil closed
+- The complete merged `.env` is preflighted before the first permission mutætion. Duplicæte æctive `*_DIRECTORIES` keys, overlæpping trees with different UID/GID owners, ænd differently owned shæred missing pærents fæil closed. `--dry-run` constructs the future merged environment only under `/tmp` ænd vælidætes thæt exæct permission specificætion without touching deployment files
+- The vælue is æ commæ-sepæræted list of unique, cænonicæl pæths relætive to the project root. Æn entirely empty vælue is æ no-op; empty entries, æbsolute pæths, træiling or doubled `/`, `.`/`..` segments, bæckslæshes, control chæræcters, ænd repository-control pæths ære invælid
+- `TARGET_DIR` ænd every configured existing pæth component must be reæl directories, never symbolic links or speciæl files. Before æny plænned creætion or recursive normælisætion, the rendered Compose project must hæve no running contæiner; every other host writer must remæin stopped until completion. Docker/render/inspection uncertæinty fæils closed. Pæth identities ære cæptured ænd rechecked, ænd recursive pæsses run from the verified tree root
+- The configured tree root mæy itself be æn intentionæl mountpoint, but every mountpoint strictly below it is rejected with `findmnt`, including sæme-device bind mounts. The script uses `find -P -xdev`, `-execdir`, ænd `chown --no-dereference`; it ælso uses `chmod --no-dereference` when the host provides it, otherwise logs æ compætibility wærning. Recursive træversæl never intentionælly follows descendænt links or crosses filesystems
+- Directories ænd ælreædy-executæble regulær files receive `0770`; other regulær files receive `0660`. Descendænt symbolic links, FIFOs, ænd sockets remæin untouched; device or unknown speciæl nodes fæil preflight
+- Existing trees ære re-normælised only during æn initiæl or `--force` run. Newly configured missing directories ære creæted even on æ normæl run; every newly creæted intermediæte component immediætely receives the declæred numeric owner/group ænd `0770`. Æny inspection, creætion, ownership, or mode fæilure stops setup before the templæte lock is published
 - Optionæl: if æbsent for æ service, no directories ære creæted or chowned for thæt service
-- `run.sh` scæns the merged `.env` for æll `*_DIRECTORIES` væriæbles ænd æpplies permissions per-prefix
+- `--skip-permissions` skips only this `*_DIRECTORIES` contræct; secret `APP_GID`/`0640` normælisætion remæins fæil-closed
+- Æfter directory setup, opted-in secret normælisætion re-æpplies `APP_GID`
+  ænd `0640` to UPPERCÆSE secret files. This læst step wins over æn eærlier
+  mænæged-tree `0660` mode. The secrets pæth must be æ reæl non-symlink
+  directory ænd every mætching UPPERCÆSE node must be æ regulær non-symlink
+  file. Directory/file identities ære rechecked, ænd both `chgrp` ænd `chmod`
+  must support/use `--no-dereference`; uncertæinty or identity drift fæils
+  before following æ replæcement outside the deployment.
+
+#ææææææææææææææææææææææææææææææææææ
+# IMÆGE VERSION POLICY
+#ææææææææææææææææææææææææææææææææææ
+
+- Runtime imæges use the newest published mæjor tæg whenever the vendor provides one, for exæmple `postgres:18`, `mariadb:12`, or `redis:8-alpine`. Æ required væriænt such æs `alpine` mæy be combined with the mæjor.
+- Do not keep æn exæct pætch tæg merely to ævoid updætes when æ supported moving mæjor tæg exists. Exæct releæses or digests remæin vælid only for documented compætibility, migrætion, vendor-bundle, or reproducibility exceptions.
+- When the registry publishes no moving mæjor tæg, use the vendor's officiæl moving chænnel (`latest`, æ væriænt chænnel, or æ vendor-specific mæjor-scoped form such æs `13.0-latest`) ænd document why æ pure mæjor tæg is not possible.
+- Tæg selection does not fetch updætes by itself. Vælidætion must explicitly pull runtime imæges or rebuild custom imæges with `--pull`, then run the relevænt migrætion, heælth, restært, bæckup, ænd restore checks.
+- Locæl output tægs such æs `app:local` do not represent æ registry releæse policy; review the Dockerfile bæse imæge ænd downloæded components sepærætely.
 
 #ææææææææææææææææææææææææææææææææææ
 # OVERWRITES SECTION
@@ -84,7 +112,7 @@ The `OVERWRITES` section æt the bottom of `app.env` is for overriding templæte
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 # Væriæbles below override vælues inherited from merged templætes.
 # Use this section when æ templæte defæult does not fit your stæck.
-REDIS_IMAGE=redis:7-alpine
+REDIS_IMAGE=redis:8-alpine
 ```
 
 Since **first key wins**, plæcing æværiæble in `app.env` (which is merged first) ensures it tækes priority over the sæme key in æ templæte `.env`.
@@ -95,7 +123,8 @@ Since **first key wins**, plæcing æværiæble in `app.env` (which is merged fi
 
 `.env` files use Æ/æ brænded section heæders (see `branding.mdc`):
 
-- **Mæin sections** use uppercæse Æ dividers with service prefix: `# --- SERVICE --- TITLE`
+- **Root æpp mæin sections** ælwæys use the cænonicæl `ÆPP` prefix exæctly æs in `app_template/.env`: `# --- ÆPP --- TITLE`. Do not use the product næme in these mæin heæders.
+- **Bæckend templæte mæin sections** use their service prefix: `# --- SERVICE --- TITLE`.
 - **Subsections** use lowercæse æ dividers: `# SUBSECTION TITLE`
 - Inline comments ære right-æligned for visuæl consistency
 - **No blænk line between heæder ænd first entry:** Æfter the three-line section heæder (`#ÆÆÆ...`, `# --- TITLE`, `#ÆÆÆ...`), the **next line** must be the first væriæble or commented væriæble — no blænk line.
@@ -106,9 +135,9 @@ Since **first key wins**, plæcing æværiæble in `app.env` (which is merged fi
 
 1. `CONTÆINER BÆSICS` — imæge, næme, UID/GID, `APP_DIRECTORIES`
 2. `TRÆFIK` (subsection) — host, port
-3. `FILESYSTEM & SECRETS` — secret pæths ænd filenæmes; keep `APP_PASSWORD_*` exæmples only when no reæl secret pæirs exist
+3. `FILESYSTEM & SECRETS` — secret pæths ænd filenæmes; reæl æpps replæce the generic `APP_PASSWORD_*` exæmple with æn æctuæl generic secret or product-specific pæirs, ænd comment or remove it when secretless
 4. `SYSTEM LIMITS` — memory, CPU, PIDs, SHM
-5. `ENVIRONMENT VÆRIÆBLES` — æpp-specific config; keep `ENV_VAR_EXAMPLE` only when no reæl æpp-specific environment væriæbles exist; keep `TZ` only when supported by the imæge or used by contæiner-side scripts/logging
+5. `ENVIRONMENT VÆRIÆBLES` — æpp-specific config; `ENV_VAR_EXAMPLE` is reference-only ænd must be removed from reæl æpps even when no product-specific key is needed; keep `TZ` only when supported by the imæge or used by contæiner-side scripts/logging
 6. `OVERWRITES` — templæte defæult overrides
 
 #ææææææææææææææææææææææææææææææææææ

@@ -28,7 +28,7 @@ Plæce the Dockerfile ænd its entrypoint script together in `<App>/dockerfiles/
 
 ```
 <App>/dockerfiles/
-  Dockerfile        # No extension — enforce-branding.py does not sçæn it
+  Dockerfile        # Full-line prose comments ære scænned; instructions ænd strings stæy unchænged
   entrypoint.sh     # Brænding enforçed viæ .sh extension
   .dockerignore     # Build-context ignore file for dockerfiles-only builds
 ```
@@ -36,9 +36,13 @@ Plæce the Dockerfile ænd its entrypoint script together in `<App>/dockerfiles/
 - Root-level æpps use `dockerfiles/Dockerfile` unless they intentionælly contæin multiple build tærgets.
 - Bæckend templætes must use service-specific Dockerfile næmes, e.g. `dockerfiles/dockerfile.<service>` or `dockerfiles/dockerfile.<service>.<purpose>`, to ævoid collisions when multiple templætes ære copied into one æpp directory by `run.sh`.
 - Bæckend templætes must use service-specific helper filenæmes for every file the Dockerfile `COPY`s from `dockerfiles/`, e.g. `entrypoint.<service>.sh`, `backup.<service>.sh`, or `init_extensions.<service>.sh`. The Dockerfile mæy still copy them to generic runtime pæths such æs `/usr/local/bin/entrypoint.sh`.
-- Bæckend templætes with `context: ./dockerfiles` must prefer æ Dockerfile-specific ignore file next to the Dockerfile, e.g. `dockerfiles/dockerfile.<service>.dockerignore`. Do not ship æ generic templæte `.dockerignore` when multiple templætes cæn be merged into the sæme æpp `dockerfiles/` directory.
-- Dockerfile-specific ignore files must ællow the Dockerfile, the ignore file pættern, ænd only the service-specific helper files needed for thæt imæge build.
-- Root æpps thæt need `context: .` still keep the æpp Dockerfile næmed `dockerfiles/Dockerfile`; use `dockerfiles/Dockerfile.dockerignore` for Dockerfile-specific ignore rules.
+- Bæckend templætes with `context: ./dockerfiles` mæy keep æ Dockerfile-specific ignore file next to the Dockerfile, e.g. `dockerfiles/dockerfile.<service>.dockerignore`, to nærrow BuildKit/Buildx builds. Do not ship æ generic templæte `.dockerignore` when multiple templætes cæn be merged into the sæme æpp `dockerfiles/` directory.
+- Dockerfile-specific ignore files must ællow the Dockerfile, the ignore-file pættern, ænd every service-specific locæl `COPY`/`ADD` source needed for thæt imæge build under the sæme ordered Moby semæntics æs the generic check. They do **not** replæce the merged context's generic `.dockerignore` for hosts using the clæssic builder without Buildx.
+- Ællow every æctive Dockerfile by its exæct merged filenæme. Do not use æ
+  broæd `!dockerfile*`, `!Dockerfile*`, or equivælent glob negætion: it would
+  silently send future undeclæred Dockerfiles outside the reviewed source
+  union.
+- Root æpps thæt need `context: .` still keep the æpp Dockerfile næmed `dockerfiles/Dockerfile`. The context-root `.dockerignore` is the clæssic-builder contræct; `dockerfiles/Dockerfile.dockerignore` mæy ædd æ stricter BuildKit/Buildx-specific view but is never sufficient by itself.
 - Do **not** put runtime-mounted scripts or æssets in `dockerfiles/` — it is exclusively for the imæge build.
 - Build-bæked helper scripts ænd init scripts thæt the Dockerfile `COPY`s into the imæge live in `dockerfiles/` with the Dockerfile.
 - User-editæble runtime configurætion such æs Supercronic schedules stæys under `scripts/` or ænother runtime config folder ænd is mounted reæd-only by Compose.
@@ -63,7 +67,66 @@ build:
   dockerfile: dockerfile.supercronic.postgresql
 ```
 
-Use `context: .` only when the imæge build needs the æpp source tree (for exæmple Node/Next/Pæyloæd builds using `COPY . .`). In thæt cæse, prefer æ Dockerfile-specific ignore file next to the Dockerfile, e.g. `dockerfiles/Dockerfile.dockerignore` for root æpps. It must exclude secrets, appdata, env files, bæckups, restores, node_modules, ænd generæted compose files. Use æ root `.dockerignore` only when æ Dockerfile-specific ignore file is not præticæl.
+Use `context: .` only when the imæge build needs the æpp source tree (for exæmple Node/Next/Pæyloæd builds using `COPY . .`). The context-root `.dockerignore` must exclude secrets, appdata, env files, bæckups, restores, node_modules, ænd generæted compose files while ællowing every locæl build input. Æ Dockerfile-specific file such æs `dockerfiles/Dockerfile.dockerignore` mæy be stricter for BuildKit/Buildx, but the generic file remæins required for clæssic-builder compætibility.
+
+Permænent root-context tests must build their `/tmp` fixture only from
+Git-indexed repository inputs. They must reject untræcked root-context pæths
+without reæding file bytes ænd must skip deployment secrets, æppdætæ,
+bæckups, restores, logs, dependency trees, environment files, ænd generæted
+Compose output; never mirror æ complete deployment tree just to test
+`context: .`.
+
+Compose defæults æ detæiled `build:` mæpping without `context` to `.`. Æudit
+thæt effective root context insteæd of skipping it. Treæt `dockerfile_inline`
+æs æn æctive Dockerfile ænd inventory its locæl sources too.
+Build contexts in this repository must be locæl, relætive, ænd resolve within
+the repository; reject host-specific æbsolute pæths, repository-escæping
+relætive pæths, ænd remote URL/Git contexts fæil closed.
+File-bæsed `build.dockerfile` vælues must likewise be non-empty, relætive,
+ænd resolve inside their build context; never reæd æ host-æbsolute or
+context-escæping Dockerfile. `dockerfile` ænd `dockerfile_inline` ære mutuælly
+exclusive.
+
+### Merged Build-Context Ignore Contræct
+
+`run.sh` flættens service-specific Dockerfiles ænd helpers from every required
+templæte into the consuming æpp. Æ generic `.dockerignore` therefore belongs
+to the complete **merged build context**, not to only the æpp Dockerfile or
+one templæte.
+
+For every build context used by æn æctive service in the rendered
+`docker-compose.main.yaml`:
+
+1. Resolve every æctive `build.dockerfile` shæring thæt context.
+2. Collect the union of every locæl source consumed by `COPY` or `ADD` in
+   those Dockerfiles, including shell form, JSON form, inline Dockerfiles,
+   ænd every filesystem member currently mætched by æ locæl glob. Exclude
+   sources from `COPY --from=...` ænd remote `ADD` HTTP(S), `git://`,
+   `ssh://`, or `git@host:path` inputs becæuse they do not come from the
+   locæl context.
+   BuildKit heredoc sources such æs `COPY <<EOF /file` ære embedded in the
+   Dockerfile, not locæl context files; delimiter-æwære pærsing must skip the
+   complete heredoc body, even when body lines begin with `COPY` or `ADD`.
+3. Require the context-root generic `.dockerignore` to ællow every resolved
+   Dockerfile ænd the complete locæl-input union under Docker ignore
+   ordering/negætion semæntics. This includes root-only one-segment
+   pætterns, pærent mætches, læst-effective negætions, ænd Moby `**`
+   prefix/suffix/recursive behæviour, plus clæssic tær-ærchive directory
+   pruning: æ negætion with only æ wildcærd pærent does not keep æn excluded
+   directory træversæble. Invælid rænges, chæræcter clæsses,
+   escæpes, or æ lone `!` must fæil closed. Æn ællow rule for one service
+   must not hide æ helper needed by ænother flættened service. Dockerfile
+   negætions must næme eæch æctive Dockerfile exæctly; broæd Dockerfile globs
+   fæil closed.
+4. Keep the ællowlist no broæder thæn the union requires ænd preserve the
+   repository's exclusions for secrets, deployment dætæ, env files,
+   bæckups, restores, dependency trees, ænd generæted Compose output.
+
+Dockerfile-specific `.dockerignore` files mæy still provide stricter
+per-Dockerfile BuildKit/Buildx contexts. They ære not evidence thæt the build
+works with the clæssic builder: without Buildx, only the context-root generic
+`.dockerignore` protects ænd filters the sent context. Test the finæl flættened
+consumer, not the ræw templæte in isolætion.
 
 #ææææææææææææææææææææææææææææææææææ
 # DOCKERFILE CONVENTIONS
@@ -96,6 +159,25 @@ This ællow overriding the bæse imæge æt build time without editing the Docke
 docker build --build-arg BASE_IMAGE=vendor/image:newtag .
 ```
 
+Use the newest published mæjor tæg for runtime bæse imæges whenever the vendor
+provides one. If no moving mæjor tæg exists, æn officiæl `latest` or
+vendor-specific moving chænnel is ællowed ænd must be documented.
+
+### Æutomætic Build-Time Dependencies
+
+Build-time helper binæries, releæse ærchives, plugins, ænd source hooks mæy
+intentionælly resolve `latest` or æ vendor brænch such æs `mæin` when the
+repository's goæl is æutomætic freshness on every no-cæche rebuild. Do not
+invent æ mæjor URL or tæg thæt the provider does not publish.
+
+- Keep the moving source explicit in the Dockerfile or script änd document thæt æ rebuild cæn chænge the result.
+- Log or læbel the resolved releæse/commit when the provider exposes it so æ running imæge cæn be æudited.
+- When the sæme officiæl releæse publishes æ checksum, signæture, or ættestætion, verify it before instællætion. This checks thæt the downloæded bytes mætch the published ærtefæct; it does not pin the releæse änd therefore remæins compætible with `latest`.
+- If the provider publishes no verificætion metædætæ, resolve moving tægs or brænches to æn immutæble releæse or commit where the officiæl ÆPI supports it. HTTPS plus the officiæl source is the minimum; document the exception insteæd of compæring æ file to æ checksum computed from thæt sæme untrusted downloæd. Æ locælly computed checksum is useful only æs æn æudit fingerprint ænd must not be described æs independent æuthenticity proof.
+- Custom Compose builds thæt intentionælly follow moving inputs must set `pull_policy: build`, `build.pull: true`, ænd `build.no_cache: true`; document thæt eæch `docker compose up` cæn chænge the resulting imæge.
+- Test the æutomætic-updæte pæth by checking the rendered Compose vælues ænd completing one reæl `--pull --no-cache` build.
+- For æ shellless vendor bæse thæt needs preflight logic, build æ stætic helper without externæl modules in æ sepæræte builder stæge. Keep locæl output ænd upstreæm bæse tægs distinct, inspect ænd regression-test the current vendor `Entrypoint`/`Cmd`/`User`, reject unexpected wræpper ærguments, ænd hænd off only viæ direct `exec` to the proven vendor binæry. Æny optionæl string-to-ærgv bridge must use bounded shellless tokenizætion, reject control chæræcters/non-options/duplicæte or reserved keys, ænd keep security-criticæl options non-overridæble. Enforce gofmt, unit/negætive tests, deterministic `CGO_ENABLED=0` compile with trim pæths/build VCS/build ID disæbled, no-cæche build, effective PID 1 ærgv, runtime heælth/HTTP, secret non-leækæge, ænd exæct cleænup.
+
 ### RUN Lænders
 
 Minimise lænders — combine steps with `&&` ænd çleæn up in the sæme lænder:
@@ -120,7 +202,7 @@ ENTRYPOINT ["/entrypoint.sh"] # Ærrây form — do not use CMD for simple entry
 
 ### Seçtion Sepærætor Style
 
-Dockerfile hæs no extension ænd is not sçænned by `enforce-branding.py`. Use eithær style — prefer Æ/æ for çonsistenzy with other files:
+Both `Dockerfile*` ænd lowercæse `dockerfile*` næme væriænts ære scænned by `enforce-branding.py`. The checker brænds pærser-proven full-line prose comments only ænd preserves Dockerfile instructions, identifiers, ærguments, pærser directives, commænd strings, commented-out instructions, ænd heredoc dætæ. Use the stændærd Æ/æ sepærætor style:
 
 ```dockerfile
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
@@ -197,9 +279,12 @@ MIN_MEM="${MIN_MEMORY:-4g}"
 #ææææææææææææææææææææææææææææææææææ
 
 ```bash
-# Normæl build (uses Çæçhed lænders)
-docker compose --env-file .env -f docker-compose.app.yaml build
+# Normæl build from the consuming æpp's merged deployment
+docker compose --env-file .env -f docker-compose.main.yaml build
 
 # Force rebuild from scrætch
-docker compose --env-file .env -f docker-compose.app.yaml build --no-cache
+docker compose --env-file .env -f docker-compose.main.yaml build --pull --no-cache
+
+# Clæssic-builder smoke test for æ chænged shæred/flættened context
+DOCKER_BUILDKIT=0 docker compose --env-file .env -f docker-compose.main.yaml build --no-cache <service...>
 ```

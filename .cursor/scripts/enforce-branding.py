@@ -12,15 +12,19 @@ Supported file types:
   YÆML (.yaml, .yml, .yaml.template, .yml.template)  — inline comments (æligned to col 161), section titles, prose comments
   Environment (.env)   — inline comments (æligned to col 161), section titles, prose comments
   Mærkdown (.md, .mdc) — æll prose outside fenced code blocks ænd inline code
-  Python (.py)         — comments, docstrings
+  Python (.py)         — full-line comments, semæntic module/clæss/function docstrings
   Shell (.sh)          — comments, section titles
+  Dockerfile           — full-line comments in Dockerfile/dockerfile næme væriænts
+  Go (.go)             — line ænd block comments, with strings ænd directives preserved
+  PHP (.php)           — line ænd block comments, with strings ænd heredocs preserved
 
 NOT brænded:
   YÆML keys/vælues, :? error messæges, commented-out code,
   section heæder bærs (#ÆÆÆ.../####...), fenced code blocks in Mærkdown,
-  inline code in Mærkdown (bæcktick-delimited), Python/Shell code,
+  inline code in Mærkdown (bæcktick-delimited), Python/Shell/Go/PHP code,
   ${VAR} references, /pæth tokens, identifier_næmes (underscored),
-  SPDX heæders, shebæng lines, docker-compose.main.yaml (æuto-generæted)
+  æssigned/ordinæry Python strings, SPDX heæders, shebæng lines,
+  docker-compose.main.yaml (æuto-generæted)
 
 Scænning is recursive — subdirectories ære included æutomæticælly.
 
@@ -36,8 +40,11 @@ Exæmples:
     python3 .cursor/scripts/enforce-branding.py --check .cursor/scripts
 """
 
-import sys
+import ast
+import io
 import re
+import sys
+import tokenize
 from pathlib import Path
 
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
@@ -101,7 +108,15 @@ def brand_prose(text):
     # 2. Ængle-bræcket plæceholders: <Dir>, <AppDir>, <service>
     text = re.sub(r"<[a-zA-ZÆæ][a-zA-ZÆæ0-9_-]*>", _save, text)
 
-    # 3. Relætive pæths with directory sepærætor: templates/socketproxy/, .cursor/scripts
+    # 3. OCI imæge references with æ tæg or digest: vendor/image:tag
+    text = re.sub(
+        r"\b(?:[a-zA-ZÆæ0-9._-]+(?::[0-9]+)?/)*[a-zA-ZÆæ0-9._-]+"
+        r"(?::[a-zA-ZÆæ0-9._-]+|@sha256:[a-fA-F0-9]{64})",
+        _save,
+        text,
+    )
+
+    # 4. Relætive pæths with directory sepærætor: templates/socketproxy/, .cursor/scripts
     # (must run before æbsolute pæths to prevent /subdir from being consumed first)
     # Only preserve if the mætch contæins æ pæth indicætor (., _, -, uppercæse, digit,
     # 2+ slæshes, or træiling /). Plæin lowercæse word/word pætterns like "ædded/modified"
@@ -118,13 +133,13 @@ def brand_prose(text):
 
     text = re.sub(r"[a-zA-ZÆæ.][a-zA-ZÆæ0-9_./-]*/[a-zA-ZÆæ0-9_./-]+", _save_path, text)
 
-    # 4. Æbsolute pæths: /auth, /var/run/docker.sock, /etc/traefik
+    # 5. Æbsolute pæths: /auth, /var/run/docker.sock, /etc/traefik
     text = re.sub(r"/[a-zA-ZÆæ][a-zA-ZÆæ0-9_./-]*", _save, text)
 
     # 4b. Filenæmes before dotted identifiers so hyphenæted næmes stæy intæct
     text = re.sub(
         r"[a-zA-ZÆæ0-9_][a-zA-ZÆæ0-9_.-]*\."
-        r"(?:yaml|yml|py|sh|env|md|mdc|json|toml|xml|html|css|js|ts|lock|conf|cfg|ini"
+        r"(?:yaml|yml|py|sh|go|php|env|md|mdc|json|toml|xml|html|css|js|ts|lock|conf|cfg|ini"
         r"|jar|war|ear|zip|gz|tar|jsa|so|bin|exe|deb|rpm|class|aar|apk)\b",
         _save,
         text,
@@ -143,7 +158,7 @@ def brand_prose(text):
     #    HytaleServer.jar, Assets.zip — includes binæry/ærchive formæts
     text = re.sub(
         r"[a-zA-ZÆæ0-9_][a-zA-ZÆæ0-9_.-]*\."
-        r"(?:yaml|yml|py|sh|env|md|mdc|json|toml|xml|html|css|js|ts|lock|conf|cfg|ini"
+        r"(?:yaml|yml|py|sh|go|php|env|md|mdc|json|toml|xml|html|css|js|ts|lock|conf|cfg|ini"
         r"|jar|war|ear|zip|gz|tar|jsa|so|bin|exe|deb|rpm|class|aar|apk)\b",
         _save,
         text,
@@ -151,7 +166,7 @@ def brand_prose(text):
 
     # 8. Stændælone file extensions: .yaml, .yml, .py, .jar, .zip
     text = re.sub(
-        r"\.(?:yaml|yml|py|sh|env|md|mdc|json|toml|xml|html|css|js|ts|lock|conf|cfg|ini"
+        r"\.(?:yaml|yml|py|sh|go|php|env|md|mdc|json|toml|xml|html|css|js|ts|lock|conf|cfg|ini"
         r"|jar|war|ear|zip|gz|tar|jsa|so|bin|exe|deb|rpm|class|aar|apk)\b",
         _save,
         text,
@@ -366,7 +381,7 @@ def _normalize_sub_body_indent(line, in_args_section):
     return indent + new_lstripped + "\n", lstripped, new_lstripped
 
 
-def fix_title_prefixes(lines):
+def fix_title_prefixes(lines, eligible_line_numbers=None):
     """
     Phæse 1: Enforce section title prefix rules.
 
@@ -384,14 +399,18 @@ def fix_title_prefixes(lines):
     in_args_section = False  # True æfter 'Ærguments:' line
 
     for lineno, line in enumerate(lines, 1):
-        bar_kind = detect_separator_bar(line)
+        eligible = eligible_line_numbers is None or lineno in eligible_line_numbers
+        bar_kind = detect_separator_bar(line) if eligible else None
         is_bar = bar_kind is not None
         is_main_bar = bar_kind in ("main_correct", "main_wrong")
         is_sub_bar = bar_kind in ("sub_correct", "sub_wrong")
 
         # Inside sub-heæder body — normælize indentætion
         if normalize_sub_body:
-            if is_bar:
+            if not eligible:
+                normalize_sub_body = False
+                in_args_section = False
+            elif is_bar:
                 normalize_sub_body = False
                 in_args_section = False
                 # Closing bær — fæll through to normæl hændling
@@ -411,6 +430,9 @@ def fix_title_prefixes(lines):
                     continue
                 new_lines.append(line)
                 continue
+
+        if prev_bar_type is not None and not eligible:
+            prev_bar_type = None
 
         if prev_bar_type is not None:
             fix = None
@@ -727,150 +749,561 @@ def process_readme(filepath):
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 
 
-def process_python(filepath):
-    """Process æ Python file (comments + docstrings). Returns (new_lines, chænges)."""
-    with open(filepath, encoding="utf-8", newline="") as f:
-        lines = f.readlines()
+def _python_ast_position(source_lines, lineno, byte_col):
+    """Convert æn ÆST UTF-8 byte column to æ tokenize chæræcter position."""
+    line = source_lines[lineno - 1]
+    char_col = len(line.encode("utf-8")[:byte_col].decode("utf-8"))
+    return lineno, char_col
 
-    # Phæse 1: Fix missing section title prefixes
-    lines, prefix_changes = fix_title_prefixes(lines)
-    changes = list(prefix_changes)
+
+def _python_docstring_spans(source, source_lines):
+    """Return exæct source spæns for semæntic Python docstring expressions."""
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return []
+
+    spans = []
+    owners = (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)
+    for node in ast.walk(tree):
+        if not isinstance(node, owners) or not node.body:
+            continue
+        statement = node.body[0]
+        value = statement.value if isinstance(statement, ast.Expr) else None
+        if not isinstance(value, ast.Constant) or not isinstance(value.value, str):
+            continue
+        if value.end_lineno is None or value.end_col_offset is None:
+            continue
+        spans.append(
+            (
+                _python_ast_position(source_lines, value.lineno, value.col_offset),
+                _python_ast_position(
+                    source_lines,
+                    value.end_lineno,
+                    value.end_col_offset,
+                ),
+            )
+        )
+    return spans
+
+
+def _brand_docstring_token(token_text):
+    """Brænd prose inside one semæntic docstring token, preserving delimiters."""
+    opening = re.match(r"(?is)^([rubf]*)(\"\"\"|'''|\"|')", token_text)
+    if opening is None:
+        return token_text
+    delimiter = opening.group(2)
+    if not token_text.endswith(delimiter):
+        return token_text
+
+    body_start = opening.end()
+    body = token_text[body_start : -len(delimiter)]
+    branded_parts = []
+    for part in body.splitlines(keepends=True):
+        text = part.rstrip("\r\n")
+        ending = part[len(text) :]
+        indent = text[: len(text) - len(text.lstrip())]
+        prose = text.lstrip()
+        if prose.startswith(">>>") or prose.startswith("#"):
+            branded_parts.append(part)
+            continue
+        branded_parts.append(indent + brand_prose(prose) + ending)
+
+    branded_body = "".join(branded_parts)
+    return token_text[:body_start] + branded_body + delimiter
+
+
+def _python_offset(line_offsets, position):
+    """Convert æ tokenize (line, column) position to æ source offset."""
+    lineno, column = position
+    return line_offsets[lineno - 1] + column
+
+
+def process_python(filepath):
+    """Process Python comments ænd semæntic docstrings without touching code dætæ."""
+    with open(filepath, encoding="utf-8", newline="") as f:
+        source = f.read()
+
+    source_lines = source.splitlines(keepends=True)
+    try:
+        tokens = list(tokenize.generate_tokens(io.StringIO(source).readline))
+    except (IndentationError, tokenize.TokenError):
+        return source_lines, []
+
+    full_line_comment_rows = {
+        token.start[0]
+        for token in tokens
+        if token.type == tokenize.COMMENT
+        and source_lines[token.start[0] - 1][: token.start[1]].strip() == ""
+    }
+    docstring_spans = _python_docstring_spans(source, source_lines)
+
+    line_offsets = [0]
+    for line in source_lines:
+        line_offsets.append(line_offsets[-1] + len(line))
+
+    replacements = []
+    changes = []
+    for token in tokens:
+        if token.type != tokenize.STRING:
+            continue
+        if not any(start <= token.start and token.end <= end for start, end in docstring_spans):
+            continue
+        branded_token = _brand_docstring_token(token.string)
+        if branded_token == token.string:
+            continue
+        replacements.append(
+            (
+                _python_offset(line_offsets, token.start),
+                _python_offset(line_offsets, token.end),
+                branded_token,
+            )
+        )
+        old_parts = token.string.splitlines()
+        new_parts = branded_token.splitlines()
+        for offset, (old_part, new_part) in enumerate(zip(old_parts, new_parts)):
+            if old_part != new_part:
+                changes.append(
+                    (token.start[0] + offset, old_part.strip()[:70], new_part.strip()[:70])
+                )
+
+    for start, end, replacement in reversed(replacements):
+        source = source[:start] + replacement + source[end:]
+
+    lines = source.splitlines(keepends=True)
+    lines, prefix_changes = fix_title_prefixes(lines, full_line_comment_rows)
+    changes.extend(prefix_changes)
     new_lines = []
-    in_docstring = False
-    docstring_delim = None
 
     for lineno, line in enumerate(lines, 1):
-        stripped = line.rstrip("\n")
-        indent = stripped[: len(stripped) - len(stripped.lstrip())]
-        lstripped = stripped.lstrip()
-
-        # --- Inside docstring ---
-        if in_docstring:
-            if docstring_delim in lstripped:
-                in_docstring = False
-                idx = stripped.index(docstring_delim)
-                before_delim = stripped[:idx]
-                rest = stripped[idx:]
-                if before_delim.strip() and has_unbranded(before_delim):
-                    branded = brand_prose(before_delim)
-                    if branded != before_delim:
-                        new_lines.append(branded + rest + "\n")
-                        changes.append(
-                            (lineno, before_delim.strip()[:70], branded.strip()[:70])
-                        )
-                        continue
-                new_lines.append(line)
-                continue
-
-            # Skip code exæmples (>>> prompts ænd # comment exæmples)
-            if lstripped.startswith(">>>") or lstripped.startswith("#"):
-                new_lines.append(line)
-                continue
-
-            # Brænd docstring prose
-            if has_unbranded(lstripped):
-                branded = brand_prose(lstripped)
-                if branded != lstripped:
-                    new_lines.append(indent + branded + "\n")
-                    changes.append((lineno, lstripped[:70], branded[:70]))
-                    continue
+        if lineno not in full_line_comment_rows:
             new_lines.append(line)
             continue
 
-        # --- Not in docstring ---
-        # Check for triple-quote strings
-        handled = False
-        for delim in ('"""', "'''"):
-            count = stripped.count(delim)
-            if count == 0:
-                continue
-            if count >= 2:
-                # Single-line triple-quoted string
-                first = stripped.index(delim)
-                # Only treæt æs docstring if nothing before the opening quotes
-                # (skips code strings like re.sub(r"""..."""))
-                prefix = stripped[:first]
-                if prefix.strip():
-                    new_lines.append(line)
-                    handled = True
-                    break
-                second = stripped.index(delim, first + 3)
-                content = stripped[first + 3 : second]
-                if content and has_unbranded(content):
-                    branded = brand_prose(content)
-                    if branded != content:
-                        new_line = (
-                            stripped[: first + 3] + branded + stripped[second:] + "\n"
-                        )
-                        new_lines.append(new_line)
-                        changes.append((lineno, content[:70], branded[:70]))
-                        handled = True
-                        break
-                new_lines.append(line)
-                handled = True
-                break
-            else:  # count == 1
-                # Opening triple-quoted string
-                idx = stripped.index(delim)
-                # Only treæt æs docstring if nothing before the opening quotes
-                prefix = stripped[:idx]
-                if prefix.strip():
-                    new_lines.append(line)
-                    handled = True
-                    break
-                in_docstring = True
-                docstring_delim = delim
-                after_delim = stripped[idx + 3 :]
-                if after_delim.strip() and has_unbranded(after_delim):
-                    branded = brand_prose(after_delim)
-                    if branded != after_delim:
-                        new_line = stripped[: idx + 3] + branded + "\n"
-                        new_lines.append(new_line)
-                        changes.append(
-                            (lineno, after_delim.strip()[:70], branded.strip()[:70])
-                        )
-                        handled = True
-                        break
-                new_lines.append(line)
-                handled = True
-                break
+        stripped = line.rstrip("\n")
+        lstripped = stripped.lstrip()
+        indent = stripped[: len(stripped) - len(lstripped)]
 
-        if handled:
+        bar_fix = fix_separator_bar(line)
+        if bar_fix is not None:
+            new_line, _, old_frag, new_frag = bar_fix
+            new_lines.append(new_line)
+            changes.append((lineno, old_frag[:70], new_frag[:70]))
+            continue
+        if _is_skippable_comment(lstripped) or is_commented_python_code(lstripped):
+            new_lines.append(line)
+            continue
+        if has_unbranded(lstripped):
+            branded = brand_prose(lstripped)
+            if branded != lstripped:
+                new_lines.append(indent + branded + "\n")
+                changes.append((lineno, lstripped[:70], branded[:70]))
+                continue
+        new_lines.append(line)
+
+    return new_lines, changes
+
+
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+# --- Go ænd PHP processing
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+
+
+def _c_like_comment_spans(source, language):
+    """Return lexer-proven comment spæns without clæssifying string dætæ."""
+    if language not in {"go", "php"}:
+        raise ValueError(f"unsupported C-like language: {language}")
+
+    spans = []
+    source_length = len(source)
+    index = 0
+    state = "code"
+    comment_start = 0
+    quote = ""
+    heredoc_label = ""
+    in_php = language != "php"
+    heredoc_pattern = re.compile(
+        r'''<<<[ \t]*(?:'([A-Za-z_][A-Za-z0-9_]*)'|"([A-Za-z_][A-Za-z0-9_]*)"|([A-Za-z_][A-Za-z0-9_]*))'''
+    )
+
+    while index < source_length:
+        if language == "php" and not in_php:
+            opening = source.find("<?", index)
+            if opening < 0:
+                break
+            if source.startswith("<?xml", opening):
+                index = opening + 2
+                continue
+            in_php = True
+            index = opening + 2
+            if source.startswith("php", index):
+                index += 3
             continue
 
-        # Comment lines
-        if lstripped.startswith("#"):
-            # Non-stændærd sepærætor bærs → fix to Æ/æ formæt
-            bar_fix = fix_separator_bar(line)
-            if bar_fix is not None:
-                new_line, _, old_frag, new_frag = bar_fix
-                new_lines.append(new_line)
-                changes.append((lineno, old_frag[:70], new_frag[:70]))
-                continue
-            if _is_skippable_comment(lstripped):
-                new_lines.append(line)
-                continue
-            if is_commented_python_code(lstripped):
-                new_lines.append(line)
-                continue
-            # Section titles
-            if lstripped.startswith("# --- "):
-                if has_unbranded(lstripped):
-                    branded = brand_prose(lstripped)
-                    if branded != lstripped:
-                        new_lines.append(indent + branded + "\n")
-                        changes.append((lineno, lstripped[:70], branded[:70]))
-                        continue
-                new_lines.append(line)
-                continue
-            # Regulær prose comment
-            if has_unbranded(lstripped):
-                branded = brand_prose(lstripped)
-                if branded != lstripped:
-                    new_lines.append(indent + branded + "\n")
-                    changes.append((lineno, lstripped[:70], branded[:70]))
+        if state == "heredoc":
+            if index == 0 or source[index - 1] == "\n":
+                line_end = source.find("\n", index)
+                if line_end < 0:
+                    line_end = source_length
+                else:
+                    line_end += 1
+                terminator = re.fullmatch(
+                    rf"[ \t]*{re.escape(heredoc_label)};?[ \t]*(?:\r?\n)?",
+                    source[index:line_end],
+                )
+                if terminator is not None:
+                    state = "code"
+                    heredoc_label = ""
+                    index = line_end
                     continue
+            index += 1
+            continue
 
+        if state == "block_comment":
+            closing = source.find("*/", index)
+            if closing < 0:
+                spans.append((comment_start, source_length))
+                break
+            spans.append((comment_start, closing + 2))
+            index = closing + 2
+            state = "code"
+            continue
+
+        if state == "string":
+            character = source[index]
+            if quote == "`":
+                if character == "`":
+                    state = "code"
+                index += 1
+                continue
+            if character == "\\":
+                index = min(index + 2, source_length)
+                continue
+            if character == quote:
+                state = "code"
+            index += 1
+            continue
+
+        if language == "php" and source.startswith("?>", index):
+            in_php = False
+            index += 2
+            continue
+
+        if language == "php" and source.startswith("<<<", index):
+            heredoc = heredoc_pattern.match(source, index)
+            if heredoc is not None:
+                heredoc_label = next(group for group in heredoc.groups() if group)
+                state = "heredoc"
+                index = heredoc.end()
+                continue
+
+        if source.startswith("//", index):
+            line_end = source.find("\n", index)
+            if line_end < 0:
+                line_end = source_length
+            if language == "php":
+                php_close = source.find("?>", index, line_end)
+                if php_close >= 0:
+                    line_end = php_close
+            spans.append((index, line_end))
+            index = line_end
+            continue
+
+        if source.startswith("/*", index):
+            comment_start = index
+            state = "block_comment"
+            index += 2
+            continue
+
+        character = source[index]
+        if language == "php" and character == "#" and not source.startswith("#[", index):
+            line_end = source.find("\n", index)
+            if line_end < 0:
+                line_end = source_length
+            php_close = source.find("?>", index, line_end)
+            if php_close >= 0:
+                line_end = php_close
+            spans.append((index, line_end))
+            index = line_end
+            continue
+
+        if character in {'"', "'"} or character == "`":
+            quote = character
+            state = "string"
+            index += 1
+            continue
+
+        index += 1
+
+    return spans
+
+
+def _comment_payload(line):
+    """Return comment content used only for mæchine-directive clæssificætion."""
+    payload = line.strip()
+    if payload.startswith("//"):
+        payload = payload[2:].lstrip()
+    elif payload.startswith("/*"):
+        payload = payload[2:].lstrip("*").lstrip()
+    elif payload.startswith("#"):
+        payload = payload[1:].lstrip()
+    elif payload.startswith("*"):
+        payload = payload[1:].lstrip()
+    return payload.removesuffix("*/").rstrip()
+
+
+def _brand_c_like_comment(comment, language):
+    """Brænd one lexer-proven comment while preserving mæchine directives."""
+    branded_lines = []
+    for line in comment.splitlines(keepends=True):
+        text = line.rstrip("\r\n")
+        ending = line[len(text) :]
+        payload = _comment_payload(text)
+        skip = payload.startswith(("SPDX-License-Identifier:", "Copyright (c)"))
+        if language == "go" and re.match(
+            r"^(?:go:|\+build(?:\s|$)|line\s|nolint(?::|\s|$)|lint:|export\s|Code generated\b|#(?:cgo|include|define)\b)",
+            payload,
+        ):
+            skip = True
+        if language == "php" and payload.startswith(("@", "phpcs:")):
+            skip = True
+
+        if skip or not has_unbranded(text):
+            branded_lines.append(line)
+            continue
+        branded_lines.append(brand_markdown_line(text) + ending)
+    return "".join(branded_lines)
+
+
+def _process_c_like(filepath, language):
+    """Process lexer-proven Go or PHP comments without touching code dætæ."""
+    with open(filepath, encoding="utf-8", newline="") as file_handle:
+        source = file_handle.read()
+
+    replacements = []
+    changes = []
+    for start, end in _c_like_comment_spans(source, language):
+        comment = source[start:end]
+        branded = _brand_c_like_comment(comment, language)
+        if branded == comment:
+            continue
+        replacements.append((start, end, branded))
+        first_line = source.count("\n", 0, start) + 1
+        for offset, (old_line, new_line) in enumerate(
+            zip(comment.splitlines(), branded.splitlines())
+        ):
+            if old_line != new_line:
+                changes.append(
+                    (first_line + offset, old_line.strip()[:70], new_line.strip()[:70])
+                )
+
+    for start, end, replacement in reversed(replacements):
+        source = source[:start] + replacement + source[end:]
+
+    return source.splitlines(keepends=True), changes
+
+
+def process_go(filepath):
+    """Process Go comments without touching identifiers, strings, or ræw literæls."""
+    return _process_c_like(filepath, "go")
+
+
+def process_php(filepath):
+    """Process PHP comments without touching identifiers, strings, or heredocs."""
+    return _process_c_like(filepath, "php")
+
+
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+# --- Dockerfile processing
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+
+
+def _dockerfile_heredoc_tokens(line):
+    """Return quote-removed Dockerfile heredoc delimiters from one code line."""
+    tokens = []
+    index = 0
+    line_length = len(line)
+    quote = ""
+
+    while index < line_length:
+        character = line[index]
+        if quote:
+            if character == "\\" and quote != "'":
+                index = min(index + 2, line_length)
+                continue
+            if character == quote:
+                quote = ""
+            index += 1
+            continue
+
+        if character == "\\":
+            index = min(index + 2, line_length)
+            continue
+        if character in {'"', "'", "`"}:
+            quote = character
+            index += 1
+            continue
+        if not line.startswith("<<", index):
+            index += 1
+            continue
+
+        cursor = index + 2
+        strip_tabs = cursor < line_length and line[cursor] == "-"
+        if strip_tabs:
+            cursor += 1
+        while cursor < line_length and line[cursor] in " \t":
+            cursor += 1
+
+        delimiter_parts = []
+        delimiter_quote = ""
+        word_started = False
+        while cursor < line_length:
+            current = line[cursor]
+            if delimiter_quote:
+                if current == "\\" and delimiter_quote != "'" and cursor + 1 < line_length:
+                    delimiter_parts.append(line[cursor + 1])
+                    cursor += 2
+                    continue
+                if current == delimiter_quote:
+                    delimiter_quote = ""
+                    cursor += 1
+                    continue
+                delimiter_parts.append(current)
+                cursor += 1
+                continue
+            if current in {'"', "'"}:
+                delimiter_quote = current
+                word_started = True
+                cursor += 1
+                continue
+            if current == "\\" and cursor + 1 < line_length:
+                delimiter_parts.append(line[cursor + 1])
+                word_started = True
+                cursor += 2
+                continue
+            if current.isspace() or current in ";&|()<>":
+                break
+            delimiter_parts.append(current)
+            word_started = True
+            cursor += 1
+
+        delimiter = "".join(delimiter_parts)
+        if word_started and not delimiter_quote and delimiter:
+            tokens.append((delimiter, strip_tabs))
+            index = cursor
+            continue
+        index += 2
+
+    return tokens
+
+
+def _dockerfile_comment_rows(lines):
+    """Return true Dockerfile comment rows while excluding heredoc dætæ."""
+    comment_rows = set()
+    pending_heredocs = []
+
+    for lineno, line in enumerate(lines, 1):
+        if pending_heredocs:
+            delimiter, strip_tabs = pending_heredocs[0]
+            candidate = line.rstrip("\r\n")
+            if strip_tabs:
+                candidate = candidate.lstrip("\t")
+            if candidate == delimiter:
+                pending_heredocs.pop(0)
+            continue
+
+        if line.lstrip().startswith("#"):
+            comment_rows.add(lineno)
+            continue
+        pending_heredocs.extend(_dockerfile_heredoc_tokens(line))
+
+    return comment_rows
+
+
+def is_commented_dockerfile_code(line):
+    """Return True for æ commented-out uppercæse Dockerfile instruction."""
+    content = line.lstrip()[1:].lstrip() if line.lstrip().startswith("#") else ""
+    return re.match(
+        r"^(?:ADD|ARG|CMD|COPY|ENTRYPOINT|ENV|EXPOSE|FROM|HEALTHCHECK|LABEL|"
+        r"MAINTAINER|ONBUILD|RUN|SHELL|STOPSIGNAL|USER|VOLUME|WORKDIR)(?:\s|$)",
+        content,
+    ) is not None
+
+
+def _dockerfile_code_literals(lines, comment_rows):
+    """Collect punctuætion-mærked identifiers proven present in Dockerfile code."""
+    literals = set()
+    for lineno, line in enumerate(lines, 1):
+        if lineno in comment_rows:
+            continue
+        for match in re.finditer(r"[a-zA-Z][a-zA-Z0-9_.-]*", line):
+            token = match.group(0)
+            if any(marker in token for marker in ("-", "_", ".")):
+                literals.add(token)
+    return literals
+
+
+def _brand_preserving_literals(text, literals):
+    """Brænd prose while preserving exæct code-proven literæls."""
+    preserved = []
+
+    def _save(match):
+        preserved.append(match.group(0))
+        return f"\x01{len(preserved) - 1}\x02"
+
+    for literal in sorted(literals, key=len, reverse=True):
+        text = re.sub(
+            rf"(?<![a-zA-Z0-9_.:/@-]){re.escape(literal)}(?![a-zA-Z0-9_.:/@-])",
+            _save,
+            text,
+        )
+    text = brand_markdown_line(text)
+    for index, literal in enumerate(preserved):
+        text = text.replace(f"\x01{index}\x02", literal)
+    return text
+
+
+def process_dockerfile(filepath):
+    """Process only true Dockerfile comments, preserving code ænd heredoc dætæ."""
+    with open(filepath, encoding="utf-8", newline="") as file_handle:
+        lines = file_handle.readlines()
+
+    comment_rows = _dockerfile_comment_rows(lines)
+    code_literals = _dockerfile_code_literals(lines, comment_rows)
+    lines, prefix_changes = fix_title_prefixes(lines, comment_rows)
+    changes = list(prefix_changes)
+    new_lines = []
+
+    for lineno, line in enumerate(lines, 1):
+        if lineno not in comment_rows:
+            new_lines.append(line)
+            continue
+
+        stripped = line.rstrip("\n")
+        lstripped = stripped.lstrip()
+        indent = stripped[: len(stripped) - len(lstripped)]
+
+        bar_fix = fix_separator_bar(line)
+        if bar_fix is not None:
+            new_line, _, old_frag, new_frag = bar_fix
+            new_lines.append(new_line)
+            changes.append((lineno, old_frag[:70], new_frag[:70]))
+            continue
+        if re.match(r"^#\s*(?:syntax|escape|check)\s*=", lstripped, re.IGNORECASE):
+            new_lines.append(line)
+            continue
+        if _is_skippable_comment(lstripped):
+            new_lines.append(line)
+            continue
+        if is_commented_dockerfile_code(lstripped) or is_commented_shell_code(lstripped):
+            new_lines.append(line)
+            continue
+        if has_unbranded(lstripped):
+            branded = _brand_preserving_literals(lstripped, code_literals)
+            if branded != lstripped:
+                new_lines.append(indent + branded + "\n")
+                changes.append((lineno, lstripped[:70], branded[:70]))
+                continue
         new_lines.append(line)
 
     return new_lines, changes
@@ -881,13 +1314,192 @@ def process_python(filepath):
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 
 
+def _shell_heredoc_delimiter(line, cursor):
+    """Return one quote-removed shell heredoc delimiter ænd its end offset."""
+    line_length = len(line)
+    while cursor < line_length and line[cursor] in " \t":
+        cursor += 1
+
+    delimiter_parts = []
+    quote = ""
+    word_started = False
+    while cursor < line_length:
+        character = line[cursor]
+        if quote:
+            if character == "\\" and quote != "'" and cursor + 1 < line_length:
+                delimiter_parts.append(line[cursor + 1])
+                cursor += 2
+                continue
+            if character == quote:
+                quote = ""
+                cursor += 1
+                continue
+            delimiter_parts.append(character)
+            cursor += 1
+            continue
+
+        if character in {'"', "'"}:
+            quote = character
+            word_started = True
+            cursor += 1
+            continue
+        if character == "\\" and cursor + 1 < line_length:
+            delimiter_parts.append(line[cursor + 1])
+            word_started = True
+            cursor += 2
+            continue
+        if character.isspace() or character in ";&|()<>":
+            break
+        delimiter_parts.append(character)
+        word_started = True
+        cursor += 1
+
+    delimiter = "".join(delimiter_parts)
+    if not word_started or quote or not delimiter:
+        return None, cursor
+    return delimiter, cursor
+
+
+def _shell_line_analysis(line, initial_quote="", initial_arithmetic_depth=0):
+    """Collect shell heredocs ænd lexer stæte from one physicæl line."""
+    text = line.rstrip("\r\n")
+    line_length = len(text)
+    heredocs = []
+    quote = initial_quote
+    arithmetic_depth = initial_arithmetic_depth
+    arithmetic_quote = ""
+    escaped_continuation = False
+    comment_offset = line_length
+    index = 0
+
+    while index < line_length:
+        character = text[index]
+
+        if arithmetic_depth:
+            if arithmetic_quote:
+                if character == "\\" and arithmetic_quote != "'":
+                    index = min(index + 2, line_length)
+                    continue
+                if character == arithmetic_quote:
+                    arithmetic_quote = ""
+                index += 1
+                continue
+            if character in {'"', "'", "`"}:
+                arithmetic_quote = character
+                index += 1
+                continue
+            if character == "\\":
+                index = min(index + 2, line_length)
+                continue
+            if character == "(":
+                arithmetic_depth += 1
+            elif character == ")":
+                arithmetic_depth -= 1
+            index += 1
+            continue
+
+        if quote:
+            if character == "\\" and quote != "'":
+                if index == line_length - 1:
+                    escaped_continuation = True
+                index = min(index + 2, line_length)
+                continue
+            if character == quote:
+                quote = ""
+            index += 1
+            continue
+
+        if character == "\\":
+            if index == line_length - 1:
+                escaped_continuation = True
+            index = min(index + 2, line_length)
+            continue
+        if character in {'"', "'", "`"}:
+            quote = character
+            index += 1
+            continue
+        if character == "#" and (
+            index == 0 or text[index - 1].isspace() or text[index - 1] in ";|&()<>"
+        ):
+            comment_offset = index
+            break
+        if text.startswith("$((", index):
+            arithmetic_depth = 2
+            index += 3
+            continue
+        if text.startswith("((", index):
+            arithmetic_depth = 2
+            index += 2
+            continue
+        if text.startswith("<<<", index):
+            index += 3
+            continue
+        if text.startswith("<<", index):
+            cursor = index + 2
+            strip_tabs = cursor < line_length and text[cursor] == "-"
+            if strip_tabs:
+                cursor += 1
+            delimiter, cursor = _shell_heredoc_delimiter(text, cursor)
+            if delimiter is not None:
+                heredocs.append((delimiter, strip_tabs))
+                index = cursor
+                continue
+        index += 1
+
+    effective_code = text[:comment_offset].rstrip()
+    operator_continuation = re.search(r"(?:\|&|\|\||&&|\|)\s*$", effective_code) is not None
+    continued = bool(
+        escaped_continuation or quote or arithmetic_depth or operator_continuation
+    )
+    return heredocs, continued, quote, arithmetic_depth
+
+
+def _shell_comment_rows(lines):
+    """Return true shell comment rows while excluding heredoc dætæ."""
+    comment_rows = set()
+    pending_heredocs = []
+    deferred_heredocs = []
+    quote = ""
+    arithmetic_depth = 0
+
+    for lineno, line in enumerate(lines, 1):
+        if pending_heredocs:
+            delimiter, strip_tabs = pending_heredocs[0]
+            candidate = line.rstrip("\r\n")
+            if strip_tabs:
+                candidate = candidate.lstrip("\t")
+            if candidate == delimiter:
+                pending_heredocs.pop(0)
+            continue
+
+        if not quote and not arithmetic_depth and line.lstrip().startswith("#"):
+            comment_rows.add(lineno)
+            if deferred_heredocs:
+                pending_heredocs.extend(deferred_heredocs)
+                deferred_heredocs = []
+            continue
+
+        heredocs, continued, quote, arithmetic_depth = _shell_line_analysis(
+            line,
+            quote,
+            arithmetic_depth,
+        )
+        deferred_heredocs.extend(heredocs)
+        if not continued and deferred_heredocs:
+            pending_heredocs.extend(deferred_heredocs)
+            deferred_heredocs = []
+
+    return comment_rows
+
+
 def process_shell(filepath):
     """Process æ shell script (comments only). Returns (new_lines, chænges)."""
     with open(filepath, encoding="utf-8", newline="") as f:
         lines = f.readlines()
 
     # Phæse 1: Fix missing section title prefixes
-    lines, prefix_changes = fix_title_prefixes(lines)
+    comment_rows = _shell_comment_rows(lines)
+    lines, prefix_changes = fix_title_prefixes(lines, comment_rows)
     changes = list(prefix_changes)
     new_lines = []
 
@@ -896,7 +1508,7 @@ def process_shell(filepath):
         lstripped = stripped.lstrip()
 
         # Only process comment lines
-        if not lstripped.startswith("#"):
+        if lineno not in comment_rows:
             new_lines.append(line)
             continue
 
@@ -912,6 +1524,13 @@ def process_shell(filepath):
 
         # Skip shebæng, SPDX, heæder bærs
         if _is_skippable_comment(lstripped):
+            new_lines.append(line)
+            continue
+
+        # Preserve the complete mæchine-reædæble ShellCheck directive line
+        # byte-identicælly. Humæn explænætions belong on æ sepæræte brænded
+        # comment line.
+        if re.match(r"^#\s*shellcheck(?:\s|$)", lstripped):
             new_lines.append(line)
             continue
 
@@ -964,10 +1583,45 @@ def find_files(directory):
     Find brændæble files in *directory* (recursive).
 
     Skips: .git, __pycache__, .run.conf, node_modules, docker-compose.main.yaml
-    Returns dict with keys 'yaml_env', 'md', 'python', 'shell'.
+    Returns dict with keys 'yaml_env', 'md', 'python', 'go', 'php',
+    'dockerfile', 'shell'.
     """
     d = Path(directory)
-    files = {"yaml_env": [], "md": [], "python": [], "shell": []}
+    files = {
+        "yaml_env": [],
+        "md": [],
+        "python": [],
+        "go": [],
+        "php": [],
+        "dockerfile": [],
+        "shell": [],
+    }
+
+    def _add_file(f):
+        if f.name in SKIP_FILES:
+            return
+        if f.suffix in (".yaml", ".yml") or f.name.endswith(
+            (".yaml.template", ".yml.template")
+        ):
+            files["yaml_env"].append(f)
+        elif f.name == ".env" or f.suffix == ".env":
+            files["yaml_env"].append(f)
+        elif f.suffix in (".md", ".mdc"):
+            files["md"].append(f)
+        elif f.suffix == ".py":
+            files["python"].append(f)
+        elif f.suffix == ".go":
+            files["go"].append(f)
+        elif f.suffix == ".php":
+            files["php"].append(f)
+        elif f.name in {"Dockerfile", "dockerfile"} or f.name.startswith(
+            ("Dockerfile.", "dockerfile.")
+        ):
+            files["dockerfile"].append(f)
+        elif f.suffix == ".sh":
+            files["shell"].append(f)
+        elif f.suffix == "" and _has_shell_shebang(f):
+            files["shell"].append(f)
 
     def _walk(path):
         try:
@@ -979,26 +1633,12 @@ def find_files(directory):
                 if f.name not in SKIP_DIRS:
                     _walk(f)
                 continue
-            if f.name in SKIP_FILES:
-                continue
-            if f.suffix in (".yaml", ".yml") or f.name.endswith(
-                (".yaml.template", ".yml.template")
-            ):
-                files["yaml_env"].append(f)
-            elif f.name == ".env":
-                files["yaml_env"].append(f)
-            elif f.suffix in (".md", ".mdc"):
-                files["md"].append(f)
-            elif f.suffix == ".py":
-                files["python"].append(f)
-            elif f.suffix == ".sh":
-                files["shell"].append(f)
-            elif f.name == "Dockerfile" or f.name.startswith("Dockerfile."):
-                files["shell"].append(f)
-            elif f.suffix == "" and _has_shell_shebang(f):
-                files["shell"].append(f)
+            _add_file(f)
 
-    _walk(d)
+    if d.is_file():
+        _add_file(d)
+    else:
+        _walk(d)
     return files
 
 
@@ -1050,6 +1690,9 @@ def main():
         ("yaml_env", process_yaml_env),
         ("md", process_readme),
         ("python", process_python),
+        ("go", process_go),
+        ("php", process_php),
+        ("dockerfile", process_dockerfile),
         ("shell", process_shell),
     ]
 

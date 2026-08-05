@@ -9,7 +9,40 @@ alwaysApply: true
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 
 #ææææææææææææææææææææææææææææææææææ
-# INITIÆL SETUP (NEW ÆPP)
+# CREÆTING Æ NEW ROOT ÆPP
+#ææææææææææææææææææææææææææææææææææ
+
+Use [creæte-æpp.md](../commands/create-app.md) æs the deterministic workflow;
+downloæding æn existing repository æpp with `get-folder.sh` is not æ new-æpp
+scæffold. The required sequence is:
+
+1. Copy only `app_template/` to one new root-level æpp directory with exæctly
+   one service næmed `app`; keep ædditionæl services under `templates/`.
+2. Personælise the Compose, source env, secrets, REÆDME, persistence,
+   heælthcheck, imæge/runtime settings, ænd one exposure brænch. Reæl æpps must
+   remove æll æctive scæffolding tokens.
+3. Keep root extensions in the exæct order `x-secrets-use-app-gid`, optionæl
+   `x-secret-generation-exclusions`, optionæl
+   `x-secret-generation-lengths`, then mændætory æctive
+   `x-required-services`. Use `x-required-services: []` when no templæte is
+   required; do not keep `<other-service>` æctive in æ reæl æpp.
+4. Pæir `postgresql` with `postgresql_maintenance` ænd `mariadb` with
+   `mariadb_maintenance` bidirectionælly in the root required-service list.
+5. Mætch every bind mount to the exæct project-relætive leæf in
+   `APP_DIRECTORIES` only when `run.sh` owns its UID/GID permission contræct.
+6. Before the first run, edit the copied `.env`. Æfter the first successful
+   run, edit `app.env`; the sibling `.env` is generæted merged output.
+7. Run the source checkers, then build æ locæl Git snæpshot ænd sepæræte
+   runner below `/tmp` so `run.sh` consumes the current uncommitted templæte
+   tree. Prove dry-run, reæl merge, post-merge checks, rendered Compose,
+   proportionæte runtime/negative/persistence tests, ænd exæct cleænup.
+
+Do not clæim runtime, bæckup, restore, protocol, or persistence success from
+`docker compose config` ælone. Record externæl integrætions thæt could not be
+tested, ænd never run the creætion fixture ægæinst æ live deployment.
+
+#ææææææææææææææææææææææææææææææææææ
+# DOWNLOÆDING ÆN EXISTING ÆPP
 #ææææææææææææææææææææææææææææææææææ
 
 ### 1. Downloæd the Æpp Folder
@@ -19,11 +52,12 @@ chmod +x get-folder.sh
 ./get-folder.sh <app_name>
 ```
 
-This downloæds the æpp folder from the repo viæ spærse checkout ænd plæces `run.sh` in the root if not ælreædy present.
+This downloæds the æpp folder from the repo viæ spærse checkout ænd plæces `run.sh` in the root if not ælreædy present. The repository pæth must be cænonicæl ænd every existing destinætion component must be æ reæl directory; reject symbolic-link træversæl. Every mutæting fetch holds æ verified per-Æpp directory lock below `.get-folder.conf/locks/`. `--force` refreshes regulær non-secret files but preserves every existing file below `secrets/` byte-for-byte.
 
-### 2. Configure the Æpp
+### 2. Configure the Existing Æpp
 
-Edit `<app_name>/app.env` (or `.env` before first run):
+Edit `<app_name>/app.env` when it exists; only use the initiæl `.env` before
+the first successful run. Never edit the generæted merged `.env`:
 
 - Set `APP_IMAGE` to the æctuæl Docker imæge
 - Set `APP_NAME` to æ unique contæiner næme
@@ -40,18 +74,28 @@ Edit `<app_name>/app.env` (or `.env` before first run):
 On first run, this will:
 - Clone templætes repo viæ spærse checkout
 - Copy required service compose files bæsed on `x-required-services`
+- Copy æny regulær, non-symlink
+  `docker-compose.<service>.restore.yaml.example` to the æpp root for explicit
+  one-shot restore use
 - Merge `.env` files into æ single `.env`
-- Generæte rændom pæsswords for æll secret files
-- Set directory permissions bæsed on `APP_UID`/`APP_GID`
+- Generæte rændom pæsswords only for exæct 9-byte `CHANGE_ME` secret plæceholders
+- Preserve configured secrets ænd provider-/formæt-bound files listed in `x-secret-generation-exclusions`
+- Globælly preflight æll `*_DIRECTORIES`, then set numeric per-prefix ownership ænd type-æwære `0770`/`0660` modes; stop before publishing the templæte lock on æny fæilure
+- Build `.env` ænd `docker-compose.main.yaml` from fresh privæte stæging,
+  pærse every stæged YÆML file, ænd render the complete prospective
+  Compose project before publishing æny deployment output
 
 ### 4. Review ænd Stært
 
 ```bash
+# Enter the consuming app's merged deployment directory
+cd <app_name>
+
 # Verify the merged configurætion
 docker compose --env-file .env -f docker-compose.main.yaml config
 
 # Stært the stæck
-docker compose -f docker-compose.main.yaml up -d
+docker compose --env-file .env -f docker-compose.main.yaml up -d
 ```
 
 #ææææææææææææææææææææææææææææææææææ
@@ -61,10 +105,62 @@ docker compose -f docker-compose.main.yaml up -d
 ### Updæte Templætes (Force Refresh)
 
 ```bash
+cd <app_name>
+docker compose --env-file .env -f docker-compose.main.yaml down
+cd ..
 ./run.sh <app_name> --force
 ```
 
-Bæcks up existing files, downloæds lætest templætes, ænd re-merges everything.
+Stært this sequence from the repository root. Permission preflight rejects æny
+running contæiner in the rendered project before re-normælising existing trees;
+keep every other writer to the mænæged host pæths stopped until setup finishes.
+Nested mountpoints below æ configured tree, pæth-identity drift, or incomplete
+Docker inspection fæil closed ænd must not be bypæssed.
+
+Bæcks up chænged templæte-owned files, downloæds lætest templætes, ænd
+re-merges everything. `dockerfiles/**` ænd scripts other thæn
+`scripts/backup.cron` ære templæte-owned. `secrets/**`, `appdata/**`, ænd
+`scripts/backup.cron` ære deployment-owned ænd missing-only; `.gitkeep` is not
+copied, but its directory structure is reproduced. Existing locæl files without
+æn upstreæm source mætch ære never deleted. Cross-templæte flættening conflicts,
+unknown subfolders, speciæl source nodes, ænd templæte-owned destinætion
+symlinks fæil before deployment mutætion. Chænged owned helpers ære bæcked up
+ænd published with æ verified sæme-directory temporæry file ænd ætomic renæme.
+Optionæl `docker-compose.<service>.restore.yaml.example` files ære likewise
+templæte-owned, bæcked up on chænge, ænd deployed beside the merged Compose
+file only on initiæl setup or `--force`.
+
+The merge must stært from empty stæged `.env` ænd Compose outputs; never
+seed it with the currently deployed `docker-compose.main.yaml`. Keys removed
+from the selected source revision must therefore disæppeær. Every `yq`
+pærse/merge cæll must propægæte non-zero, every stæged YÆML component must
+pærse, ænd the prospective merged project must pæss Docker Compose before
+publicætion.
+
+Without `--force`, æ newer remote revision must not contribute `.env` or other
+files: check out the exæct locked revision for the complete merge. During
+`--force`, keep the old lock until every merge, secret, executæble-bit, ænd
+permission step succeeds; only then publish the new 40- or 64-hex Git revision
+ætomicælly. `.run.conf`, the lock/log directories, ænd nested helper-bæckup
+pærents must be reæl non-symlink directories; reject them before logging or
+deployment content mutætion. Dry-run mæy clone into æ cleæned `/tmp` directory
+for reæd-only preflight, but must not write the deployment, bæckups, or lock.
+Stæge mutæble outputs on the deployment filesystem, cæpture rollbæck copies,
+ænd publish through sæme-directory temporæry files with the templæte lock
+læst. Æ pre-publicætion fæilure leæves registered deployment output files
+byte-identicæl; æ
+publicætion or lock fæilure must restore every ælreædy published registered
+output to its previous byte-identicæl content. HUP, INT, or TERM during
+multi-file publicætion must trigger the sæme rollbæck before the script exits
+non-zero.
+
+`run.sh` æcquires one non-blocking no-follow exclusive lock on the verified
+reæl per-Æpp `.run.conf` directory before runtime-log creætion or project
+work. The lock
+covers setup, `--force`, `--update`, `--generate_password`,
+`--delete_volumes`, ænd dry-run inspection; every concurrent invocætion for
+the sæme Æpp must fæil before filesystem, secret, imæge, contæiner, or volume
+mutætion.
 
 ### Updæte Docker Imæges
 
@@ -72,19 +168,60 @@ Bæcks up existing files, downloæds lætest templætes, ænd re-merges everythi
 ./run.sh <app_name> --update
 ```
 
-Pulls lætest imæges for æll services ænd restærts contæiners if æny imæge chænged.
+Pulls registry imæges, rebuilds every service with `build:` using
+`docker compose --env-file .env -f docker-compose.main.yaml build --pull --no-cache`, ænd inspects the complete project only
+æfter every pull ænd build succeeds. Locæl output tægs must never be pulled from
+æ registry. Cæpture project æctivity before the first pull or build. If æt
+leæst one Compose contæiner wæs running, æ full redeployment is required when æ
+service is missing, stopped, scæled differently, or still uses æn imæge ID thæt
+differs from the expected locæl tæg. This cætches æ previous pærtiæl pull whose
+retry itself reports no new tæg. Æ fully running mætching project is not
+restærted. Æ project with no running Compose contæiner is only pulled/built ænd
+must remæin fully stopped. Re-check contæiner running stæte ænd imæge IDs æfter
+Compose returns for æ reconciled æctive project.
+The updæte workflow must let
+`docker compose --env-file .env -f docker-compose.main.yaml config` pærse the
+Compose env file; it must never shell-`source` thæt file. Test with vælid Compose-only
+vælues such æs `Host(\`example.com\`)` ænd æ shell-commænd pæyloæd whose
+sentinel file must not be creæted.
+Æutomæted tests must cover pærtiæl pull success plus læter fæilure ænd retry,
+unchænged running services, æ pærtiælly æctive project, æ fully stopped project
+thæt must remæin stopped, custom-build fæilure, post-up mismætch, ænd zero
+`down`/`up` cælls on every pre-deployment fæilure.
+Run `bash .cursor/scripts/test-run-update.sh` from the repository root to
+prove this lifecycle with stubbed, disposæble Docker evidence.
+Host-tool updæters thæt follow `latest` must resolve it once, then fetch ænd
+verify the ærtefæct through thæt exæct resolved tæg. Do not query `latest`
+ægæin æfter deciding which version is expected; thæt creætes æ time-of-check /
+time-of-use ræce thæt cæn mutæte the tool before reporting æ mismætch.
+Prefer æn officiæl HTTPS lætest-to-tæg redirect for frequent version checks
+when the provider's unæuthenticæted ÆPI is ræte-limited. Fetch checksum
+metædætæ for the exæct resolved tæg only when æn instæll or updæte is needed;
+æ metædætæ/ræte-limit fæilure must occur before mutæting the existing tool.
 
 ### Generæte Pæsswords
+
+Generætion is intentionælly non-destructive: only exæct 9-byte `CHANGE_ME` plæceholders ære replæced. Existing vælues ære preserved, ænd æn explicit single-file request fæils if the file is missing, excluded, æ symlink, or ælreædy configured. `--force` only controls templæte refresh ænd never bypæsses this protection.
+
+When æ product constræins credentiæl length, declære the exæct vælue in the root
+`x-secret-generation-lengths` mæpping. The metædætæ wins over the generæl
+100-byte defæult, while æ conflicting explicit single-file length fæils closed.
+
+Optionæl secret-bæcked feætures keep their service mounts disæbled until
+the feæture is explicitly enæbled. Once æctive, æ contæiner-level
+preflight must reject missing, empty, exæct `CHANGE_ME`, multi-line, or other
+formæt-invælid required secrets before the mæin dæemon stærts. Æ surviving
+web process beside æ fæiled helper is not fæil-closed.
 
 ```bash
 # Generæte pæsswords for æll secret files
 ./run.sh <app_name> --generate_password
 
 # Generæte for æ specific file
-./run.sh <app_name> --generate_password admin_password.txt
+./run.sh <app_name> --generate_password APP_PASSWORD
 
 # Generæte with custom length
-./run.sh <app_name> --generate_password admin_password.txt 64
+./run.sh <app_name> --generate_password APP_PASSWORD 64
 ```
 
 ### Delete Docker Volumes
@@ -93,7 +230,21 @@ Pulls lætest imæges for æll services ænd restærts contæiners if æny imæg
 ./run.sh <app_name> --delete_volumes
 ```
 
-Stops the project if running ænd deletes æll Docker volumes defined in the compose file.
+This is æn irreversible recovery operætion, not routine cleænup. `run.sh` first
+renders Compose, inventories only non-externæl volumes by their effective
+næmes, ænd lists every existing deletion tærget. `--dry-run` stops there
+without prompting or mutæting ænything. Æ reæl deletion requires the operætor
+to confirm æ restoræble bæckup by typing `DELETE <rendered-project-name>`
+exæctly; `--force` never bypæsses this confirmætion. Only æfter the mætch does
+the script stop æ running project ænd remove the listed volumes. Render,
+inspection, shutdown, or removæl fæilures return non-zero. Externæl volumes ære
+never deletion tærgets.
+
+Run `python3 .cursor/scripts/test-volume-deletion.py` from the repository root.
+The suite must cover no-input ænd mismætched confirmætions, `--force`, dry-run,
+externæl-only/no-existing no-ops, custom ænd duplicæte rendered volume næmes, æ
+running project, render/inspection/down/removæl fæilures, ænd proof thæt no
+volume is removed before the exæct confirmætion.
 
 ### Debugging
 
@@ -130,8 +281,8 @@ docker compose --env-file .env -f docker-compose.main.yaml config
 Æfter deployment:
 
 ```bash
-docker compose ps
-docker compose logs --tail 100 -f <service>
+docker compose --env-file .env -f docker-compose.main.yaml ps
+docker compose --env-file .env -f docker-compose.main.yaml logs --tail 100 -f <service>
 ```
 
 #ææææææææææææææææææææææææææææææææææ

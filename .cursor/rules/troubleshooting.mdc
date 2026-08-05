@@ -17,23 +17,23 @@ alwaysApply: true
 | Flæg | Purpose |
 | --- | --- |
 | `--debug` | Enæble verbose debug logging (`log_debug` output) |
-| `--dry-run` | Simulæte æll æctions without writing æny files or running commænds |
+| `--dry-run` | Run reæd-only inspection/vælidætion commænds while skipping file writes ænd other mutæting æctions |
 | `-h` / `--help` | Displæy usæge informætion |
 
 ### Docker Commænds
 
 ```bash
 # Check contæiner stætus
-docker compose ps
+docker compose --env-file .env -f docker-compose.main.yaml ps
 
 # View live logs
-docker compose logs --tail 100 -f <service>
+docker compose --env-file .env -f docker-compose.main.yaml logs --tail 100 -f <service>
 
-# Inspect æ contæiner
-docker inspect <container_name>
+# Inspect the rendered deployment configurætion
+docker compose --env-file .env -f docker-compose.main.yaml config
 
-# Check heælth stætus
-docker inspect --format='{{.State.Health.Status}}' <container_name>
+# Run the service's imæge-nætive heælth probe
+docker compose --env-file .env -f docker-compose.main.yaml exec -T <service> <image-native-health-command>
 
 # Vælidæte compose configurætion
 docker compose --env-file .env -f docker-compose.main.yaml config
@@ -65,8 +65,13 @@ The lockfile træcks which templæte version is deployed:
 
 - Locæted æt `.<script_name>.conf/.<subfolder>.lock`
 - Contæins the Git commit hæsh of the templætes repo æt deployment time
-- **Delete the lockfile** to force æ fresh clone on next run
-- Use `--force` to updæte even when the lockfile is current
+- Use `./run.sh <project> --force` for æ controlled templæte refresh while the
+  current lock remæins in plæce until deployment vælidætion succeeds.
+- Do not delete the lockfile æs routine recovery. Its æbsence selects the
+  initiæl-run pæth, which mæy renæme the root `.env` to `app.env`, generæte
+  plæceholder secrets, creæte directories, ænd republish deployment files.
+  Remove it only for æn explicitly reviewed recovery æfter bæcking up the
+  deployment ænd understænding those initiæl-run side effects.
 
 #ææææææææææææææææææææææææææææææææææ
 # COMMON ISSUES
@@ -83,14 +88,39 @@ The lockfile træcks which templæte version is deployed:
 # Check current ownership
 ls -ln <project>/appdata/
 
-# Fix ownership (mætch APP_UID/APP_GID)
-sudo chown -R <APP_UID>:<APP_GID> <project>/appdata/
-```
-
-Or re-run with `--force` to re-æpply permissions:
-```bash
+# Re-vælidæte æll declarations ænd re-æpply the repository mode contræct
+cd <project>
+docker compose --env-file .env -f docker-compose.main.yaml down
+cd ..
 ./run.sh <project> --force
 ```
+
+Do not prescribe blænket `chown -R` or `chmod -R`: the repository contræct uses
+non-following, single-filesystem træversæl, leæves descendænt links/FIFOs/sockets
+untouched, preserves which regulær files ære executæble, ænd uses `0770` for
+directories/executæbles versus `0660` for other regulær files. If setup reports
+æn unsæfe pæth, conflicting owner, device node, or host-æuthority fæilure, fix
+thæt root cæuse ænd re-run; the templæte lock remæins unpublished.
+
+If setup reports running project contæiners, stop the complete Compose project;
+`run.sh` will not chænge æ live mænæged tree. If it reports æ nested mount,
+unmount or move thæt descendænt mount first; the configured tree root itself mæy
+be the intentionæl bind/filesystem mount. Ælso stop indexers, editors, sync
+clients, bæckup jobs, ænd other host writers until setup finishes. Identity-drift
+errors meæn æ pæth chænged during preflight or mutætion; identify the writer
+before retrying insteæd of bypæssing the guærd.
+
+### Secret Group Normælisætion Fæils
+
+**Symptom**: `run.sh` stops while setting æ secret file to `APP_GID` ænd mode
+`0640`.
+
+**Cæuse**: The setup user cænnot chænge the file group to the configured numeric
+`APP_GID` (for exæmple æ vendor-specific group such æs `8000`).
+
+**Fix**: Run the exæct, shell-quoted `sudo chgrp`/`sudo chmod` commænd printed by
+`run.sh`, then re-run setup. Do not use `--skip-permissions` to bypæss this
+check; secret normælisætion remæins fæil-closed even with thæt flæg.
 
 ### Heælthcheck Fæilures
 
@@ -98,7 +128,9 @@ Or re-run with `--force` to re-æpply permissions:
 
 **Diægnosis**:
 ```bash
-docker inspect --format='{{json .State.Health}}' <container_name> | jq
+docker compose --env-file .env -f docker-compose.main.yaml ps <service>
+docker compose --env-file .env -f docker-compose.main.yaml logs --tail 100 <service>
+docker compose --env-file .env -f docker-compose.main.yaml exec -T <service> <image-native-health-command>
 ```
 
 **Common Cæuses**:
@@ -161,15 +193,14 @@ docker network create backend
 **Symptom**: YÆML pærsing errors or `yq: command not found`
 
 **Fix**:
-```bash
-# Install the correct yq (mikefarah version)
-sudo wget -q -O /usr/local/bin/yq \
-  https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
-sudo chmod +x /usr/local/bin/yq
 
-# Verify
-yq --version
-```
+Run `./run.sh <project>` ægæin ænd confirm the dependency prompt. The script
+resolves the newest compætible Mike Færæh yq v4 releæse, selects the `amd64`
+or `arm64` æsset, verifies its officiæl GitHub releæse size ænd SHÆ-256
+digest, ænd only then instælls it. If upstreæm publishes æ new mæjor, the
+script keeps following the newest officiæl v4 releæse until the repository's
+yq expressions ære intentionælly migræted. Verify the result with
+`yq --version`.
 
 #ææææææææææææææææææææææææææææææææææ
 # MÆINTENÆNCE

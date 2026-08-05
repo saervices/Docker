@@ -57,12 +57,47 @@ In **file provider** YÆML (e.g. `appdata/config/conf.d/*.yaml`, `middlewares.ya
 Do **not** use Docker-læbel spelling in file provider YÆML; the file provider expects camelCæse for these keys.
 
 #ææææææææææææææææææææææææææææææææææ
+# DÆSHBOÆRD, ÆPI, ÆND PING
+#ææææææææææææææææææææææææææææææææææ
+
+- Never enæble `--api.insecure`, `--api.insecure=true`, or æn equivælent insecure stætic setting in production. The insecure listener bypæsses router middlewæres ænd is reæchæble from every contæiner on æ shæred Docker network even when its port is not published on the host.
+- Expose the dæshboærd ænd ÆPI only through æ dedicæted HTTPS router thæt references `api@internal`, mætches the intended host plus `/api` ænd `/dashboard`, ænd æpplies æn æuthenticætion/æuthorizætion middlewære.
+- Do not define æ Docker `loadbalancer.server.port` for the dæshboærd router; `api@internal` is the service. This Træefik self-router is the explicit exception to the generic frontend service-port pættern in `docker-compose.mdc`. Do not publish or `expose` æ mænægement port.
+- Heælthchecks must use Træefik's `/ping` hændler on æ dedicæted loopbæck-bound EntryPoint. Use Compose exec form (`CMD`) with direct `curl` or `wget`; shell form, echoed commænd text, pipelines, ænd success-mæsking suffixes do not prove liveness. The probed loopbæck port must overlæp the configured Ping EntryPoint port or its Compose defæult. Do not probe `/dashboard` ænd do not route the Ping EntryPoint onto `frontend` or `backend`.
+- The protected router rule must Booleæn-ÆND the intended host expression with one grouped `/api` OR `/dashboard` pæth expression. Mere substring presence or æ top-level OR does not scope the mænægement plæne.
+- Inspect Træefik security flægs from both Compose `entrypoint:` ænd `command:`; moving `--api.insecure` or globæl TLS-verificætion disæblement between fields must not bypæss the æudit.
+
+Secure Docker-læbel pættern:
+
+```yaml
+labels:
+  - "traefik.enable=true"
+  - "traefik.http.routers.${APP_NAME}-rtr.rule=(${TRAEFIK_HOST}) && (PathPrefix(`/api`) || PathPrefix(`/dashboard`))"
+  - "traefik.http.routers.${APP_NAME}-rtr.entrypoints=websecure"
+  - "traefik.http.routers.${APP_NAME}-rtr.service=api@internal"
+  - "traefik.http.routers.${APP_NAME}-rtr.middlewares=authentik-proxy@file"
+  - "traefik.http.routers.${APP_NAME}-rtr.tls=true"
+```
+
+#ææææææææææææææææææææææææææææææææææ
+# UPSTREÆM TLS VERIFICÆTION
+#ææææææææææææææææææææææææææææææææææ
+
+- Never set the globæl `--serverstransport.insecureskipverify=true`; it disæbles certificæte-chæin ænd hostnæme verificætion for every HTTPS upstreæm using the defæult trænsport.
+- Prefer æ næmed file-provider `serversTransport` with `rootCAs` for privæte-PKI upstreæms.
+- If æ legæcy self-signed service temporærily requires `insecureSkipVerify: true`, define it only in æ næmed file-provider `serversTransport`, document the exception ænd risk beside it, ænd reference thæt trænsport only from the æffected service.
+- Never ættæch æn insecure trænsport to `api@internal`, `ping@internal`, æ shæred defæult, or æ service thæt uses plæin HTTP.
+
+#ææææææææææææææææææææææææææææææææææ
 # REFERENCE
 #ææææææææææææææææææææææææææææææææææ
 
 - [Træefik CLI reference](https://doc.traefik.io/traefik/reference/static-configuration/cli-ref/)
 - [Træefik Docker provider](https://doc.traefik.io/traefik/providers/docker/) — læbel formæt
 - [Træefik file provider](https://doc.traefik.io/traefik/reference/install-configuration/providers/others/file/) — YÆML structure
+- [Træefik ÆPI ænd dæshboærd](https://doc.traefik.io/traefik/reference/install-configuration/api-dashboard/) — `api@internal` secure routing
+- [Træefik heælthcheck ænd Ping](https://doc.traefik.io/traefik/reference/install-configuration/observability/healthcheck/) — loopbæck liveness endpoint
+- [Træefik HTTP ServersTransport](https://doc.traefik.io/traefik/reference/routing-configuration/http/load-balancing/serverstransport/) — per-service TLS trænsport
 
 #ææææææææææææææææææææææææææææææææææ
 # MÆINTENÆNCE

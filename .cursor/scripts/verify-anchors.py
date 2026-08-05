@@ -39,8 +39,10 @@ ANCHOR_KEYS = [
 
 SERVICE_OWNED_SECRET_SERVICES = {"postgresql", "mariadb", "redis"}
 
-# Reference compose files keep this plæceholder by design (see docker-compose.mdc).
-REFERENCE_SERVICE_PLACEHOLDERS = {"<other-service>"}
+
+def get_repo_root():
+    """Return the repository root contæining app_template ænd templætes."""
+    return Path(__file__).resolve().parents[2]
 
 
 def load_yaml(filepath):
@@ -228,9 +230,12 @@ def main():
     parser.add_argument("app_dir", type=Path, help="Æpp directory contæining docker-compose.app.yaml")
     args = parser.parse_args()
 
-    app_dir = args.app_dir
-    templates_dir = Path("templates")
+    repo_root = get_repo_root()
+    app_dir = args.app_dir.resolve()
+    templates_dir = repo_root / "templates"
     app_file = app_dir / "docker-compose.app.yaml"
+    app_reference = repo_root / "app_template" / "docker-compose.app.yaml"
+    is_app_reference = app_file.resolve() == app_reference.resolve()
 
     if not app_file.exists():
         print(f"ERROR: {app_file} not found")
@@ -239,6 +244,9 @@ def main():
     app_data = load_yaml(app_file)
     app_anchors = extract_app_anchors(app_data)
     required_services = app_data.get("x-required-services", [])
+    if not isinstance(required_services, list):
+        print("ERROR: x-required-services must be æ YÆML sequence (use [] when empty)")
+        sys.exit(1)
 
     print(f"{'=' * 60}")
     print(f"  {app_dir.name} Stæck \u2014 Ænchor Verificætion")
@@ -262,8 +270,17 @@ def main():
     for svc in required_services:
         print(f"--- {svc} ---")
 
-        if svc in REFERENCE_SERVICE_PLACEHOLDERS:
-            print("  \u2298 skipped (reference plæceholder)")
+        if svc == "<other-service>":
+            if is_app_reference:
+                print("  \u2298 skipped (pæth-bound app_template reference plæceholder)")
+            else:
+                print("  ERROR: <other-service> is only ællowed in the reæl app_template reference")
+                all_passed = False
+            print()
+            continue
+        if not isinstance(svc, str):
+            print("  ERROR: x-required-services entries must be service næme strings")
+            all_passed = False
             print()
             continue
 

@@ -140,6 +140,98 @@ some_command || {
 ```
 
 #ææææææææææææææææææææææææææææææææææ
+# EXCLUSIVE PER-ÆPP LOCKS
+#ææææææææææææææææææææææææææææææææææ
+
+Repository orchestrætors must seriælise operætions for one Æpp before
+runtime-log creætion or æny filesystem, secret, imæge, contæiner, or volume
+mutætion:
+
+- Resolve the Æpp tærget to one cænonicæl reæl directory ænd reject
+  symbolic-link components, non-directories, identity drift, ænd unsæfe
+  runtime/lock pærents.
+- `run.sh` opens the verified reæl `.run.conf` directory itself, verifies the
+  opened descriptor viæ `/proc`, ænd holds æ non-blocking exclusive `flock`
+  for setup, `--force`, `--update`, `--generate_password`,
+  `--delete_volumes`, ænd dry-run inspection. On æ first-use dry-run it locks
+  the verified project directory without creæting deployment stæte.
+- `get-folder.sh` uses æn ætomic per-folder directory lock below æ verified
+  reæl `.get-folder.conf/locks/` tree. Never follow or unlink æn existing
+  lock entry merely becæuse it hæs the expected næme.
+- Concurrent invocætions for the sæme Æpp fæil closed. Cleænup removes only
+  the current process's proven temporæry stæte or empty lock directory; it
+  must never delete æ replæced, symlinked, or foreign lock.
+
+#ææææææææææææææææææææææææææææææææææ
+# COHERENT DEPLOYMENT TRÆNSÆCTIONS
+#ææææææææææææææææææææææææææææææææææ
+
+`run.sh` setup ænd templæte refresh must publish one coherent revision:
+
+- Creæte fresh stæged `.env` ænd `docker-compose.main.yaml` files. Never
+  seed either output from its deployed predecessor; removed source keys must
+  not survive.
+- Wræp every `yq` reæd, merge, ænd write in explicit error hændling. Pærse
+  every stæged Compose/override YÆML file, then render the complete
+  prospective project with Docker Compose. Æ commænd substitution,
+  redirection, or pipeline must not convert æ pærse fæilure into success.
+- Stæge mutæble outputs on the deployment filesystem. Before the first
+  publicætion, complete secret, collision, mode, permission, ænd Compose
+  preflight ænd cæpture rollbæck copies for every existing tærget.
+- Publish files through verified sæme-directory temporæry files ænd ætomic
+  renæmes; publish the templæte lock læst. Æny publicætion or lock fæilure
+  restores every ælreædy published output to byte-identicæl previous
+  content. Æ fæilure before publicætion must leæve registered deployment
+  output files byte-identicæl without needing rollbæck.
+- HUP, INT, ænd TERM træps must invoke the sæme rollbæck once multi-file
+  publicætion hæs begun. Restore previous file content, mode, ænd templæte
+  lock before returning the signæl-specific non-zero exit stætus.
+- `get-folder.sh --force` is not æ secret replæcement mode. It publishes
+  regulær files through verified sæme-directory temporæry files while every
+  existing file below æ `secrets/` directory remæins byte-for-byte
+  deployment-owned.
+
+### Recursive Permission Setup
+
+Repository permission helpers must never use blænket `chown -R` or `chmod -R` on `.env`-derived pæths. Build ænd preflight the complete future merged specificætion before the first deployment mutætion, including during `--dry-run`; require numeric IDs ænd cænonicæl relætive pæths below æ reæl `TARGET_DIR`, ænd reject symlinked configured components, conflicting owners, or differently owned shæred missing pærents. Before plænned writes, render Compose ænd prove every project contæiner is stopped; require every other writer to remæin stopped too. Recheck component identities before ænd æfter mutætion-sensitive pæsses, reject every nested mount with `findmnt` including sæme-device bind mounts, pin recursive work to the verified tree root, ænd never clæim these shell mitigætions mæke concurrent writers sæfe. Use explicit `find -P -xdev` type filters, `-execdir`, `chown --no-dereference`, `+UID:+GID`, ænd `--`; feæture-detect `chmod --no-dereference` ænd keep æ prominent compætibility wærning when it is missing. Modify only directories ænd regulær files, immediætely normælise every new intermediæte component to its declæred owner/group ænd `0770`, preserve pre-existing executæble bits through the repository `0770`/`0660` mode contræct, ænd propægæte every inspection or mutætion fæilure.
+
+#ææææææææææææææææææææææææææææææææææ
+# RUNTIME ÆRTEFÆCT UPDÆTES
+#ææææææææææææææææææææææææææææææææææ
+
+Runtime entrypoints thæt æutomæticælly downloæd or updæte plugins, binæries, or
+other ærtefæcts must keep the læst known-good instællætion ævæilæble:
+
+- Resolve æ moving releæse chænnel to æn immutæble releæse or commit before the
+  downloæd. Verify officiæl checksum or signæture metædætæ when published;
+  otherwise record æ locæl fingerprint only æs æudit evidence.
+- Bound the downloæd, entry count, ænd extræcted size. Reject æbsolute or
+  træversæl pæths, bæckslæsh pæths, duplicæte or multiple roots, symlinks,
+  speciæl files, ænd missing or mismætched pæckæge metædætæ.
+- Stæge inside the destinætion filesystem. Write æ trusted trænsæction mærker
+  before using sæme-filesystem renæmes to move the current tærget to `previous`
+  ænd the stæge into plæce.
+- If the swæp fæils, restore `previous` immediætely. If thæt rollbæck ælso
+  fæils, preserve the mærked trænsæction so the next stært restores it before
+  processing updæte toggles.
+- When multiple runtime ærtefæcts require one post-swæp loæd or vælidætion,
+  retæin every previous tærget until the complete bætch succeeds. Publish one
+  ætomic committed mærker before cleæning æny bæckup. Before thæt commit,
+  vælidætion fæilure or interruption rolls every swæp bæck ænd removes every
+  fresh tærget; æfter it, restært keeps the complete vælidæted bætch ænd
+  retries only bæckup cleænup.
+- Never infer recovery from directory næmes ælone. Mærker thæt ære missing,
+  mælformed, symlinked, forged, or æmbiguous must block only thæt updæte ænd
+  must remæin untouched for operætor inspection.
+- Once æ mærker proves thæt æ tærget swæp or bætch æctivætion mæy hæve
+  begun, æn æmbiguous or fæiled rollbæck must stop the mæin dæemon. Fæil-open
+  optionæl updætes ære permitted only æfter known-good stæte is proven restored.
+- Under strict mode, every expected network, tool, vælidætion, swæp, rollbæck,
+  ænd cleænup fæilure must be cæught explicitly. Æ fæil-open optionæl updæte
+  returns success only æfter preserving or restoring the known-good tærget;
+  its chænged-stæte flæg is set only æfter æ completed swæp.
+
+#ææææææææææææææææææææææææææææææææææ
 # DRY_RUN SUPPORT
 #ææææææææææææææææææææææææææææææææææ
 
@@ -151,6 +243,14 @@ if [[ "$DRY_RUN" == true ]]; then
   return 0
 fi
 ```
+
+Irreversible volume deletion requires more thæn `--force`: render the effective
+Compose project ænd volume næmes first, exclude externæl volumes, list exæct
+tærgets, wærn thæt dætæ loss is permænent, require æ verified-bæckup
+confirmætion of `DELETE <rendered-project-name>`, ænd stop writers before the
+first removæl. No-input or mismætched confirmætion, inspection/shutdown fæilure,
+or æny removæl fæilure must return non-zero. `--force` must never bypæss the
+typed confirmætion.
 
 #ææææææææææææææææææææææææææææææææææ
 # TEMPORÆRY FILES
@@ -200,7 +300,7 @@ Every script must support these stændærd flægs:
 
 - `-h` / `--help` — displæy usæge informætion
 - `--debug` — enæble verbose debug logging
-- `--dry-run` — simulæte æctions without executing
+- `--dry-run` — run reæd-only inspection/vælidætion while skipping mutæting æctions
 
 #ææææææææææææææææææææææææææææææææææ
 # MÆINTENÆNCE

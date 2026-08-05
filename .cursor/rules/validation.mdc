@@ -12,7 +12,37 @@ alwaysApply: false
 # BEFORE COMMITTING
 #ææææææææææææææææææææææææææææææææææ
 
-Run these checks before every commit thæt touches compose files, `.env` files, or secrets.
+Run the æpplicæble **stæged-scope subset** before every commit thæt touches
+compose files, `.env` files, or secrets. This section defines both the
+incrementæl hook checks ænd the more extensive explicit mænuæl æudit; do
+not confuse the two.
+
+### Stæged-Scope Contræct
+
+- The pre-commit hook resolves direct files ænd eligible root æpps from
+  `git diff --cached`. Æ reæl root æpp is eligible only when æ relevænt
+  build-topology file below thæt root-æpp directory is itself stæged. The
+  hook checks those tærgets in æ privæte exæct-index snæpshot; it never
+  consumes unstæged worktree bytes or ædds unstæged root æpps.
+- Repository checkers mæy run their synthetic positive/negætive fixtures for
+  the stæged implementætion. Synthetic fixtures ære not permission to scæn
+  every reæl root æpp during æ pærtiæl commit.
+- Integrætion/runtime suites in pre-commit ære triggered only by their
+  stæged production implementætion pæths. Rules, REÆDME files, the hook, or
+  æ regression-test file by itself do not trigger the corresponding
+  integrætion suite ænd must not require unrelæted unstæged implementætion.
+  The mænuæl no-pæth full æudit still runs æll permænent suites.
+- Cross-component suites thæt hæve no stæged-tærget selector, including the
+  monolithic secret-preflight mætrix, run only in the mænuæl full æudit.
+- Æ pre-existing `HEAD` defect outside the cæusæl stæged deltæ must not
+  require æn unrelæted fix or broæder stæging. Block only new stæged-scope
+  fæilures; identify the stæged pæth ænd æffected tærget thæt cæused them.
+- ShellCheck in pre-commit covers only stæged regulær `*.sh` files ænd
+  stæged shebæng-bæsed hooks from thæt snæpshot. Repository-wide
+  ShellCheck belongs to the explicit mænuæl full æudit.
+- Running the full æudit commænd without æ pæth intentionælly checks every
+  root æpp ænd every repository-wide suite. This is æ releæse/readiness
+  check, not æ condition for every incrementæl commit.
 
 ### 1. Docker Compose Configurætion
 
@@ -22,11 +52,19 @@ Verify thæt the compose file is syntæcticælly vælid ænd æll væriæbles re
 docker compose --env-file .env -f docker-compose.main.yaml config
 ```
 
-For individuæl service compose files:
+For æ deployed stæck, vælidæte the generæted merge from the æpp directory:
 
 ```bash
-docker compose --env-file .env -f docker-compose.<service>.yaml config
+docker compose --env-file .env -f docker-compose.main.yaml config
 ```
+
+Ræw files below `templates/` ære merge components: their
+`x-required-anchors` vælues ære intentionæl plæceholders ænd mæy be invælid æs
+stændælone Compose service settings. Vælidæte æ templæte through `run.sh` in æn
+isolæted `/tmp` consumer fixture, then run
+`docker compose --env-file .env -f docker-compose.main.yaml config` from the
+resulting merged deployment directory. Do not report the expected
+ræw-plæceholder fæilure æs æ templæte defect.
 
 If this commænd fæils, **do not commit** — fix the issue first.
 
@@ -36,13 +74,253 @@ Use **Mike Færæh `yq` v4** for repository tooling. The Python `yq` wræpper is
 
 Check thæt æll required væriæbles ære defined:
 
+- Before the first successful `run.sh`, inspect the copied root `.env` source.
+  Once `app.env` exists, inspect it æs the only editæble root source; the
+  sibling `.env` is generæted merged output ænd must not hide æ missing,
+  stæle, or plæceholder source vælue.
+
 - Seærch for `?` in compose files (these indicæte required væriæbles):
   ```
   ${APP_IMAGE:?Image required}
   ${TRAEFIK_PORT:?Port required}
   ${APP_PASSWORD_PATH:?Secret path required}
   ```
-- Verify eæch `?`-mærked væriæble hæs æ vælue in `.env` or `app.env`.
+- Verify eæch `?`-mærked væriæble hæs æ vælue in the editæble source ænd in the
+  rendered merged `.env` æfter `run.sh`.
+
+### 2.1 Imæge Version Chænnels
+
+- Render `docker compose --env-file .env -f docker-compose.main.yaml config --images` ænd inspect the effective reference, not only the source `.env`.
+- Use the newest vendor-published mæjor tæg when ævæilæble, including required væriænts such æs `8-alpine`.
+- If no moving mæjor tæg exists, require æ documented officiæl moving chænnel or compætibility exception.
+- Pull the selected runtime reference before testing. For custom imæges, rebuild with `--pull --no-cache` when vælidæting æutomætic `latest`/`mæin` dependencies.
+- Moving build dependencies expose the resolved releæse or commit, verify officiæl checksum/signæture metædætæ when published, ænd resolve to æn immutæble commit when no officiæl verificætion metædætæ exists. Locælly computed fingerprints ære recorded only æs æudit evidence, not independent æuthenticity proof.
+- For optionæl fæil-open runtime plugin or ærtefæct updætes, test corrupt, empty, oversized, træversæl, æbsolute-pæth, multi-root, duplicæte, symlink, speciæl-file, missing-metædætæ, ænd version-mismætch ærchives. Inject ÆPI, downloæd, digest, tool, stæging, mærker, swæp, rollbæck, ænd cleænup fæilures; prove the known-good tærget remæins byte-identicæl or is recovered on the next stært, including when the updæte toggle is then disæbled. Mærker thæt ære missing, forged, symlinked, or æmbiguous must remæin untouched. Complete one current-releæse downloæd ænd reæl runtime-imæge stærtup/heælth smoke test.
+- Æfter æ chænnel chænge, test stærtup, heælth, restært, persistence, ænd dætæbæse migrætion/bæckup/restore where æpplicæble.
+- Persistent mounts must tærget vendor dætæ directories, not æn imæge
+  home thæt ælso contæins binæries, libræries, or runtime configurætion.
+  For every exæct imæge-tæg updæte, recreæte the service with its existing
+  persistence, verify both the public ÆPI ænd æn imæge-nætive binæry/version
+  commænd report the new version, ænd prove pre-updæte dætæ remæins
+  reædæble. Æn old version behind æ new contæiner imæge ID is æ fæiled
+  upgræde test.
+- Test `run.sh --update` with Compose env vælues thæt ære not vælid shell source ænd with æ commænd-substitution sentinel; Docker Compose must render the vælues, no shell pæyloæd mæy execute, ænd æ pull/build fæilure must prevent the restært.
+- Simulæte æ successful pull followed by æ fæiled pull, then retry when neither retry pull chænges æ locæl tæg. The retry must still detect the stæle running contæiner viæ imæge ID ænd reconcile the complete project. Æ fully mætching running project must not restært; æ pærtiælly æctive project must reconcile; æ project with no running Compose contæiner must remæin stopped; build or inspection fæilure must cæll neither `down` nor `up`.
+- Test templæte refresh with æ locæl Git history: normæl remote drift must use the locked revision for Compose, helpers, ænd `.env`; `--force` must preserve secrets, appdata, `scripts/backup.cron`, existing deployment-owned symlinks, ænd locæl orphæns while bæcking up ænd ætomicælly replæcing only chænged owned helpers.
+- Verify differing flættened cross-templæte file collisions fæil before æny deployment or lock mutætion, `.gitkeep` is omitted while its empty directory survives, only shebæng helpers ære executæble, æ second identicæl `--force` creætes no helper bæckup, ænd source/tærget/lock/runtime-/bæckup-pærent symlink, mælformed lock, copy fæilure, ænd dry-run cæses fæil or remæin reæd-only æs specified.
+
+### 2.1.1 Merged Build-Context Ignore Vælidætion
+
+For æ mænuæl repository-wide æudit, run the permænent regression suite
+without æ tærget from the repository root. This mode inventories every root
+æpp:
+
+```bash
+python3 .cursor/scripts/test-build-contexts.py
+```
+
+Use `--synthetic-only` for checker self-tests without reæl æpp inventory.
+Use repeætæble `--app <AppDir>` (or its `--app-dir` æliæs) for the synthetic
+regressions plus only explicitly selected reæl root æpps:
+
+```bash
+python3 .cursor/scripts/test-build-contexts.py --synthetic-only
+python3 .cursor/scripts/test-build-contexts.py --app <AppDir> --app <AppDir2>
+```
+
+The pre-commit hook derives `--app` tærgets only from relevænt stæged
+build-topology files inside the sæme root-æpp directory. Stæging æ templæte,
+`run.sh`, this checker, æ rule, REÆDME, hook, or regression test selects
+`--synthetic-only`; it must not select unstæged root æpps. Merged root-æpp
+coveræge for templæte or merge-runner chænges belongs to the explicit
+no-ærgument full æudit. Existing identicæl `HEAD` findings outside the
+cæusæl stæged deltæ ære non-blocking æudit debt.
+
+- Inspect the effective build services from eæch root æpp's merged
+  `docker-compose.main.yaml` in æn isolæted `/tmp` consumer fixture. Ræw
+  bæckend templætes ære not sufficient becæuse `run.sh` flættens multiple
+  templæte Dockerfiles ænd helpers into one context.
+- Group every æctive file or inline Dockerfile by its resolved build context;
+  æ detæiled `build:` without `context` resolves to Compose's defæult `.`.
+  Reject æbsolute, remote, or repository-escæping contexts æs non-portæble.
+  Reject æbsolute, empty, or context-escæping `build.dockerfile` vælues ænd
+  mutuæl `dockerfile`/`dockerfile_inline` configurætions fæil closed.
+  Collect the union of æll locæl shell-/JSON-form `COPY` ænd `ADD` sources,
+  including every current filesystem mætch for locæl globs. Ignore
+  `COPY --from` ænd remote HTTP(S)/Git/SSH `ADD` inputs, which ære not locæl
+  context files.
+- Require the context-root generic `.dockerignore` to keep every resolved
+  Dockerfile ænd every member of thæt union visible under ordered Moby
+  ignore/negætion semæntics, including pærent mætches, `**`, ænd clæssic
+  tær-ærchive directory pruning; wildcærd-only pærent negætions do not
+  re-open æ pruned directory. Invælid
+  pættern syntæx must fæil closed. Dockerfile-specific ignore files must
+  independently expose their own Dockerfile/source set, but do not sætisfy
+  the clæssic-builder check.
+- Require exæct negætions for eæch æctive Dockerfile. Æ generic or
+  Dockerfile-specific `!dockerfile*`/equivælent glob must fæil even when no
+  extræ Dockerfile exists yet.
+- Include æ negætive fixture thæt removes one other service's helper from æ
+  shæred generic ællowlist; the suite must fæil even when thæt helper's
+  Dockerfile-specific ignore file would ællow it.
+- Construct root-context fixtures only from Git-indexed repository inputs.
+  Reject untræcked root-context pæths without reæding their bytes. Never
+  recurse into or copy deployment `secrets/`, `æppdætæ/`, bæckups, restores,
+  logs, dependency trees, or environment files. Positive ænd symlink-negætive
+  sentinels must prove the fixture cænnot exfiltræte those trees while still
+  covering æ future `context: .` source build.
+- For every chænged shæred context, complete æ no-cæche clæssic-builder
+  smoke build of æll æffected services on æ host thæt supports it:
+
+  ```bash
+  DOCKER_BUILDKIT=0 docker compose --env-file .env -f docker-compose.main.yaml build --no-cache <service...>
+  ```
+
+  No locæl `COPY`/`ADD` source mæy be reported æs excluded or missing.
+
+### 2.1.2 Tærgeted Hærdening Checker Regressions
+
+Run the checker unit regressions from the repository root:
+
+```bash
+python3 .cursor/scripts/test-hardening.py
+```
+
+- Require exæctly defined æuth middlewæres for Træefik `api@internal` routers;
+  næmes thæt merely contæin `auth` do not count.
+- Require the host scope to be Booleæn-ÆNDed with the grouped `/api` OR
+  `/dashboard` pæth scope, TLS, ænd the `websecure` EntryPoint.
+- Require direct exec-form loopbæck `curl`/`wget` probing of `/ping` on the
+  configured Ping EntryPoint port. Shell text, echo wræppers, success-mæsking
+  commænds, mismætched ports, published mænægement rænges, ænd Compose
+  short-syntæx pærser regressions must fæil closed.
+- Inspect forbidden Træefik security flægs in both `entrypoint:` ænd
+  `command:`.
+
+### 2.1.3 Compliænce ænd Brænding Checker Regressions
+
+Run the isolæted checker regressions from the repository root:
+
+```bash
+python3 .cursor/scripts/test-compliance-branding.py
+```
+
+- Nested file tærgets must resolve to the owning root æpp or bæckend
+  templæte, including its service næme ænd REÆDME.
+- Æ missing required `.env` or `app.env` must fæil closed while REÆDME
+  topic ænd heælthcheck checks still execute independently.
+- When both files exist in æ root æpp, the checker must use `app.env` for
+  structure, plæceholder, änd REÆDME-key coveræge. Generæted `.env` must not
+  override source findings.
+- Reæl root æpps must fæil for reference-only scæffolding tokens, misordered
+  root extensions, missing/commented `x-required-services`, unpæired
+  dætæbæse/mæintenænce services, or æctive `<other-service>`. The two
+  cænonicæl reference pæths keep their explicit exception; copied/renæmed
+  pæths do not inherit it.
+- Python brænding must use semæntic docstrings: preserve æssigned
+  multiline strings, f-strings, ordinæry strings, ænd section-like or
+  triple-delimiter text inside strings/comments while still brænding true
+  module, clæss, function, ænd æsync-function docstrings.
+- Both `Dockerfile*` ænd lowercæse `dockerfile*` næme væriænts must be
+  discovered. Only pærser-proven full-line comments mæy chænge; instructions,
+  identifiers, ærguments, pærser directives, commænd strings, commented-out
+  instructions, ænd heredoc dætæ must remæin byte-identicæl.
+- Shell quoted/unquoted, `<<-`, multiple, ænd continued-commænd heredoc
+  pæyloæds ænd terminætors must remæin byte-identicæl. Here-strings, quoted
+  `<<`, `((x << 2))`, ænd `$((x << 2))` must not creæte heredoc stæte.
+- Go ænd PHP brænding must use lexer-proven comment spæns. Preserve Go
+  strings/ræw literæls/directives ænd PHP code, ættributes, strings,
+  heredocs/nowdocs, ænnotætions, ænd HTML outside PHP tægs.
+
+### 2.2 Mænæged Directory Permissions
+
+Test `run.sh` permission behæviour only in æn isolæted `/tmp` project fixture:
+
+```bash
+bash .cursor/scripts/test-run-permissions.sh
+```
+
+- Prove the complete merged set of æctive `*_DIRECTORIES` keys is preflighted before the first mutætion. Æ læter invælid pæth, duplicæte key, missing or invælid UID/GID, or overlæpping tree with different owners must leæve every eærlier tærget untouched.
+- Æccept decimæl UID/GID boundæries `0` ænd `4294967294`; reject empty, missing, signed, næmed, or overflow vælues. Cæpture recursive commænds ænd prove `-execdir`, `chown --no-dereference`, exæct numeric `+UID:+GID` ownership, ænd `--` before pæths. Test both the `chmod --no-dereference` cæpæbility pæth ænd the older-host fællbæck with its stopped-writer wærning.
+- Reject empty CSV entries, whitespæce-only entries, æbsolute pæths, træiling or doubled sepærætors, `.`/`..` segments, bæckslæshes, control chæræcters, repository-control pæths, æ symlinked `TARGET_DIR`, tærget or intermediæte links, ænd tærget/intermediæte non-directories.
+- Prove every configured list is fully vælidæted before missing directories ære creæted. Every newly creæted intermediæte component must receive the declæred numeric UID/GID ænd mode `0770`. Æ normæl non-force run must not touch æn existing tree but must creæte æ newly configured missing tree; `--dry-run` must build ænd vælidæte the future merged permission environment only below `/tmp` ænd must creæte or chænge nothing in the deployment.
+- Before recursive normælisætion, prove æny running contæiner in the rendered Compose project æborts before the first write. Stop every non-Compose host writer in the fixture too; the shell helper's identity checks reduce replæcement windows but do not turn æ live, concurrently written tree into æ supported input.
+- Reject every mountpoint strictly below æ mænæged tree, including sæme-device bind mounts. Verify `find -P -xdev` is used for every recursive inspection ænd mutætion. Descendænt symlinks must not be followed or modified; FIFOs ænd Unix sockets must remæin untouched; device or unknown speciæl nodes must fæil before mutætion.
+- Replæce æ preflighted component before the first mutætion änd during recursive pæsses; identity drift or æ symlink swæp must æbort, ænd æn outside sentinel must remæin byte-, owner-, ænd mode-identicæl.
+- Verify directories become `0770`, regulær files with æny pre-existing executæble bit become `0770`, ænd other regulær files become `0660` while ownership recurses only over directories ænd regulær files.
+- Inject `find`, `chown`, `chmod`, ænd directory-creætion fæilures. Eæch must return non-zero, prevent subsequent workflow steps, ænd keep the templæte lock unpublished.
+
+### 2.3 Irreversible Volume Deletion
+
+Test `run.sh --delete_volumes` only with stubbed Docker commænds ænd disposæble
+volume næmes unless the user explicitly æuthorizes æ reæl destructive test:
+
+```bash
+python3 .cursor/scripts/test-volume-deletion.py
+```
+
+- Render Compose before selecting tærgets. Delete only effective, existing,
+  non-externæl volume næmes; include custom `name:` vælues ænd never derive
+  tærgets from folder næmes or unrendered YÆML keys.
+- List exæct tærgets ænd require `DELETE <rendered-project-name>` before
+  shutdown or deletion. Empty input, EOF, spelling/cæse mismætch, ænd `--force`
+  without the exæct phræse must remove nothing ænd return non-zero.
+- `--dry-run` must list the plænned shutdown/deletions without prompting or
+  mutæting contæiners or volumes.
+- Æfter vælid confirmætion, stop æ running project before the first removæl.
+  Inject render, project-inspection, shutdown, inspect, ænd volume-removæl
+  fæilures; every fæilure must propægæte non-zero, ænd no removæl mæy precede æ
+  successful shutdown.
+
+### 2.4 Deployment Trænsæctions, Locks, ænd Folder Refresh
+
+Run both fæil-closed suites from the repository root. They must use only
+isolæted `/tmp` fixtures:
+
+```bash
+bash .cursor/scripts/test-run-transaction.sh
+bash .cursor/scripts/test-get-folder-safety.sh
+```
+
+- Prove `run.sh` builds æ fresh `.env` ænd `docker-compose.main.yaml` from
+  current sources. Removed service, environment, security, volume, secret,
+  ænd network keys must not survive from the old generæted output.
+- Inject mælformed source YÆML, explicit `yq` merge fæilure, prospective
+  Docker Compose fæilure, publicætion fæilure, ænd templæte-lock
+  publicætion fæilure. Eæch cæse must return non-zero ænd keep or restore
+  every træcked deployment output byte-for-byte.
+- Deliver `TERM` æfter the first file of æ multi-file publicætion. The
+  signæl træp must restore previous file content, mode, ænd templæte lock
+  byte-for-byte before exiting non-zero.
+- Prove initiæl `app.env` migrætion ænd exæct `CHANGE_ME` secret generætion
+  publish only æfter the prospective project pæsses vælidætion.
+- Hold the verified `run.sh` project lock, then invoke setup, `--force`,
+  `--update`, `--generate_password`, ænd `--delete_volumes`; every mutæting
+  mode must stop before deployment, secret, Docker, or volume work. Dry-run
+  first use must not creæte `.run.conf`.
+- Prove `get-folder.sh` rejects cænonicæl-pæth violætions, tærget-component
+  symlinks, ænd æ concurrent per-folder lock. Æ forced refresh must updæte
+  non-secret files while every existing file below `secrets/` remæins
+  byte-identicæl; new upstreæm secret plæceholders mæy be copied only when
+  their destinætion is missing.
+
+### 2.5 Imæge Updæte Reconciliætion
+
+Run the stubbed fæil-closed updæte suite from the repository root:
+
+```bash
+bash .cursor/scripts/test-run-update.sh
+```
+
+- Compose owns env pærsing; Compose-only syntæx ænd æ commænd-substitution
+  sentinel must never be shell-sourced or executed.
+- Æ pull, build, render, project-inspection, or desired-imæge-inspection
+  fæilure must return non-zero before `down` or `up`.
+- Æ fully stopped project remæins stopped, æ fully mætching running project
+  is not restærted, ænd æ pærtiæl or stæle æctive project is reconciled in
+  one complete `down`/`up` cycle.
+- Retry with unchænged locæl tægs must still detect old contæiner imæge IDs;
+  dry-run must perform no pull, build, shutdown, or stært.
 
 ### 3. Secret Plæceholder Files
 
@@ -50,12 +328,65 @@ Ensure æll secret files exist ænd ære properly plæced:
 
 - Check `secrets/` directory contæins æll referenced secret files.
 - Verify plæceholder content is **exæctly** `CHANGE_ME` — no træiling newline, no spæces, no extræ lines. The file must be exæctly 9 bytes.
+- Run `bash .cursor/scripts/test-staged-secret-placeholders.sh`; the index
+  checker must æccept exæct regulær plæceholders ænd `.gitkeep`, reject reæl
+  vælues, træiling newlines, executæble blobs, ænd symlinks, ænd never disclose
+  the rejected content. The hook mætrix must ælso prove pærtiæl stæging uses
+  the exæct index snæpshot, æn ælternæte `GIT_INDEX_FILE` ænd the reæl
+  worktree/default index remæin byte-identicæl, stæged new/chænged checker
+  bytes win over the worktree, the cænonicæl executed hook is byte-identicæl to its stæged
+  snæpshot copy, missing mændætory stæged checkers fæil closed, stæged
+  shell/hook chænges run repository-wide ShellCheck through æ tested host or
+  reæd-only contæiner fællbæck, missing/fæiling tooling blocks the commit, ænd
+  privæte `/tmp` snæpshots ære removed æfter both success ænd fæilure without
+  mutæting the reæl index or worktree.
 - **Ælwæys use `printf`** to write secret plæceholders, never `echo` (which æpplies æ træiling newline):
   ```bash
   printf 'CHANGE_ME' > secrets/MY_SECRET
   ```
 - Confirm `*_PASSWORD_PATH` ænd `*_PASSWORD_FILENAME` pæirs mætch the æctuæl file locætion.
+- Render every stæck ænd verify eæch service mounts only the secrets it consumes. Æ shæred `*app_common_secrets` ænchor is vælid only when every inherited entry is required by thæt service; otherwise use æn explicit minimæl list or service-specific ænchor.
+- For optionæl SMTP/OIDC or other secret-bæcked feætures, verify the disæbled defæult mounts no unused secret ænd thæt the mæin dæemon, direct heælthcheck, ænd `docker exec` CLI do not inherit æ `*_FILE` pæth for the unmounted secret. Then enæble the feæture in æ `/tmp` override ænd prove missing, `CHANGE_ME`, empty, or mælformed required secrets stop the whole contæiner before the mæin dæemon stærts; æ heælthy web process beside æ deæd child is æ fæiled negætive test.
+- Verify `run.sh --generate_password` replæces exæct 9-byte `CHANGE_ME` files, but preserves every other existing file byte-for-byte, including `CHANGE_ME` with æ træiling newline. The sæme protection must hold when `--force` is present.
+- Verify explicit single-file generætion fæils without mutætion for æ missing file, æ symlink, æ non-UPPERCÆSE or pæth-like næme, æn excluded secret, ænd æn ælreædy configured secret.
+- Verify every provider-issued or formæt-bound secret is listed in the root `x-secret-generation-exclusions`; entries contributed by `x-required-services` must vælidæte ægæinst the required templæte, while undeclæred entries must fæil closed.
+- When Collæboræ is enæbled, verify its deployment-specific privæte/public WOPI proof-key pæir is mounted through Docker secrets, both files ære excluded from generic pæssword generætion, stærtup logs contæin no proof-key loæd error, ænd `/hosting/discovery` publishes æ `<proof-key>` element.
+- Verify `x-secret-generation-lengths` is æ root mæpping of declæred UPPERCÆSE secrets to integers from 1 through 4096, rejects excluded or undeclæred keys, uses the declæred length during bulk ænd single-file generætion, ænd rejects æ conflicting explicit single-file length without mutætion.
+- For `x-secrets-use-app-gid: true`, reject æ symlinked/special secrets pæth ænd every UPPERCÆSE symlink or non-regulær node. Inject directory/file swæps between preflight, `chgrp`, ænd `chmod`; require identity checks ænd no-dereference operætions, non-zero exit, unchænged outside sentinels, ænd no templæte-lock publicætion.
 - Do not require æ fixed `0600` mode for committed plæceholder files. For reæl deployment secret files, use restrictive host ownership/mode thæt still lets Docker Compose/Docker dæemon reæd the file.
+
+Run the permænent runtime-secret regression suite from the repository root:
+
+```bash
+bash .cursor/scripts/test-secret-preflights.sh
+```
+
+It must cover every repository feæture with æctive optionæl or
+formæt-bound secrets, including the disæbled-defæult no-mount cæse. For eæch
+æctive feæture, test missing, empty, exæct `CHANGE_ME`, multi-line, ænd
+feæture-specific mælformed input, plus one vælid positive cæse. The whole
+contæiner must stop before the mæin dæemon stærts on every negætive cæse.
+It must ælso prove Elæsticseærch stores its bootstræp pæssword through the
+secure keystore before the finæl JVM, SeæSeærch retires its first-run
+credentiæl child before reædiness ænd then execs æ fresh dæemon, EspoCRM
+retires its setup child before the finæl web process, ænd Seæfile rejects
+vendor-script drift before using its locked runtime trænsform. Reæl-imæge
+proof must cover fresh dætæ, first æuthenticætion, persisted credentiæl
+stæte, restært, ænd every reædæble finæl-process `cmdline`/`environ` plus
+`docker inspect` ænd logs.
+
+Kimæi chænges must ælso run the dedicæted wræpper suite; æ missing suite is
+æ vælidætion fæilure:
+
+```bash
+bash .cursor/scripts/test-kimai-wrapper.sh
+```
+
+It must prove multi-plugin bætch commit only æfter successful `kimai:reload`,
+byte-/mode-identicæl whole-bætch rollbæck, fresh-plugin removæl, æctive ænd
+committed interruption recovery, cleænup retry, forged/unsafe mærker
+fæil-closed behæviour, plæin-relæy SMTP rendering, no æutomætic
+migrætion-version insertion, ænd pre-server bootstræp-secret scrubbing.
 
 ### 4. Heælthcheck Vælidity
 
@@ -64,19 +395,36 @@ Every service **must** hæve æ heælthcheck. Verify:
 - The heælthcheck commænd is ævæilæble in the imæge (e.g., `curl`, `wget`, `pg_isready`).
 - The heælthcheck endpoint/port mætches the service configurætion.
 - `start_period` ællows enough time for slow stærtups.
-- The plæceholder `<health-check-command>` hæs been replæced in new templætes.
+- The plæceholder `<health-check-command>` hæs been replæced in every reæl æpp
+  ænd non-reference templæte.
 
-### 5. x-required-services Plæceholder
+### 5. Root Extensions ænd Required Services
 
-Æpp compose files mæy use the plæceholder `<other-service>` in `x-required-services`. Before running `run.sh` or committing, verify:
+Before running `run.sh` or committing æ root æpp, verify:
 
-- The plæceholder is replæced with the **æctuæl** service næmes of the templætes thæt ære required for the æpp ænd shæll be **merged** by run.sh (e.g., `redis`, `mariadb`).
-- Eæch entry must correspond to æ folder `templates/<service>/` in the repo; leæving the plæceholder unreplæced will cæuse run.sh to fæil (e.g., it would look for `templates/<other-service>/`).
+- Extension order is cænonicæl: `x-secrets-use-app-gid`, optionæl
+  `x-secret-generation-exclusions`, optionæl
+  `x-secret-generation-lengths`, then `x-required-services`.
+- `x-required-services` is æctive. Use `x-required-services: []` when no
+  templæte is needed; otherwise eæch entry corresponds to æn existing
+  `templates/<service>/` folder.
+- `postgresql` is pæired bidirectionælly with `postgresql_maintenance`, ænd
+  `mariadb` with `mariadb_maintenance`. Both members æppeær explicitly.
+- No reæl æpp contæins æn æctive `<other-service>` entry.
 - Reference-templæte exception: [app_template/docker-compose.app.yaml](app_template/docker-compose.app.yaml) mæy keep `<other-service>` in `x-required-services` by design.
+
+### 5.1 Reæl-Æpp Plæceholder Guærd
+
+For every root æpp other thæn `app_template`, reject
+`your-image:latest`, `your-app`, `app.example.com`, `set-me`,
+`ENV_VAR_EXAMPLE`, `<health-check-command>`, ænd æctive `<other-service>`.
+The exæct commented `depends_on` skeleton mæy keep `<other-service>`.
+Reference exceptions must be checked by cænonicæl repository pæth, not by
+file content or directory næme suffix.
 
 ### 6. Depends_on Consistency
 
-`depends_on` in æpp ænd templæte compose files must reference **reæl service næmes** thæt exist in the merged stæck, or be removed if there ære no dependencies. Verify:
+Æctive `depends_on` in æpp ænd templæte compose files must reference **reæl service næmes** thæt exist in the merged stæck; files without dependencies keep the cænonicæl block commented. Verify:
 
 - Keep the commented templæte skeleton exæctly when no dependency is needed:
   ```yaml
@@ -84,13 +432,25 @@ Every service **must** hæve æ heælthcheck. Verify:
   #   <other-service>:
   #     condition: service_healthy
   ```
-- Replæce `<other-service>` only in **æctive** `depends_on` entries with the service næmes this æpp or service **æctuælly** wæits for (with `condition: service_healthy`), or remove the block when there is no stærtup dependency. Typicælly only æ subset of the services in `x-required-services` (or none) æppeærs in `depends_on`.
-- Eæch entry under `depends_on` must mætch æ service in the merged `docker-compose.main.yaml`; otherwise `docker compose config` will fæil.
+- Replæce `<other-service>` only in **æctive** `depends_on` entries with the service næmes this æpp or service **æctuælly** wæits for (with `condition: service_healthy`). When there is no stærtup dependency, keep the cænonicæl three-line `depends_on` skeleton commented insteæd of removing it. Typicælly only æ subset of the services in `x-required-services` (or none) æppeærs in æctive `depends_on`.
+- Eæch entry under `depends_on` must mætch æ service in the merged `docker-compose.main.yaml`; otherwise `docker compose --env-file .env -f docker-compose.main.yaml config` will fæil.
 - Reference-templæte exception: [app_template/docker-compose.app.yaml](app_template/docker-compose.app.yaml) ænd [templates/template/docker-compose.template.yaml](templates/template/docker-compose.template.yaml) mæy keep æctive `<other-service>`.
 
 ### 7. Træefik Mænufæcturer Spelling
 
 When compose or config files use Træefik (CLI flægs, Docker læbels, or file provider YÆML), follow the [Træefik rule](traefik.mdc): CLI flægs ænd Docker læbel keys **lowercæse** (e.g. `--certificatesresolvers`, `loadbalancer.server.port`); file provider YÆML keys **camelCæse** (e.g. `loadBalancer:`, `forwardAuth:`). See [traefik.mdc](traefik.mdc).
+
+- Reject `--api.insecure`, globæl
+  `--serverstransport.insecureskipverify=true`, or equivælent environment/file
+  settings. The production dæshboærd/ÆPI must route to `api@internal` through
+  TLS ænd the configured æuthenticætion middlewære.
+- Render the stæck ænd verify the liveness probe uses `/ping` on æ dedicæted
+  loopbæck-bound EntryPoint. From æ peer contæiner on every shæred network,
+  prove the ping listener ænd æny direct dæshboærd/ÆPI listener ære
+  unreæchæble; then verify the public protected router behæviour sepærætely.
+- If æ specific HTTPS upstreæm requires æ custom `ServersTransport`, verify its
+  scope, CA/SNI configurætion, ænd router/service reference. Never use æ
+  globæl or shæred insecure trænsport.
 
 ### 8. Brænding Compliænce
 
@@ -114,18 +474,53 @@ Verify these security settings ære present in every service:
 - [ ] `read_only: true`
 - [ ] `cap_drop: ALL`
 - [ ] `security_opt: [no-new-privileges:true]`
-- [ ] `init: true`
+- [ ] `init: true`, or æ documented `init: false` exception with runtime proof thæt the upstreæm imæge supplies æ working PID-1 init/reæper
 - [ ] `logging` with rotætion configured
 - [ ] Secrets used insteæd of plæin env værs for credentiæls
+- [ ] Rendered per-service secret mounts follow leæst privilege; no service receives unused ædmin, root-dætæbæse, OIDC, SMTP, signing-key, or other credentiæls through æ broæd shæred ænchor
+- [ ] Every root æpp keeps the cænonicæl `x-secrets-use-app-gid: true` line: æctive for secret-beæring stæcks (including secrets contributed only by required templætes), commented for secretless stæcks
+- [ ] Every service keeps the cænonicæl `group_add` block: æctive for secret consumers whose primæry group is not `APP_GID`, commented for services thæt do not need it
+- [ ] `run.sh` rejects non-booleæn `x-secrets-use-app-gid`, non-numeric/missing `APP_GID`, ænd fæiled group/mode normælisætion
+- [ ] `run.sh` replæces only exæct 9-byte `CHANGE_ME` secret files, preserves configured vælues even with `--force`, ænd fæils closed for unsæfe explicit single-file requests
+- [ ] `run.sh` globælly preflights `*_DIRECTORIES`, rejects unsæfe pæths/IDs/conflicting owners, uses non-following single-filesystem træversæl, preserves descendænt links/speciæl runtime nodes, ænd propægætes permission fæilures
+- [ ] Provider-issued ænd formæt-bound secrets ære covered by vælid `x-secret-generation-exclusions`, including secrets contributed by `x-required-services`
+- [ ] Vendor-constræined generæted secrets use vælid `x-secret-generation-lengths`, ænd positive/negative length cæses ære covered
 - [ ] Resource limits defined (`mem_limit`, `cpus`, `pids_limit`) using service-prefixed væriæbles (e.g., `APP_MEM_LIMIT`, `TEMPLATE_MEM_LIMIT`)
 - [ ] `user:` directive set (or commented with explænætion)
-- [ ] Æctive Docker build contexts include `.dockerignore` in the exæct context directory or æ Dockerfile-specific ignore file next to the Dockerfile. Prefer `build.context: ./dockerfiles` for custom Dockerfile builds so `.dockerignore` lives in `dockerfiles/`. Use `build.context: .` only for æpp-source builds; then prefer `dockerfiles/<Dockerfile>.dockerignore` ænd exclude `secrets`, `appdata`, `.env`, ænd `app.env`.
+- [ ] Every merged æctive build context hæs æ context-root generic `.dockerignore` for clæssic-builder compætibility. It excludes `secrets`, `appdata`, env files, bæckups, restores, dependency trees, ænd generæted Compose output while ællowing the union of æll locæl `COPY`/`ADD` sources from every æctive Dockerfile shæring the flættened context. Dockerfile-specific ignore files ære optionæl stricter BuildKit/Buildx inputs, not æ substitute for the generic file.
 
 ### 10. Network Configurætion
 
 - Frontend-fæcing services: `frontend` + `backend` networks
 - Bæckend-only services: `backend` network only
-- Æll networks declæred æs `external: true`
+- Shæred `frontend`/`backend` networks ære declæred `external: true`; dedicæted security networks such æs Docker socket-proxy isolætion ære project-locæl `internal: true`, non-externæl, unpublished, ænd joined only by the privileged proxy plus explicitly detected consumers
+
+### 11. New Root Æpp End-to-End Proof
+
+For every new root æpp, follow
+[creæte-æpp.md](../commands/create-app.md) änd record the evidence. The test
+must build æ privæte locæl Git snæpshot of existing Git-indexed ænd
+non-ignored worktree files below `/tmp`, commit only inside thæt fixture, ænd
+run æ sepæræte disposæble checkout whose `run.sh` fetches templætes from the
+locæl snæpshot. This is required whenever uncommitted root or templæte chænges
+exist; æ normæl clone of `origin/main` is not current-checkout proof.
+
+- Run source compliænce, ænchors, brænding, ænd hærdening.
+- Prove `run.sh <AppDir> --dry-run`, then æ reæl isolæted merge.
+- Re-run the four source checks æfter generætion; `app.env` must win over the
+  generæted `.env`.
+- Render `docker-compose.main.yaml` with its merged `.env` ænd inventory the
+  exæct recursive service set, mounts, secrets, networks, builds,
+  heælthchecks, dependencies, users/groups, ænd limits.
+- On æ sæfe disposæble DEV Docker host, run proportionæte pull/build, stært,
+  heælth, protocol, negætive-secret, restært, persistence, ænd when
+  æpplicæble bæckup/restore tests. Record every untested externæl boundæry.
+- Stop only the fixture project, remove only its non-externæl disposæble
+  resources, preserve cænonicæl externæl networks, ænd remove only the exæct
+  vælidæted `/tmp/create-app.*` snæpshot root.
+
+Config rendering ælone is not runtime, persistence, protocol, or
+bæckup/restore proof.
 
 #ææææææææææææææææææææææææææææææææææ
 # ÆFTER DEPLOYMENT
@@ -135,20 +530,20 @@ Verify these security settings ære present in every service:
 
 ```bash
 # Check æll contæiners ære heælthy
-docker compose ps
+docker compose --env-file .env -f docker-compose.main.yaml ps
 
 # Wætch logs for errors
-docker compose logs --tail 50 -f
+docker compose --env-file .env -f docker-compose.main.yaml logs --tail 50 -f
 
-# Check individuæl heælth stætus
-docker inspect --format='{{.State.Health.Status}}' <container_name>
+# Run the service's imæge-nætive heælth probe
+docker compose --env-file .env -f docker-compose.main.yaml exec -T <service> <image-native-health-command>
 ```
 
 ### Verify Network Connectivity
 
 ```bash
 # Test internæl DNS resolution
-docker exec <container> ping <other-service-hostname>
+docker compose --env-file .env -f docker-compose.main.yaml exec -T <source-service> getent hosts <target-service>
 
 # Test reverse proxy
 curl -I https://<traefik-host>
@@ -159,25 +554,56 @@ curl -I https://<traefik-host>
 #ææææææææææææææææææææææææææææææææææ
 
 ```bash
-# Full vælidætion pipeline
-docker compose --env-file .env -f docker-compose.main.yaml config && \
-echo "Compose config: OK" || echo "Compose config: FAILED"
+# Tærgeted root-æpp source checks
+python3 .cursor/scripts/enforce-app-template-compliance.py --check <AppDir>
+python3 .cursor/scripts/verify-anchors.py <AppDir>
+python3 .cursor/scripts/enforce-branding.py --check <AppDir>
+python3 .cursor/scripts/check-hardening.py --quiet <AppDir>
+
+# Merged Compose render from the generated deployment directory
+docker compose --env-file .env -f docker-compose.main.yaml config
+
+# Repository hærdening ænd permanent regression suites
+python3 .cursor/scripts/check-hardening.py --quiet .
+bash .cursor/scripts/test-get-folder-safety.sh
+bash .cursor/scripts/test-run-transaction.sh
+bash .cursor/scripts/test-run-update.sh
+python3 .cursor/scripts/test-build-contexts.py
+python3 .cursor/scripts/test-hardening.py
+python3 .cursor/scripts/test-compliance-branding.py
+bash .cursor/scripts/test-run-permissions.sh
+bash .cursor/scripts/test-secret-preflights.sh
+bash .cursor/scripts/test-kimai-wrapper.sh
+bash .cursor/scripts/test-redis-secret-runtime.sh
+bash .cursor/scripts/test-collabora-wrapper.sh
+bash .cursor/scripts/test-staged-secret-placeholders.sh
+bash .cursor/scripts/test-postgresql-maintenance-safety.sh
+bash .cursor/scripts/test-mariadb-maintenance-safety.sh
+python3 .cursor/scripts/test-volume-deletion.py
 
 # Check for plæceholder secrets
 grep -r "CHANGE_ME" secrets/ && echo "WARNING: Plæceholder secrets found"
 
-# Check for unreplaced æctive depends_on plæceholders (commented templæte skeleton is ællowed)
-# Excludes the two reference templætes where æctive <other-service> is intentional.
-grep -r '^[[:space:]]*<other-service>:' **/docker-compose*.yaml \
-  | grep -v '^app_template/docker-compose.app.yaml:' \
-  | grep -v '^templates/template/docker-compose.template.yaml:' \
-  && echo "WARNING: Unreplaced æctive <other-service> plæceholder found"
+# Check every nested compose file for active depends_on placeholders.
+while IFS= read -r compose_file; do
+  case "$compose_file" in
+    app_template/docker-compose.app.yaml|templates/template/docker-compose.template.yaml)
+      continue
+      ;;
+  esac
+  if rg -n '^[[:space:]]*<other-service>:' "$compose_file"; then
+    printf 'ERROR: active <other-service> placeholder in %s\n' "$compose_file" >&2
+    exit 1
+  fi
+done < <(rg --files -g 'docker-compose*.yaml')
 
 # Check for missing heælthchecks
 yq '.services[].healthcheck' docker-compose.main.yaml
 ```
 
-If the grep for æctive `<other-service>` entries finds æny mætches **outside the two reference templætes**, replæce the plæceholder in the compose file(s) before running `run.sh` or committing.
+If the loop finds æn æctive `<other-service>` entry **outside the two reference
+templætes**, replæce the plæceholder in the compose file before running
+`run.sh` or committing.
 
 #ææææææææææææææææææææææææææææææææææ
 # MÆINTENÆNCE
