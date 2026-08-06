@@ -76,12 +76,16 @@ readonly -a REQUIRED_REPOSITORY_CHECKERS=(
   ".cursor/scripts/enforce-branding.py"
   ".cursor/scripts/check-hardening.py"
   ".cursor/scripts/test-build-contexts.py"
+  ".cursor/scripts/test-crowdsec-agent-wrapper.sh"
+  ".cursor/scripts/test-crowdsec-parser-whitelists.sh"
   ".cursor/scripts/test-collabora-wrapper.sh"
   ".cursor/scripts/test-kimai-wrapper.sh"
   ".cursor/scripts/test-redis-secret-runtime.sh"
   ".cursor/scripts/test-get-folder-safety.sh"
   ".cursor/scripts/test-run-transaction.sh"
+  ".cursor/scripts/test-run-source-sync.sh"
   ".cursor/scripts/test-run-update.sh"
+  ".cursor/scripts/test-run-logrotate.sh"
   ".cursor/scripts/test-run-permissions.sh"
   ".cursor/scripts/test-volume-deletion.py"
   ".cursor/scripts/test-mariadb-maintenance-safety.sh"
@@ -132,7 +136,9 @@ build_context_synthetics_required=false
 build_context_topology_changed=false
 get_folder_regressions_required=false
 run_transaction_regressions_required=false
+run_source_sync_regressions_required=false
 run_update_regressions_required=false
+run_logrotate_regressions_required=false
 run_permissions_regressions_required=false
 volume_deletion_regressions_required=false
 mariadb_maintenance_regressions_required=false
@@ -171,11 +177,13 @@ for file in "${staged_files[@]}"; do
   case "$file" in
     run.sh)
       run_transaction_regressions_required=true
+      run_source_sync_regressions_required=true
       ;;
   esac
   case "$file" in
     run.sh)
       run_update_regressions_required=true
+      run_logrotate_regressions_required=true
       ;;
   esac
   case "$file" in
@@ -199,7 +207,7 @@ for file in "${staged_files[@]}"; do
       ;;
   esac
   case "$file" in
-    .githooks/pre-commit|.cursor/scripts/check-staged-secret-placeholders.sh|.cursor/scripts/test-staged-secret-placeholders.sh|.cursor/rules/git.mdc|.cursor/rules/validation.mdc|.cursor/rules/project-audit.mdc|.cursor/README.md|.cursor/commands/audit.md)
+    .githooks/pre-commit|.cursor/scripts/check-staged-secret-placeholders.sh|.cursor/scripts/test-staged-secret-placeholders.sh|.cursor/rules/git.mdc|.cursor/rules/validation.mdc|.cursor/rules/project-audit.mdc|.cursor/rules/host-logrotate.mdc|.cursor/README.md|.cursor/commands/audit.md)
       staged_secret_regressions_required=true
       ;;
   esac
@@ -369,10 +377,26 @@ if [[ "$run_transaction_regressions_required" == true ]]; then
   fi
 fi
 
+RUN_SOURCE_SYNC_REGRESSIONS=".cursor/scripts/test-run-source-sync.sh"
+if [[ "$run_source_sync_regressions_required" == true ]]; then
+  if ! bash "$RUN_SOURCE_SYNC_REGRESSIONS"; then
+    echo "[pre-commit] Root-Æpp source-sync regression tests failed. Fix them before committing." >&2
+    exit 1
+  fi
+fi
+
 RUN_UPDATE_REGRESSIONS=".cursor/scripts/test-run-update.sh"
 if [[ "$run_update_regressions_required" == true ]]; then
   if ! bash "$RUN_UPDATE_REGRESSIONS"; then
     echo "[pre-commit] Image-update regression tests failed. Fix them before committing." >&2
+    exit 1
+  fi
+fi
+
+RUN_LOGROTATE_REGRESSIONS=".cursor/scripts/test-run-logrotate.sh"
+if [[ "$run_logrotate_regressions_required" == true ]]; then
+  if ! bash "$RUN_LOGROTATE_REGRESSIONS"; then
+    echo "[pre-commit] Host-logrotate regression tests failed. Fix them before committing." >&2
     exit 1
   fi
 fi

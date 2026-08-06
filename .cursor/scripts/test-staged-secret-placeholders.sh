@@ -24,6 +24,8 @@ readonly -a REQUIRED_PYTHON_STUBS=(
   ".cursor/scripts/verify-anchors.py"
 )
 readonly -a REQUIRED_SHELL_STUBS=(
+  ".cursor/scripts/test-crowdsec-agent-wrapper.sh"
+  ".cursor/scripts/test-crowdsec-parser-whitelists.sh"
   ".cursor/scripts/test-collabora-wrapper.sh"
   ".cursor/scripts/test-kimai-wrapper.sh"
   ".cursor/scripts/test-redis-secret-runtime.sh"
@@ -31,6 +33,7 @@ readonly -a REQUIRED_SHELL_STUBS=(
   ".cursor/scripts/test-run-transaction.sh"
   ".cursor/scripts/test-run-source-sync.sh"
   ".cursor/scripts/test-run-update.sh"
+  ".cursor/scripts/test-run-logrotate.sh"
   ".cursor/scripts/test-run-permissions.sh"
   ".cursor/scripts/test-mariadb-maintenance-safety.sh"
   ".cursor/scripts/test-postgresql-maintenance-safety.sh"
@@ -729,11 +732,14 @@ case_pre_commit_rules_do_not_trigger_integration_suites() {
   root="$(create_case_repo pre-commit-rules-do-not-trigger-integration-suites)"
   install_pre_commit_tools "$root"
   for checker in \
+    .cursor/scripts/test-crowdsec-agent-wrapper.sh \
+    .cursor/scripts/test-crowdsec-parser-whitelists.sh \
     .cursor/scripts/test-collabora-wrapper.sh \
     .cursor/scripts/test-kimai-wrapper.sh \
     .cursor/scripts/test-redis-secret-runtime.sh \
     .cursor/scripts/test-mariadb-maintenance-safety.sh \
     .cursor/scripts/test-postgresql-maintenance-safety.sh \
+    .cursor/scripts/test-run-logrotate.sh \
     .cursor/scripts/test-secret-preflights.sh; do
     write_shell_stub "$root" "$checker" 71
   done
@@ -741,8 +747,9 @@ case_pre_commit_rules_do_not_trigger_integration_suites() {
   commit_fixture_baseline "$root"
   mkdir -p -- "$root/.cursor/rules"
   printf '# Æudit fixture\n' >"$root/.cursor/rules/project-audit.mdc"
+  printf '# Host logrotæte fixture\n' >"$root/.cursor/rules/host-logrotate.mdc"
   printf '# Dætæbæse fixture\n' >"$root/.cursor/rules/database-maintenance.mdc"
-  git -C "$root" add -- .cursor/rules/project-audit.mdc .cursor/rules/database-maintenance.mdc
+  git -C "$root" add -- .cursor/rules/project-audit.mdc .cursor/rules/database-maintenance.mdc .cursor/rules/host-logrotate.mdc
   (cd -- "$root" && bash .githooks/pre-commit)
 }
 
@@ -761,6 +768,29 @@ case_pre_commit_source_sync_test_does_not_self_trigger() {
   local checker=".cursor/scripts/test-run-source-sync.sh"
   local root=""
   root="$(create_case_repo pre-commit-source-sync-test-does-not-self-trigger)"
+  prepare_pre_commit_repo "$root"
+  write_shell_stub "$root" "$checker" 71
+  git -C "$root" add -- "$checker"
+  write_shellcheck_stub "$root" 0
+  (cd -- "$root" && EXPECTED_SHELLCHECK_FILES="$checker" PATH="$root/tool-bin:$PATH" bash .githooks/pre-commit)
+}
+
+case_pre_commit_run_triggers_logrotate_suite() {
+  local checker=".cursor/scripts/test-run-logrotate.sh"
+  local root=""
+  root="$(create_case_repo pre-commit-run-triggers-logrotate-suite)"
+  prepare_pre_commit_repo "$root"
+  write_shell_stub "$root" "$checker" 71
+  printf '#!/usr/bin/env bash\nexit 0\n' >"$root/run.sh"
+  git -C "$root" add -- run.sh "$checker"
+  write_shellcheck_stub "$root" 0
+  (cd -- "$root" && EXPECTED_SHELLCHECK_FILES="run.sh,$checker" PATH="$root/tool-bin:$PATH" bash .githooks/pre-commit)
+}
+
+case_pre_commit_logrotate_test_does_not_self_trigger() {
+  local checker=".cursor/scripts/test-run-logrotate.sh"
+  local root=""
+  root="$(create_case_repo pre-commit-logrotate-test-does-not-self-trigger)"
   prepare_pre_commit_repo "$root"
   write_shell_stub "$root" "$checker" 71
   git -C "$root" add -- "$checker"
@@ -839,6 +869,8 @@ expect_success pre-commit-run-runs-synthetic-context-suite case_pre_commit_run_r
 expect_success pre-commit-rules-do-not-trigger-integration-suites case_pre_commit_rules_do_not_trigger_integration_suites
 expect_success pre-commit-run-test-does-not-self-trigger case_pre_commit_run_test_does_not_self_trigger
 expect_success pre-commit-source-sync-test-does-not-self-trigger case_pre_commit_source_sync_test_does_not_self_trigger
+expect_failure pre-commit-run-triggers-logrotate-suite case_pre_commit_run_triggers_logrotate_suite
+expect_success pre-commit-logrotate-test-does-not-self-trigger case_pre_commit_logrotate_test_does_not_self_trigger
 expect_success pre-commit-integration-test-does-not-self-trigger case_pre_commit_integration_test_does_not_self_trigger
 expect_success pre-commit-honors-alternate-index case_pre_commit_honors_alternate_index
 

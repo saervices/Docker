@@ -87,6 +87,9 @@ expect_success() {
 reset_transaction_globals() {
   TARGET_DIR="$1"
   _TMPDIR="$2"
+  _TMPDIR_IDENTITY="$(stat -Lc '%d:%i' -- "$_TMPDIR")"
+  _TMPDIR_FD=""
+  TMPDIR_PRESERVE=false
   REPO_SUBFOLDER=templates
   FORCE=true
   INITIAL_RUN=false
@@ -102,6 +105,8 @@ reset_transaction_globals() {
   PROJECT_LOCK_IDENTITY=""
   PROJECT_BOOTSTRAP_LOCK_FD=""
   DEPLOYMENT_TRANSACTION_DIR=""
+  DEPLOYMENT_TRANSACTION_DIR_IDENTITY=""
+  DEPLOYMENT_TRANSACTION_DIR_FD=""
   DEPLOYMENT_TRANSACTION_STAGE=""
   DEPLOYMENT_TRANSACTION_ROLLBACK=""
   DEPLOYMENT_TRANSACTION_PUBLISHED=false
@@ -114,10 +119,77 @@ reset_transaction_globals() {
   DEPLOYMENT_TRANSACTION_PATHS=()
   DEPLOYMENT_TRANSACTION_PUBLISHED_PATHS=()
   DEPLOYMENT_TRANSACTION_CREATED_DIRS=()
+  DEPLOYMENT_TRANSACTION_MODE_CHANGED_DIRS=()
   DEPLOYMENT_TRANSACTION_OWNERSHIP=()
   DEPLOYMENT_TRANSACTION_ORIGINAL_STATE=()
+  DEPLOYMENT_TRANSACTION_ORIGINAL_DIRECTORY_MODES=()
+  DEPLOYMENT_TRANSACTION_DIRECTORY_IDENTITIES=()
   PERMISSION_ENV_FILE=""
   PERMISSION_CREATED_IDENTITIES=()
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: test_top_level_temp_replacement_is_preserved
+#   Proves EXIT cleænup removes its unchanged inode but never æ foreign reæl
+#   directory thæt replæces the registered top-level temporæry root pæth.
+#ææææææææææææææææææææææææææææææææææ
+test_top_level_temp_replacement_is_preserved() {
+  local root="${TEST_ROOT}/temp-replacement"
+  local registered=""
+  local displaced=""
+  local owned=""
+
+  mkdir -p -- "$root"
+  TARGET_DIR="${root}/Project"
+  mkdir -- "$TARGET_DIR"
+  DEPLOYMENT_TRANSACTION_DIR=""
+  DEPLOYMENT_TRANSACTION_DIR_IDENTITY=""
+  DEPLOYMENT_TRANSACTION_DIR_FD=""
+  DEPLOYMENT_TRANSACTION_PRESERVE=false
+  DEPLOYMENT_TRANSACTION_PUBLICATION_ACTIVE=false
+  DEPLOYMENT_TRANSACTION_COMMITTED=false
+  DEPLOYMENT_TRANSACTION_CLEANUP_ACTIVE=false
+  SOURCE_SYNC_PRESERVE=false
+  SOURCE_SYNC_COMMITTED=false
+  SOURCE_SYNC_STAGE=""
+  SOURCE_SYNC_SEEDS=""
+  SOURCE_SYNC_JOURNAL=""
+  SYNC_SOURCE=false
+  DRY_RUN=false
+  HOST_LOGROTATE_PRIVILEGED_TMP=""
+  HOST_LOGROTATE_ROLLBACK_TMP=""
+  _TMPDIR=""
+  _TMPDIR_IDENTITY=""
+  _TMPDIR_FD=""
+  TMPDIR_PRESERVE=false
+
+  create_owned_temporary_directory "${root}/registered.XXXXXX" "replacement regression"
+  registered="$_TMPDIR"
+  displaced="${registered}.displaced"
+  mv -T -- "$registered" "$displaced"
+  mkdir --mode=0700 -- "$registered"
+  printf '%s\n' foreign > "${registered}/foreign.marker"
+
+  cleanup_temporary_state
+
+  [[ "$TMPDIR_PRESERVE" == true ]]
+  [[ -f "${registered}/foreign.marker" ]]
+  [[ -d "$displaced" ]]
+
+  exec {_TMPDIR_FD}<&-
+  _TMPDIR=""
+  _TMPDIR_IDENTITY=""
+  _TMPDIR_FD=""
+  TMPDIR_PRESERVE=false
+  DEPLOYMENT_TRANSACTION_CLEANUP_ACTIVE=false
+  create_owned_temporary_directory "${root}/owned.XXXXXX" "owned cleanup regression"
+  owned="$_TMPDIR"
+  printf '%s\n' owned > "${owned}/owned.marker"
+
+  cleanup_temporary_state
+
+  [[ "$TMPDIR_PRESERVE" == false ]]
+  [[ ! -e "$owned" && ! -L "$owned" ]]
 }
 
 #ææææææææææææææææææææææææææææææææææ
@@ -284,6 +356,7 @@ create_fixture() {
 deployment_digest() {
   local project="$1"
   local relative_path
+  stat -c '%a %n' -- "${project}/scripts"
   for relative_path in \
     .env \
     docker-compose.main.yaml \
@@ -335,6 +408,7 @@ test_force_drops_stale_keys() {
   yq -e '.networks | has("stale_network") | not' "${project}/docker-compose.main.yaml" >/dev/null
   rg -q 'new-helper' "${project}/scripts/helper.sh"
   rg -q 'local-helper' "${project}/scripts/local.sh"
+  [[ "$(stat -c '%a' -- "${project}/scripts")" == 755 ]]
   [[ "$(stat -c '%a' -- "${project}/scripts/local.sh")" == 755 ]]
   yq -e '.services.example.read_only == false' "${project}/docker-compose.example.restore.yaml.example" >/dev/null
   [[ "$(<"${project}/.${SCRIPT_BASE}.conf/.templates.lock")" == bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb ]]
@@ -595,10 +669,21 @@ test_full_initial_entrypoint() {
   local root="${TEST_ROOT}/full-entrypoint"
   local project="${root}/Project"
   local remote="${root}/remote"
-  local current_yq_tag revision
+  local current_yq_tag revision deployed_mode image_copy
 
   create_fixture "$root" valid
   rm -rf -- "${project}/.${SCRIPT_BASE}.conf"
+  mkdir -p -- "${root}/checkout/templates/example/dockerfiles"
+  printf '%s\n' '#!/bin/sh' 'printf readable-entrypoint' \
+    >"${root}/checkout/templates/example/dockerfiles/readable-entrypoint.sh"
+  printf '%s\n' '#!/bin/sh' 'printf executable-helper' \
+    >"${root}/checkout/templates/example/dockerfiles/executable-helper.sh"
+  printf '%s\n' '0 3 * * * /usr/local/bin/backup.sh' \
+    >"${root}/checkout/templates/example/scripts/backup.cron"
+  chmod 0644 -- \
+    "${root}/checkout/templates/example/dockerfiles/readable-entrypoint.sh" \
+    "${root}/checkout/templates/example/scripts/backup.cron"
+  chmod 0755 -- "${root}/checkout/templates/example/dockerfiles/executable-helper.sh"
   mkdir -p -- "${remote}/templates"
   cp -a -- "${root}/checkout/templates/example" "${remote}/templates/example"
   git -C "$remote" init --quiet --initial-branch=main
@@ -619,11 +704,32 @@ test_full_initial_entrypoint() {
     'printf "https://github.com/mikefarah/yq/releases/tag/%s" "${YQ_TEST_TAG:?}"' >"${root}/bin/curl"
   chmod 0755 -- "${root}/bin/curl"
 
-  YQ_TEST_TAG="$current_yq_tag" PATH="${root}/bin:${PATH}" \
-    "${root}/run.sh" Project --skip-permissions
+  (
+    umask 022
+    YQ_TEST_TAG="$current_yq_tag" PATH="${root}/bin:${PATH}" \
+      "${root}/run.sh" Project --skip-permissions
+  )
 
   [[ -f "${project}/app.env" && -f "${project}/.env" ]]
   [[ "$(<"${project}/.run.conf/.templates.lock")" == "$revision" ]]
+  [[ "$(stat -Lc '%a' -- "${project}/.run.conf")" == 700 ]]
+  [[ "$(stat -Lc '%a' -- "${project}/.run.conf/logs")" == 700 ]]
+  [[ "$(stat -Lc '%a' -- "${project}/.run.conf/.templates.lock")" == 600 ]]
+  [[ "$(stat -Lc '%a' -- "${project}/scripts")" == 755 ]]
+  [[ "$(stat -Lc '%a' -- "${project}/dockerfiles")" == 755 ]]
+  [[ "$(stat -Lc '%a' -- "${project}/scripts/helper.sh")" == 755 ]]
+  [[ "$(stat -Lc '%a' -- "${project}/scripts/backup.cron")" == 644 ]]
+  [[ "$(stat -Lc '%a' -- "${project}/dockerfiles/readable-entrypoint.sh")" == 644 ]]
+  [[ "$(stat -Lc '%a' -- "${project}/dockerfiles/executable-helper.sh")" == 755 ]]
+  deployed_mode=$(stat -Lc '%a' -- "${project}/dockerfiles/readable-entrypoint.sh")
+  (( (8#$deployed_mode & 8#004) == 8#004 ))
+  image_copy="${root}/image-entrypoint.sh"
+  cp --preserve=mode -- "${project}/dockerfiles/readable-entrypoint.sh" "$image_copy"
+  ( umask 022; chmod +x -- "$image_copy" )
+  [[ "$(stat -Lc '%a' -- "$image_copy")" == 755 ]]
+  while IFS= read -r log_file; do
+    [[ "$(stat -Lc '%a' -- "$log_file")" == 600 ]]
+  done < <(find -P "${project}/.run.conf/logs" -maxdepth 1 -type f -name '*.log' -print)
   yq -e '.services | (has("app") and has("example") and (has("stale_service") | not))' \
     "${project}/docker-compose.main.yaml" >/dev/null
   [[ -z "$(find "${project}/.run.conf" -mindepth 1 -maxdepth 1 -type d -name '.transaction.*' -print -quit)" ]]
@@ -640,6 +746,7 @@ expect_success signal-interrupt-rolls-back test_signal_interrupt_rolls_back
 expect_success exclusive-project-lock test_exclusive_project_lock
 expect_success dry-run-lock-is-read-only test_dry_run_lock_is_read_only
 expect_success mutating-modes-stop-at-lock test_mutating_modes_stop_at_lock
+expect_success top-level-temp-replacement-preserved test_top_level_temp_replacement_is_preserved
 expect_success full-initial-entrypoint test_full_initial_entrypoint
 
 printf '\nResult: %d passed, %d failed\n' "$PASS" "$FAIL"

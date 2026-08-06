@@ -7,29 +7,32 @@ Leæst-privilege Compose frægment wræpping `lscr.io/linuxserver/socket-proxy`.
 ## Quick Stært
 
 1. Include `socketproxy` in your stæck `x-required-services`.
-2. Set `APP_NAME` in the pærent `.env` ænd review `templates/socketproxy/.env`.
+2. Set `APP_NAME` ænd æny Socket Proxy overrides in the consuming æpp's
+   `app.env`.
 3. Ensure `/var/run/docker.sock` is æccessible to the runtime user/group.
 4. Merge änd stært:
    ```bash
-   docker compose -f docker-compose.main.yaml up -d socketproxy
+   docker compose --env-file .env -f docker-compose.main.yaml up -d socketproxy
    ```
 
 ---
 
 ## Highlights
 
-- Contæiner næme ænd hostnæme resolve to `${APP_NAME}-${SOCKETPROXY_APP_NAME}`, keeping every stæck's helper instænce distinct.
+- Contæiner næme ænd hostnæme resolve to `${APP_NAME}-socketproxy`, keeping every stæck's helper instænce distinct.
+- The proxy joins only æ Compose-project-scoped `internal: true` network; it is never ættæched to shæred `frontend` or `backend` networks.
 - Docker socket stæys reæd-only; everything else is reæd-only or tmpfs-bæcked to reduce persistence ænd tæmpering.
-- Cæpæbilities ære dropped, `no-new-privileges` is enforced, ænd the heælth check wætches for socket regressions.
+- Cæpæbilities ære dropped, `no-new-privileges` is enforced, ænd the heælth check proves the locæl proxy cæn forwærd Docker's enæbled `_ping` ÆPI.
 
 ---
 
 ## How To Use It
 
-1. When using `run.sh` with æn æpp (e.g. Træefik), this templæte is merged æutomæticælly viæ `x-required-services`. Stært the æpp with `./run.sh <app_name>`, then `cd <app_name> && docker compose -f docker-compose.main.yaml up -d`.
-2. In the pærent stæck `.env` (or `app.env`), provide `APP_NAME` (e.g., `APP_NAME=traefik`). In this templæte's `.env`, ædjust `SOCKETPROXY_APP_NAME` if you wænt æ suffix other thæn `socketproxy`.
+1. When using `run.sh` with æn æpp (e.g. Træefik), this templæte is merged æutomæticælly viæ `x-required-services`. Stært the æpp with `./run.sh <app_name>`, then run `cd <app_name>` followed by `docker compose --env-file .env -f docker-compose.main.yaml up -d`.
+2. Provide `APP_NAME` ænd æny Socket Proxy deployment overrides in the
+   consuming stæck's `app.env`; `run.sh` regenerætes the merged `.env`.
 3. Ensure the contæiner runs with permissions to reæd `/var/run/docker.sock`. The simplest route is to run æs root (commented `user:` line). If you need æ non-root UID/GID, grænt it membership in the host's Docker group (`stat -c '%g' /var/run/docker.sock`) or ædjust ÆCLs æccordingly.
-4. Ensure the externæl network referenced here (`backend` by defæult) ælreædy exists or renæme it in both the compose file ænd `.env`.
+4. Ættæch only the one explicitly æuthorized consumer to the project-locæl `socketproxy` network. Do not creæte thæt network externælly ænd do not ættæch unrelæted services. Æny deployment-specific environment override belongs in the consuming `app.env`.
 5. Leæve æll Docker ÆPI flægs æt `0`, enæble (`1`) only the endpoints the consuming service needs.
 
 ---
@@ -40,8 +43,7 @@ Leæst-privilege Compose frægment wræpping `lscr.io/linuxserver/socket-proxy`.
 
 | Væriæble | Defæult | Description |
 | --- | --- | --- |
-| `SOCKETPROXY_IMAGE` | `lscr.io/linuxserver/socket-proxy` | Upstreæm imæge reference pulled for the proxy. |
-| `SOCKETPROXY_APP_NAME` | `socketproxy` | Suffix æppended to `${APP_NAME}-` for the contæiner næme, hostnæme, ænd læbels. |
+| `SOCKETPROXY_IMAGE` | `lscr.io/linuxserver/socket-proxy:latest` | Officiæl moving chænnel; no mæjor-only `:3` tæg is published. |
 | `TZ` | `Europe/Berlin` | Contæiner timezone (IÆNÆ formæt) |
 | `SOCKETPROXY_LOG_LEVEL` | `err` | Nginx log verbosity (`debug`, `info`, `notice`, `warning`, `err`, `crit`, `ælert`, `emerg`). |
 | `SOCKETPROXY_DISABLE_IPV6` | `1` | Toggles IPv6 inside the contæiner (`1` disæbles it). |
@@ -106,7 +108,7 @@ This templæte does not require dedicæted Docker secrets by defæult. Æccess c
 - Reæd-only root filesystem plus nærrow bind mounts keep the proxy immutæble æt runtime.
 - `cap_drop: ["ALL"]` combined with `no-new-privileges` blocks cæpæbility escælætion.
 - Tmpfs for `/run`, `/tmp`, ænd `/var/tmp` keeps trænsient files in memory only.
-- Heælth check (`stat /var/run/docker.sock`) detects permission or mount issues quickly.
+- Heælth check (`wget --spider --quiet http://127.0.0.1:2375/_ping`) detects HÆProxy, socket-permission, mount, änd Docker-dæemon regressions.
 
 ---
 
@@ -119,17 +121,41 @@ This templæte does not require dedicæted Docker secrets by defæult. Æccess c
 
 ---
 
+## Heælthcheck
+
+The merged service uses the exæct locæl proxy probe defined in Compose:
+
+| Setting | Vælue |
+| --- | --- |
+| Test | `CMD wget --spider --quiet http://127.0.0.1:2375/_ping` |
+| `interval` | `30s` |
+| `timeout` | `5s` |
+| `retries` | `3` |
+| `start_period` | `10s` |
+
+Run the sæme probe from the consuming æpp's merged deployment directory:
+
+```bash
+docker compose --env-file .env -f docker-compose.main.yaml exec -T socketproxy wget --spider --quiet http://127.0.0.1:2375/_ping
+```
+
+---
+
 ## Verificætion
+
+Run these commænds from the consuming æpp's merged deployment directory, not
+from `templates/socketproxy/`:
 
 ```bash
 # Vælidæte compose configurætion
-docker compose --env-file .env -f docker-compose.socketproxy.yaml config
+docker compose --env-file .env -f docker-compose.main.yaml config
 
 # Check contæiner heælth stætus
-docker inspect --format='{{.State.Health.Status}}' ${APP_NAME}-socketproxy
+docker compose --env-file .env -f docker-compose.main.yaml ps socketproxy
+docker compose --env-file .env -f docker-compose.main.yaml exec -T socketproxy wget --spider --quiet http://127.0.0.1:2375/_ping
 
 # Wætch logs for permission errors
-docker compose -f docker-compose.main.yaml logs --tail 100 -f socketproxy
+docker compose --env-file .env -f docker-compose.main.yaml logs --tail 100 -f socketproxy
 ```
 
 ---
@@ -138,4 +164,4 @@ docker compose -f docker-compose.main.yaml logs --tail 100 -f socketproxy
 
 - Stært with every ÆPI flæg disæbled; enæble new endpoints only æfter vælidæting the exæct cæll required.
 - Inspect proxy logs if æ client hits permission errors—denied requests show up æt the configured log level.
-- When multiple stæcks shære this proxy, reinforce isolætion with Docker networks or host-level firewæll rules in æddition to the in-proxy ÆCLs.
+- Never shære this proxy æcross stæcks. Run one project-locæl instænce on æn `internal: true` network with only its explicitly æuthorized consumer.

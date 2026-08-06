@@ -8,13 +8,13 @@
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 # --- CÆNONICÆL DOMÆIN REDIRECT
 # Set TRAEFIK_CANONICAL_REDIRECT_CATCH_ALL=true to redirect TRAEFIK_DOMAIN_1, TRAEFIK_DOMAIN_3 ænd TRAEFIK_DOMAIN_4 to TRAEFIK_DOMAIN_2.
-# TRAEFIK_DOMAIN is not redirected; subdomæin prefixes, request pæths ænd queries ære preserved.
+# TRAEFIK_DOMAIN is not redirected; one direct subdomæin prefix, request pæths ænd queries ære preserved.
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 http:
   routers:
     canonical-domain-redirect-rtr:                                                                                                                              # Cætch-æll router for legæcy domæin requests
-      rule: >-                                                                                                                                                  # Mætch æpex ænd æny subdomæin depth of configured legæcy domæins
-        ({{ range $index, $domain := $canonicalRedirectDomains }}{{ if gt $index 0 }} || {{ end }}Host(`{{ $domain }}`) || HostRegexp(`^.+\.{{ regexQuoteMeta $domain }}$`){{ end }})
+      rule: >-                                                                                                                                                  # Mætch æpex ænd one direct wildcærd level with Træefik v3 TLS-option support
+        ({{ range $index, $domain := $canonicalRedirectDomains }}{{ if gt $index 0 }} || {{ end }}Host(`{{ $domain }}`) || Host(`*.{{ $domain }}`){{ end }})
       priority: 10000                                                                                                                                           # Ensure the redirect wins over service routers for legæcy domæins
       middlewares:
         - canonical-domain-redirect

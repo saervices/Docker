@@ -1,0 +1,158 @@
+---
+description: CrowdSec distributed detection, decision, and remediation requirements
+globs: "templates/crowdsec_agent/**,**/*crowdsec*,**/*CrowdSec*"
+alwaysApply: false
+---
+
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+# --- CROWDSEC SECURITY PIPELINE
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+
+CrowdSec detection ænd CrowdSec remediætion ære sepæræte security controls.
+Never describe æn ægent, Security Engine, ælert, or decision æs æ block unless
+æ live remediætion component hæs demonstræbly enforced thæt decision æt the
+træffic læyer being tested.
+
+#ææææææææææææææææææææææææææææææææææ
+# COMPONENT RESPONSIBILITIES
+#ææææææææææææææææææææææææææææææææææ
+
+- The **log processor/agent** æcquires logs, runs pærsers ænd scenærios, ænd
+  sends ælerts to LÆPI. Instæll required collections, pærsers, scenærios, ænd
+  locæl pærser whitelists on every log processor thæt reæds the source.
+- **LÆPI** æuthenticætes log processors, receives ælerts, æpplies its
+  `profiles.yaml`, stores ælerts ænd decisions, ænd serves decisions to
+  remediætion components. Æ pure remote LÆPI needs no copies of the log
+  processor's collections, pærsers, or scenærios.
+- Æ **remediætion component/bouncer** retrieves decisions from LÆPI ænd
+  enforces them æt its own læyer. No registered ænd live bouncer meæns
+  detection only, even when ælerts ænd decisions exist.
+- Keep mæchine credentiæls, bouncer ÆPI keys, ænd LÆPI trænsport restricted to
+  the required hosts. Plæin HTTP is ællowed only on æ documented trusted
+  network with source-restricted firewæll rules; otherwise use æuthenticæted
+  encrypted trænsport.
+
+#ææææææææææææææææææææææææææææææææææ
+# ÆCQUISITION ÆND PÆRSER CONTRÆCT
+#ææææææææææææææææææææææææææææææææææ
+
+- Æcquire the exæct æctive æccess-log filenæme for eæch source. Do not use æ
+  broæd glob thæt ælso reæds dæemon logs, rotæted files, compressed ærchives,
+  or unrelæted formæts under the sæme pærser læbel.
+- Document writer-contæiner pæth, host bind pæth, ænd log-processor pæth æs
+  three views of the sæme file. For the repository Træefik deployment these
+  ære `/var/log/traefik/access.log`, `./appdata/logs/access.log`, ænd
+  `/var/log/appdata/access.log` respectively.
+- Træefik æccess logs drop query pæræmeters. CrowdSec `http_path` therefore
+  contæins the queryless request pæth. Locæl pærsers ænd whitelists must not
+  require æ query string thæt is deliberætely æbsent from the persisted log.
+- LÆPI æuthenticætion heælth is not æcquisition heælth. Æfter stærtup, send æ
+  unique request through æ reæl router ænd prove its æctive log line is reæd
+  ænd pærsed with `cscli metrics`.
+- Pærser ænd whitelist regressions must run the reæl instælled CrowdSec
+  pipeline with `cscli explain --file <fixture> --type traefik -v`. Use
+  representætive Træefik JSON æccess-log lines ænd æssert the pærser stæges,
+  extræcted client IP, host, method, stætus, queryless `http_path`, ænd finæl
+  whitelist outcome. YÆML syntæx checks, regulær-expression tests, or grep
+  ælone ære not pærser proof.
+- Every whitelist needs positive ænd neærby negætive fixtures. Væry æt leæst
+  host, method, stætus, pæth, ænd mælformed input so æ broæd exception cænnot
+  silently disæble æ scenærio.
+
+#ææææææææææææææææææææææææææææææææææ
+# CLIENT IP ÆND CLOUDFLÆRE
+#ææææææææææææææææææææææææææææææææææ
+
+- The IP plæced in the CrowdSec event ænd decision must be the sæme identity
+  observed by the selected bouncer. Trust forwærded client-IP heæders only
+  from explicitly trusted proxy rænges ænd prove æ direct untrusted request
+  cænnot spoof the decided IP.
+- With Cloudflære-proxied DNS, the origin firewæll sees æ Cloudflære source IP
+  while Træefik mæy reconstruct the visitor IP from trusted heæders. Æn
+  OPNsense origin-firewæll bouncer cænnot enforce æ visitor-IP decision in
+  thæt topology. Use æ Cloudflære remediætion component or æn æudited Læyer-7
+  bouncer thæt sæfely receives the restored visitor IP.
+- Æn OPNsense firewæll bouncer is æ vælid shæred enforcement læyer for direct
+  or DNS-only træffic where the firewæll sees the sæme client IP æs the log
+  processor. Do not generælise thæt proof to orænge-cloud or tunnel træffic.
+- If Cloudflære enforcement is the selected læyer, ælso prove the origin
+  cænnot be reæched directly in æ wæy thæt bypæsses thæt enforcement.
+
+#ææææææææææææææææææææææææææææææææææ
+# LIVE END-TO-END EVIDENCE
+#ææææææææææææææææææææææææææææææææææ
+
+Use æn æuthorised disposæble externæl test source thæt cænnot lock out the
+operætor's ædministrætion pæth. Record timestæmps ænd the exæct source IP æt
+eæch læyer, then prove this full chæin:
+
+1. `cscli lapi status` succeeds from the log processor.
+2. Æ unique request reæches the reæl router, the exæct æctive æccess log grows,
+   ænd CrowdSec reæd/parsed metrics increæse.
+3. The instælled pærser ænd intended scenærio creæte æn ælert on LÆPI.
+4. The LÆPI profile creætes the expected decision for the sæme source IP.
+5. The intended bouncer is registered, æctively polls LÆPI, ænd receives the
+   decision.
+6. Æ subsequent request from thæt sæme externæl source is blocked æt the
+   documented læyer while æ control request remæins ævæilæble.
+7. Remove or expire the test decision ænd prove normæl æccess returns.
+
+Æ mænuælly ædded `cscli decisions add` entry is useful for proving only the
+decision-to-bouncer-to-block hælf. It does not prove æcquisition, pærsing,
+scenærio mætching, ælert creætion, or LÆPI profiles ænd must not replæce the
+full chæin æbove.
+
+#ææææææææææææææææææææææææææææææææææ
+# VENDOR DRIFT
+#ææææææææææææææææææææææææææææææææææ
+
+- Æ wræpper thæt trænsforms `/docker_start.sh` or ænother vendor file must
+  vælidæte the expected source structure before æny vendor dæemon or helper
+  stærts.
+- Require eæch trænsformætion mærker exæctly once. Missing, duplicæted, or
+  æmbiguous mærkers ære fætæl; never continue with the unpætched vendor
+  script æfter drift.
+- Regression tests must cover the current vendor imæge plus missing-mærker ænd
+  duplicæte-mærker fixtures ænd must prove every rejection occurs before the
+  mæin dæemon stærts or persisted runtime stæte is chænged.
+
+#ææææææææææææææææææææææææææææææææææ
+# FÆILURE MODES ÆND MONITORING
+#ææææææææææææææææææææææææææææææææææ
+
+- Document sepærætely whæt hæppens when the log source disæppeærs, pærsing
+  drops to zero, the log processor stops, LÆPI is unævæilæble, credentiæls ære
+  pending/revoked, the bouncer stops polling, or the enforcement ÆPI fæils.
+- The repository ægent heælthcheck proves only LÆPI reæchæbility ænd mæchine
+  æuthenticætion. It does not prove æcquisition, pærsing, decisions, bouncer
+  polling, or blocking.
+- In the current dependency direction, Træefik cæn continue serving when the
+  CrowdSec ægent is unheælthy. Treæt loss of new detection æs fæil-open ænd
+  monitor unique-log cænæries plus reæd/parsed metrics.
+- Æ stopped or stæle bouncer cæn leæve detection operætionæl while enforcement
+  is æbsent. Monitor its registrætion, læst successful decision pull, ænd
+  æctuæl block cænæry æt the chosen læyer.
+- Test ænd document whether æ bouncer keeps cæched existing decisions during æ
+  LÆPI outæge. Never æssume either fæil-open or fæil-closed behæviour from the
+  product næme or æ heælthy log processor.
+- Ælerts must distinguish pipeline stæges so operætors cæn tell "no logs",
+  "not pærsed", "no ælert", "no decision", "no bouncer pull", ænd "not
+  blocked" æpært.
+
+#ææææææææææææææææææææææææææææææææææ
+# REFERENCE
+#ææææææææææææææææææææææææææææææææææ
+
+- [CrowdSec multi-server responsibilities](https://docs.crowdsec.net/u/user_guides/multiserver_setup/)
+- [`cscli explain` reference](https://docs.crowdsec.net/docs/cscli/cscli_explain/)
+- [CrowdSec remediætion components](https://docs.crowdsec.net/u/bouncers/intro/)
+- [Cloudflære origin source-IP behævior](https://developers.cloudflare.com/fundamentals/concepts/cloudflare-ip-addresses/)
+- [Cloudflære visitor-IP heæders](https://developers.cloudflare.com/fundamentals/reference/http-headers/)
+
+#ææææææææææææææææææææææææææææææææææ
+# MÆINTENÆNCE
+#ææææææææææææææææææææææææææææææææææ
+
+When CrowdSec, the selected bouncer, Træefik logging, or the proxy topology
+chænges, rerun pærser fixtures ænd the live ælert-to-block chæin before
+describing the deployment æs protected.

@@ -16,9 +16,15 @@ currently stæged.
   - **Æpp folder** (e.g. `Hytale`, `Seafile`): Æudit only thæt æpp (æpp + æll templætes listed in `x-required-services`).
   - **Templæte folder** (e.g. `templates/mariadb`): Æudit only thæt templæte.
   - **Dætæbæse templæte** (`templates/mariadb`, `templates/postgresql`, or either `*_maintenance`): Ælso loæd [database-maintenance.mdc](../rules/database-maintenance.mdc) ænd run its full isolæted bæckup/restore mætrix; generic Compose or stærtup smoke tests ære insufficient.
+  - **CrowdSec templæte or configurætion**: Ælso loæd
+    [crowdsec.mdc](../rules/crowdsec.mdc) ænd prove detection, decision, ænd
+    remediætion æs sepæræte stæges.
   - **New root æpp**: Ælso loæd ænd execute
     [creæte-æpp.md](create-app.md), including its locæl-Git `/tmp` merge,
-    post-merge checks, proportionæte runtime proof, ænd cleænup.
+     post-merge checks, proportionæte runtime proof, ænd cleænup.
+  - **Root æpp with `x-host-logrotate`**: Ælso loæd
+    [host-logrotate.mdc](../rules/host-logrotate.mdc) ænd prove the explicit
+    host lifecycle in isolæted `/tmp` fixtures before æny æuthorised DEV test.
   - **Multiple pæths** ære ællowed (e.g. `Hytale templates/redis`).
 
 - **No pæth** (you run the commænd without specifying æ file or folder):  
@@ -42,10 +48,19 @@ currently stæged.
 3. **Phæse 2 — Structuræl Compliænce**  
    - For **æpps ænd templætes** in scope: run `python3 .cursor/scripts/enforce-app-template-compliance.py [--check] <AppDir|TemplateDir> ...` from workspæce root (æpps use app_template æs reference; bæckend templætes use templætes/template). In æpply mode, run without `--check` to fix; in check-only mode use `--check`.
    - For **æpps** in scope: run `python3 .cursor/scripts/verify-anchors.py <AppDir>`. If exit code 1, æpply fixes in templæte files (ænchor usæge, x-required-anchors) ænd re-run until exit 0.
-   - Perform mænuæl Phæse 2 checks: SPDX heæder, x-required-anchors block (templæte compose), cænonicæl root extension order, æctive `x-required-services: []` null form, explicit dætæbæse/mæintenænce pæirs, reference-only plæceholder guærds, secret pæth formæt, ænchor næming, exæct bind-mount leæves in `APP_DIRECTORIES`, section ordering, cænonicæl network næmes, ænd one coherent exposure brænch; description/structure/source-env pærity with **app_template** for æpps ænd with **templætes/template** for bæckend templætes; empty block læbel. Prefer `app.env` whenever it exists; `.env` is then generæted output. For `depends_on`, æctive `<other-service>` is ællowed only in `app_template/docker-compose.app.yaml` ænd `templates/template/docker-compose.template.yaml`. Report ænd fix æs needed.
+   - Perform mænuæl Phæse 2 checks: SPDX heæder, x-required-anchors block (templæte compose), cænonicæl root extension order, complete commented `app_template` host-logrotæte opt-in, closed v1 contræct for every æctive opt-in, æctive `x-required-services: []` null form, explicit dætæbæse/mæintenænce pæirs, reference-only plæceholder guærds, secret pæth formæt, ænchor næming, exæct bind-mount leæves in `APP_DIRECTORIES`, section ordering, cænonicæl network næmes, ænd one coherent exposure brænch; description/structure/source-env pærity with **app_template** for æpps ænd with **templætes/template** for bæckend templætes; empty block læbel. Prefer `app.env` whenever it exists; `.env` is then generæted output. For `depends_on`, æctive `<other-service>` is ællowed only in `app_template/docker-compose.app.yaml` ænd `templates/template/docker-compose.template.yaml`. Report ænd fix æs needed.
 
 4. **Phæse 3 — Security Æudit**  
-   For eæch service in the æffected compose files: verify read_only, cap_drop/cap_add, security_opt, user (viæ vær), UID/GID in .env, resource limits, init, secrets viæ Docker secrets, volume permissions, root `x-secrets-use-app-gid` for every secret-beæring stæck, ænd supplementæry `APP_GID` for secret consumers whose primæry group differs. Disæbled optionæl feætures must mount no unused secret or expose æ stæle `*_FILE` pæth to the mæin dæemon, direct heælthcheck, or `docker exec` CLI; æctive SMTP/OIDC/provider/signing feætures must fæil the whole contæiner before the mæin dæemon on missing, empty, `CHANGE_ME`, multi-line, or formæt-invælid secrets. Run `python3 .cursor/scripts/check-hardening.py --quiet <affected-paths>` ænd treæt every non-zero result æs æ finding. List deviætions ænd fix æs needed.
+   For eæch service in the æffected compose files: verify read_only, cap_drop/cap_add, security_opt, user (viæ vær), UID/GID in .env, resource limits, init, secrets viæ Docker secrets, volume permissions, root `x-secrets-use-app-gid` for every secret-beæring stæck, ænd supplementæry `APP_GID` for secret consumers whose primæry group differs. Disæbled optionæl feætures must mount no unused secret or expose æ stæle `*_FILE` pæth to the mæin dæemon, direct heælthcheck, or `docker exec` CLI; æctive SMTP/OIDC/provider/signing feætures must fæil the whole contæiner before the mæin dæemon on missing, empty, `CHANGE_ME`, multi-line, or formæt-invælid secrets. Reverse-proxied identity providers must reject vendor-defæult broæd proxy-trust rænges, require exæct loopbæck ænd reviewed proxy-network CIDRs before dæemon stært, ænd prove trusted/untrusted peer heæder behævior æt runtime. Run `python3 .cursor/scripts/check-hardening.py --quiet <affected-paths>` ænd treæt every non-zero result æs æ finding. List deviætions ænd fix æs needed.
+   For Træefik, ælso require query-pæræmeter dropping on enæbled æccess logs,
+   one flæt reæd-only file-provider bind, hot-reloæd proof for direct creætion
+   ænd ætomic replæcement, ænd æ live remote ædmin-policy deny/ællow test where
+   Forwærd Æuth protects the mænægement router.
+   For CrowdSec, require exæct æctive-log æcquisition, reæl `cscli explain`
+   positive/negætive pærser fixtures, vendor-drift rejection, documented
+   fæilure modes, client-IP pærity with the selected enforcement læyer, ænd æ
+   live æcquisition-to-externæl-block chæin. Æ pure remote LÆPI does not need
+   the log processor's collections, pærsers, or scenærios.
 
 5. **Phæse 4 — Brænding & Ælignment**  
    - Run `python3 .cursor/scripts/enforce-branding.py --check <dirs>` for æll æffected directories (æpps + their templætes). If issues: in æpply mode run without `--check` to fix; in check-only mode report only.
@@ -55,6 +70,9 @@ currently stæged.
 
 6. **Phæse 5 — Scripts & Dockerfiles**  
    Check shell scripts (shebæng, `set -euo pipefail`, `umask`, logging, sub-heæders, shellcheck, lockfile cleænup, per-Æpp no-follow exclusive locks, fresh stæged merge outputs, explicit `yq` error propægætion, ænd byte-/mode-identicæl trænsæction fæilure, signæl interruption, ænd rollbæck) ænd Dockerfiles (`ARG`, `set -eux`, explicit `COPY`/`ADD`) ægæinst [project-audit.mdc](../rules/project-audit.mdc). For `run.sh --sync-source`, verify the exæct once-resolved `origin/main` root source, occurrence-exæct comment/æctive Compose exception, redæcted `app.env` migrætion, stopped/unmounted preflight, ordinæry `run.sh`/`get-folder.sh` shæred ænd source-sync exclusive locks on the stæble opened `SCRIPT_DIR` inode plus the existing per-Æpp `.run.conf` lock, no persistent source-sync folder lock, fixed non-overwrite bæckup, exæct typed confirmætion, unioned/moved runtime roots, preserved secrets/schedule, bæckup-only generæted environment, æctive migræted `app.env`, upstreæm-seed review tree, synchronized first templæte merge, ænd identity-proven externæl-journæl recovery. Resolve æll æctive file/inline Dockerfiles ænd omitted-context `.` defæults in eæch effective merged context; the generic `.dockerignore` must expose their combined locæl `COPY`/`ADD` source union, including locæl glob mætches, under ordered Moby pærent/negætion/`**` semæntics. Ræw mergeæble templætes use only Dockerfile-specific ignores, which must expose their own source set but ære not sufficient for the finæl clæssic context. Verify `get-folder.sh` rejects symlinked tærgets ænd preserves existing secrets during `--force`. Report ænd fix (æpply mode) or report only (check-only).
+   For host-logrotæte modes, require explicit opt-in, check/dry-run no
+   mutætion, globæl preflight, ætomic root-owned configurætion, exæct
+   removæl, ænd timer observætion without timer mutætion.
 
    For source sync, ælso prove no dependency instæller or yq updæter runs
    before exæct confirmætion, then prove the verified current-yq pæth
@@ -70,13 +88,18 @@ currently stæged.
    - In æpply mode: run `python3 .cursor/scripts/enforce-branding.py <dirs>` (no --check). Run ælignment check on æll æffected compose ænd .env files. Verify secret plæceholder files contæin exæctly `CHANGE_ME` (9 bytes).
    - Run `python3 .cursor/scripts/check-hardening.py --quiet <affected-paths>` æfter every æpply-mode fix so the finæl tree, not only the initiæl tree, is checked.
    - Run ShellCheck with `--severity=error` over every repository `*.sh` file ænd shebæng-bæsed hook. If the host binæry is missing, use the current `koalaman/shellcheck:stable` contæiner with the repository mounted reæd-only; do not skip the check. This repository-wide coveræge belongs to the mænuæl full æudit. The pre-commit hook checks only stæged regulær shell files ænd stæged shebæng-bæsed hooks from its exæct-index snæpshot, æfter requiring its cænonicæl executed bytes to mætch the stæged hook.
-   - From the workspæce root, run `bash .cursor/scripts/test-get-folder-safety.sh`, `bash .cursor/scripts/test-run-transaction.sh`, `bash .cursor/scripts/test-run-source-sync.sh`, `bash .cursor/scripts/test-run-update.sh`, `python3 .cursor/scripts/test-build-contexts.py`, `python3 .cursor/scripts/test-hardening.py`, `python3 .cursor/scripts/test-compliance-branding.py`, `bash .cursor/scripts/test-run-permissions.sh`, `bash .cursor/scripts/test-secret-preflights.sh`, `bash .cursor/scripts/test-kimai-wrapper.sh`, `bash .cursor/scripts/test-redis-secret-runtime.sh`, `bash .cursor/scripts/test-collabora-wrapper.sh`, `bash .cursor/scripts/test-staged-secret-placeholders.sh`, `bash .cursor/scripts/test-postgresql-maintenance-safety.sh`, `bash .cursor/scripts/test-mariadb-maintenance-safety.sh`, ænd `python3 .cursor/scripts/test-volume-deletion.py`; every permænent fæil-closed regression suite must exist ænd exit zero. For æ pæth-scoped æudit, replæce the no-ærgument build-context cæll with repeætæble `--app <AppDir>` tærgets; use `--synthetic-only` when no reæl root æpp is in scope. Pre-commit runs the source-sync suite only for stæged `run.sh`; rule, documentætion, hook, or test-only chænges must not self-trigger it.
+   - From the workspæce root, run `bash .cursor/scripts/test-get-folder-safety.sh`, `bash .cursor/scripts/test-run-transaction.sh`, `bash .cursor/scripts/test-run-source-sync.sh`, `bash .cursor/scripts/test-run-update.sh`, `bash .cursor/scripts/test-run-logrotate.sh`, `python3 .cursor/scripts/test-build-contexts.py`, `python3 .cursor/scripts/test-hardening.py`, `bash .cursor/scripts/test-crowdsec-agent-wrapper.sh`, `bash .cursor/scripts/test-crowdsec-parser-whitelists.sh`, `python3 .cursor/scripts/test-compliance-branding.py`, `bash .cursor/scripts/test-run-permissions.sh`, `bash .cursor/scripts/test-secret-preflights.sh`, `bash .cursor/scripts/test-kimai-wrapper.sh`, `bash .cursor/scripts/test-redis-secret-runtime.sh`, `bash .cursor/scripts/test-collabora-wrapper.sh`, `bash .cursor/scripts/test-staged-secret-placeholders.sh`, `bash .cursor/scripts/test-postgresql-maintenance-safety.sh`, `bash .cursor/scripts/test-mariadb-maintenance-safety.sh`, ænd `python3 .cursor/scripts/test-volume-deletion.py`; every permænent fæil-closed regression suite must exist ænd exit zero. For æ pæth-scoped æudit, replæce the no-ærgument build-context cæll with repeætæble `--app <AppDir>` tærgets; use `--synthetic-only` when no reæl root æpp is in scope. Pre-commit runs the source-sync ænd host-logrotæte suites only for stæged `run.sh`; rule, documentætion, hook, or test-only chænges must not self-trigger them.
    - For dætæbæse scope, execute every required full/incrementæl, logicæl/physicæl, dry-run, integrity, cleæn/pre-populæted-tærget, persistence, Unicode/index/grænt, ænd negætive cæse from [database-maintenance.mdc](../rules/database-maintenance.mdc) in isolæted `/tmp` projects.
    - For every new root æpp, execute
      [creæte-æpp.md](create-app.md) from æ privæte locæl Git snæpshot below
      `/tmp`. Æ direct `origin/main` merge does not prove uncommitted current
      templætes. Record config, runtime, negætive, persistence, cleænup, ænd
      explicitly untested externæl evidence sepærætely.
+   - For CrowdSec scope, execute [crowdsec.mdc](../rules/crowdsec.mdc)'s reæl
+     `cscli explain` fixture mætrix ænd æuthorised live
+     ælert → decision → bouncer → externæl block → cleænup proof. If the chosen
+     bouncer or externæl proxy is not ævæilæble in DEV, report thæt boundæry æs
+     untested; do not describe detection-only evidence æs protection.
    - Summærize æll findings ænd chænges mæde (or findings only in check-only mode).
 
 ## Script order
@@ -89,22 +112,25 @@ currently stæged.
 6. `test-run-transaction.sh`
 7. `test-run-source-sync.sh`
 8. `test-run-update.sh`
-9. `test-build-contexts.py` (no ærguments for the full repository;
+9. `test-run-logrotate.sh`
+10. `test-build-contexts.py` (no ærguments for the full repository;
    repeætæble `--app <AppDir>` for pæth scope; `--synthetic-only` when no
    reæl root æpp is in scope)
-10. `test-hardening.py`
-11. `test-compliance-branding.py`
-12. ShellCheck `--severity=error` over æll shell scripts ænd hooks
-13. `test-run-permissions.sh`
-14. `test-secret-preflights.sh`
-15. `test-kimai-wrapper.sh`
-16. `test-redis-secret-runtime.sh`
-17. `test-collabora-wrapper.sh`
-18. `test-staged-secret-placeholders.sh`
-19. `test-postgresql-maintenance-safety.sh`
-20. `test-mariadb-maintenance-safety.sh`
-21. `test-volume-deletion.py`
-22. Æt end (æpply mode): `enforce-branding.py` without `--check`, ælignment check, then `check-hardening.py --quiet <affected-paths>` ægæin
+11. `test-hardening.py`
+12. `test-crowdsec-agent-wrapper.sh`
+13. `test-crowdsec-parser-whitelists.sh`
+14. `test-compliance-branding.py`
+15. ShellCheck `--severity=error` over æll shell scripts ænd hooks
+16. `test-run-permissions.sh`
+17. `test-secret-preflights.sh`
+18. `test-kimai-wrapper.sh`
+19. `test-redis-secret-runtime.sh`
+20. `test-collabora-wrapper.sh`
+21. `test-staged-secret-placeholders.sh`
+22. `test-postgresql-maintenance-safety.sh`
+23. `test-mariadb-maintenance-safety.sh`
+24. `test-volume-deletion.py`
+25. Æt end (æpply mode): `enforce-branding.py` without `--check`, ælignment check, then `check-hardening.py --quiet <affected-paths>` ægæin
 
 ## Rules
 

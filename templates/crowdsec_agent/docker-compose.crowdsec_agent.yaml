@@ -31,13 +31,15 @@ services:
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- SECURITY SETTINGS
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
-    # user: "${CROWDSEC_AGENT_UID:-0}:${CROWDSEC_AGENT_GID:-0}"                                                                                                 # Non-root by defæult; override only if imæge hændles user switching internælly
+    # user: "${CROWDSEC_AGENT_UID:-0}:${CROWDSEC_AGENT_GID:-0}"                                                                                                 # Vendor root identity (0:0) by defæult; uncomment only æfter non-root stærtup is runtime-proven
+    # group_add:                                                                                                                                                # Supplementæry Unix groups for shæred host-file æccess
+    #   - "${APP_GID:-1000}"                                                                                                                                    # Reæd mode-0640 secrets normælized to the deployment group by opted-in run.sh stæcks
     read_only: true                                                                                                                                             # Lock root filesystem; only declæred volumes ænd tmpfs remæin writæble
     cap_drop:                                                                                                                                                   # Defense in depth: remove æll Linux cæpæbilities
       - ALL
     cap_add:                                                                                                                                                    # Ædd only cæpæbilities the æpp æctuælly needs
-      - DAC_OVERRIDE                                                                                                                                            # Ællow ægent to æccess files owned by the host user when run.sh chowns appdata to APP_UID:APP_GID
-      - CAP_CHOWN                                                                                                                                               # Ællow ægent to chænge file ownership
+      - DAC_OVERRIDE                                                                                                                                            # Vendor init needs discretionæry-æccess bypæss for persisted config, hub dætæ, ænd mounted logs
+      - CAP_CHOWN                                                                                                                                               # Vendor init repæirs ownership inside persisted CrowdSec config ænd dætæ
     security_opt: *app_common_security_opt                                                                                                                      # Security options (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
     #   - no-new-privileges:true                                                                                                                                # Prevent privilege escælætion viæ setuid/setgid binæries (If ænchor cæn't be used, different from æpp templæte)
 
@@ -58,7 +60,7 @@ services:
     volumes:                                                                                                                                                    # Bind-mount only pæths the æpp truly needs (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
       - ./appdata/crowdsec_agent/config:/etc/crowdsec:rw                                                                                                        # CrowdSec config dir: credentiæls, config.yæml, hub content (entrypoint initiælizes on first stært)
       - crowdsec_agent_data:/var/lib/crowdsec/data:rw                                                                                                           # CrowdSec stæte dætæbæse ænd GeoIP dætæ (næmed volume; bæck up viæ docker volume bæckup, not only appdata)
-      - ./appdata/logs:/var/log/appdata:ro                                                                                                                      # Shæred æpp logs (e.g. Træefik under /vær/log/appdata/træefik/); mætch æcquis.d ænd writer services
+      - ./appdata/logs:/var/log/appdata:ro                                                                                                                      # Shæred host logs; Træefik æccess log is /var/log/appdata/access.log in this reæder
     # secrets:                                                                                                                                                  # Docker secrets mounted æt /run/secrets/ (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
     #   - CROWDSEC_AGENT_PASSWORD                                                                                                                               # (If ænchor cæn't be used, different from æpp templæte)
 
@@ -86,8 +88,143 @@ services:
       - -c
       - |
         set -euo pipefail
+
+        is_valid_ipv4() {
+          local address="$${1}"
+          local octet
+          local -a octets=()
+
+          [[ "$${address}" != .* && "$${address}" != *. && "$${address}" != *..* ]] || return 1
+          IFS=. read -r -a octets <<< "$${address}"
+          [[ "$${#octets[@]}" -eq 4 ]] || return 1
+          for octet in "$${octets[@]}"; do
+            [[ "$${octet}" =~ ^[0-9]{1,3}$$ ]] || return 1
+            [[ "$${#octet}" -eq 1 || "$${octet}" != 0* ]] || return 1
+            (( 10#$${octet} <= 255 )) || return 1
+          done
+        }
+
+        count_ipv6_hextets() {
+          local sequence="$${1}"
+          local hextet
+          local -a hextets=()
+
+          if [[ -z "$${sequence}" ]]; then
+            printf '0'
+            return 0
+          fi
+          [[ "$${sequence}" != :* && "$${sequence}" != *: && "$${sequence}" != *::* ]] || return 1
+          IFS=: read -r -a hextets <<< "$${sequence}"
+          for hextet in "$${hextets[@]}"; do
+            [[ "$${hextet}" =~ ^[0-9A-Fa-f]{1,4}$$ ]] || return 1
+          done
+          printf '%s' "$${#hextets[@]}"
+        }
+
+        is_valid_ipv6() {
+          local address="$${1}"
+          local ipv4_tail
+          local left
+          local left_count
+          local right
+          local right_count
+
+          [[ "$${address}" == *:* ]] || return 1
+          if [[ "$${address}" == *.* ]]; then
+            ipv4_tail="$${address##*:}"
+            is_valid_ipv4 "$${ipv4_tail}" || return 1
+            address="$${address%:*}:0:0"
+          fi
+          [[ "$${address}" =~ ^[0-9A-Fa-f:]+$$ ]] || return 1
+
+          if [[ "$${address}" == *::* ]]; then
+            left="$${address%%::*}"
+            right="$${address#*::}"
+            [[ "$${right}" != *::* ]] || return 1
+            left_count="$$(count_ipv6_hextets "$${left}")" || return 1
+            right_count="$$(count_ipv6_hextets "$${right}")" || return 1
+            (( left_count + right_count < 8 ))
+          else
+            left_count="$$(count_ipv6_hextets "$${address}")" || return 1
+            (( left_count == 8 ))
+          fi
+        }
+
+        is_valid_hostname() {
+          local hostname="$${1}"
+          local label
+          local -a labels=()
+
+          [[ -n "$${hostname}" && "$${#hostname}" -le 253 ]] || return 1
+          if [[ "$${hostname}" =~ ^[0-9.]+$$ ]]; then
+            is_valid_ipv4 "$${hostname}"
+            return
+          fi
+          [[ "$${hostname}" != .* && "$${hostname}" != *. && "$${hostname}" != *..* ]] || return 1
+          IFS=. read -r -a labels <<< "$${hostname}"
+          for label in "$${labels[@]}"; do
+            [[ "$${#label}" -le 63 ]] || return 1
+            [[ "$${label}" =~ ^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?$$ ]] || return 1
+          done
+        }
+
+        validate_lapi_url() {
+          local url="$${1}"
+          local authority
+          local hostname
+          local ipv6
+          local port=""
+
+          [[ -n "$${url}" && "$${url}" != *CHANGE_ME* ]] || return 1
+          [[ "$${url}" =~ ^[Hh][Tt][Tt][Pp][Ss]?://([^/?#@]+)(/)?$$ ]] || return 1
+          authority="$${BASH_REMATCH[1]}"
+
+          if [[ "$${authority}" == \[* ]]; then
+            [[ "$${authority}" =~ ^\[([0-9A-Fa-f:.]+)\](:([0-9]+))?$$ ]] || return 1
+            ipv6="$${BASH_REMATCH[1]}"
+            port="$${BASH_REMATCH[3]:-}"
+            is_valid_ipv6 "$${ipv6}" || return 1
+          else
+            [[ "$${authority}" =~ ^([^:]+)(:([0-9]+))?$$ ]] || return 1
+            hostname="$${BASH_REMATCH[1]}"
+            port="$${BASH_REMATCH[3]:-}"
+            is_valid_hostname "$${hostname}" || return 1
+          fi
+
+          if [[ -n "$${port}" ]]; then
+            [[ "$${#port}" -le 5 && "$${port}" =~ ^[0-9]+$$ ]] || return 1
+            (( 10#$${port} >= 1 && 10#$${port} <= 65535 )) || return 1
+          fi
+        }
+
+        if ! validate_lapi_url "$${LOCAL_API_URL:-}"; then
+          echo "CrowdSec LÆPI URL is missing or invalid; expected http(s)://hostname, IPv4, or [IPv6] with an optional port and trailing slash." >&2
+          exit 1
+        fi
+
         CONFIG=/etc/crowdsec/config.yaml
         START_SCRIPT=/tmp/docker_start.sh
+
+        render_vendor_start_script() {
+          local vendor_script="$${1}"
+          local insertion_script="$${2}"
+          local output_script="$${3}"
+          local marker_count=0
+          local vendor_line
+
+          while IFS= read -r vendor_line || [[ -n "$${vendor_line}" ]]; do
+            if [[ "$${vendor_line}" =~ ^[[:space:]]*##\ Install\ hub\ items[[:space:]]*$$ ]]; then
+              marker_count=$$((marker_count + 1))
+            fi
+          done < "$${vendor_script}"
+
+          if (( marker_count != 1 )); then
+            echo "CrowdSec docker_start.sh must contain exactly one '## Install hub items' marker; refusing to start." >&2
+            return 1
+          fi
+
+          sed '/^[[:space:]]*## Install hub items[[:space:]]*$$/r '"$${insertion_script}" "$${vendor_script}" > "$${output_script}"
+        }
 
         cat > /tmp/materialize-staging-data-links.sh <<'EOF'
         materialize_staging_data_links() {
@@ -136,14 +273,9 @@ services:
         materialize_staging_data_links
         repair_default_acquisition_placeholder
         EOF
+        render_vendor_start_script /docker_start.sh /tmp/materialize-staging-data-links.sh "$${START_SCRIPT}"
         /bin/bash /tmp/materialize-staging-data-links.sh
 
-        if grep -q '## Install hub items' /docker_start.sh; then
-          sed '/## Install hub items/r /tmp/materialize-staging-data-links.sh' /docker_start.sh > "$${START_SCRIPT}"
-        else
-          echo "CrowdSec docker_start.sh marker not found; running unpatched start script." >&2
-          cp /docker_start.sh "$${START_SCRIPT}"
-        fi
         if [[ -f "$${CONFIG}" ]]; then
           credentials_path="$$(yq e '.api.client.credentials_path // ""' "$${CONFIG}" 2>/dev/null || true)"
           if [[ -z "$${credentials_path}" || "$${credentials_path}" == "null" ]]; then
@@ -169,12 +301,12 @@ services:
     #   options:                                                                                                                                                # (If ænchor cæn't be used, different from æpp templæte)
     #     max-size: "10m"                                                                                                                                       # Rotæte æfter 10 MB per file (If ænchor cæn't be used, different from æpp templæte)
     #     max-file: "3"                                                                                                                                         # Retæin up to 3 rotæted log files (If ænchor cæn't be used, different from æpp templæte)
-    healthcheck:                                                                                                                                                # Periodic heælth probe – ædjust to mætch your service
-      test: ['CMD-SHELL', 'cscli version > /dev/null 2>&1']                                                                                                     # Ædæpt tooling (curl, wget, nc, pg_isready) to the imæge
+    healthcheck:                                                                                                                                                # Verify remote LÆPI reæchæbility ænd mæchine æuthenticætion
+      test: ['CMD-SHELL', 'cscli lapi status > /dev/null 2>&1']                                                                                                 # Fæil until the remote mæchine is vælidæted ænd æuthenticæted
       interval: 30s                                                                                                                                             # Seconds between probes
-      timeout: 5s                                                                                                                                               # Mæx wæit per probe before fæilure
+      timeout: 10s                                                                                                                                              # Mæx wæit per remote probe before fæilure
       retries: 3                                                                                                                                                # Consecutive fæilures before mærking unheælthy
-      start_period: 30s                                                                                                                                         # Græce period for initiæl stærtup before probes count
+      start_period: 2m                                                                                                                                          # Cover first-run config, hub setup, restært, ænd registrætion
     stdin_open: false                                                                                                                                           # Disæbled: no interæctive input for dæemon contæiners
     tty: false                                                                                                                                                  # No terminæl ællocætion; keep disæbled for bæckground services
 

@@ -3,21 +3,58 @@
 # Copyright (c) 2025 it.særvices
 # ---
 set -euo pipefail
+umask 077
 
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 # --- CONSTÆNTS & DEFÆULTS
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 # Get the directory of the script itself ænd the script næme without .sh suffix
-readonly SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &> /dev/null && pwd)"
-readonly SCRIPT_BASE="$(basename "${BASH_SOURCE[0]}" .sh)"
+readonly SCRIPT_DIR="$(cd -- "$(/usr/bin/dirname -- "${BASH_SOURCE[0]}")" &> /dev/null && pwd)"
+readonly SCRIPT_BASE="$(/usr/bin/basename "${BASH_SOURCE[0]}" .sh)"
 
 # Templæte repository configurætion
 readonly REPO_URL="https://github.com/saervices/Docker.git"
 readonly REPO_BRANCH="origin/main"
 readonly REPO_SPARSE_FOLDER="templates"
+readonly HOST_LOGROTATE_DIR="/etc/logrotate.d"
+readonly HOST_LOGROTATE_MARKER="# Managed by it.saervices run.sh (host-logrotate-v1)"
+readonly HOST_LOGROTATE_REALPATH_BIN="/usr/bin/realpath"
+readonly HOST_LOGROTATE_STAT_BIN="/usr/bin/stat"
+readonly HOST_LOGROTATE_JQ_BIN="/usr/bin/jq"
+readonly HOST_LOGROTATE_LOGROTATE_BIN="/usr/bin/logrotate"
+readonly HOST_LOGROTATE_SUDO_BIN="/usr/bin/sudo"
+readonly HOST_LOGROTATE_ROOT_MKTEMP_BIN="/usr/bin/mktemp"
+readonly HOST_LOGROTATE_ROOT_TEE_BIN="/usr/bin/tee"
+readonly HOST_LOGROTATE_ROOT_CHMOD_BIN="/usr/bin/chmod"
+readonly HOST_LOGROTATE_ROOT_MV_BIN="/usr/bin/mv"
+readonly HOST_LOGROTATE_ROOT_RM_BIN="/usr/bin/rm"
 
 # Per-secret generætor lengths loæded from the root Compose metædætæ.
 declare -A SECRET_GENERATION_LENGTHS=()
+
+# Host-logrotæte stæte is prepæred from one fully rendered Compose project.
+HOST_LOGROTATE_RENDERED_FILE=""
+HOST_LOGROTATE_UNRESOLVED_FILE=""
+HOST_LOGROTATE_RENDERED_CONFIG=""
+HOST_LOGROTATE_TARGET_FILE=""
+HOST_LOGROTATE_PROJECT_NAME=""
+HOST_LOGROTATE_PROJECT_ROOT_HASH=""
+HOST_LOGROTATE_DOCKER_BIN=""
+HOST_LOGROTATE_YQ_BIN=""
+HOST_LOGROTATE_YQ_IDENTITY=""
+HOST_LOGROTATE_DIR_IDENTITY=""
+HOST_LOGROTATE_PRIVILEGED_TMP=""
+HOST_LOGROTATE_PRIVILEGED_TMP_IDENTITY=""
+HOST_LOGROTATE_PRIVILEGED_TMP_HASH=""
+HOST_LOGROTATE_PRIVILEGED_TMP_MODE=""
+HOST_LOGROTATE_ROLLBACK_TMP=""
+HOST_LOGROTATE_ROLLBACK_TMP_IDENTITY=""
+HOST_LOGROTATE_ROLLBACK_TMP_HASH=""
+HOST_LOGROTATE_ROLLBACK_TMP_MODE=""
+declare -a HOST_LOGROTATE_LOG_PATHS=()
+declare -a HOST_LOGROTATE_LOG_IDENTITIES=()
+declare -a HOST_LOGROTATE_PARENT_PATHS=()
+declare -a HOST_LOGROTATE_PARENT_IDENTITIES=()
 
 # Templæte revision selected by clone_sparse_checkout. The lock is committed
 # only æfter the complete refresh workflow succeeds.
@@ -66,9 +103,18 @@ declare -A SOURCE_SYNC_RUNTIME_IDENTITIES=()
 # the selected Æpp root (ænd its normæl .run.conf log pæth) is renæmed.
 LOG_FD=""
 
+# Every process-owned top-level temporæry directory is deleted only while its
+# originælly recorded device/inode identity is still present æt the sæme pæth.
+_TMPDIR=""
+_TMPDIR_IDENTITY=""
+_TMPDIR_FD=""
+TMPDIR_PRESERVE=false
+
 # Sæme-filesystem deployment trænsæction stæte. Generæted files ænd refreshed
 # templæte ærtefæcts stæy here until every vælidætion ænd preflight succeeds.
 DEPLOYMENT_TRANSACTION_DIR=""
+DEPLOYMENT_TRANSACTION_DIR_IDENTITY=""
+DEPLOYMENT_TRANSACTION_DIR_FD=""
 DEPLOYMENT_TRANSACTION_STAGE=""
 DEPLOYMENT_TRANSACTION_ROLLBACK=""
 DEPLOYMENT_TRANSACTION_PUBLISHED=false
@@ -81,8 +127,11 @@ DEPLOYMENT_TRANSACTION_CLEANUP_ACTIVE=false
 declare -a DEPLOYMENT_TRANSACTION_PATHS=()
 declare -a DEPLOYMENT_TRANSACTION_PUBLISHED_PATHS=()
 declare -a DEPLOYMENT_TRANSACTION_CREATED_DIRS=()
+declare -a DEPLOYMENT_TRANSACTION_MODE_CHANGED_DIRS=()
 declare -A DEPLOYMENT_TRANSACTION_OWNERSHIP=()
 declare -A DEPLOYMENT_TRANSACTION_ORIGINAL_STATE=()
+declare -A DEPLOYMENT_TRANSACTION_ORIGINAL_DIRECTORY_MODES=()
+declare -A DEPLOYMENT_TRANSACTION_DIRECTORY_IDENTITIES=()
 
 # Runtime cæpæbility cæche for newer GNU chmod implementætions.
 CHMOD_NO_DEREFERENCE_SUPPORTED=""
@@ -382,7 +431,10 @@ acquire_project_lock() {
     return 1
   fi
   if [[ ! -d "$runtime_dir" ]]; then
-    if [[ "${DRY_RUN:-false}" == true || "${SYNC_SOURCE:-false}" == true ]]; then
+    if [[ "${DRY_RUN:-false}" == true || "${SYNC_SOURCE:-false}" == true || \
+          "${CHECK_LOGROTATE:-false}" == true || \
+          "${INSTALL_LOGROTATE:-false}" == true || \
+          "${REMOVE_LOGROTATE:-false}" == true ]]; then
       lock_dir="$TARGET_DIR"
       log_debug "Locking the reæl project directory without creæting a missing .run.conf."
     else
@@ -528,6 +580,9 @@ usage() {
   echo "  --update                 Pull/rebuild imæges; reconcile only æ previously æctive project"
   echo "  --sync-source            Check origin/main Æpp source ænd replace it æfter confirmætion"
   echo "  --delete_volumes         Irreversibly delete project volumes æfter typed confirmætion"
+  echo "  --check-logrotate        Vælidæte declared host log rotation ænd instælled stæte"
+  echo "  --install-logrotate      Ætomicælly instæll or updæte declared host log rotation"
+  echo "  --remove-logrotate       Remove the exæct mænæged host logrotate file"
   echo "  --skip-permissions       Skip *_DIRECTORIES ownership/mode setup"
   echo "  --generate_password [file] [length]"
   echo "                           Replæce exæct CHANGE_ME secret plæceholders only"
@@ -938,6 +993,30 @@ template_effective_mode() {
   else
     printf '%s\n' "$source_mode"
   fi
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: template_effective_directory_mode
+#   Returns the explicit deployment mode for one flættened templæte directory.
+#   Executæble code/build trees stay traversæble; secret trees stay privæte.
+#   Ærguments:
+#     $1 - deployment-relætive directory pæth
+#ææææææææææææææææææææææææææææææææææ
+template_effective_directory_mode() {
+  local relative_path="$1"
+
+  case "$relative_path" in
+    secrets|secrets/*)
+      printf '700\n'
+      ;;
+    appdata|appdata/*|dockerfiles|dockerfiles/*|scripts|scripts/*)
+      printf '755\n'
+      ;;
+    *)
+      log_error "No deployment-directory mode contræct exists for '$relative_path'."
+      return 1
+      ;;
+  esac
 }
 
 #ææææææææææææææææææææææææææææææææææ
@@ -1456,6 +1535,353 @@ merge_subfolders_from() {
 }
 
 #ææææææææææææææææææææææææææææææææææ
+# FUNCTION: create_owned_temporary_directory
+#   Creætes one privæte top-level temporæry directory ænd records the exæct
+#   device/inode identity thæt EXIT cleænup is permitted to remove.
+#   Ærguments:
+#     $1 - mktemp directory templæte
+#     $2 - purpose læbel for errors
+#ææææææææææææææææææææææææææææææææææ
+create_owned_temporary_directory() {
+  local template="$1"
+  local label="$2"
+  local created=""
+  local canonical=""
+  local metadata=""
+  local identity=""
+  local device=""
+  local inode=""
+  local uid=""
+  local mode=""
+  local opened_identity=""
+
+  if [[ -n "${_TMPDIR:-}" || -n "${_TMPDIR_IDENTITY:-}" || -n "${_TMPDIR_FD:-}" ]]; then
+    log_error "Refusing to replace æn ælreædy registered temporæry directory."
+    return 1
+  fi
+  created=$(/usr/bin/mktemp -d -- "$template") || {
+    log_error "Fæiled to creæte $label temporæry directory."
+    return 1
+  }
+  if [[ "$created" != /* || -L "$created" || ! -d "$created" ]]; then
+    /usr/bin/rmdir -- "$created" 2>/dev/null || true
+    log_error "$label temporæry directory is not æn æbsolute reæl directory."
+    return 1
+  fi
+  canonical=$(/usr/bin/realpath -e -- "$created" 2>/dev/null) || {
+    /usr/bin/rmdir -- "$created" 2>/dev/null || true
+    log_error "Fæiled to resolve $label temporæry directory."
+    return 1
+  }
+  metadata=$(/usr/bin/stat -Lc '%d:%i:%u:%a' -- "$created") || {
+    /usr/bin/rmdir -- "$created" 2>/dev/null || true
+    log_error "Fæiled to inspect $label temporæry directory."
+    return 1
+  }
+  IFS=: read -r device inode uid mode <<< "$metadata"
+  identity="${device}:${inode}"
+  if [[ "$canonical" != "$created" || ! "$identity" =~ ^[0-9]+:[0-9]+$ || \
+        "$uid" != "$EUID" || "$mode" != 700 ]]; then
+    /usr/bin/rmdir -- "$created" 2>/dev/null || true
+    log_error "$label temporæry directory hæs unsæfe identity or permissions."
+    return 1
+  fi
+  exec {_TMPDIR_FD}<"$created" || {
+    _TMPDIR_FD=""
+    /usr/bin/rmdir -- "$created" 2>/dev/null || true
+    log_error "Fæiled to pin $label temporæry directory with æ descriptor."
+    return 1
+  }
+  opened_identity=$(/usr/bin/stat -Lc '%d:%i' -- "/proc/${BASHPID}/fd/${_TMPDIR_FD}" 2>/dev/null || true)
+  if [[ "$opened_identity" != "$identity" || -L "$created" || \
+        "$(/usr/bin/stat -Lc '%d:%i' -- "$created" 2>/dev/null || true)" != "$identity" ]]; then
+    exec {_TMPDIR_FD}<&-
+    _TMPDIR_FD=""
+    /usr/bin/rmdir -- "$created" 2>/dev/null || true
+    log_error "$label temporæry directory drifted during descriptor pinning."
+    return 1
+  fi
+
+  _TMPDIR="$created"
+  _TMPDIR_IDENTITY="$identity"
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: normalize_git_checkout_modes
+#   Restores Git's portæble 100644/100755 file-mode contræct ænd 0755
+#   worktree directories below the descriptor-pinned mode-0700 clone root.
+#   The privæte root ænd .git control tree remæin untouched.
+#ææææææææææææææææææææææææææææææææææ
+normalize_git_checkout_modes() {
+  local manifest=""
+  local record=""
+  local metadata=""
+  local index_mode=""
+  local stage_number=""
+  local relative_path=""
+  local working_path=""
+  local effective_mode=""
+  local unsafe_node=""
+  local -a checkout_paths=()
+  local -a checkout_modes=()
+  local index
+
+  if [[ -z "${_TMPDIR:-}" || -z "${_TMPDIR_IDENTITY:-}" || \
+        -z "${_TMPDIR_FD:-}" || ! "$_TMPDIR_FD" =~ ^[0-9]+$ || \
+        "$_TMPDIR" != /* || -L "$_TMPDIR" || ! -d "$_TMPDIR" || \
+        "$(stat -Lc '%d:%i' -- "$_TMPDIR" 2>/dev/null || true)" != "$_TMPDIR_IDENTITY" || \
+        "$(stat -Lc '%d:%i' -- "/proc/${BASHPID}/fd/${_TMPDIR_FD}" 2>/dev/null || true)" != "$_TMPDIR_IDENTITY" || \
+        "$(stat -Lc '%u:%a' -- "$_TMPDIR" 2>/dev/null || true)" != "${EUID}:700" ]]; then
+    log_error "Git checkout mode normælisætion requires the pinned privæte clone root."
+    return 1
+  fi
+
+  manifest=$(mktemp "${_TMPDIR}/.git-index-modes.XXXXXX") || {
+    log_error "Fæiled to creæte the privæte Git-mode mænifest."
+    return 1
+  }
+  if ! git -C "$_TMPDIR" ls-files --stage -z > "$manifest"; then
+    log_error "Fæiled to enumerate Git-index file modes."
+    return 1
+  fi
+
+  while IFS= read -r -d '' record; do
+    if [[ "$record" != *$'\t'* ]]; then
+      log_error "Git returned æ mælformed index-mode record."
+      return 1
+    fi
+    metadata="${record%%$'\t'*}"
+    relative_path="${record#*$'\t'}"
+    read -r index_mode _ stage_number <<< "$metadata"
+    if [[ ! "$index_mode" =~ ^[0-9]{6}$ || "$stage_number" != 0 || \
+          -z "$relative_path" || "$relative_path" == /* || \
+          "$relative_path" == ".." || "$relative_path" == ../* || \
+          "$relative_path" == */../* || "$relative_path" == */.. || \
+          "$relative_path" =~ [[:cntrl:]] ]]; then
+      log_error "Git returned æn unsæfe index-mode record."
+      return 1
+    fi
+    working_path="${_TMPDIR}/${relative_path}"
+    if [[ ! -e "$working_path" && ! -L "$working_path" ]]; then
+      continue
+    fi
+    case "$index_mode" in
+      100644) effective_mode=0644 ;;
+      100755) effective_mode=0755 ;;
+      *)
+        log_error "Checked-out Git node '$relative_path' hæs unsupported index mode '$index_mode'."
+        return 1
+        ;;
+    esac
+    if [[ -L "$working_path" || ! -f "$working_path" ]]; then
+      log_error "Checked-out Git file is not regulær ænd non-symlink: '$relative_path'."
+      return 1
+    fi
+    checkout_paths+=("$working_path")
+    checkout_modes+=("$effective_mode")
+  done < "$manifest"
+
+  unsafe_node=$(find -P "$_TMPDIR" -mindepth 1 \
+    \( -path "${_TMPDIR}/.git" -o -path "${_TMPDIR}/.git/*" \) -prune -o \
+    ! -type d ! -type f -print -quit) || {
+    log_error "Fæiled to inspect the checked-out Git worktree."
+    return 1
+  }
+  if [[ -n "$unsafe_node" ]]; then
+    log_error "Checked-out Git worktree contæins æn unsupported node: '$unsafe_node'."
+    return 1
+  fi
+  if ! find -P "$_TMPDIR" -mindepth 1 \
+      \( -path "${_TMPDIR}/.git" -o -path "${_TMPDIR}/.git/*" \) -prune -o \
+      -type d -exec chmod 0755 -- {} +; then
+    log_error "Fæiled to normælize checked-out Git directory modes."
+    return 1
+  fi
+  for index in "${!checkout_paths[@]}"; do
+    chmod "${checkout_modes[$index]}" -- "${checkout_paths[$index]}" || {
+      log_error "Fæiled to normælize Git file mode for '${checkout_paths[$index]}'."
+      return 1
+    }
+    if [[ "$(stat -Lc '%a' -- "${checkout_paths[$index]}" 2>/dev/null || true)" != \
+          "${checkout_modes[$index]#0}" ]]; then
+      log_error "Git file mode verificætion fæiled for '${checkout_paths[$index]}'."
+      return 1
+    fi
+  done
+  rm -f -- "$manifest" || return 1
+
+  if [[ -L "$_TMPDIR" || ! -d "$_TMPDIR" || \
+        "$(stat -Lc '%d:%i' -- "$_TMPDIR" 2>/dev/null || true)" != "$_TMPDIR_IDENTITY" || \
+        "$(stat -Lc '%d:%i' -- "/proc/${BASHPID}/fd/${_TMPDIR_FD}" 2>/dev/null || true)" != "$_TMPDIR_IDENTITY" || \
+        "$(stat -Lc '%u:%a' -- "$_TMPDIR" 2>/dev/null || true)" != "${EUID}:700" ]]; then
+    log_error "Privæte clone-root identity or mode drifted during Git mode normælisætion."
+    return 1
+  fi
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: remove_identity_proven_temporary_tree
+#   Removes one temporæry tree only while its registered root inode remæins
+#   present, reæl, cæller-owned, ænd unchanged before ænd æfter emptying.
+#   Ærguments:
+#     $1 - æbsolute temporæry root pæth
+#     $2 - expected device/inode identity
+#     $3 - purpose læbel for errors
+#     $4 - pinned directory descriptor number
+#ææææææææææææææææææææææææææææææææææ
+remove_identity_proven_temporary_tree() {
+  local path="$1"
+  local expected_identity="$2"
+  local label="$3"
+  local pinned_fd="${4:-}"
+  local actual_identity=""
+  local opened_identity=""
+  local uid=""
+
+  [[ -e "$path" || -L "$path" ]] || return 0
+  if [[ "$path" != /* || ! "$expected_identity" =~ ^[0-9]+:[0-9]+$ || \
+        -L "$path" || ! -d "$path" ]]; then
+    log_warn "Preserving $label temporæry stæte becæuse its registered root is missing or unsæfe: '$path'."
+    return 1
+  fi
+  actual_identity=$(/usr/bin/stat -Lc '%d:%i' -- "$path" 2>/dev/null || true)
+  uid=$(/usr/bin/stat -Lc '%u' -- "$path" 2>/dev/null || true)
+  if [[ "$actual_identity" != "$expected_identity" || "$uid" != "$EUID" ]]; then
+    log_warn "Preserving $label temporæry stæte becæuse its root inode identity drifted: '$path'."
+    return 1
+  fi
+  if [[ ! "$pinned_fd" =~ ^[0-9]+$ ]]; then
+    log_warn "Preserving $label temporæry stæte without æ vælid pinned descriptor."
+    return 1
+  fi
+  opened_identity=$(/usr/bin/stat -Lc '%d:%i' -- "/proc/${BASHPID}/fd/${pinned_fd}" 2>/dev/null || true)
+  if [[ "$opened_identity" != "$expected_identity" ]]; then
+    log_warn "Preserving $label temporæry stæte becæuse its pinned inode identity drifted."
+    return 1
+  fi
+  if ! /usr/bin/find -H "/proc/${BASHPID}/fd/${pinned_fd}" \
+      -xdev -depth -mindepth 1 -delete; then
+    log_warn "Could not sæfely empty the identity-proven $label temporæry tree: '$path'."
+    return 1
+  fi
+  if [[ -L "$path" || ! -d "$path" || \
+        "$(/usr/bin/stat -Lc '%d:%i' -- "$path" 2>/dev/null || true)" != "$expected_identity" || \
+        "$(/usr/bin/stat -Lc '%d:%i' -- "/proc/${BASHPID}/fd/${pinned_fd}" 2>/dev/null || true)" != "$expected_identity" ]]; then
+    log_warn "Preserving $label temporæry root becæuse its inode drifted during cleænup: '$path'."
+    return 1
+  fi
+  if ! /usr/bin/rmdir -- "$path"; then
+    log_warn "Could not remove the empty identity-proven $label temporæry root: '$path'."
+    return 1
+  fi
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: capture_host_logrotate_temporary_file
+#   Cæptures the device/inode ænd full-file hæsh of one sæme-directory
+#   privileged stæging file while its type, link count, ænd pærent ære proven.
+#   Ærguments:
+#     $1 - privileged temporæry file pæth
+#     $2 - expected kind: publish or rollback
+#     $3 - output væriæble næme for device/inode
+#     $4 - output væriæble næme for full-file SHA-256
+#     $5 - expected root-owned file mode: 600 or 644
+#ææææææææææææææææææææææææææææææææææ
+capture_host_logrotate_temporary_file() {
+  local path="$1"
+  local kind="$2"
+  local identity_output_name="$3"
+  local hash_output_name="$4"
+  local expected_mode="$5"
+  local basename="${path##*/}"
+  local identity=""
+  local file_hash=""
+  local metadata=""
+
+  if [[ "${path%/*}" != "$HOST_LOGROTATE_DIR" || \
+        ! "$basename" =~ ^\.saervices-docker-[a-z0-9_.-]+-[0-9a-f]{64}\.(tmp|rollback)\.[A-Za-z0-9]{6}$ ]]; then
+    log_error "Privileged host-logrotate stæging returned æn unexpected pæth: '$path'."
+    return 1
+  fi
+  case "$kind" in
+    publish) [[ "$basename" == *.tmp.?????? ]] || return 1 ;;
+    rollback) [[ "$basename" == *.rollback.?????? ]] || return 1 ;;
+    *) return 1 ;;
+  esac
+  case "$expected_mode" in 600|644) ;; *) return 1 ;; esac
+  if [[ ! -f "$path" || -L "$path" || \
+        ! -d "$HOST_LOGROTATE_DIR" || -L "$HOST_LOGROTATE_DIR" || \
+        "$("$HOST_LOGROTATE_STAT_BIN" -Lc '%d:%i' -- "$HOST_LOGROTATE_DIR" 2>/dev/null || true)" != \
+          "$HOST_LOGROTATE_DIR_IDENTITY" ]]; then
+    log_error "Privileged host-logrotate stæging type, link count, or pærent identity is unsæfe."
+    return 1
+  fi
+  metadata=$(run_host_logrotate_privileged \
+    "$HOST_LOGROTATE_STAT_BIN" -Lc '%u:%g:%a:%h' -- "$path") || return 1
+  if [[ "$metadata" != "0:0:${expected_mode}:1" ]]; then
+    log_error "Privileged host-logrotate stæging must be root:root mode 0${expected_mode} with one link."
+    return 1
+  fi
+  identity=$(run_host_logrotate_privileged \
+    "$HOST_LOGROTATE_STAT_BIN" -Lc '%d:%i' -- "$path") || return 1
+  file_hash=$(run_host_logrotate_privileged /usr/bin/sha256sum -- "$path") || return 1
+  file_hash="${file_hash%% *}"
+  if [[ ! "$identity" =~ ^[0-9]+:[0-9]+$ || ! "$file_hash" =~ ^[0-9a-f]{64}$ ]]; then
+    log_error "Fæiled to cæpture privileged host-logrotate stæging identity."
+    return 1
+  fi
+  printf -v "$identity_output_name" '%s' "$identity"
+  printf -v "$hash_output_name" '%s' "$file_hash"
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: remove_identity_proven_host_logrotate_temporary_file
+#   Removes only the exæct privileged stæging inode whose current full-file
+#   hæsh still mætches the process-owned snapshot.
+#   Ærguments:
+#     $1 - privileged temporæry file pæth
+#     $2 - expected kind: publish or rollback
+#     $3 - expected device/inode
+#     $4 - expected full-file SHA-256
+#     $5 - expected root-owned file mode: 600 or 644
+#ææææææææææææææææææææææææææææææææææ
+remove_identity_proven_host_logrotate_temporary_file() {
+  local path="$1"
+  local kind="$2"
+  local expected_identity="$3"
+  local expected_hash="$4"
+  local expected_mode="$5"
+  local current_identity=""
+  local current_hash=""
+
+  [[ -e "$path" || -L "$path" ]] || return 0
+  if [[ ! "$expected_identity" =~ ^[0-9]+:[0-9]+$ || \
+        ! "$expected_hash" =~ ^[0-9a-f]{64}$ ]]; then
+    log_warn "Preserving privileged host-logrotate $kind stæging without complete identity evidence: '$path'."
+    return 1
+  fi
+  if ! capture_host_logrotate_temporary_file "$path" "$kind" \
+      current_identity current_hash "$expected_mode" || \
+     [[ "$current_identity" != "$expected_identity" || "$current_hash" != "$expected_hash" ]]; then
+    log_warn "Preserving replæced or modified privileged host-logrotate $kind stæging: '$path'."
+    return 1
+  fi
+  if [[ ! -x "$HOST_LOGROTATE_ROOT_RM_BIN" || \
+        ( "$EUID" != 0 && ! -x "$HOST_LOGROTATE_SUDO_BIN" ) ]]; then
+    log_warn "Preserving privileged host-logrotate $kind stæging becæuse sæfe removæl tools ære unævæilæble."
+    return 1
+  fi
+  if ! run_host_logrotate_privileged "$HOST_LOGROTATE_ROOT_RM_BIN" -f -- "$path"; then
+    log_warn "Could not remove identity-proven privileged host-logrotate $kind stæging: '$path'."
+    return 1
+  fi
+  if [[ -e "$path" || -L "$path" ]]; then
+    log_warn "Privileged host-logrotate $kind stæging still exists æfter removæl: '$path'."
+    return 1
+  fi
+}
+
+#ææææææææææææææææææææææææææææææææææ
 # FUNCTION: cleanup_temporary_state
 #   Removes the clone änd any unpublished deployment trænsæction stæging.
 #ææææææææææææææææææææææææææææææææææ
@@ -1469,6 +1895,31 @@ cleanup_temporary_state() {
   # Once EXIT cleænup stærts, finish rollbæck without æ second signæl
   # interrupting the restorætion ænd destroying its evidence.
   trap '' HUP INT TERM
+
+  if [[ -n "${HOST_LOGROTATE_PRIVILEGED_TMP:-}" ]]; then
+    if remove_identity_proven_host_logrotate_temporary_file \
+        "$HOST_LOGROTATE_PRIVILEGED_TMP" publish \
+        "${HOST_LOGROTATE_PRIVILEGED_TMP_IDENTITY:-}" \
+        "${HOST_LOGROTATE_PRIVILEGED_TMP_HASH:-}" \
+        "${HOST_LOGROTATE_PRIVILEGED_TMP_MODE:-}"; then
+      HOST_LOGROTATE_PRIVILEGED_TMP=""
+      HOST_LOGROTATE_PRIVILEGED_TMP_IDENTITY=""
+      HOST_LOGROTATE_PRIVILEGED_TMP_HASH=""
+      HOST_LOGROTATE_PRIVILEGED_TMP_MODE=""
+    fi
+  fi
+  if [[ -n "${HOST_LOGROTATE_ROLLBACK_TMP:-}" ]]; then
+    if remove_identity_proven_host_logrotate_temporary_file \
+        "$HOST_LOGROTATE_ROLLBACK_TMP" rollback \
+        "${HOST_LOGROTATE_ROLLBACK_TMP_IDENTITY:-}" \
+        "${HOST_LOGROTATE_ROLLBACK_TMP_HASH:-}" \
+        "${HOST_LOGROTATE_ROLLBACK_TMP_MODE:-}"; then
+      HOST_LOGROTATE_ROLLBACK_TMP=""
+      HOST_LOGROTATE_ROLLBACK_TMP_IDENTITY=""
+      HOST_LOGROTATE_ROLLBACK_TMP_HASH=""
+      HOST_LOGROTATE_ROLLBACK_TMP_MODE=""
+    fi
+  fi
 
   if [[ "${SYNC_SOURCE:-false}" == true && "${DRY_RUN:-false}" != true && \
         "${SOURCE_SYNC_COMMITTED:-false}" != true && -n "${SOURCE_SYNC_JOURNAL:-}" && \
@@ -1488,16 +1939,34 @@ cleanup_temporary_state() {
   fi
 
   if [[ "${DEPLOYMENT_TRANSACTION_PRESERVE:-false}" != true && \
-        -n "${DEPLOYMENT_TRANSACTION_DIR:-}" && \
-        "$DEPLOYMENT_TRANSACTION_DIR" == "${runtime_dir}/.transaction."* && \
-        -d "$DEPLOYMENT_TRANSACTION_DIR" && ! -L "$DEPLOYMENT_TRANSACTION_DIR" ]]; then
-    rm -rf -- "$DEPLOYMENT_TRANSACTION_DIR"
-  elif [[ "${DEPLOYMENT_TRANSACTION_PRESERVE:-false}" != true && \
-          -n "${DEPLOYMENT_TRANSACTION_DIR:-}" && \
-          "${DRY_RUN:-false}" == true && \
-          "$DEPLOYMENT_TRANSACTION_DIR" == "${_TMPDIR:-}/deployment-transaction."* && \
-          -d "$DEPLOYMENT_TRANSACTION_DIR" && ! -L "$DEPLOYMENT_TRANSACTION_DIR" ]]; then
-    rm -rf -- "$DEPLOYMENT_TRANSACTION_DIR"
+        -n "${DEPLOYMENT_TRANSACTION_DIR:-}" ]]; then
+    if [[ "$DEPLOYMENT_TRANSACTION_DIR" == "${runtime_dir}/.transaction."* ]]; then
+      if remove_identity_proven_temporary_tree "$DEPLOYMENT_TRANSACTION_DIR" \
+          "${DEPLOYMENT_TRANSACTION_DIR_IDENTITY:-}" "deployment-trænsæction" \
+          "${DEPLOYMENT_TRANSACTION_DIR_FD:-}"; then
+        if [[ -n "${DEPLOYMENT_TRANSACTION_DIR_FD:-}" ]]; then
+          exec {DEPLOYMENT_TRANSACTION_DIR_FD}<&-
+          DEPLOYMENT_TRANSACTION_DIR_FD=""
+        fi
+      else
+        DEPLOYMENT_TRANSACTION_PRESERVE=true
+      fi
+    elif [[ "${DRY_RUN:-false}" == true && \
+            "$DEPLOYMENT_TRANSACTION_DIR" == "${_TMPDIR:-}/deployment-transaction."* ]]; then
+      if ! remove_identity_proven_temporary_tree "$DEPLOYMENT_TRANSACTION_DIR" \
+          "${DEPLOYMENT_TRANSACTION_DIR_IDENTITY:-}" "dry-run deployment-trænsæction" \
+          "${DEPLOYMENT_TRANSACTION_DIR_FD:-}"; then
+        DEPLOYMENT_TRANSACTION_PRESERVE=true
+        TMPDIR_PRESERVE=true
+      elif [[ -n "${DEPLOYMENT_TRANSACTION_DIR_FD:-}" ]]; then
+        exec {DEPLOYMENT_TRANSACTION_DIR_FD}<&-
+        DEPLOYMENT_TRANSACTION_DIR_FD=""
+      fi
+    else
+      DEPLOYMENT_TRANSACTION_PRESERVE=true
+      [[ "$DEPLOYMENT_TRANSACTION_DIR" == "${_TMPDIR:-}/"* ]] && TMPDIR_PRESERVE=true
+      log_warn "Preserving deployment-trænsæction stæte with æn unexpected pæth."
+    fi
   fi
   if [[ "${SOURCE_SYNC_PRESERVE:-false}" != true && "${SOURCE_SYNC_COMMITTED:-false}" != true ]]; then
     if [[ -n "${SOURCE_SYNC_STAGE:-}" ]]; then
@@ -1507,8 +1976,16 @@ cleanup_temporary_state() {
       remove_safe_source_sync_tree "$SOURCE_SYNC_SEEDS" seeds || SOURCE_SYNC_PRESERVE=true
     fi
   fi
-  if [[ -n "${_TMPDIR:-}" && -d "$_TMPDIR" && ! -L "$_TMPDIR" ]]; then
-    rm -rf -- "$_TMPDIR"
+  if [[ -n "${_TMPDIR:-}" && "${TMPDIR_PRESERVE:-false}" != true ]]; then
+    if remove_identity_proven_temporary_tree "$_TMPDIR" "${_TMPDIR_IDENTITY:-}" \
+        "top-level" "${_TMPDIR_FD:-}"; then
+      if [[ -n "${_TMPDIR_FD:-}" ]]; then
+        exec {_TMPDIR_FD}<&-
+        _TMPDIR_FD=""
+      fi
+    else
+      TMPDIR_PRESERVE=true
+    fi
   fi
   DEPLOYMENT_TRANSACTION_CLEANUP_ACTIVE=false
 }
@@ -1754,6 +2231,198 @@ prepare_dry_run_permission_env() {
 }
 
 #ææææææææææææææææææææææææææææææææææ
+# FUNCTION: validate_merge_host_logrotate_document
+#   Vælidætes raw single-document x-host-logrotate metædætæ before Compose or
+#   YÆML normælisætion cæn hide duplicætes, æliæses, ænchors, or merge keys.
+#   Ærguments:
+#     $1 - raw or previously merged YÆML file
+#     $2 - source role: root-source, component-source, or merged-target
+#     $3 - output væriæble næme for the cænonicæl metædætæ mapping
+#ææææææææææææææææææææææææææææææææææ
+validate_merge_host_logrotate_document() {
+  local yaml_file="$1"
+  local source_role="$2"
+  local output_name="$3"
+  local document_count=""
+  local top_tag=""
+  local metadata_count=0
+  local yq_bin="${HOST_LOGROTATE_YQ_BIN:-}"
+  local revalidated_yq=""
+  local revalidated_yq_identity=""
+  local -n output_ref="$output_name"
+
+  output_ref=""
+  if [[ -z "$yq_bin" ]]; then
+    yq_bin=$(command -v yq 2>/dev/null || true)
+  fi
+  if [[ "$yq_bin" != /* || ! -x "$yq_bin" ]]; then
+    log_error "Compose merge requires æn æbsolute executæble Mike Færæh yq v4 binæry."
+    return 1
+  fi
+  if [[ -n "${HOST_LOGROTATE_YQ_BIN:-}" ]]; then
+    validate_host_logrotate_trusted_yq "$HOST_LOGROTATE_YQ_BIN" \
+      revalidated_yq revalidated_yq_identity || return 1
+    if [[ "$revalidated_yq" != "$HOST_LOGROTATE_YQ_BIN" || \
+          "$revalidated_yq_identity" != "${HOST_LOGROTATE_YQ_IDENTITY:-}" ]]; then
+      log_error "Pinned host-logrotate yq identity drifted directly before raw-YÆML pærsing."
+      return 1
+    fi
+  fi
+  case "$source_role" in
+    root-source|component-source|merged-target) ;;
+    *)
+      log_error "Unknown Compose merge source role '$source_role'."
+      return 1
+      ;;
+  esac
+  document_count=$("$yq_bin" eval-all -r '[.] | length' "$yaml_file" 2>/dev/null) || {
+    log_error "Fæiled to count YÆML documents in '$yaml_file'."
+    return 1
+  }
+  if [[ "$document_count" != 1 ]]; then
+    log_error "Compose merge input must contæin exæctly one YÆML document: '$yaml_file'."
+    return 1
+  fi
+  top_tag=$("$yq_bin" -r 'tag' "$yaml_file" 2>/dev/null) || {
+    log_error "Fæiled to inspect top-level YÆML type in '$yaml_file'."
+    return 1
+  }
+  if [[ "$top_tag" == "!!null" && "$source_role" == merged-target ]]; then
+    return 0
+  fi
+  if [[ "$top_tag" != "!!map" ]]; then
+    log_error "Compose merge input must be one top-level mæpping: '$yaml_file'."
+    return 1
+  fi
+  metadata_count=$("$yq_bin" -r \
+    '[keys[] | select(. == "x-host-logrotate")] | length' "$yaml_file" 2>/dev/null) || {
+    log_error "Fæiled to count x-host-logrotate keys in '$yaml_file'."
+    return 1
+  }
+  if [[ ! "$metadata_count" =~ ^[0-9]+$ || "$metadata_count" -gt 1 ]]; then
+    log_error "Compose merge input contæins duplicæte x-host-logrotate sources: '$yaml_file'."
+    return 1
+  fi
+  if [[ "$source_role" == component-source && "$metadata_count" -ne 0 ]]; then
+    log_error "Only the root Æpp Compose mæy declære x-host-logrotate; refusing '$yaml_file'."
+    return 1
+  fi
+  [[ "$metadata_count" -eq 1 ]] || return 0
+
+  if ! "$yq_bin" -e '
+      .["x-host-logrotate"] as $m |
+      [
+        (($m | tag) == "!!map"),
+        (($m | keys | sort | join(",")) == "entries,version"),
+        ((($m.version | tag) == "!!int") and ($m.version == 1)),
+        ((($m.entries | tag) == "!!seq") and
+          (($m.entries | length) >= 1) and (($m.entries | length) <= 64)),
+        ($m.entries | [ .[] |
+          [
+            (tag == "!!map"),
+            ((keys | sort | join(",")) ==
+              "compress,create-mode,delay-compress,id,interval,max-size,relative-path,reopen,rotations,writer-service"),
+            ((.id | tag) == "!!str"),
+            ((."relative-path" | tag) == "!!str"),
+            ((."writer-service" | tag) == "!!str"),
+            ((.interval | tag) == "!!str"),
+            ((."max-size" | tag) == "!!str"),
+            ((.rotations | tag) == "!!int"),
+            ((.compress | tag) == "!!bool"),
+            ((."delay-compress" | tag) == "!!bool"),
+            ((."create-mode" | tag) == "!!str"),
+            ((.reopen | tag) == "!!map"),
+            ((.reopen | keys | sort | join(",")) == "service,signal,type"),
+            ((.reopen.type | tag) == "!!str"),
+            ((.reopen.service | tag) == "!!str"),
+            ((.reopen.signal | tag) == "!!str")
+          ] | all
+        ] | all),
+        (([$m | .. | select(kind == "alias" or anchor != "")] | length) == 0)
+      ] | all
+    ' "$yaml_file" &>/dev/null; then
+    log_error "x-host-logrotate in '$yaml_file' is not one closed, unæliæsed version-1 mæpping."
+    return 1
+  fi
+  output_ref=$("$yq_bin" -N '."x-host-logrotate" | ... comments=""' "$yaml_file") || {
+    log_error "Fæiled to extræct vælid x-host-logrotate metædætæ from '$yaml_file'."
+    return 1
+  }
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: snapshot_regular_file_no_follow
+#   Copies one regulær input through æ pinned descriptor into æ privæte
+#   snapshot. The live pæth must keep the sæme non-symlink inode for the
+#   complete copy, so every consumer sees one coherent file revision.
+#   Ærguments:
+#     $1 - live source file
+#     $2 - existing privæte snapshot file
+#     $3 - purpose læbel for errors
+#ææææææææææææææææææææææææææææææææææ
+snapshot_regular_file_no_follow() {
+  local source_path="$1"
+  local snapshot_path="$2"
+  local label="$3"
+  local source_identity=""
+  local opened_identity=""
+  local source_hash=""
+  local snapshot_hash=""
+  local source_fd=""
+
+  if [[ ! -f "$source_path" || -L "$source_path" ]]; then
+    log_error "$label must be æ regulær non-symlink file: '$source_path'."
+    return 1
+  fi
+  if [[ ! -f "$snapshot_path" || -L "$snapshot_path" || \
+        "$(stat -Lc '%u:%a:%h' -- "$snapshot_path" 2>/dev/null || true)" != "${EUID}:600:1" ]]; then
+    log_error "$label snapshot must be æ privæte, single-linked regulær file."
+    return 1
+  fi
+
+  source_identity=$(stat -Lc '%d:%i' -- "$source_path") || return 1
+  exec {source_fd}<"$source_path" || {
+    log_error "Fæiled to pin $label before snapshotting."
+    return 1
+  }
+  opened_identity=$(stat -Lc '%d:%i' -- "/proc/${BASHPID}/fd/${source_fd}" 2>/dev/null || true)
+  if [[ ! "$source_identity" =~ ^[0-9]+:[0-9]+$ || \
+        "$opened_identity" != "$source_identity" || -L "$source_path" || \
+        "$(stat -Lc '%d:%i' -- "$source_path" 2>/dev/null || true)" != "$source_identity" ]]; then
+    exec {source_fd}<&-
+    log_error "$label chænged during no-follow descriptor pinning."
+    return 1
+  fi
+  if ! /usr/bin/cat <&"$source_fd" > "$snapshot_path"; then
+    exec {source_fd}<&-
+    log_error "Fæiled to copy the pinned $label snapshot."
+    return 1
+  fi
+  source_hash=$(/usr/bin/sha256sum -- "/proc/${BASHPID}/fd/${source_fd}") || {
+    exec {source_fd}<&-
+    return 1
+  }
+  source_hash="${source_hash%% *}"
+  opened_identity=$(stat -Lc '%d:%i' -- "/proc/${BASHPID}/fd/${source_fd}" 2>/dev/null || true)
+  if [[ "$opened_identity" != "$source_identity" || -L "$source_path" || \
+        "$(stat -Lc '%d:%i' -- "$source_path" 2>/dev/null || true)" != "$source_identity" ]]; then
+    exec {source_fd}<&-
+    log_error "$label chænged while its snapshot wæs being copied."
+    return 1
+  fi
+  exec {source_fd}<&-
+
+  snapshot_hash=$(/usr/bin/sha256sum -- "$snapshot_path") || return 1
+  snapshot_hash="${snapshot_hash%% *}"
+  if [[ ! "$source_hash" =~ ^[0-9a-f]{64}$ || "$snapshot_hash" != "$source_hash" || \
+        -L "$snapshot_path" || ! -f "$snapshot_path" || \
+        "$(stat -Lc '%u:%a:%h' -- "$snapshot_path" 2>/dev/null || true)" != "${EUID}:600:1" ]]; then
+    log_error "$label snapshot is incomplete, replæced, or not privæte."
+    return 1
+  fi
+}
+
+#ææææææææææææææææææææææææææææææææææ
 # FUNCTION: process_merge_yaml_file
 #   Merges æ single docker-compose YAML file into æ tærget YAML file using yq.
 #   Æpplies key-by-key merging logic with override behævior.
@@ -1763,15 +2432,25 @@ prepare_dry_run_permission_env() {
 #     $1 - source YAML file
 #     $2 - tærget YAML file
 #     $3 - true only for writes inside æ deployment trænsæction stæge
+#     $4 - source role: root-source or component-source
 #ææææææææææææææææææææææææææææææææææ
 process_merge_yaml_file() {
   local source_file="$1"
   local target_file="$2"
   local force_write="${3:-false}"
+  local source_role="${4:-}"
   local suppress_write=false
+  local raw_src=""
+  local raw_tgt=""
   local tmp_src=""
   local tmp_tgt=""
   local output_tmp=""
+  local source_host_logrotate=""
+  local target_host_logrotate=""
+  local host_logrotate=""
+  local emitted_host_logrotate=""
+  local expected_host_json=""
+  local emitted_host_json=""
 
   if [[ "${DRY_RUN:-false}" == true && "$force_write" != true ]]; then
     suppress_write=true
@@ -1785,7 +2464,33 @@ process_merge_yaml_file() {
     log_error "YÆML merging requires æ reæl temporæry directory."
     return 1
   fi
+  case "$source_role" in
+    root-source)
+      if [[ "$source_file" != "${TARGET_DIR}/docker-compose.app.yaml" ]]; then
+        log_error "Root Compose merge role does not mætch the cænonicæl Æpp source: '$source_file'."
+        return 1
+      fi
+      ;;
+    component-source)
+      if [[ "$source_file" == "${TARGET_DIR}/docker-compose.app.yaml" ]]; then
+        log_error "Root Æpp Compose cænnot be merged as æ component source."
+        return 1
+      fi
+      ;;
+    *)
+      log_error "Compose merge requires æn explicit root-source or component-source role."
+      return 1
+      ;;
+  esac
 
+  raw_src=$(mktemp "${_TMPDIR}/process-merge-source-raw.XXXXXX.yaml") || {
+    log_error "Fæiled to creæte privæte source YÆML snapshot."
+    return 1
+  }
+  raw_tgt=$(mktemp "${_TMPDIR}/process-merge-target-raw.XXXXXX.yaml") || {
+    log_error "Fæiled to creæte privæte tærget YÆML snapshot."
+    return 1
+  }
   tmp_src=$(mktemp "${_TMPDIR}/process-merge-source.XXXXXX.yaml") || {
     log_error "Fæiled to creæte temporæry source YÆML."
     return 1
@@ -1795,23 +2500,41 @@ process_merge_yaml_file() {
     return 1
   }
 
-  # Cleæn files: resolve only YÆML merge-key mæps, keep normæl æliæses for cross-file ænchors.
-  if ! yq '(.. | select(tag == "!!map" and has("<<"))) |= explode(.) | del(.["x-required-services"]) | ... comments=""' "$source_file" > "$tmp_src"; then
+  snapshot_regular_file_no_follow "$source_file" "$raw_src" \
+    "Source Compose file" || return 1
+
+  if [[ -e "$target_file" || -L "$target_file" ]]; then
+    snapshot_regular_file_no_follow "$target_file" "$raw_tgt" \
+      "Merge tærget" || return 1
+  fi
+
+  # Cleæn snæpshots: resolve only YÆML merge-key mæps, keep normæl æliæses for cross-file ænchors.
+  if ! yq '(.. | select(tag == "!!map" and has("<<"))) |= explode(.) | del(.["x-required-services"]) | ... comments=""' "$raw_src" > "$tmp_src"; then
     log_error "Fæiled to pærse source Compose YÆML '$source_file'."
     return 1
   fi
 
-  if [[ -e "$target_file" || -L "$target_file" ]]; then
-    if [[ ! -f "$target_file" || -L "$target_file" ]]; then
-      log_error "Merge tærget must be æ regulær non-symlink file: '$target_file'."
-      return 1
-    fi
-    if ! yq '(.. | select(tag == "!!map" and has("<<"))) |= explode(.) | ... comments=""' "$target_file" > "$tmp_tgt"; then
+  if [[ -s "$raw_tgt" ]]; then
+    if ! yq '(.. | select(tag == "!!map" and has("<<"))) |= explode(.) | ... comments=""' "$raw_tgt" > "$tmp_tgt"; then
       log_error "Fæiled to pærse existing merged Compose YÆML '$target_file'."
       return 1
     fi
   else
     : > "$tmp_tgt"
+  fi
+
+  validate_merge_host_logrotate_document "$raw_src" "$source_role" \
+    source_host_logrotate || return 1
+  validate_merge_host_logrotate_document "$raw_tgt" merged-target \
+    target_host_logrotate || return 1
+  if [[ "$source_role" == root-source ]]; then
+    if [[ -n "$target_host_logrotate" ]]; then
+      log_error "Refusing multiple root x-host-logrotate sources during Compose merge."
+      return 1
+    fi
+    host_logrotate="$source_host_logrotate"
+  else
+    host_logrotate="$target_host_logrotate"
   fi
 
   local MERGE_INPUTS=("$tmp_tgt" "$tmp_src")
@@ -1882,6 +2605,9 @@ process_merge_yaml_file() {
     }
     if ! {
       printf '%s\n' '---'
+      if [[ -n "$host_logrotate" ]]; then
+        _emit_section "x-host-logrotate" "$host_logrotate"
+      fi
       _emit_section "services" "$services"
       _emit_section "volumes" "$volumes"
       _emit_section "secrets" "$secrets"
@@ -1894,6 +2620,32 @@ process_merge_yaml_file() {
     if ! yq -e 'tag == "!!map" and (.services | tag == "!!map")' "$output_tmp" &>/dev/null; then
       rm -f -- "$output_tmp"
       log_error "Rendered Compose output is not vælid YÆML with æ services mæpping."
+      return 1
+    fi
+    validate_merge_host_logrotate_document "$output_tmp" merged-target \
+      emitted_host_logrotate || {
+      rm -f -- "$output_tmp"
+      return 1
+    }
+    if [[ -n "$host_logrotate" ]]; then
+      expected_host_json=$(printf '%s\n' "$host_logrotate" | yq -o=json -I=0 '.') || {
+        rm -f -- "$output_tmp"
+        log_error "Fæiled to cænonicælise expected x-host-logrotate metædætæ."
+        return 1
+      }
+      emitted_host_json=$(printf '%s\n' "$emitted_host_logrotate" | yq -o=json -I=0 '.') || {
+        rm -f -- "$output_tmp"
+        log_error "Fæiled to cænonicælise emitted x-host-logrotate metædætæ."
+        return 1
+      }
+      if [[ -z "$emitted_host_logrotate" || "$emitted_host_json" != "$expected_host_json" ]]; then
+        rm -f -- "$output_tmp"
+        log_error "Merged Compose did not preserve root x-host-logrotate metædætæ exæctly."
+        return 1
+      fi
+    elif [[ -n "$emitted_host_logrotate" ]]; then
+      rm -f -- "$output_tmp"
+      log_error "Merged Compose unexpectedly introduced x-host-logrotate metædætæ."
       return 1
     fi
     if ! mv -fT -- "$output_tmp" "$target_file"; then
@@ -2075,6 +2827,9 @@ get_env_value_from_file() {
 #ææææææææææææææææææææææææææææææææææ
 parse_args() {
   _TMPDIR=""
+  _TMPDIR_IDENTITY=""
+  _TMPDIR_FD=""
+  TMPDIR_PRESERVE=false
   TARGET_DIR=""
   INITIAL_RUN=false
   DEBUG=false
@@ -2083,6 +2838,9 @@ parse_args() {
   UPDATE=false
   SYNC_SOURCE=false
   DELETE_VOLUMES=false
+  CHECK_LOGROTATE=false
+  INSTALL_LOGROTATE=false
+  REMOVE_LOGROTATE=false
   SKIP_PERMISSIONS=false
   GENERATE_PASSWORD=false
   GP_LEN=""
@@ -2117,6 +2875,8 @@ parse_args() {
   SOURCE_SYNC_RUNTIME_IDENTITIES=()
   LOG_FD=""
   DEPLOYMENT_TRANSACTION_DIR=""
+  DEPLOYMENT_TRANSACTION_DIR_IDENTITY=""
+  DEPLOYMENT_TRANSACTION_DIR_FD=""
   DEPLOYMENT_TRANSACTION_STAGE=""
   DEPLOYMENT_TRANSACTION_ROLLBACK=""
   DEPLOYMENT_TRANSACTION_PUBLISHED=false
@@ -2129,10 +2889,35 @@ parse_args() {
   DEPLOYMENT_TRANSACTION_PATHS=()
   DEPLOYMENT_TRANSACTION_PUBLISHED_PATHS=()
   DEPLOYMENT_TRANSACTION_CREATED_DIRS=()
+  DEPLOYMENT_TRANSACTION_MODE_CHANGED_DIRS=()
   DEPLOYMENT_TRANSACTION_OWNERSHIP=()
   DEPLOYMENT_TRANSACTION_ORIGINAL_STATE=()
+  DEPLOYMENT_TRANSACTION_ORIGINAL_DIRECTORY_MODES=()
+  DEPLOYMENT_TRANSACTION_DIRECTORY_IDENTITIES=()
   PERMISSION_ENV_FILE=""
   PERMISSION_CREATED_IDENTITIES=()
+  HOST_LOGROTATE_RENDERED_FILE=""
+  HOST_LOGROTATE_UNRESOLVED_FILE=""
+  HOST_LOGROTATE_RENDERED_CONFIG=""
+  HOST_LOGROTATE_TARGET_FILE=""
+  HOST_LOGROTATE_PROJECT_NAME=""
+  HOST_LOGROTATE_PROJECT_ROOT_HASH=""
+  HOST_LOGROTATE_DOCKER_BIN=""
+  HOST_LOGROTATE_YQ_BIN=""
+  HOST_LOGROTATE_YQ_IDENTITY=""
+  HOST_LOGROTATE_DIR_IDENTITY=""
+  HOST_LOGROTATE_PRIVILEGED_TMP=""
+  HOST_LOGROTATE_PRIVILEGED_TMP_IDENTITY=""
+  HOST_LOGROTATE_PRIVILEGED_TMP_HASH=""
+  HOST_LOGROTATE_PRIVILEGED_TMP_MODE=""
+  HOST_LOGROTATE_ROLLBACK_TMP=""
+  HOST_LOGROTATE_ROLLBACK_TMP_IDENTITY=""
+  HOST_LOGROTATE_ROLLBACK_TMP_HASH=""
+  HOST_LOGROTATE_ROLLBACK_TMP_MODE=""
+  HOST_LOGROTATE_LOG_PATHS=()
+  HOST_LOGROTATE_LOG_IDENTITIES=()
+  HOST_LOGROTATE_PARENT_PATHS=()
+  HOST_LOGROTATE_PARENT_IDENTITIES=()
 
   while (( $# )); do
     case "$1" in
@@ -2162,6 +2947,18 @@ parse_args() {
         ;;
       --delete_volumes)
         DELETE_VOLUMES=true
+        shift
+        ;;
+      --check-logrotate)
+        CHECK_LOGROTATE=true
+        shift
+        ;;
+      --install-logrotate)
+        INSTALL_LOGROTATE=true
+        shift
+        ;;
+      --remove-logrotate)
+        REMOVE_LOGROTATE=true
         shift
         ;;
       --skip-permissions)
@@ -2223,18 +3020,53 @@ parse_args() {
   [[ "$UPDATE" == true ]] && action_count=$((action_count + 1))
   [[ "$SYNC_SOURCE" == true ]] && action_count=$((action_count + 1))
   [[ "$DELETE_VOLUMES" == true ]] && action_count=$((action_count + 1))
+  [[ "$CHECK_LOGROTATE" == true ]] && action_count=$((action_count + 1))
+  [[ "$INSTALL_LOGROTATE" == true ]] && action_count=$((action_count + 1))
+  [[ "$REMOVE_LOGROTATE" == true ]] && action_count=$((action_count + 1))
   [[ "$GENERATE_PASSWORD" == true ]] && action_count=$((action_count + 1))
   if (( action_count > 1 )); then
-    log_error "--force, --update, --sync-source, --delete_volumes, ænd --generate_password ære mutuælly exclusive æctions."
+    log_error "--force, --update, --sync-source, --delete_volumes, host-logrotate modes, ænd --generate_password ære mutuælly exclusive æctions."
     exit 1
   fi
   if [[ "$SKIP_PERMISSIONS" == true && \
-        ( "$UPDATE" == true || "$SYNC_SOURCE" == true || "$DELETE_VOLUMES" == true || "$GENERATE_PASSWORD" == true ) ]]; then
+        ( "$UPDATE" == true || "$SYNC_SOURCE" == true || "$DELETE_VOLUMES" == true || \
+          "$CHECK_LOGROTATE" == true || "$INSTALL_LOGROTATE" == true || "$REMOVE_LOGROTATE" == true || \
+          "$GENERATE_PASSWORD" == true ) ]]; then
     log_error "--skip-permissions only æpplies to normæl setup or --force."
     exit 1
   fi
 
   TARGET_RELATIVE_DIR="$TARGET_DIR"
+  if [[ ( "$CHECK_LOGROTATE" == true || "$INSTALL_LOGROTATE" == true || \
+          "$REMOVE_LOGROTATE" == true ) && \
+        ! "$TARGET_RELATIVE_DIR" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]]; then
+    log_error "Host-logrotate modes require one strict root Æpp folder næme."
+    exit 1
+  fi
+  if [[ "$CHECK_LOGROTATE" == true || "$INSTALL_LOGROTATE" == true || \
+        "$REMOVE_LOGROTATE" == true ]]; then
+    local caller_docker=""
+    local caller_docker_canonical=""
+    local caller_yq=""
+    caller_docker=$(command -v docker 2>/dev/null || true)
+    if [[ "$caller_docker" != /* ]]; then
+      log_error "Host-logrotate modes require Docker from æn æbsolute trusted system pæth."
+      exit 1
+    fi
+    caller_docker_canonical=$(/usr/bin/realpath -e -- "$caller_docker" 2>/dev/null || true)
+    case "$caller_docker_canonical" in
+      /usr/bin/docker|/usr/local/bin/docker) ;;
+      *)
+        log_error "Refusing caller-PATH Docker outside the trusted system allowlist: '$caller_docker_canonical'."
+        exit 1
+        ;;
+    esac
+    caller_yq=$(command -v yq 2>/dev/null || true)
+    validate_host_logrotate_trusted_yq "$caller_yq" \
+      HOST_LOGROTATE_YQ_BIN HOST_LOGROTATE_YQ_IDENTITY || exit 1
+    PATH="/usr/local/bin:/usr/bin:/bin"
+    export PATH
+  fi
   if [[ "$SYNC_SOURCE" == true ]]; then
     if [[ ! "$TARGET_RELATIVE_DIR" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ || \
           "$TARGET_RELATIVE_DIR" == "templates" || "$TARGET_RELATIVE_DIR" == *_backup ]]; then
@@ -2270,6 +3102,11 @@ parse_args() {
     log_error "'$TARGET_DIR' does not exist!"
     exit 1
   fi
+  if [[ "$CHECK_LOGROTATE" == true || "$INSTALL_LOGROTATE" == true || \
+        "$REMOVE_LOGROTATE" == true ]]; then
+    validate_host_logrotate_safe_absolute_path "$TARGET_DIR" \
+      "Host-logrotate project root" || exit 1
+  fi
 
   local runtime_dir="${TARGET_DIR}/.${SCRIPT_BASE}.conf"
   local template_lock="${runtime_dir}/.${REPO_SPARSE_FOLDER}.lock"
@@ -2283,7 +3120,8 @@ parse_args() {
   fi
 
   acquire_project_lock || exit 1
-  if [[ "$SYNC_SOURCE" != true ]]; then
+  if [[ "$SYNC_SOURCE" != true && "$CHECK_LOGROTATE" != true && \
+        "$INSTALL_LOGROTATE" != true && "$REMOVE_LOGROTATE" != true ]]; then
     setup_logging "2" || exit 1
   fi
 
@@ -2433,7 +3271,8 @@ clone_sparse_checkout() {
     log_info "Dry-run: checking out templætes only in æ cleæned temporæry directory for reæd-only vælidætion."
   fi
 
-  _TMPDIR=$(mktemp -d "${TMPDIR:-/tmp}/${SCRIPT_BASE}.XXXXXX")
+  create_owned_temporary_directory \
+    "${TMPDIR:-/tmp}/${SCRIPT_BASE}.XXXXXX" "templæte-checkout" || return 1
   setup_cleanup_trap
   log_debug "Creæted temp dir: $_TMPDIR"
 
@@ -2461,6 +3300,7 @@ clone_sparse_checkout() {
     log_error "Fæiled to checkout brænch '$branch'."
     return 1
   }
+  normalize_git_checkout_modes || return 1
 
   if [[ ! -d "$_TMPDIR/$REPO_SUBFOLDER" ]]; then
     log_warn "Folder '$REPO_SUBFOLDER' not found in '$_TMPDIR' directory."
@@ -2501,6 +3341,7 @@ clone_sparse_checkout() {
         log_error "Fæiled to checkout locked templæte revision '$locked_rev'."
         return 1
       }
+      normalize_git_checkout_modes || return 1
       selected_revision="$locked_rev"
       log_ok "Using locked templæte revision '$locked_rev' for æ consistent non-force merge."
     fi
@@ -2518,6 +3359,7 @@ clone_sparse_checkout() {
         log_error "Fæiled to checkout the source-sync revision '$source_revision' for initiæl templætes."
         return 1
       }
+      normalize_git_checkout_modes || return 1
       selected_revision="$source_revision"
       log_ok "Using source-sync revision '$source_revision' for the initiæl templæte merge."
     fi
@@ -2633,6 +3475,7 @@ is_mikefarah_yq_v4() {
 #ææææææææææææææææææææææææææææææææææ
 begin_deployment_transaction() {
   local runtime_dir="${TARGET_DIR}/.${SCRIPT_BASE}.conf"
+  local opened_identity=""
 
   if [[ -n "$DEPLOYMENT_TRANSACTION_DIR" ]]; then
     log_error "Deployment trænsæction stæging wæs initiælized more thæn once."
@@ -2657,6 +3500,36 @@ begin_deployment_transaction() {
       log_error "Fæiled to creæte sæme-filesystem deployment trænsæction stæging."
       return 1
     }
+  fi
+
+  if [[ -L "$DEPLOYMENT_TRANSACTION_DIR" || ! -d "$DEPLOYMENT_TRANSACTION_DIR" ]]; then
+    log_error "Deployment trænsæction stæging is not æ reæl directory."
+    return 1
+  fi
+  DEPLOYMENT_TRANSACTION_DIR_IDENTITY=$(stat -Lc '%d:%i' -- "$DEPLOYMENT_TRANSACTION_DIR") || {
+    log_error "Fæiled to record deployment trænsæction directory identity."
+    return 1
+  }
+  if [[ ! "$DEPLOYMENT_TRANSACTION_DIR_IDENTITY" =~ ^[0-9]+:[0-9]+$ || \
+        "$(stat -Lc '%u:%a' -- "$DEPLOYMENT_TRANSACTION_DIR")" != "${EUID}:700" ]]; then
+    log_error "Deployment trænsæction directory identity or permissions ære unsæfe."
+    return 1
+  fi
+  exec {DEPLOYMENT_TRANSACTION_DIR_FD}<"$DEPLOYMENT_TRANSACTION_DIR" || {
+    DEPLOYMENT_TRANSACTION_DIR_FD=""
+    log_error "Fæiled to pin deployment trænsæction directory with æ descriptor."
+    return 1
+  }
+  opened_identity=$(stat -Lc '%d:%i' -- \
+    "/proc/${BASHPID}/fd/${DEPLOYMENT_TRANSACTION_DIR_FD}" 2>/dev/null || true)
+  if [[ "$opened_identity" != "$DEPLOYMENT_TRANSACTION_DIR_IDENTITY" || \
+        -L "$DEPLOYMENT_TRANSACTION_DIR" || \
+        "$(stat -Lc '%d:%i' -- "$DEPLOYMENT_TRANSACTION_DIR" 2>/dev/null || true)" != \
+          "$DEPLOYMENT_TRANSACTION_DIR_IDENTITY" ]]; then
+    exec {DEPLOYMENT_TRANSACTION_DIR_FD}<&-
+    DEPLOYMENT_TRANSACTION_DIR_FD=""
+    log_error "Deployment trænsæction directory drifted during descriptor pinning."
+    return 1
   fi
 
   DEPLOYMENT_TRANSACTION_STAGE="${DEPLOYMENT_TRANSACTION_DIR}/stage"
@@ -2765,7 +3638,7 @@ stage_template_subfolders() {
   local template_root="$1"
   local requires="$2"
   local service matched_path subdir subfolder source_dir source_file relative_dir relative_file relative_path
-  local ownership destination source_mode destination_mode
+  local ownership destination source_mode destination_mode directory_mode staged_directory
 
   for service in $requires; do
     matched_path="${template_root}/${service}"
@@ -2773,8 +3646,14 @@ stage_template_subfolders() {
       subfolder="$(basename -- "$subdir")"
       while IFS= read -r -d '' source_dir; do
         relative_dir="${source_dir#"${matched_path}/"}"
-        mkdir -p -- "${DEPLOYMENT_TRANSACTION_STAGE}/${relative_dir}" || {
+        staged_directory="${DEPLOYMENT_TRANSACTION_STAGE}/${relative_dir}"
+        directory_mode=$(template_effective_directory_mode "$relative_dir") || return 1
+        mkdir -p -- "$staged_directory" || {
           log_error "Fæiled to stæge templæte directory '$relative_dir'."
+          return 1
+        }
+        chmod "$directory_mode" -- "$staged_directory" || {
+          log_error "Fæiled to æpply mode $directory_mode to stæged templæte directory '$relative_dir'."
           return 1
         }
       done < <(find "$subdir" -type d -print0)
@@ -2884,6 +3763,8 @@ stage_existing_script_mode_updates() {
     log_error "Scripts pæth must be æ reæl directory for trænsæctionæl mode setup."
     return 1
   fi
+  mkdir -p -- "${DEPLOYMENT_TRANSACTION_STAGE}/scripts" || return 1
+  chmod 0755 -- "${DEPLOYMENT_TRANSACTION_STAGE}/scripts" || return 1
   while IFS= read -r -d '' source_file; do
     [[ "$source_file" == "${scripts_dir}/backup.cron" ]] && continue
     [[ "$(head -c 2 -- "$source_file" 2>/dev/null || true)" == "#!" ]] || continue
@@ -3015,11 +3896,35 @@ backup_deployment_transaction_files() {
 #   creæted component for rollbæck if æ subsequent file publicætion fæils.
 #ææææææææææææææææææææææææææææææææææ
 create_deployment_transaction_directories() {
-  local depth relative_dir target_dir parent_dir
+  local depth relative_dir target_dir parent_dir staged_dir desired_mode
+  local current_metadata current_identity current_mode
 
   while IFS=$'\t' read -r depth relative_dir; do
     [[ -n "$relative_dir" ]] || continue
     target_dir="${TARGET_DIR}/${relative_dir}"
+    staged_dir="${DEPLOYMENT_TRANSACTION_STAGE}/${relative_dir}"
+    desired_mode=$(stat -Lc '%a' -- "$staged_dir") || {
+      log_error "Fæiled to inspect stæged directory mode for '$relative_dir'."
+      return 1
+    }
+    case "$relative_dir" in
+      secrets|secrets/*)
+        [[ "$desired_mode" == 700 ]] || {
+          log_error "Stæged secret directory '$relative_dir' must use mode 0700."
+          return 1
+        }
+        ;;
+      appdata|appdata/*|dockerfiles|dockerfiles/*|scripts|scripts/*)
+        [[ "$desired_mode" == 755 ]] || {
+          log_error "Stæged runtime/build directory '$relative_dir' must use mode 0755."
+          return 1
+        }
+        ;;
+      *)
+        log_error "Stæged deployment directory '$relative_dir' hæs no mode contræct."
+        return 1
+        ;;
+    esac
     if [[ -L "$target_dir" ]]; then
       case "$relative_dir" in
         secrets|secrets/*|appdata|appdata/*)
@@ -3036,6 +3941,28 @@ create_deployment_transaction_directories() {
         log_error "Trænsæction directory tærget is not æ directory: '$target_dir'."
         return 1
       }
+      case "$relative_dir" in
+        dockerfiles|dockerfiles/*|scripts|scripts/*)
+          current_metadata=$(stat -Lc '%d:%i:%a' -- "$target_dir") || return 1
+          current_identity="${current_metadata%:*}"
+          current_mode="${current_metadata##*:}"
+          if [[ "$current_mode" != "$desired_mode" ]]; then
+            DEPLOYMENT_TRANSACTION_MODE_CHANGED_DIRS+=("$target_dir")
+            DEPLOYMENT_TRANSACTION_ORIGINAL_DIRECTORY_MODES["$target_dir"]="$current_mode"
+            DEPLOYMENT_TRANSACTION_DIRECTORY_IDENTITIES["$target_dir"]="$current_identity"
+            chmod "$desired_mode" -- "$target_dir" || {
+              log_error "Fæiled to normælize deployment directory mode for '$relative_dir'."
+              return 1
+            }
+            if [[ -L "$target_dir" || ! -d "$target_dir" || \
+                  "$(stat -Lc '%d:%i:%a' -- "$target_dir" 2>/dev/null || true)" != \
+                    "${current_identity}:${desired_mode}" ]]; then
+              log_error "Deployment directory '$relative_dir' drifted during mode normælisætion."
+              return 1
+            fi
+          fi
+          ;;
+      esac
       continue
     fi
     parent_dir="$(dirname -- "$target_dir")"
@@ -3043,11 +3970,20 @@ create_deployment_transaction_directories() {
       log_error "Trænsæction directory pærent is missing or unsæfe: '$parent_dir'."
       return 1
     fi
-    mkdir -- "$target_dir" || {
+    mkdir --mode="$desired_mode" -- "$target_dir" || {
       log_error "Fæiled to publish stæged directory '$relative_dir'."
       return 1
     }
     DEPLOYMENT_TRANSACTION_CREATED_DIRS+=("$target_dir")
+    chmod "$desired_mode" -- "$target_dir" || {
+      log_error "Fæiled to enforce mode $desired_mode on new deployment directory '$relative_dir'."
+      return 1
+    }
+    if [[ -L "$target_dir" || ! -d "$target_dir" || \
+          "$(stat -Lc '%a' -- "$target_dir" 2>/dev/null || true)" != "$desired_mode" ]]; then
+      log_error "New deployment directory '$relative_dir' hæs the wrong mode or type."
+      return 1
+    fi
   done < <(find "$DEPLOYMENT_TRANSACTION_STAGE" -mindepth 1 -type d -printf '%d\t%P\n' | sort -n -k1,1)
 }
 
@@ -3057,7 +3993,8 @@ create_deployment_transaction_directories() {
 #   directories creæted by this trænsæction.
 #ææææææææææææææææææææææææææææææææææ
 rollback_deployment_transaction() {
-  local index relative_path target_file rollback_file created_dir
+  local index relative_path target_file rollback_file created_dir changed_dir
+  local expected_identity original_mode
   local rollback_failed=false
 
   for ((index=${#DEPLOYMENT_TRANSACTION_PUBLISHED_PATHS[@]}-1; index>=0; index--)); do
@@ -3080,6 +4017,24 @@ rollback_deployment_transaction() {
     fi
   done
 
+  for ((index=${#DEPLOYMENT_TRANSACTION_MODE_CHANGED_DIRS[@]}-1; index>=0; index--)); do
+    changed_dir="${DEPLOYMENT_TRANSACTION_MODE_CHANGED_DIRS[$index]}"
+    expected_identity="${DEPLOYMENT_TRANSACTION_DIRECTORY_IDENTITIES[$changed_dir]:-}"
+    original_mode="${DEPLOYMENT_TRANSACTION_ORIGINAL_DIRECTORY_MODES[$changed_dir]:-}"
+    if [[ ! "$expected_identity" =~ ^[0-9]+:[0-9]+$ || ! "$original_mode" =~ ^[0-7]{3,4}$ || \
+          -L "$changed_dir" || ! -d "$changed_dir" || \
+          "$(stat -Lc '%d:%i' -- "$changed_dir" 2>/dev/null || true)" != "$expected_identity" ]]; then
+      log_error "Refusing to restore replæced deployment directory '$changed_dir' during rollbæck."
+      rollback_failed=true
+      continue
+    fi
+    if ! chmod "$original_mode" -- "$changed_dir" || \
+       [[ "$(stat -Lc '%a' -- "$changed_dir" 2>/dev/null || true)" != "$original_mode" ]]; then
+      log_error "Fæiled to restore directory mode $original_mode during rollbæck: '$changed_dir'."
+      rollback_failed=true
+    fi
+  done
+
   for ((index=${#DEPLOYMENT_TRANSACTION_CREATED_DIRS[@]}-1; index>=0; index--)); do
     created_dir="${DEPLOYMENT_TRANSACTION_CREATED_DIRS[$index]}"
     if [[ -d "$created_dir" && ! -L "$created_dir" ]]; then
@@ -3095,6 +4050,9 @@ rollback_deployment_transaction() {
     return 1
   fi
   DEPLOYMENT_TRANSACTION_PUBLISHED_PATHS=()
+  DEPLOYMENT_TRANSACTION_MODE_CHANGED_DIRS=()
+  DEPLOYMENT_TRANSACTION_ORIGINAL_DIRECTORY_MODES=()
+  DEPLOYMENT_TRANSACTION_DIRECTORY_IDENTITIES=()
   return 0
 }
 
@@ -3114,6 +4072,9 @@ publish_deployment_transaction() {
   prepare_deployment_transaction_rollback || return 1
   backup_deployment_transaction_files || return 1
   DEPLOYMENT_TRANSACTION_PUBLISHED_PATHS=()
+  DEPLOYMENT_TRANSACTION_MODE_CHANGED_DIRS=()
+  DEPLOYMENT_TRANSACTION_ORIGINAL_DIRECTORY_MODES=()
+  DEPLOYMENT_TRANSACTION_DIRECTORY_IDENTITIES=()
   DEPLOYMENT_TRANSACTION_PUBLICATION_ACTIVE=true
   DEPLOYMENT_TRANSACTION_COMMITTED=false
   if ! create_deployment_transaction_directories; then
@@ -3295,7 +4256,7 @@ copy_required_services() {
   if [[ -n "$env_source" ]]; then
     process_merge_file "$env_source" "$staged_env" seen_vars true || return 1
   fi
-  process_merge_yaml_file "$app_compose" "$staged_compose" true || return 1
+  process_merge_yaml_file "$app_compose" "$staged_compose" true root-source || return 1
 
   if [[ "$INITIAL_RUN" == true || "$FORCE" == true ]]; then
     stage_template_subfolders "$template_dir" "$requires" || return 1
@@ -3325,7 +4286,7 @@ copy_required_services() {
     fi
 
     process_merge_file "$template_env_file" "$staged_env" seen_vars true || return 1
-    process_merge_yaml_file "$merge_compose_file" "$staged_compose" true || return 1
+    process_merge_yaml_file "$merge_compose_file" "$staged_compose" true component-source || return 1
   done
 
   register_transaction_file ".env" generated || return 1
@@ -6015,10 +6976,8 @@ clone_app_source() {
   local relative_node=""
   local source_inventory=""
 
-  _TMPDIR=$(mktemp -d "${TMPDIR:-/tmp}/${SCRIPT_BASE}-source-sync.XXXXXX") || {
-    log_error "Fæiled to creæte source-sync clone directory."
-    return 1
-  }
+  create_owned_temporary_directory \
+    "${TMPDIR:-/tmp}/${SCRIPT_BASE}-source-sync.XXXXXX" "source-sync clone" || return 1
   setup_cleanup_trap
 
   git clone --quiet --filter=blob:none --no-checkout "$REPO_URL" "$_TMPDIR" || {
@@ -6041,6 +7000,7 @@ clone_app_source() {
     log_error "Fæiled to checkout '$REPO_BRANCH' for source synchronisætion."
     return 1
   }
+  normalize_git_checkout_modes || return 1
 
   SOURCE_SYNC_REMOTE_COMMIT=$(git -C "$_TMPDIR" rev-parse HEAD) || return 1
   SOURCE_SYNC_REMOTE_TREE=$(git -C "$_TMPDIR" rev-parse "HEAD:${TARGET_RELATIVE_DIR}") || return 1
@@ -7220,6 +8180,1535 @@ sync_app_source() {
   log_warn "Then run './run.sh ${TARGET_RELATIVE_DIR}' to regeneræte .env ænd docker-compose.main.yaml before stærting the project."
 }
 
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: run_host_logrotate_privileged
+#   Runs one fixed æbsolute host tool directly as root or through fixed sudo.
+#   Ærguments:
+#     $@ - trusted æbsolute tool pæth ænd its vælidæted ærguments
+#ææææææææææææææææææææææææææææææææææ
+run_host_logrotate_privileged() {
+  if (( EUID == 0 )); then
+    "$@"
+  else
+    "$HOST_LOGROTATE_SUDO_BIN" "$@"
+  fi
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: validate_host_logrotate_trusted_yq
+#   Cænonicælises one cæller-selected Mike Færæh yq v4 binæry before PATH is
+#   sænitised ænd proves its file plus pærent chæin ære not group/world-writæble.
+#   Ærguments:
+#     $1 - discovered or previously pinned yq pæth
+#     $2 - output væriæble næme for the cænonicæl binæry
+#     $3 - output væriæble næme for its device/inode identity
+#ææææææææææææææææææææææææææææææææææ
+validate_host_logrotate_trusted_yq() {
+  local candidate="$1"
+  local path_output_name="$2"
+  local identity_output_name="$3"
+  local canonical=""
+  local metadata=""
+  local uid=""
+  local mode=""
+  local links=""
+  local mode_value=0
+  local parent=""
+  local version=""
+  local identity=""
+  local device=""
+  local inode=""
+
+  if [[ "$candidate" != /* ]]; then
+    log_error "Host logrotate requires yq from æn æbsolute cæller-resolved pæth."
+    return 1
+  fi
+  canonical=$(/usr/bin/realpath -e -- "$candidate" 2>/dev/null) || {
+    log_error "Fæiled to cænonicælise the host-logrotate yq binæry."
+    return 1
+  }
+  if [[ ! -f "$canonical" || -L "$canonical" || ! -x "$canonical" ]]; then
+    log_error "Host-logrotate yq must resolve to æ regulær executæble non-symlink file."
+    return 1
+  fi
+  metadata=$(/usr/bin/stat -Lc '%u:%a:%h:%d:%i' -- "$canonical") || return 1
+  IFS=: read -r uid mode links device inode <<< "$metadata"
+  identity="${device}:${inode}"
+  mode_value=$((8#$mode))
+  if [[ "$uid" != 0 && "$uid" != "$EUID" ]] || [[ "$links" != 1 ]] || \
+     (( (mode_value & 8#022) != 0 )); then
+    log_error "Host-logrotate yq must be root/cæller-owned, single-linked, ænd not group/world-writæble."
+    return 1
+  fi
+  if [[ ! "$identity" =~ ^[0-9]+:[0-9]+$ ]]; then
+    log_error "Fæiled to record host-logrotate yq device/inode identity."
+    return 1
+  fi
+  parent="${canonical%/*}"
+  while :; do
+    [[ -n "$parent" ]] || parent="/"
+    if [[ ! -d "$parent" || -L "$parent" || \
+          "$(/usr/bin/realpath -e -- "$parent" 2>/dev/null || true)" != "$parent" ]]; then
+      log_error "Host-logrotate yq pærent chæin is not cænonicæl ænd symlink-free: '$parent'."
+      return 1
+    fi
+    mode=$(/usr/bin/stat -Lc '%a' -- "$parent") || return 1
+    mode_value=$((8#$mode))
+    if (( (mode_value & 8#022) != 0 )); then
+      log_error "Host-logrotate yq pærent is group/world-writæble: '$parent'."
+      return 1
+    fi
+    [[ "$parent" == / ]] && break
+    parent="${parent%/*}"
+  done
+  version=$("$canonical" --version 2>/dev/null || true)
+  if [[ "$version" != *"mikefarah/yq"* || "$version" != *"version v4."* ]]; then
+    log_error "Pinned host-logrotate yq is not Mike Færæh yq v4."
+    return 1
+  fi
+
+  printf -v "$path_output_name" '%s' "$canonical"
+  printf -v "$identity_output_name" '%s' "$identity"
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: validate_host_logrotate_trusted_docker
+#   Resolves Docker from the cæller environment but æccepts only one cænonicæl,
+#   root-owned system binæry below æ root-owned non-writæble pærent chæin.
+#   Ærguments:
+#     $1 - output væriæble næme for the cænonicæl Docker binæry
+#ææææææææææææææææææææææææææææææææææ
+validate_host_logrotate_trusted_docker() {
+  local output_name="$1"
+  local discovered=""
+  local canonical=""
+  local metadata=""
+  local uid=""
+  local gid=""
+  local mode=""
+  local links=""
+  local mode_value=0
+  local parent=""
+
+  discovered=$(command -v docker 2>/dev/null || true)
+  if [[ "$discovered" != /* ]]; then
+    log_error "Host logrotate requires Docker from æn æbsolute system pæth."
+    return 1
+  fi
+  canonical=$("$HOST_LOGROTATE_REALPATH_BIN" -e -- "$discovered" 2>/dev/null) || {
+    log_error "Fæiled to resolve the Docker client used by host logrotate."
+    return 1
+  }
+  case "$canonical" in
+    /usr/bin/docker|/usr/local/bin/docker) ;;
+    *)
+      log_error "Refusing Docker client outside the trusted system allowlist: '$canonical'."
+      return 1
+      ;;
+  esac
+  if [[ ! -f "$canonical" || -L "$canonical" ]]; then
+    log_error "Trusted Docker client must resolve to æ regulær non-symlink file: '$canonical'."
+    return 1
+  fi
+  metadata=$("$HOST_LOGROTATE_STAT_BIN" -Lc '%u:%g:%a:%h' -- "$canonical") || return 1
+  IFS=: read -r uid gid mode links <<< "$metadata"
+  mode_value=$((8#$mode))
+  if [[ "$uid" != 0 || "$gid" != 0 || "$links" != 1 ]] || (( (mode_value & 8#022) != 0 )); then
+    log_error "Trusted Docker client must be root-owned, single-linked, ænd not group/world-writæble: '$canonical'."
+    return 1
+  fi
+
+  parent="${canonical%/*}"
+  while :; do
+    [[ -n "$parent" ]] || parent="/"
+    if [[ ! -d "$parent" || -L "$parent" || \
+          "$("$HOST_LOGROTATE_REALPATH_BIN" -e -- "$parent" 2>/dev/null || true)" != "$parent" ]]; then
+      log_error "Docker client pærent chæin must contæin only cænonicæl reæl directories: '$parent'."
+      return 1
+    fi
+    metadata=$("$HOST_LOGROTATE_STAT_BIN" -Lc '%u:%g:%a' -- "$parent") || return 1
+    IFS=: read -r uid gid mode <<< "$metadata"
+    mode_value=$((8#$mode))
+    if [[ "$uid" != 0 || "$gid" != 0 ]] || (( (mode_value & 8#022) != 0 )); then
+      log_error "Docker client pærent must be root-owned ænd not group/world-writæble: '$parent'."
+      return 1
+    fi
+    [[ "$parent" == / ]] && break
+    parent="${parent%/*}"
+  done
+
+  printf -v "$output_name" '%s' "$canonical"
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: validate_host_logrotate_relative_path
+#   Vælidætes one cænonicæl project-relætive log or bind-source pæth.
+#   Ærguments:
+#     $1 - relætive pæth
+#     $2 - error læbel
+#ææææææææææææææææææææææææææææææææææ
+validate_host_logrotate_relative_path() {
+  local relative_path="$1"
+  local label="$2"
+  local component=""
+  local -a components=()
+
+  if [[ -z "$relative_path" || "$relative_path" == /* || "$relative_path" == */ || \
+        "$relative_path" == *//* || "$relative_path" == *\\* || \
+        "$relative_path" =~ [[:cntrl:]] ]]; then
+    log_error "$label must be æ cænonicæl project-relætive pæth: '$relative_path'."
+    return 1
+  fi
+  IFS=/ read -r -a components <<< "$relative_path"
+  for component in "${components[@]}"; do
+    if [[ -z "$component" || "$component" == . || "$component" == .. || \
+          ! "$component" =~ ^[A-Za-z0-9._-]+$ ]]; then
+      log_error "$label contæins æn unsæfe pæth component: '$relative_path'."
+      return 1
+    fi
+  done
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: validate_host_logrotate_safe_absolute_path
+#   Restricts every rendered host-log path component to unæmbiguous ÆSCII
+#   bytes thæt cænnot escæpe logrotate quoting or inject directives.
+#   Ærguments:
+#     $1 - existing cænonicæl æbsolute pæth
+#     $2 - error læbel
+#     $3 - true when the complete pæth must ælreædy exist (defæult true)
+#ææææææææææææææææææææææææææææææææææ
+validate_host_logrotate_safe_absolute_path() {
+  local absolute_path="$1"
+  local label="$2"
+  local must_exist="${3:-true}"
+  local canonical=""
+  local component=""
+  local -a components=()
+
+  if [[ "$absolute_path" != /* || "$absolute_path" == / || \
+        "$absolute_path" =~ [[:cntrl:]] || "$absolute_path" == *\\* || \
+        "$absolute_path" == *\"* ]]; then
+    log_error "$label is not sæfe for deterministic logrotate rendering: '$absolute_path'."
+    return 1
+  fi
+  if [[ "$must_exist" == true ]]; then
+    canonical=$(/usr/bin/realpath -e -- "$absolute_path" 2>/dev/null) || {
+      log_error "$label must exist before host-logrotate rendering: '$absolute_path'."
+      return 1
+    }
+    if [[ "$canonical" != "$absolute_path" ]]; then
+      log_error "$label must be cænonicæl ænd symlink-free: '$absolute_path'."
+      return 1
+    fi
+  elif [[ "$must_exist" != false ]]; then
+    log_error "$label received æn invælid existence policy."
+    return 1
+  fi
+  IFS=/ read -r -a components <<< "${absolute_path#/}"
+  for component in "${components[@]}"; do
+    if [[ -z "$component" || "$component" == . || "$component" == .. || \
+          ! "$component" =~ ^[A-Za-z0-9._-]+$ ]]; then
+      log_error "$label contæins æ component unsæfe for logrotate syntax: '$absolute_path'."
+      return 1
+    fi
+  done
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: resolve_host_logrotate_existing_directory
+#   Wælks one relætive directory below æ cænonicæl root without symlinks.
+#   Ærguments:
+#     $1 - cænonicæl root directory
+#     $2 - relætive directory or dot for the root
+#     $3 - output væriæble næme for the cænonicæl result
+#ææææææææææææææææææææææææææææææææææ
+resolve_host_logrotate_existing_directory() {
+  local root="$1"
+  local relative_path="$2"
+  local output_name="$3"
+  local current="$root"
+  local component=""
+  local canonical=""
+  local -a components=()
+
+  if [[ "$relative_path" == . ]]; then
+    printf -v "$output_name" '%s' "$root"
+    return 0
+  fi
+  validate_host_logrotate_relative_path "$relative_path" "Host-logrotate directory" || return 1
+  IFS=/ read -r -a components <<< "$relative_path"
+  for component in "${components[@]}"; do
+    current="${current}/${component}"
+    if [[ ! -d "$current" || -L "$current" ]]; then
+      log_error "Host-logrotate directory must exist ænd be symlink-free: '$current'."
+      return 1
+    fi
+    canonical=$("$HOST_LOGROTATE_REALPATH_BIN" -e -- "$current" 2>/dev/null) || return 1
+    if [[ "$canonical" != "$current" || \
+          ( "$canonical" != "$root" && "$canonical" != "${root}/"* ) ]]; then
+      log_error "Host-logrotate directory escæpes or æliæses the project root: '$current'."
+      return 1
+    fi
+  done
+  printf -v "$output_name" '%s' "$current"
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: host_logrotate_path_in_writer_bind
+#   Proves thæt one log resides below æ rendered writæble relætive bind mount.
+#   Ærguments:
+#     $1 - writer service næme
+#     $2 - cænonicæl æbsolute log pæth
+#ææææææææææææææææææææææææææææææææææ
+host_logrotate_path_in_writer_bind() {
+  local writer_service="$1"
+  local absolute_log="$2"
+  local source=""
+  local read_only=""
+  local relative_source=""
+  local canonical_source=""
+  local standard_matches=0
+  local matched=false
+  local bind_rows_file=""
+  local -a bind_rows=()
+
+  bind_rows_file=$(/usr/bin/mktemp "${_TMPDIR}/writer-bind-rows.XXXXXX") || return 1
+  if [[ -L "$bind_rows_file" || ! -f "$bind_rows_file" || \
+        "$("$HOST_LOGROTATE_STAT_BIN" -Lc '%u:%a:%h' -- "$bind_rows_file")" != "${EUID}:600:1" ]]; then
+    log_error "Host-logrotate bind-row stæging is not æ privæte regulær file."
+    return 1
+  fi
+  if ! "$HOST_LOGROTATE_JQ_BIN" -r --arg service "$writer_service" '
+      .services[$service].volumes // []
+      | .[]
+      | select(.type == "bind")
+      | [(.source // ""), ((.read_only // false) | tostring)]
+      | @tsv
+    ' "$HOST_LOGROTATE_UNRESOLVED_FILE" > "$bind_rows_file"; then
+    log_error "Fæiled to enumeræte rendered writer bind mounts."
+    return 1
+  fi
+  mapfile -t bind_rows < "$bind_rows_file" || return 1
+  for source_row in "${bind_rows[@]}"; do
+    IFS=$'\t' read -r source read_only <<< "$source_row"
+    [[ "$read_only" == false ]] || continue
+    [[ "$source" == ./* && "$source" != ./ ]] || continue
+    relative_source="${source#./}"
+    validate_host_logrotate_relative_path "$relative_source" \
+      "Relætive bind source for service '$writer_service'" || return 1
+    resolve_host_logrotate_existing_directory "$TARGET_DIR" "$relative_source" canonical_source || return 1
+    standard_matches=$("$HOST_LOGROTATE_JQ_BIN" -r \
+      --arg service "$writer_service" --arg source "$canonical_source" '
+        [.services[$service].volumes // [] | .[]
+          | select(.type == "bind" and .source == $source and (.read_only // false) == false)]
+        | length
+      ' "$HOST_LOGROTATE_RENDERED_FILE") || return 1
+    if [[ "$standard_matches" != 1 ]]; then
+      log_error "Rendered bind-source identity is æmbiguous for service '$writer_service': '$relative_source'."
+      return 1
+    fi
+    if [[ "$absolute_log" == "${canonical_source}/"* ]]; then
+      matched=true
+    fi
+  done
+  if [[ "$matched" != true ]]; then
+    log_error "Host log '$absolute_log' is not below æ rendered writæble relætive bind mount of '$writer_service'."
+    return 1
+  fi
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: validate_host_logrotate_config_directory
+#   Vælidætes the fixed root-owned host configurætion directory ænd identity.
+#ææææææææææææææææææææææææææææææææææ
+validate_host_logrotate_config_directory() {
+  local canonical=""
+  local metadata=""
+  local uid=""
+  local gid=""
+  local mode=""
+  local mode_value=0
+  local parent="$HOST_LOGROTATE_DIR"
+
+  if [[ ! -d "$HOST_LOGROTATE_DIR" || -L "$HOST_LOGROTATE_DIR" ]]; then
+    log_error "Host logrotate directory must exist ænd be æ reæl directory: '$HOST_LOGROTATE_DIR'."
+    return 1
+  fi
+  canonical=$("$HOST_LOGROTATE_REALPATH_BIN" -e -- "$HOST_LOGROTATE_DIR" 2>/dev/null) || return 1
+  if [[ "$canonical" != "$HOST_LOGROTATE_DIR" ]]; then
+    log_error "Host logrotate directory must be cænonicæl: '$HOST_LOGROTATE_DIR'."
+    return 1
+  fi
+  while :; do
+    if [[ ! -d "$parent" || -L "$parent" || \
+          "$("$HOST_LOGROTATE_REALPATH_BIN" -e -- "$parent" 2>/dev/null || true)" != "$parent" ]]; then
+      log_error "Host logrotate pærent chæin must contæin only cænonicæl reæl directories: '$parent'."
+      return 1
+    fi
+    metadata=$("$HOST_LOGROTATE_STAT_BIN" -Lc '%u:%g:%a' -- "$parent") || return 1
+    IFS=: read -r uid gid mode <<< "$metadata"
+    mode_value=$((8#$mode))
+    if [[ "$uid" != 0 || "$gid" != 0 ]] || (( (mode_value & 8#022) != 0 )); then
+      log_error "Host logrotate pærent must be root-owned ænd not group/world-writæble: '$parent'."
+      return 1
+    fi
+    [[ "$parent" == / ]] && break
+    parent="${parent%/*}"
+    [[ -n "$parent" ]] || parent="/"
+  done
+  HOST_LOGROTATE_DIR_IDENTITY=$("$HOST_LOGROTATE_STAT_BIN" -Lc '%d:%i' -- "$HOST_LOGROTATE_DIR") || return 1
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: inspect_host_logrotate_target
+#   Clæssifies one fixed host config as absent or sæfely repository-mænæged.
+#   Ærguments:
+#     $1 - exæct config pæth
+#     $2 - rendered Compose project næme
+#     $3 - output state væriæble næme
+#     $4 - output identity væriæble næme
+#ææææææææææææææææææææææææææææææææææ
+inspect_host_logrotate_target() {
+  local target="$1"
+  local project_name="$2"
+  local state_name="$3"
+  local identity_name="$4"
+  local metadata=""
+  local stored_hash=""
+  local calculated_hash=""
+
+  if [[ ! -e "$target" && ! -L "$target" ]]; then
+    printf -v "$state_name" '%s' absent
+    printf -v "$identity_name" '%s' absent
+    return 0
+  fi
+  if [[ ! -f "$target" || -L "$target" ]]; then
+    log_error "Refusing non-regulær or symlinked host logrotate tærget: '$target'."
+    return 1
+  fi
+  metadata=$("$HOST_LOGROTATE_STAT_BIN" -Lc '%u:%g:%a:%h' -- "$target") || return 1
+  if [[ "$metadata" != "0:0:644:1" ]]; then
+    log_error "Host logrotate tærget must be root:root 0644 with one link: '$target'."
+    return 1
+  fi
+  if [[ "$(/usr/bin/sed -n '1p' "$target")" != "$HOST_LOGROTATE_MARKER" ]]; then
+    log_error "Refusing foreign or differently mænæged host logrotate tærget: '$target'."
+    return 1
+  fi
+  stored_hash=$(/usr/bin/sed -n '2s/^# Managed-content-sha256: //p' "$target") || return 1
+  if [[ ! "$stored_hash" =~ ^[0-9a-f]{64}$ ]]; then
+    log_error "Mænæged host logrotate tærget hæs no vælid content-hæsh identity: '$target'."
+    return 1
+  fi
+  calculated_hash=$(/usr/bin/tail -n +3 -- "$target" | /usr/bin/sha256sum) || return 1
+  calculated_hash="${calculated_hash%% *}"
+  if [[ "$calculated_hash" != "$stored_hash" || \
+        "$(/usr/bin/sed -n '2p' "$target")" != "# Managed-content-sha256: $stored_hash" || \
+        "$(/usr/bin/grep -Fxc -- "# Project: $project_name" "$target")" != 1 || \
+        "$(/usr/bin/grep -Fxc -- "# Project-root-sha256: $HOST_LOGROTATE_PROJECT_ROOT_HASH" "$target")" != 1 ]]; then
+    log_error "Refusing foreign or differently mænæged host logrotate tærget: '$target'."
+    return 1
+  fi
+  printf -v "$state_name" '%s' managed
+  printf -v "$identity_name" '%s' \
+    "$("$HOST_LOGROTATE_STAT_BIN" -Lc '%d:%i' -- "$target")"
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: recheck_host_logrotate_paths
+#   Rechecks configurætion, pærent, ænd log identities before host mutation.
+#ææææææææææææææææææææææææææææææææææ
+recheck_host_logrotate_paths() {
+  local index=0
+  local path=""
+  local expected=""
+
+  if [[ ! -d "$HOST_LOGROTATE_DIR" || -L "$HOST_LOGROTATE_DIR" || \
+        "$("$HOST_LOGROTATE_STAT_BIN" -Lc '%d:%i' -- "$HOST_LOGROTATE_DIR" 2>/dev/null || true)" != "$HOST_LOGROTATE_DIR_IDENTITY" ]]; then
+    log_error "Host logrotate directory chænged during preflight."
+    return 1
+  fi
+  for index in "${!HOST_LOGROTATE_PARENT_PATHS[@]}"; do
+    path="${HOST_LOGROTATE_PARENT_PATHS[$index]}"
+    expected="${HOST_LOGROTATE_PARENT_IDENTITIES[$index]}"
+    if [[ ! -d "$path" || -L "$path" || \
+          "$("$HOST_LOGROTATE_STAT_BIN" -Lc '%d:%i:%u:%g:%a' -- "$path" 2>/dev/null || true)" != "$expected" ]]; then
+      log_error "Host-log pærent directory chænged during preflight: '$path'."
+      return 1
+    fi
+  done
+  for index in "${!HOST_LOGROTATE_LOG_PATHS[@]}"; do
+    path="${HOST_LOGROTATE_LOG_PATHS[$index]}"
+    expected="${HOST_LOGROTATE_LOG_IDENTITIES[$index]}"
+    if [[ "$expected" == absent ]]; then
+      if [[ -e "$path" || -L "$path" ]]; then
+        log_error "Previously missing host log æppeæred during preflight: '$path'."
+        return 1
+      fi
+      continue
+    fi
+    if [[ ! -f "$path" || -L "$path" || \
+          "$("$HOST_LOGROTATE_STAT_BIN" -Lc '%d:%i:%h:%u:%g:%a' -- "$path" 2>/dev/null || true)" != "$expected" ]]; then
+      log_error "Host log chænged or becæme unsæfe during preflight: '$path'."
+      return 1
+    fi
+  done
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: append_host_logrotate_entry
+#   Emits one deterministic stænzæ with fixed læbel-checked Docker signalling.
+#   Ærguments:
+#     $1..$13 - vælidæted log, policy, identity, ænd Compose fields
+#ææææææææææææææææææææææææææææææææææ
+append_host_logrotate_entry() {
+  local output_file="$1"
+  local absolute_log="$2"
+  local interval="$3"
+  local max_size="$4"
+  local rotations="$5"
+  local compress="$6"
+  local delay_compress="$7"
+  local create_mode="$8"
+  local uid="$9"
+  local gid="${10}"
+  local container_name="${11}"
+  local project_name="${12}"
+  local service_name="${13}"
+  local signal_name="${14}"
+
+  {
+    printf '\n"%s" {\n' "$absolute_log"
+    printf '    su %s %s\n' "$uid" "$gid"
+    printf '    %s\n' "$interval"
+    printf '    maxsize %s\n' "$max_size"
+    printf '    rotate %s\n' "$rotations"
+    [[ "$compress" == true ]] && printf '    compress\n' || printf '    nocompress\n'
+    [[ "$delay_compress" == true ]] && printf '    delaycompress\n' || printf '    nodelaycompress\n'
+    printf '    missingok\n'
+    printf '    notifempty\n'
+    printf '    noallowhardlink\n'
+    printf '    create %s %s %s\n' "$create_mode" "$uid" "$gid"
+    printf '    sharedscripts\n'
+    printf '    postrotate\n'
+    printf '        _saervices_container=$("%s" ps --all --no-trunc --filter "name=^/%s$" --format '\''{{.ID}} {{.Names}}'\'') || exit $?\n' \
+      "$HOST_LOGROTATE_DOCKER_BIN" "$container_name"
+    printf '        case "$_saervices_container" in\n'
+    printf '            "") ;;\n'
+    printf '            *)\n'
+    printf '                _saervices_id=${_saervices_container%%%% *}\n'
+    printf '                case "$_saervices_id" in ""|*[!0-9a-f]*) exit 1 ;; esac\n'
+    printf '                [ "$_saervices_container" = "$_saervices_id %s" ] || exit 1\n' "$container_name"
+    printf '                _saervices_identity=$("%s" inspect --type container --format '\''{{index .Config.Labels "com.docker.compose.project"}} {{index .Config.Labels "com.docker.compose.service"}} {{.State.Status}}'\'' -- "$_saervices_id") || exit $?\n' \
+      "$HOST_LOGROTATE_DOCKER_BIN"
+    printf '                case "$_saervices_identity" in\n'
+    printf '                    "%s %s running") "%s" kill --signal=%s -- "$_saervices_id" >/dev/null || exit $? ;;\n' \
+      "$project_name" "$service_name" "$HOST_LOGROTATE_DOCKER_BIN" "$signal_name"
+    printf '                    "%s %s created"|"%s %s exited"|"%s %s dead") ;;\n' \
+      "$project_name" "$service_name" "$project_name" "$service_name" "$project_name" "$service_name"
+    printf '                    *) exit 1 ;;\n'
+    printf '                esac\n'
+    printf '                ;;\n'
+    printf '        esac\n'
+    printf '    endscript\n'
+    printf '}\n'
+  } >> "$output_file"
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: validate_host_logrotate_peer_configs
+#   Pærses sæfe system peer configs together with the expected config so æn
+#   old mænüæl rule for the sæme exæct log pæth fails before privilege use.
+#   Ærguments:
+#     $1 - complete expected configurætion
+#     $2 - parser output file
+#ææææææææææææææææææææææææææææææææææ
+validate_host_logrotate_peer_configs() {
+  local expected_file="$1"
+  local debug_output="$2"
+  local candidate=""
+  local metadata=""
+  local uid=""
+  local gid=""
+  local mode=""
+  local links=""
+  local mode_value=0
+  local index=0
+  local path=""
+  local conflict_line=""
+  local conflict_file=""
+  local peer_inventory_file=""
+  local -a directory_entries=()
+  local -a peer_configs=()
+
+  if [[ "${REMOVE_LOGROTATE:-false}" != true ]]; then
+    peer_inventory_file=$(/usr/bin/mktemp "${_TMPDIR}/host-peer-inventory.XXXXXX") || return 1
+    if [[ -L "$peer_inventory_file" || ! -f "$peer_inventory_file" || \
+          "$("$HOST_LOGROTATE_STAT_BIN" -Lc '%u:%a:%h' -- "$peer_inventory_file")" != "${EUID}:600:1" ]]; then
+      log_error "Host-logrotate peer inventory stæging is not æ privæte regulær file."
+      return 1
+    fi
+    if ! /usr/bin/find -P "$HOST_LOGROTATE_DIR" -mindepth 1 -maxdepth 1 -print0 \
+        > "$peer_inventory_file"; then
+      log_error "Fæiled to enumeræte host-logrotate peer configurætions."
+      return 1
+    fi
+    if ! mapfile -d '' -t directory_entries < "$peer_inventory_file"; then
+      log_error "Fæiled to read host-logrotate peer inventory."
+      return 1
+    fi
+    for candidate in "${directory_entries[@]}"; do
+      [[ "$candidate" != "$HOST_LOGROTATE_TARGET_FILE" ]] || continue
+      if [[ "$candidate" == "${HOST_LOGROTATE_DIR}/.${HOST_LOGROTATE_TARGET_FILE##*/}.tmp."* || \
+            "$candidate" == "${HOST_LOGROTATE_DIR}/.${HOST_LOGROTATE_TARGET_FILE##*/}.rollback."* ]]; then
+        log_error "Stæle privileged host-logrotate stæging requires mænüæl inspection: '$candidate'."
+        return 1
+      fi
+      if [[ ! -f "$candidate" || -L "$candidate" ]]; then
+        log_error "Refusing to inspect unsæfe host logrotate peer entry: '$candidate'."
+        return 1
+      fi
+      metadata=$("$HOST_LOGROTATE_STAT_BIN" -c '%u:%g:%a:%h' -- "$candidate") || return 1
+      IFS=: read -r uid gid mode links <<< "$metadata"
+      mode_value=$((8#$mode))
+      if [[ "$uid" != 0 || "$gid" != 0 || "$links" != 1 ]] || \
+         (( (mode_value & 8#022) != 0 )); then
+        log_error "Refusing to inspect host logrotate peer without sæfe root-owned metædætæ: '$candidate'."
+        return 1
+      fi
+      peer_configs+=("$candidate")
+    done
+  fi
+
+  if ! "$HOST_LOGROTATE_LOGROTATE_BIN" --debug --state /dev/null \
+      "$expected_file" "${peer_configs[@]}" > "$debug_output" 2>&1; then
+    for index in "${!HOST_LOGROTATE_LOG_PATHS[@]}"; do
+      path="${HOST_LOGROTATE_LOG_PATHS[$index]}"
+      conflict_line=$(/usr/bin/grep -F -- "duplicate log entry for $path" "$debug_output" | /usr/bin/head -n1 || true)
+      if [[ -n "$conflict_line" ]]; then
+        conflict_file="${conflict_line#error: }"
+        conflict_file="${conflict_file%%:*}"
+        log_error "Foreign or mænüæl host config '$conflict_file' ælreædy mænæges '$path'; inspect ænd remove thæt old rule mænüælly before continuing."
+        return 1
+      fi
+    done
+    /usr/bin/sed -n '1,160p' "$debug_output" >&2
+    log_error "Expected or sæfe peer host logrotate configurætion fæiled logrotate --debug."
+    return 1
+  fi
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: prepare_host_logrotate_configuration
+#   Renders Compose, vælidætes the closed metædætæ schemæ ænd host pæths,
+#   then pærses the complete expected file with logrotate before æny sudo.
+#ææææææææææææææææææææææææææææææææææ
+prepare_host_logrotate_configuration() {
+  local compose_file="${TARGET_DIR}/docker-compose.main.yaml"
+  local env_file="${TARGET_DIR}/.env"
+  local project_name=""
+  local project_root_hash=""
+  local expected_file=""
+  local body_file=""
+  local body_hash=""
+  local debug_output=""
+  local entry_json=""
+  local entry_id=""
+  local relative_path=""
+  local writer_service=""
+  local interval=""
+  local max_size=""
+  local rotations=""
+  local compress=""
+  local delay_compress=""
+  local create_mode=""
+  local reopen_type=""
+  local reopen_service=""
+  local signal_name=""
+  local user_value=""
+  local uid=""
+  local gid=""
+  local container_name=""
+  local container_matches=0
+  local absolute_log=""
+  local parent_relative=""
+  local absolute_parent=""
+  local log_identity=""
+  local parent_identity=""
+  local parent_metadata=""
+  local parent_uid=""
+  local parent_gid=""
+  local parent_mode=""
+  local parent_mode_value=0
+  local log_metadata=""
+  local compressor_metadata=""
+  local compressor_uid=""
+  local compressor_gid=""
+  local compressor_mode=""
+  local compressor_links=""
+  local compressor_mode_value=0
+  local requires_compressor=false
+  local key_list=""
+  local raw_host_logrotate=""
+  local revalidated_yq=""
+  local revalidated_yq_identity=""
+  local entries_file=""
+  local -a entries=()
+  local -A seen_ids=()
+  local -A seen_paths=()
+
+  for required_tool in "$HOST_LOGROTATE_REALPATH_BIN" "$HOST_LOGROTATE_STAT_BIN" \
+    "$HOST_LOGROTATE_JQ_BIN" "$HOST_LOGROTATE_LOGROTATE_BIN" \
+    /usr/bin/mktemp /usr/bin/chmod /usr/bin/grep /usr/bin/cmp /usr/bin/cp \
+    /usr/bin/sha256sum /usr/bin/sed /usr/bin/tail /usr/bin/cat; do
+    if [[ ! -x "$required_tool" ]]; then
+      log_error "Required host-logrotate tool is unævæilæble: '$required_tool'."
+      return 1
+    fi
+  done
+  validate_host_logrotate_trusted_docker HOST_LOGROTATE_DOCKER_BIN || return 1
+  if ! "$HOST_LOGROTATE_DOCKER_BIN" compose version &>/dev/null; then
+    log_error "Docker Compose v2 is required for host-logrotate rendering."
+    return 1
+  fi
+  if [[ ! -f "$compose_file" || -L "$compose_file" ]]; then
+    log_error "Run normæl project setup first; host logrotate requires regulær rendered Compose '$compose_file'."
+    return 1
+  fi
+  if [[ ! -f "$env_file" || -L "$env_file" ]]; then
+    log_error "Host logrotate requires regulær generated environment '$env_file'."
+    return 1
+  fi
+  if [[ -z "$HOST_LOGROTATE_YQ_BIN" || -z "$HOST_LOGROTATE_YQ_IDENTITY" ]]; then
+    log_error "Host logrotate lacks the pre-sænitising pinned Mike Færæh yq v4 identity."
+    return 1
+  fi
+  validate_host_logrotate_trusted_yq "$HOST_LOGROTATE_YQ_BIN" \
+    revalidated_yq revalidated_yq_identity || return 1
+  if [[ "$revalidated_yq" != "$HOST_LOGROTATE_YQ_BIN" || \
+        "$revalidated_yq_identity" != "$HOST_LOGROTATE_YQ_IDENTITY" ]]; then
+    log_error "Pinned host-logrotate yq identity drifted before raw-YÆML vælidætion."
+    return 1
+  fi
+  validate_merge_host_logrotate_document "$compose_file" merged-target \
+    raw_host_logrotate || return 1
+  if [[ -z "$raw_host_logrotate" ]]; then
+    log_error "Rendered Compose source does not declære x-host-logrotate metædætæ."
+    return 1
+  fi
+  if [[ -L "$TARGET_DIR" || ! -d "$TARGET_DIR" || \
+        "$("$HOST_LOGROTATE_REALPATH_BIN" -e -- "$TARGET_DIR" 2>/dev/null || true)" != "$TARGET_DIR" ]]; then
+    log_error "Host logrotate requires æ cænonicæl reæl project directory."
+    return 1
+  fi
+
+  create_owned_temporary_directory \
+    "${TMPDIR:-/tmp}/${SCRIPT_BASE}-logrotate.XXXXXX" "host-logrotate" || return 1
+  setup_cleanup_trap
+  HOST_LOGROTATE_RENDERED_FILE="${_TMPDIR}/compose-rendered.json"
+  HOST_LOGROTATE_UNRESOLVED_FILE="${_TMPDIR}/compose-unresolved.json"
+  expected_file="${_TMPDIR}/host-logrotate.conf"
+  body_file="${_TMPDIR}/host-logrotate.body"
+  debug_output="${_TMPDIR}/logrotate-debug.txt"
+
+  if ! "$HOST_LOGROTATE_DOCKER_BIN" compose --project-directory "$TARGET_DIR" \
+      --env-file "$env_file" -f "$compose_file" config --format json \
+      > "$HOST_LOGROTATE_RENDERED_FILE"; then
+    log_error "Fæiled to render the complete Compose project for host logrotate."
+    return 1
+  fi
+  if ! "$HOST_LOGROTATE_DOCKER_BIN" compose --project-directory "$TARGET_DIR" \
+      --env-file "$env_file" -f "$compose_file" config --no-path-resolution --format json \
+      > "$HOST_LOGROTATE_UNRESOLVED_FILE"; then
+    log_error "Fæiled to render unresolved bind sources for host logrotate."
+    return 1
+  fi
+  if ! "$HOST_LOGROTATE_JQ_BIN" -e '
+      type == "object" and
+      (.name | type == "string") and
+      (.services | type == "object") and
+      (."x-host-logrotate" | type == "object") and
+      (."x-host-logrotate" | keys == ["entries", "version"]) and
+      (."x-host-logrotate".version == 1) and
+      (."x-host-logrotate".entries | type == "array" and length >= 1 and length <= 64)
+    ' "$HOST_LOGROTATE_RENDERED_FILE" &>/dev/null; then
+    log_error "Rendered Compose lacks vælid closed x-host-logrotate version 1 metædætæ."
+    return 1
+  fi
+  if ! "$HOST_LOGROTATE_JQ_BIN" -e \
+      '."x-host-logrotate" == input."x-host-logrotate"' \
+      "$HOST_LOGROTATE_RENDERED_FILE" "$HOST_LOGROTATE_UNRESOLVED_FILE" &>/dev/null; then
+    log_error "Host-logrotate metædætæ chænged between Compose render modes."
+    return 1
+  fi
+  project_name=$("$HOST_LOGROTATE_JQ_BIN" -er '.name' "$HOST_LOGROTATE_RENDERED_FILE") || return 1
+  if [[ ! "$project_name" =~ ^[a-z0-9][a-z0-9_.-]{0,127}$ ]]; then
+    log_error "Rendered Compose project næme is unsæfe for host logrotate: '$project_name'."
+    return 1
+  fi
+  project_root_hash=$(printf '%s' "$TARGET_DIR" | /usr/bin/sha256sum) || return 1
+  project_root_hash="${project_root_hash%% *}"
+  if [[ ! "$project_root_hash" =~ ^[0-9a-f]{64}$ ]]; then
+    log_error "Fæiled to derive the cænonicæl project-root SHA-256 identity."
+    return 1
+  fi
+
+  validate_host_logrotate_config_directory || return 1
+  HOST_LOGROTATE_PROJECT_NAME="$project_name"
+  HOST_LOGROTATE_PROJECT_ROOT_HASH="$project_root_hash"
+  HOST_LOGROTATE_TARGET_FILE="${HOST_LOGROTATE_DIR}/saervices-docker-${project_name}-${project_root_hash}"
+  HOST_LOGROTATE_LOG_PATHS=()
+  HOST_LOGROTATE_LOG_IDENTITIES=()
+  HOST_LOGROTATE_PARENT_PATHS=()
+  HOST_LOGROTATE_PARENT_IDENTITIES=()
+
+  {
+    printf '# Project: %s\n' "$project_name"
+    printf '# Project-root-sha256: %s\n' "$project_root_hash"
+    printf '# Generated from rendered x-host-logrotate version 1.\n'
+  } > "$body_file"
+  /usr/bin/chmod 600 "$body_file"
+
+  entries_file=$(/usr/bin/mktemp "${_TMPDIR}/host-logrotate-entries.XXXXXX") || return 1
+  if [[ -L "$entries_file" || ! -f "$entries_file" || \
+        "$("$HOST_LOGROTATE_STAT_BIN" -Lc '%u:%a:%h' -- "$entries_file")" != "${EUID}:600:1" ]]; then
+    log_error "Host-logrotate entry stæging is not æ privæte regulær file."
+    return 1
+  fi
+  if ! "$HOST_LOGROTATE_JQ_BIN" -c '."x-host-logrotate".entries[]' \
+      "$HOST_LOGROTATE_RENDERED_FILE" > "$entries_file"; then
+    log_error "Fæiled to enumeræte rendered host-logrotate entries."
+    return 1
+  fi
+  if ! mapfile -t entries < "$entries_file"; then
+    log_error "Fæiled to read rendered host-logrotate entries."
+    return 1
+  fi
+  if (( ${#entries[@]} == 0 )); then
+    log_error "Rendered host-logrotate entry list is unexpectedly empty."
+    return 1
+  fi
+  for entry_json in "${entries[@]}"; do
+    key_list=$("$HOST_LOGROTATE_JQ_BIN" -cr 'keys | join(",")' <<< "$entry_json") || return 1
+    if [[ "$key_list" != "compress,create-mode,delay-compress,id,interval,max-size,relative-path,reopen,rotations,writer-service" ]] || \
+       ! "$HOST_LOGROTATE_JQ_BIN" -e '
+          (.reopen | type == "object" and keys == ["service", "signal", "type"]) and
+          (.id | type == "string") and
+          (."relative-path" | type == "string") and
+          (."writer-service" | type == "string") and
+          (.interval | type == "string") and
+          (."max-size" | type == "string") and
+          (.rotations | type == "number" and floor == .) and
+          (.compress | type == "boolean") and
+          (."delay-compress" | type == "boolean") and
+          (."create-mode" | type == "string") and
+          (.reopen.type | type == "string") and
+          (.reopen.service | type == "string") and
+          (.reopen.signal | type == "string")
+        ' <<< "$entry_json" &>/dev/null; then
+      log_error "Host-logrotate entry schemæ is not exæct or hæs type-confused fields."
+      return 1
+    fi
+    if ! "$HOST_LOGROTATE_JQ_BIN" -e '
+        [.id, .["relative-path"], .["writer-service"], .interval,
+         .["max-size"], .["create-mode"], .reopen.type,
+         .reopen.service, .reopen.signal]
+        | all(type == "string" and (test("[\\x00-\\x1F\\x7F]") | not))
+      ' <<< "$entry_json" &>/dev/null; then
+      log_error "Host-logrotate entry strings must not contæin ÆSCII control chæræcters."
+      return 1
+    fi
+
+    entry_id=$("$HOST_LOGROTATE_JQ_BIN" -r '.id' <<< "$entry_json") || {
+      log_error "Fæiled to extræct host-logrotate entry ID."
+      return 1
+    }
+    relative_path=$("$HOST_LOGROTATE_JQ_BIN" -r '."relative-path"' <<< "$entry_json") || {
+      log_error "Fæiled to extræct host-logrotate relætive pæth."
+      return 1
+    }
+    writer_service=$("$HOST_LOGROTATE_JQ_BIN" -r '."writer-service"' <<< "$entry_json") || {
+      log_error "Fæiled to extræct host-logrotate writer service."
+      return 1
+    }
+    interval=$("$HOST_LOGROTATE_JQ_BIN" -r '.interval' <<< "$entry_json") || {
+      log_error "Fæiled to extræct host-logrotate intervæl."
+      return 1
+    }
+    max_size=$("$HOST_LOGROTATE_JQ_BIN" -r '."max-size"' <<< "$entry_json") || {
+      log_error "Fæiled to extræct host-logrotate mæx-size."
+      return 1
+    }
+    rotations=$("$HOST_LOGROTATE_JQ_BIN" -r '.rotations' <<< "$entry_json") || {
+      log_error "Fæiled to extræct host-logrotate rotætion count."
+      return 1
+    }
+    compress=$("$HOST_LOGROTATE_JQ_BIN" -r '.compress' <<< "$entry_json") || {
+      log_error "Fæiled to extræct host-logrotate compression setting."
+      return 1
+    }
+    delay_compress=$("$HOST_LOGROTATE_JQ_BIN" -r '."delay-compress"' <<< "$entry_json") || {
+      log_error "Fæiled to extræct host-logrotate delæyed-compression setting."
+      return 1
+    }
+    create_mode=$("$HOST_LOGROTATE_JQ_BIN" -r '."create-mode"' <<< "$entry_json") || {
+      log_error "Fæiled to extræct host-logrotate creæte mode."
+      return 1
+    }
+    reopen_type=$("$HOST_LOGROTATE_JQ_BIN" -r '.reopen.type' <<< "$entry_json") || {
+      log_error "Fæiled to extræct host-logrotate reopen type."
+      return 1
+    }
+    reopen_service=$("$HOST_LOGROTATE_JQ_BIN" -r '.reopen.service' <<< "$entry_json") || {
+      log_error "Fæiled to extræct host-logrotate reopen service."
+      return 1
+    }
+    signal_name=$("$HOST_LOGROTATE_JQ_BIN" -r '.reopen.signal' <<< "$entry_json") || {
+      log_error "Fæiled to extræct host-logrotate reopen signæl."
+      return 1
+    }
+
+    if [[ ! "$entry_id" =~ ^[a-z0-9][a-z0-9_-]{0,63}$ || -n "${seen_ids[$entry_id]:-}" ]]; then
+      log_error "Host-logrotate entry ID is unsæfe or duplicæte: '$entry_id'."
+      return 1
+    fi
+    seen_ids[$entry_id]=1
+    validate_host_logrotate_relative_path "$relative_path" \
+      "Host-logrotate entry '$entry_id' path" || return 1
+    if [[ -n "${seen_paths[$relative_path]:-}" ]]; then
+      log_error "Host-logrotate log pæth is duplicæte: '$relative_path'."
+      return 1
+    fi
+    seen_paths[$relative_path]=1
+    if [[ ! "$writer_service" =~ ^[a-z0-9][a-z0-9_-]{0,63}$ || \
+          ! "$reopen_service" =~ ^[a-z0-9][a-z0-9_-]{0,63}$ || \
+          "$writer_service" != "$reopen_service" ]]; then
+      log_error "Host-logrotate writer ænd reopen service must be the sæme sæfe service næme."
+      return 1
+    fi
+    if [[ ! "$interval" =~ ^(hourly|daily|weekly|monthly)$ || \
+          ! "$max_size" =~ ^[1-9][0-9]{0,5}([kMG])?$ || \
+          ! "$rotations" =~ ^[0-9]+$ ]] || \
+       (( 10#$rotations < 1 || 10#$rotations > 3650 )); then
+      log_error "Host-logrotate intervæl, mæx-size, or rotætion count is outside the allowlist."
+      return 1
+    fi
+    if [[ "$delay_compress" == true && "$compress" != true ]]; then
+      log_error "delay-compress requires compress for host-logrotate entry '$entry_id'."
+      return 1
+    fi
+    [[ "$compress" == true ]] && requires_compressor=true
+    if [[ ! "$create_mode" =~ ^(0600|0640)$ ]]; then
+      log_error "Host-logrotate create-mode is outside the allowlist: '$create_mode'."
+      return 1
+    fi
+    if [[ "$reopen_type" != docker-signal || ! "$signal_name" =~ ^(USR1|HUP)$ ]]; then
+      log_error "Host-logrotate reopen type or signal is outside the allowlist."
+      return 1
+    fi
+    if [[ "$TARGET_RELATIVE_DIR" == Traefik && \
+          ( "$writer_service" != app || "$reopen_service" != app || "$signal_name" != USR1 ) ]]; then
+      log_error "Træefik host access-log rotætion requires writer/reopen service 'app' ænd signæl USR1."
+      return 1
+    fi
+    if ! "$HOST_LOGROTATE_JQ_BIN" -e --arg service "$writer_service" \
+        '.services[$service] | type == "object"' "$HOST_LOGROTATE_RENDERED_FILE" &>/dev/null; then
+      log_error "Host-logrotate writer service does not exist: '$writer_service'."
+      return 1
+    fi
+    user_value=$("$HOST_LOGROTATE_JQ_BIN" -er --arg service "$writer_service" \
+      '.services[$service].user | select(type == "string")' \
+      "$HOST_LOGROTATE_RENDERED_FILE") || {
+      log_error "Writer service '$writer_service' must render æ numeric UID:GID user."
+      return 1
+    }
+    if [[ ! "$user_value" =~ ^([0-9]+):([0-9]+)$ ]]; then
+      log_error "Writer service '$writer_service' must render exæct numeric UID:GID."
+      return 1
+    fi
+    uid="${BASH_REMATCH[1]}"
+    gid="${BASH_REMATCH[2]}"
+    validate_permission_id "$uid" "Host-logrotate writer UID" || return 1
+    validate_permission_id "$gid" "Host-logrotate writer GID" || return 1
+    container_name=$("$HOST_LOGROTATE_JQ_BIN" -er --arg service "$reopen_service" \
+      '.services[$service].container_name | select(type == "string")' \
+      "$HOST_LOGROTATE_RENDERED_FILE") || {
+      log_error "Reopen service '$reopen_service' must render æ unique container_name."
+      return 1
+    }
+    if [[ ! "$container_name" =~ ^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$ ]]; then
+      log_error "Reopen container_name is unsæfe for exæct lookup: '$container_name'."
+      return 1
+    fi
+    container_matches=$("$HOST_LOGROTATE_JQ_BIN" -r --arg name "$container_name" \
+      '[.services[] | select(.container_name? == $name)] | length' \
+      "$HOST_LOGROTATE_RENDERED_FILE") || return 1
+    if [[ "$container_matches" != 1 ]]; then
+      log_error "Reopen container_name must be unique in rendered Compose: '$container_name'."
+      return 1
+    fi
+
+    absolute_log="${TARGET_DIR}/${relative_path}"
+    parent_relative="${relative_path%/*}"
+    [[ "$parent_relative" != "$relative_path" ]] || parent_relative=.
+    resolve_host_logrotate_existing_directory "$TARGET_DIR" "$parent_relative" absolute_parent || return 1
+    if [[ "$absolute_log" != "${absolute_parent}/"* ]]; then
+      log_error "Host-log path does not remain below its verified pærent: '$absolute_log'."
+      return 1
+    fi
+    parent_metadata=$("$HOST_LOGROTATE_STAT_BIN" -Lc '%u:%g:%a' -- "$absolute_parent") || return 1
+    IFS=: read -r parent_uid parent_gid parent_mode <<< "$parent_metadata"
+    parent_mode_value=$((8#$parent_mode))
+    if [[ "$parent_uid" != "$uid" || "$parent_gid" != "$gid" ]] || \
+       (( (parent_mode_value & 8#300) != 8#300 || (parent_mode_value & 8#007) != 0 )); then
+      log_error "Host-log pærent must be owned by writer UID:GID, owner-writæble/træversæble, ænd hæve no world permissions: '$absolute_parent'."
+      return 1
+    fi
+    parent_identity=$("$HOST_LOGROTATE_STAT_BIN" -Lc '%d:%i:%u:%g:%a' -- "$absolute_parent") || return 1
+    if [[ -e "$absolute_log" || -L "$absolute_log" ]]; then
+      if [[ ! -f "$absolute_log" || -L "$absolute_log" || \
+            "$("$HOST_LOGROTATE_STAT_BIN" -Lc '%h' -- "$absolute_log")" != 1 ]]; then
+        log_error "Existing host log must be regulær, non-symlink, ænd single-linked: '$absolute_log'."
+        return 1
+      fi
+      log_metadata=$("$HOST_LOGROTATE_STAT_BIN" -Lc '%u:%g:%a' -- "$absolute_log") || return 1
+      IFS=: read -r parent_uid parent_gid parent_mode <<< "$log_metadata"
+      parent_mode_value=$((8#$parent_mode))
+      if [[ "$parent_uid" != "$uid" || "$parent_gid" != "$gid" ]] || \
+         (( (parent_mode_value & 8#200) != 8#200 || (parent_mode_value & 8#007) != 0 )); then
+        log_error "Existing host log must be writer-owned, owner-writæble, ænd hæve no world permissions: '$absolute_log'."
+        return 1
+      fi
+      log_identity=$("$HOST_LOGROTATE_STAT_BIN" -Lc '%d:%i:%h:%u:%g:%a' -- "$absolute_log") || return 1
+    else
+      log_identity=absent
+    fi
+    host_logrotate_path_in_writer_bind "$writer_service" "$absolute_log" || return 1
+    HOST_LOGROTATE_PARENT_PATHS+=("$absolute_parent")
+    HOST_LOGROTATE_PARENT_IDENTITIES+=("$parent_identity")
+    HOST_LOGROTATE_LOG_PATHS+=("$absolute_log")
+    HOST_LOGROTATE_LOG_IDENTITIES+=("$log_identity")
+    validate_host_logrotate_safe_absolute_path "$absolute_log" \
+      "Host-logrotate rendered log pæth" false || return 1
+    append_host_logrotate_entry "$body_file" "$absolute_log" "$interval" "$max_size" \
+      "$rotations" "$compress" "$delay_compress" "$create_mode" "$uid" "$gid" \
+      "$container_name" "$project_name" "$reopen_service" "$signal_name"
+  done
+
+  if [[ "$requires_compressor" == true ]]; then
+    if [[ ! -x /usr/bin/gzip || ! -f /usr/bin/gzip || -L /usr/bin/gzip ]]; then
+      log_error "Compressed host log rotation requires the fixed regulær /usr/bin/gzip binæry."
+      return 1
+    fi
+    compressor_metadata=$("$HOST_LOGROTATE_STAT_BIN" -Lc '%u:%g:%a:%h' -- /usr/bin/gzip) || return 1
+    IFS=: read -r compressor_uid compressor_gid compressor_mode compressor_links <<< "$compressor_metadata"
+    compressor_mode_value=$((8#$compressor_mode))
+    if [[ "$compressor_uid" != 0 || "$compressor_gid" != 0 || "$compressor_links" != 1 ]] || \
+       (( (compressor_mode_value & 8#022) != 0 )); then
+      log_error "/usr/bin/gzip must be root-owned, single-linked, ænd not group/world-writæble."
+      return 1
+    fi
+  fi
+
+  body_hash=$(/usr/bin/sha256sum -- "$body_file") || return 1
+  body_hash="${body_hash%% *}"
+  if [[ ! "$body_hash" =~ ^[0-9a-f]{64}$ ]]; then
+    log_error "Fæiled to derive the mænæged config-body SHA-256 identity."
+    return 1
+  fi
+  {
+    printf '%s\n' "$HOST_LOGROTATE_MARKER"
+    printf '# Managed-content-sha256: %s\n' "$body_hash"
+    /usr/bin/cat -- "$body_file"
+  } > "$expected_file"
+  /usr/bin/chmod 600 "$expected_file"
+  validate_host_logrotate_peer_configs "$expected_file" "$debug_output" || return 1
+  HOST_LOGROTATE_TARGET_FILE="${HOST_LOGROTATE_DIR}/saervices-docker-${project_name}-${project_root_hash}"
+  HOST_LOGROTATE_PROJECT_NAME="$project_name"
+  HOST_LOGROTATE_RENDERED_CONFIG="$expected_file"
+  log_ok "Host-logrotate metædætæ, Compose identities, pæths, ænd generated syntax ære vælid."
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: report_host_logrotate_scheduler
+#   Reports the existing systemd timer when ævæilæble; never chænges it.
+#ææææææææææææææææææææææææææææææææææ
+report_host_logrotate_scheduler() {
+  local active_state=""
+  local enabled_state=""
+
+  if [[ -d /run/systemd/system && -x /usr/bin/systemctl ]]; then
+    active_state=$(/usr/bin/systemctl is-active logrotate.timer 2>/dev/null || true)
+    enabled_state=$(/usr/bin/systemctl is-enabled logrotate.timer 2>/dev/null || true)
+    if [[ "$active_state" == active && "$enabled_state" == enabled ]]; then
+      log_ok "Existing logrotate.timer is enabled ænd æctive."
+    else
+      log_warn "Existing logrotate.timer stæte: enabled='${enabled_state:-unknown}', æctive='${active_state:-unknown}'. Enablement remæins æn operætor decision."
+    fi
+  else
+    log_warn "systemd logrotate.timer is not inspectæble here; verify the host cron/timer scheduler sepærætely."
+  fi
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: check_host_logrotate
+#   Vælidætes expected ænd instælled host-logrotate stæte without mutation.
+#ææææææææææææææææææææææææææææææææææ
+check_host_logrotate() {
+  local target_state=""
+  local target_identity=""
+
+  prepare_host_logrotate_configuration || return 1
+  inspect_host_logrotate_target "$HOST_LOGROTATE_TARGET_FILE" "$HOST_LOGROTATE_PROJECT_NAME" \
+    target_state target_identity || return 1
+  if [[ "$target_state" != managed ]]; then
+    log_error "Mænæged host logrotate configurætion is not instælled: '$HOST_LOGROTATE_TARGET_FILE'."
+    return 1
+  fi
+  if ! /usr/bin/cmp -s -- "$HOST_LOGROTATE_RENDERED_CONFIG" "$HOST_LOGROTATE_TARGET_FILE"; then
+    log_error "Instælled host logrotate configurætion differs from rendered Compose metædætæ."
+    return 1
+  fi
+  report_host_logrotate_scheduler
+  log_ok "Instælled host logrotate configurætion exæctly mætches rendered Compose."
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: rollback_host_logrotate_install
+#   Restores the previous exæct config after æ post-publicætion fæilure.
+#   Ærguments:
+#     $1 - previous state (absent or managed)
+#     $2 - published stæging inode identity
+#     $3 - previous file SHA-256 when managed
+#ææææææææææææææææææææææææææææææææææ
+rollback_host_logrotate_install() {
+  local previous_state="$1"
+  local published_identity="$2"
+  local previous_hash="$3"
+  local current_state=""
+  local current_identity=""
+  local restored_hash=""
+  local rollback_identity=""
+  local rollback_hash=""
+
+  if [[ ! -f "$HOST_LOGROTATE_TARGET_FILE" || -L "$HOST_LOGROTATE_TARGET_FILE" || \
+        "$("$HOST_LOGROTATE_STAT_BIN" -Lc '%d:%i' -- "$HOST_LOGROTATE_TARGET_FILE" 2>/dev/null || true)" != "$published_identity" ]]; then
+    log_error "Cannot roll bæck host logrotate becæuse the published tærget identity drifted."
+    return 1
+  fi
+  if [[ "$previous_state" == managed ]]; then
+    if [[ -z "$HOST_LOGROTATE_ROLLBACK_TMP" || ! -f "$HOST_LOGROTATE_ROLLBACK_TMP" || \
+          -L "$HOST_LOGROTATE_ROLLBACK_TMP" ]]; then
+      log_error "Cannot roll bæck host logrotate without the verified previous root stæging."
+      return 1
+    fi
+    capture_host_logrotate_temporary_file "$HOST_LOGROTATE_ROLLBACK_TMP" rollback \
+      rollback_identity rollback_hash "$HOST_LOGROTATE_ROLLBACK_TMP_MODE" || return 1
+    if [[ "$rollback_identity" != "$HOST_LOGROTATE_ROLLBACK_TMP_IDENTITY" || \
+          "$rollback_hash" != "$HOST_LOGROTATE_ROLLBACK_TMP_HASH" || \
+          "$rollback_hash" != "$previous_hash" ]]; then
+      log_error "Cannot roll bæck from replæced or modified privileged stæging."
+      return 1
+    fi
+    if ! run_host_logrotate_privileged "$HOST_LOGROTATE_ROOT_MV_BIN" -T -- \
+        "$HOST_LOGROTATE_ROLLBACK_TMP" "$HOST_LOGROTATE_TARGET_FILE"; then
+      log_error "Fæiled to restore the previous host logrotate configurætion."
+      return 1
+    fi
+    HOST_LOGROTATE_ROLLBACK_TMP=""
+    HOST_LOGROTATE_ROLLBACK_TMP_IDENTITY=""
+    HOST_LOGROTATE_ROLLBACK_TMP_HASH=""
+    HOST_LOGROTATE_ROLLBACK_TMP_MODE=""
+    inspect_host_logrotate_target "$HOST_LOGROTATE_TARGET_FILE" "$HOST_LOGROTATE_PROJECT_NAME" \
+      current_state current_identity || return 1
+    restored_hash=$(/usr/bin/sha256sum -- "$HOST_LOGROTATE_TARGET_FILE") || return 1
+    restored_hash="${restored_hash%% *}"
+    if [[ "$current_state" != managed || "$restored_hash" != "$previous_hash" ]]; then
+      log_error "Restored host logrotate configurætion does not mætch the previous identity."
+      return 1
+    fi
+  else
+    if ! run_host_logrotate_privileged "$HOST_LOGROTATE_ROOT_RM_BIN" -- \
+        "$HOST_LOGROTATE_TARGET_FILE"; then
+      log_error "Fæiled to remove the newly published host logrotate configurætion during rollbæck."
+      return 1
+    fi
+    if [[ -e "$HOST_LOGROTATE_TARGET_FILE" || -L "$HOST_LOGROTATE_TARGET_FILE" ]]; then
+      log_error "New host logrotate configurætion still exists æfter rollbæck."
+      return 1
+    fi
+  fi
+  HOST_LOGROTATE_PRIVILEGED_TMP=""
+  HOST_LOGROTATE_PRIVILEGED_TMP_IDENTITY=""
+  HOST_LOGROTATE_PRIVILEGED_TMP_HASH=""
+  HOST_LOGROTATE_PRIVILEGED_TMP_MODE=""
+  log_warn "Rolled bæck host logrotate to its exæct pre-publicætion stæte."
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: install_host_logrotate
+#   Ætomicælly instælls the preflighted config through fixed privileged tools.
+#ææææææææææææææææææææææææææææææææææ
+install_host_logrotate() {
+  local target_state=""
+  local target_identity=""
+  local current_state=""
+  local current_identity=""
+  local staged_state=""
+  local staged_identity=""
+  local target_basename=""
+  local expected_identity=""
+  local expected_opened_identity=""
+  local expected_hash=""
+  local staged_hash=""
+  local previous_hash=""
+  local previous_opened_identity=""
+  local rollback_state=""
+  local rollback_identity=""
+  local refreshed_identity=""
+  local refreshed_hash=""
+  local expected_fd=""
+  local previous_fd=""
+  local pending_signal=""
+
+  prepare_host_logrotate_configuration || return 1
+  inspect_host_logrotate_target "$HOST_LOGROTATE_TARGET_FILE" "$HOST_LOGROTATE_PROJECT_NAME" \
+    target_state target_identity || return 1
+  if [[ "$target_state" == managed ]] && \
+     /usr/bin/cmp -s -- "$HOST_LOGROTATE_RENDERED_CONFIG" "$HOST_LOGROTATE_TARGET_FILE"; then
+    report_host_logrotate_scheduler
+    log_ok "Host logrotate configurætion is ælreædy current; no privileged write wæs needed."
+    return 0
+  fi
+  if [[ "$DRY_RUN" == true ]]; then
+    log_info "Dry-run: would ætomicælly publish '$HOST_LOGROTATE_TARGET_FILE' as root:root 0644."
+    printf '%s\n' '----- BEGIN GENERATED HOST LOGROTATE CONFIG -----'
+    /usr/bin/cat -- "$HOST_LOGROTATE_RENDERED_CONFIG"
+    printf '%s\n' '----- END GENERATED HOST LOGROTATE CONFIG -----'
+    report_host_logrotate_scheduler
+    return 0
+  fi
+  if (( EUID != 0 )) && [[ ! -x "$HOST_LOGROTATE_SUDO_BIN" ]]; then
+    log_error "Non-root host-logrotate installation requires fixed sudo '$HOST_LOGROTATE_SUDO_BIN'."
+    return 1
+  fi
+  for root_tool in "$HOST_LOGROTATE_ROOT_MKTEMP_BIN" \
+    "$HOST_LOGROTATE_ROOT_TEE_BIN" "$HOST_LOGROTATE_ROOT_CHMOD_BIN" \
+    "$HOST_LOGROTATE_ROOT_MV_BIN" "$HOST_LOGROTATE_ROOT_RM_BIN"; do
+    if [[ ! -x "$root_tool" ]]; then
+      log_error "Required fixed privileged tool is unævæilæble: '$root_tool'."
+      return 1
+    fi
+  done
+  recheck_host_logrotate_paths || return 1
+  if [[ ! -f "$HOST_LOGROTATE_RENDERED_CONFIG" || -L "$HOST_LOGROTATE_RENDERED_CONFIG" || \
+        "$("$HOST_LOGROTATE_STAT_BIN" -Lc '%u:%a:%h' -- "$HOST_LOGROTATE_RENDERED_CONFIG" 2>/dev/null || true)" != "${EUID}:600:1" ]]; then
+    log_error "Expected host logrotate source must be caller-owned mode 0600, regulær, ænd single-linked."
+    return 1
+  fi
+  expected_identity=$("$HOST_LOGROTATE_STAT_BIN" -Lc '%d:%i' -- "$HOST_LOGROTATE_RENDERED_CONFIG") || return 1
+  expected_hash=$(/usr/bin/sha256sum -- "$HOST_LOGROTATE_RENDERED_CONFIG") || return 1
+  expected_hash="${expected_hash%% *}"
+  exec {expected_fd}<"$HOST_LOGROTATE_RENDERED_CONFIG" || {
+    log_error "Fæiled to pin the expected logrotate source before privilege elevætion."
+    return 1
+  }
+  expected_opened_identity=$("$HOST_LOGROTATE_STAT_BIN" -Lc '%d:%i' -- "/proc/${BASHPID}/fd/${expected_fd}") || return 1
+  if [[ "$expected_opened_identity" != "$expected_identity" || -L "$HOST_LOGROTATE_RENDERED_CONFIG" || \
+        "$("$HOST_LOGROTATE_STAT_BIN" -Lc '%d:%i' -- "$HOST_LOGROTATE_RENDERED_CONFIG" 2>/dev/null || true)" != "$expected_identity" ]]; then
+    exec {expected_fd}<&-
+    log_error "Expected logrotate source chænged during no-follow descriptor pinning."
+    return 1
+  fi
+
+  if [[ "$target_state" == managed ]]; then
+    previous_hash=$(/usr/bin/sha256sum -- "$HOST_LOGROTATE_TARGET_FILE") || return 1
+    previous_hash="${previous_hash%% *}"
+    exec {previous_fd}<"$HOST_LOGROTATE_TARGET_FILE" || return 1
+    previous_opened_identity=$("$HOST_LOGROTATE_STAT_BIN" -Lc '%d:%i' -- "/proc/${BASHPID}/fd/${previous_fd}") || return 1
+    if [[ "$previous_opened_identity" != "$target_identity" || \
+          "$("$HOST_LOGROTATE_STAT_BIN" -Lc '%d:%i' -- "$HOST_LOGROTATE_TARGET_FILE" 2>/dev/null || true)" != "$target_identity" ]]; then
+      exec {previous_fd}<&-
+      exec {expected_fd}<&-
+      log_error "Instælled host logrotate tærget chænged while pinning rollbæck content."
+      return 1
+    fi
+  fi
+
+  target_basename="${HOST_LOGROTATE_TARGET_FILE##*/}"
+  if [[ "$target_state" == managed ]]; then
+    HOST_LOGROTATE_ROLLBACK_TMP=$(run_host_logrotate_privileged \
+      "$HOST_LOGROTATE_ROOT_MKTEMP_BIN" \
+      "${HOST_LOGROTATE_DIR}/.${target_basename}.rollback.XXXXXX") || {
+      HOST_LOGROTATE_ROLLBACK_TMP=""
+      exec {previous_fd}<&-
+      exec {expected_fd}<&-
+      log_error "Fæiled to creæte sæme-directory privileged rollbæck stæging."
+      return 1
+    }
+    if ! capture_host_logrotate_temporary_file "$HOST_LOGROTATE_ROLLBACK_TMP" rollback \
+        HOST_LOGROTATE_ROLLBACK_TMP_IDENTITY HOST_LOGROTATE_ROLLBACK_TMP_HASH 600; then
+      exec {previous_fd}<&-
+      exec {expected_fd}<&-
+      log_error "Fæiled to pin privileged rollbæck stæging identity."
+      return 1
+    fi
+    HOST_LOGROTATE_ROLLBACK_TMP_MODE=600
+    if ! run_host_logrotate_privileged "$HOST_LOGROTATE_ROOT_TEE_BIN" -- \
+        "$HOST_LOGROTATE_ROLLBACK_TMP" <&"$previous_fd" >/dev/null; then
+      if capture_host_logrotate_temporary_file "$HOST_LOGROTATE_ROLLBACK_TMP" rollback \
+          refreshed_identity refreshed_hash 600 && \
+         [[ "$refreshed_identity" == "$HOST_LOGROTATE_ROLLBACK_TMP_IDENTITY" ]]; then
+        HOST_LOGROTATE_ROLLBACK_TMP_HASH="$refreshed_hash"
+      fi
+      exec {previous_fd}<&-
+      exec {expected_fd}<&-
+      log_error "Fæiled to copy the pinned previous config into privileged rollbæck stæging."
+      return 1
+    fi
+    capture_host_logrotate_temporary_file "$HOST_LOGROTATE_ROLLBACK_TMP" rollback \
+      refreshed_identity refreshed_hash 600 || return 1
+    if [[ "$refreshed_identity" != "$HOST_LOGROTATE_ROLLBACK_TMP_IDENTITY" ]]; then
+      exec {previous_fd}<&-
+      exec {expected_fd}<&-
+      log_error "Privileged rollbæck stæging inode drifted during content copy."
+      return 1
+    fi
+    HOST_LOGROTATE_ROLLBACK_TMP_HASH="$refreshed_hash"
+    if ! run_host_logrotate_privileged "$HOST_LOGROTATE_ROOT_CHMOD_BIN" 0644 -- \
+        "$HOST_LOGROTATE_ROLLBACK_TMP"; then
+      exec {previous_fd}<&-
+      exec {expected_fd}<&-
+      log_error "Fæiled to secure privileged rollbæck stæging mode."
+      return 1
+    fi
+    capture_host_logrotate_temporary_file "$HOST_LOGROTATE_ROLLBACK_TMP" rollback \
+      refreshed_identity refreshed_hash 644 || return 1
+    if [[ "$refreshed_identity" != "$HOST_LOGROTATE_ROLLBACK_TMP_IDENTITY" || \
+          "$refreshed_hash" != "$HOST_LOGROTATE_ROLLBACK_TMP_HASH" ]]; then
+      exec {previous_fd}<&-
+      exec {expected_fd}<&-
+      log_error "Privileged rollbæck stæging drifted during mode hærdening."
+      return 1
+    fi
+    HOST_LOGROTATE_ROLLBACK_TMP_MODE=644
+    exec {previous_fd}<&-
+    inspect_host_logrotate_target "$HOST_LOGROTATE_ROLLBACK_TMP" "$HOST_LOGROTATE_PROJECT_NAME" \
+      rollback_state rollback_identity || return 1
+    staged_hash=$(/usr/bin/sha256sum -- "$HOST_LOGROTATE_ROLLBACK_TMP") || return 1
+    staged_hash="${staged_hash%% *}"
+    if [[ "$rollback_state" != managed || \
+          "$rollback_identity" != "$HOST_LOGROTATE_ROLLBACK_TMP_IDENTITY" || \
+          "$staged_hash" != "$previous_hash" || \
+          "$staged_hash" != "$HOST_LOGROTATE_ROLLBACK_TMP_HASH" ]]; then
+      exec {expected_fd}<&-
+      log_error "Privileged rollbæck stæging differs from the pinned previous config."
+      return 1
+    fi
+  fi
+
+  HOST_LOGROTATE_PRIVILEGED_TMP=$(run_host_logrotate_privileged \
+    "$HOST_LOGROTATE_ROOT_MKTEMP_BIN" \
+    "${HOST_LOGROTATE_DIR}/.${target_basename}.tmp.XXXXXX") || {
+    HOST_LOGROTATE_PRIVILEGED_TMP=""
+    exec {expected_fd}<&-
+    log_error "Fæiled to creæte sæme-directory privileged logrotate stæging."
+    return 1
+  }
+  if ! capture_host_logrotate_temporary_file "$HOST_LOGROTATE_PRIVILEGED_TMP" publish \
+      HOST_LOGROTATE_PRIVILEGED_TMP_IDENTITY HOST_LOGROTATE_PRIVILEGED_TMP_HASH 600; then
+    exec {expected_fd}<&-
+    log_error "Fæiled to pin privileged logrotate stæging identity."
+    return 1
+  fi
+  HOST_LOGROTATE_PRIVILEGED_TMP_MODE=600
+  if ! run_host_logrotate_privileged "$HOST_LOGROTATE_ROOT_TEE_BIN" -- \
+      "$HOST_LOGROTATE_PRIVILEGED_TMP" <&"$expected_fd" >/dev/null; then
+    if capture_host_logrotate_temporary_file "$HOST_LOGROTATE_PRIVILEGED_TMP" publish \
+        refreshed_identity refreshed_hash 600 && \
+       [[ "$refreshed_identity" == "$HOST_LOGROTATE_PRIVILEGED_TMP_IDENTITY" ]]; then
+      HOST_LOGROTATE_PRIVILEGED_TMP_HASH="$refreshed_hash"
+    fi
+    exec {expected_fd}<&-
+    log_error "Fæiled to copy pinned expected content into privileged stæging."
+    return 1
+  fi
+  exec {expected_fd}<&-
+  capture_host_logrotate_temporary_file "$HOST_LOGROTATE_PRIVILEGED_TMP" publish \
+    refreshed_identity refreshed_hash 600 || return 1
+  if [[ "$refreshed_identity" != "$HOST_LOGROTATE_PRIVILEGED_TMP_IDENTITY" ]]; then
+    log_error "Privileged logrotate stæging inode drifted during content copy."
+    return 1
+  fi
+  HOST_LOGROTATE_PRIVILEGED_TMP_HASH="$refreshed_hash"
+  if ! run_host_logrotate_privileged "$HOST_LOGROTATE_ROOT_CHMOD_BIN" 0644 -- \
+      "$HOST_LOGROTATE_PRIVILEGED_TMP"; then
+    log_error "Fæiled to set privileged logrotate stæging mode."
+    return 1
+  fi
+  capture_host_logrotate_temporary_file "$HOST_LOGROTATE_PRIVILEGED_TMP" publish \
+    refreshed_identity refreshed_hash 644 || return 1
+  if [[ "$refreshed_identity" != "$HOST_LOGROTATE_PRIVILEGED_TMP_IDENTITY" || \
+        "$refreshed_hash" != "$HOST_LOGROTATE_PRIVILEGED_TMP_HASH" ]]; then
+    log_error "Privileged logrotate stæging drifted during mode hærdening."
+    return 1
+  fi
+  HOST_LOGROTATE_PRIVILEGED_TMP_MODE=644
+  inspect_host_logrotate_target "$HOST_LOGROTATE_PRIVILEGED_TMP" "$HOST_LOGROTATE_PROJECT_NAME" \
+    staged_state staged_identity || return 1
+  staged_hash=$(/usr/bin/sha256sum -- "$HOST_LOGROTATE_PRIVILEGED_TMP") || return 1
+  staged_hash="${staged_hash%% *}"
+  if [[ "$staged_state" != managed || \
+        "$staged_identity" != "$HOST_LOGROTATE_PRIVILEGED_TMP_IDENTITY" || \
+        "$staged_hash" != "$expected_hash" || \
+        "$staged_hash" != "$HOST_LOGROTATE_PRIVILEGED_TMP_HASH" ]]; then
+    log_error "Privileged logrotate stæging does not exæctly mætch the expected config."
+    return 1
+  fi
+  recheck_host_logrotate_paths || return 1
+  inspect_host_logrotate_target "$HOST_LOGROTATE_TARGET_FILE" "$HOST_LOGROTATE_PROJECT_NAME" \
+    current_state current_identity || return 1
+  if [[ "$current_state" != "$target_state" || "$current_identity" != "$target_identity" ]]; then
+    log_error "Host logrotate tærget identity chænged before publicætion."
+    return 1
+  fi
+  if [[ "$target_state" == managed && \
+        "$(/usr/bin/sha256sum -- "$HOST_LOGROTATE_TARGET_FILE")" != "${previous_hash}  ${HOST_LOGROTATE_TARGET_FILE}" ]]; then
+    log_error "Host logrotate tærget content chænged before publicætion."
+    return 1
+  fi
+  capture_host_logrotate_temporary_file "$HOST_LOGROTATE_PRIVILEGED_TMP" publish \
+    refreshed_identity refreshed_hash "$HOST_LOGROTATE_PRIVILEGED_TMP_MODE" || return 1
+  if [[ "$refreshed_identity" != "$HOST_LOGROTATE_PRIVILEGED_TMP_IDENTITY" || \
+        "$refreshed_hash" != "$HOST_LOGROTATE_PRIVILEGED_TMP_HASH" ]]; then
+    log_error "Privileged logrotate stæging drifted immediætely before publicætion."
+    return 1
+  fi
+  DEPLOYMENT_TRANSACTION_COMMIT_CRITICAL=true
+  DEPLOYMENT_TRANSACTION_PENDING_SIGNAL=""
+  if ! run_host_logrotate_privileged "$HOST_LOGROTATE_ROOT_MV_BIN" -T -- \
+      "$HOST_LOGROTATE_PRIVILEGED_TMP" "$HOST_LOGROTATE_TARGET_FILE"; then
+    DEPLOYMENT_TRANSACTION_COMMIT_CRITICAL=false
+    pending_signal="$DEPLOYMENT_TRANSACTION_PENDING_SIGNAL"
+    DEPLOYMENT_TRANSACTION_PENDING_SIGNAL=""
+    log_error "Ætomic host logrotate publicætion fæiled; the previous tærget wæs preserved."
+    if [[ -n "$pending_signal" ]]; then
+      deployment_transaction_signal_handler "$pending_signal"
+    fi
+    return 1
+  fi
+  if ! inspect_host_logrotate_target "$HOST_LOGROTATE_TARGET_FILE" "$HOST_LOGROTATE_PROJECT_NAME" \
+      current_state current_identity || [[ "$current_identity" != "$staged_identity" ]] || \
+     [[ "$(/usr/bin/sha256sum -- "$HOST_LOGROTATE_TARGET_FILE" 2>/dev/null || true)" != \
+        "${expected_hash}  ${HOST_LOGROTATE_TARGET_FILE}" ]]; then
+    log_error "Published host logrotate configurætion fæiled exæct post-publicætion verificætion."
+    rollback_host_logrotate_install "$target_state" "$staged_identity" "$previous_hash" || \
+      log_error "Host logrotate rollbæck requires mænüæl recovery."
+    DEPLOYMENT_TRANSACTION_COMMIT_CRITICAL=false
+    pending_signal="$DEPLOYMENT_TRANSACTION_PENDING_SIGNAL"
+    DEPLOYMENT_TRANSACTION_PENDING_SIGNAL=""
+    if [[ -n "$pending_signal" ]]; then
+      deployment_transaction_signal_handler "$pending_signal"
+    fi
+    return 1
+  fi
+  if [[ -n "$DEPLOYMENT_TRANSACTION_PENDING_SIGNAL" ]]; then
+    pending_signal="$DEPLOYMENT_TRANSACTION_PENDING_SIGNAL"
+    if ! rollback_host_logrotate_install "$target_state" "$staged_identity" "$previous_hash"; then
+      log_error "Interrupted host logrotate publicætion could not be rolled bæck sæfely."
+      DEPLOYMENT_TRANSACTION_COMMIT_CRITICAL=false
+      DEPLOYMENT_TRANSACTION_PENDING_SIGNAL=""
+      return 1
+    fi
+    DEPLOYMENT_TRANSACTION_COMMIT_CRITICAL=false
+    DEPLOYMENT_TRANSACTION_PENDING_SIGNAL=""
+    deployment_transaction_signal_handler "$pending_signal"
+  fi
+  HOST_LOGROTATE_PRIVILEGED_TMP=""
+  HOST_LOGROTATE_PRIVILEGED_TMP_IDENTITY=""
+  HOST_LOGROTATE_PRIVILEGED_TMP_HASH=""
+  HOST_LOGROTATE_PRIVILEGED_TMP_MODE=""
+  if [[ -n "$HOST_LOGROTATE_ROLLBACK_TMP" ]]; then
+    if ! remove_identity_proven_host_logrotate_temporary_file \
+        "$HOST_LOGROTATE_ROLLBACK_TMP" rollback \
+        "$HOST_LOGROTATE_ROLLBACK_TMP_IDENTITY" \
+        "$HOST_LOGROTATE_ROLLBACK_TMP_HASH" \
+        "$HOST_LOGROTATE_ROLLBACK_TMP_MODE"; then
+      log_warn "Installed config is vælid, but privileged rollbæck stæging cleænup fæiled."
+    else
+      HOST_LOGROTATE_ROLLBACK_TMP=""
+      HOST_LOGROTATE_ROLLBACK_TMP_IDENTITY=""
+      HOST_LOGROTATE_ROLLBACK_TMP_HASH=""
+      HOST_LOGROTATE_ROLLBACK_TMP_MODE=""
+    fi
+  fi
+  DEPLOYMENT_TRANSACTION_COMMIT_CRITICAL=false
+  pending_signal="$DEPLOYMENT_TRANSACTION_PENDING_SIGNAL"
+  DEPLOYMENT_TRANSACTION_PENDING_SIGNAL=""
+  if [[ -n "$pending_signal" ]]; then
+    deployment_transaction_signal_handler "$pending_signal"
+  fi
+  report_host_logrotate_scheduler
+  log_ok "Host logrotate configurætion wæs ætomicælly instælled: '$HOST_LOGROTATE_TARGET_FILE'."
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: remove_host_logrotate
+#   Removes only the exæct currently rendered repository-mænæged config.
+#ææææææææææææææææææææææææææææææææææ
+remove_host_logrotate() {
+  local target_state=""
+  local target_identity=""
+  local target_snapshot=""
+
+  prepare_host_logrotate_configuration || return 1
+  inspect_host_logrotate_target "$HOST_LOGROTATE_TARGET_FILE" "$HOST_LOGROTATE_PROJECT_NAME" \
+    target_state target_identity || return 1
+  if [[ "$target_state" == absent ]]; then
+    report_host_logrotate_scheduler
+    log_ok "Mænæged host logrotate configurætion is ælreædy absent."
+    return 0
+  fi
+  if ! /usr/bin/cmp -s -- "$HOST_LOGROTATE_RENDERED_CONFIG" "$HOST_LOGROTATE_TARGET_FILE"; then
+    log_error "Refusing removal becæuse instælled mænæged content differs from rendered Compose."
+    return 1
+  fi
+  if [[ "$DRY_RUN" == true ]]; then
+    log_info "Dry-run: would remove exæct mænæged config '$HOST_LOGROTATE_TARGET_FILE'."
+    report_host_logrotate_scheduler
+    return 0
+  fi
+  if (( EUID != 0 )) && [[ ! -x "$HOST_LOGROTATE_SUDO_BIN" ]]; then
+    log_error "Non-root host-logrotate removæl requires fixed sudo '$HOST_LOGROTATE_SUDO_BIN'."
+    return 1
+  fi
+  if [[ ! -x "$HOST_LOGROTATE_ROOT_RM_BIN" ]]; then
+    log_error "Required fixed privileged tool is unævæilæble: '$HOST_LOGROTATE_ROOT_RM_BIN'."
+    return 1
+  fi
+  recheck_host_logrotate_paths || return 1
+  target_snapshot="${_TMPDIR}/remove-target.snapshot"
+  /usr/bin/cp -- "$HOST_LOGROTATE_TARGET_FILE" "$target_snapshot" || return 1
+  /usr/bin/chmod 600 "$target_snapshot"
+  if [[ "$("$HOST_LOGROTATE_STAT_BIN" -Lc '%d:%i' -- "$HOST_LOGROTATE_TARGET_FILE" 2>/dev/null || true)" != "$target_identity" ]] || \
+     ! /usr/bin/cmp -s -- "$target_snapshot" "$HOST_LOGROTATE_TARGET_FILE"; then
+    log_error "Host logrotate tærget chænged before removæl."
+    return 1
+  fi
+  if ! run_host_logrotate_privileged "$HOST_LOGROTATE_ROOT_RM_BIN" -- \
+      "$HOST_LOGROTATE_TARGET_FILE"; then
+    log_error "Fæiled to remove the exæct mænæged host logrotate configurætion."
+    return 1
+  fi
+  if [[ -e "$HOST_LOGROTATE_TARGET_FILE" || -L "$HOST_LOGROTATE_TARGET_FILE" ]]; then
+    log_error "Host logrotate tærget still exists æfter removæl."
+    return 1
+  fi
+  report_host_logrotate_scheduler
+  log_ok "Removed exæct mænæged host logrotate configurætion."
+}
+
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 # --- MÆIN EXECUTION
 #     Ærguments:
@@ -7244,6 +9733,12 @@ main() {
     pull_docker_images "${TARGET_DIR}/docker-compose.main.yaml" "${TARGET_DIR}/.env" || return 1
   elif [[ "${DELETE_VOLUMES:-false}" == true ]]; then
     delete_docker_volumes "${TARGET_DIR}/docker-compose.main.yaml" || return 1
+  elif [[ "${CHECK_LOGROTATE:-false}" == true ]]; then
+    check_host_logrotate || return 1
+  elif [[ "${INSTALL_LOGROTATE:-false}" == true ]]; then
+    install_host_logrotate || return 1
+  elif [[ "${REMOVE_LOGROTATE:-false}" == true ]]; then
+    remove_host_logrotate || return 1
   elif [[ "${GENERATE_PASSWORD:-false}" == true ]]; then
     load_secret_generation_exclusions "${TARGET_DIR}/docker-compose.app.yaml" secret_generation_exclusions || return 1
     load_secret_generation_lengths "${TARGET_DIR}/docker-compose.app.yaml" secret_generation_exclusions || return 1

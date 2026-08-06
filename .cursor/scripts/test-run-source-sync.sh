@@ -654,7 +654,8 @@ test_end_to_end_local_git_sync() {
 
   mkdir -p -- \
     "${work}/${app}/secrets" \
-    "${work}/${app}/scripts"
+    "${work}/${app}/scripts" \
+    "${work}/${app}/dockerfiles"
   write_lines "${work}/${app}/docker-compose.app.yaml" \
     'x-required-services: []' \
     'services:' \
@@ -665,7 +666,16 @@ test_end_to_end_local_git_sync() {
     'APP_DIRECTORIES=runtime-data/store'
   write_lines "${work}/${app}/README.md" '# Fresh upstream source'
   write_lines "${work}/${app}/scripts/backup.cron" 'upstream-schedule'
+  write_lines "${work}/${app}/scripts/runtime-helper.sh" '#!/bin/sh' 'printf runtime-helper'
+  write_lines "${work}/${app}/dockerfiles/readable-entrypoint.sh" '#!/bin/sh' 'printf readable-entrypoint'
+  write_lines "${work}/${app}/dockerfiles/executable-helper.sh" '#!/bin/sh' 'printf executable-helper'
   printf '%s' 'CHANGE_ME' > "${work}/${app}/secrets/APP_SECRET"
+  chmod 0644 -- \
+    "${work}/${app}/scripts/backup.cron" \
+    "${work}/${app}/scripts/runtime-helper.sh" \
+    "${work}/${app}/dockerfiles/readable-entrypoint.sh" \
+    "${work}/${app}/secrets/APP_SECRET"
+  chmod 0755 -- "${work}/${app}/dockerfiles/executable-helper.sh"
   command git init --quiet --initial-branch=main "$work"
   command git -C "$work" config user.name 'Source Sync Test'
   command git -C "$work" config user.email 'source-sync@example.invalid'
@@ -735,7 +745,13 @@ test_end_to_end_local_git_sync() {
   [[ "$(<"${runner}/${app}/runtime-data/store/data.txt")" == runtime-marker ]]
   [[ "$(<"${runner}/${app}/secrets/APP_SECRET")" == "$local_secret" ]]
   [[ "$(stat -c '%a' -- "${runner}/${app}/app.env")" == 640 ]]
+  [[ "$(stat -c '%a' -- "${runner}/${app}/scripts")" == 755 ]]
+  [[ "$(stat -c '%a' -- "${runner}/${app}/dockerfiles")" == 755 ]]
   [[ "$(<"${runner}/${app}/scripts/backup.cron")" == deployment-schedule ]]
+  [[ "$(stat -c '%a' -- "${runner}/${app}/scripts/backup.cron")" == 640 ]]
+  [[ "$(stat -c '%a' -- "${runner}/${app}/scripts/runtime-helper.sh")" == 644 ]]
+  [[ "$(stat -c '%a' -- "${runner}/${app}/dockerfiles/readable-entrypoint.sh")" == 644 ]]
+  [[ "$(stat -c '%a' -- "${runner}/${app}/dockerfiles/executable-helper.sh")" == 755 ]]
   [[ ! -e "${runner}/${app}/.env" ]]
   [[ ! -e "${runner}/${app}/docker-compose.main.yaml" ]]
   [[ -d "${runner}/${app}_backup" ]]

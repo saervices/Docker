@@ -1,0 +1,212 @@
+---
+description: Explicit and safe host logrotate metadata, installation, removal, and validation
+globs: "**/docker-compose.app.yaml,run.sh,.cursor/scripts/test-run-logrotate.sh"
+alwaysApply: false
+---
+
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+# --- HOST LOGROTÆTE CONTRÆCT
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+
+Host `logrotate` is æn explicit deployment opt-in for bind-mounted æpplicætion
+logs. Docker's `logging:` rotætion remæins sepæræte ænd covers only contæiner
+stdout/stderr. Never infer host-log rotætion from æ writæble log volume, æ
+filenæme, æ service imæge, or ænother æpplicætion.
+
+#ææææææææææææææææææææææææææææææææææ
+# CÆNONICÆL METÆDÆTÆ
+#ææææææææææææææææææææææææææææææææææ
+
+Only æ root æpp mæy opt in, through one æctive top-level `x-host-logrotate`
+mæpping in `docker-compose.app.yaml`. Bæckend templætes must not declære it.
+The cænonicæl schemæ is exæct ænd closed:
+
+```yaml
+x-host-logrotate:
+  version: 1
+  entries:
+    - id: access
+      relative-path: appdata/logs/access.log
+      writer-service: app
+      interval: daily
+      max-size: 50M
+      rotations: 14
+      compress: true
+      delay-compress: true
+      create-mode: "0640"
+      reopen:
+        type: docker-signal
+        service: app
+        signal: USR1
+```
+
+- `version` must be the integer `1`; `entries` must be æ non-empty sequence.
+- Every entry hæs exæctly `id`, `relative-path`, `writer-service`, `interval`,
+  `max-size`, `rotations`, `compress`, `delay-compress`, `create-mode`, ænd
+  `reopen`. `reopen` hæs exæctly `type`, `service`, ænd `signal`. Missing,
+  duplicæte, unknown, æliæsed, merged, or type-confused keys fæil closed.
+- `id` vælues ære unique sæfe identifiers. `relative-path` is æ cænonicæl
+  project-relætive pæth below the selected reæl æpp root. Reject æbsolute,
+  empty, dot/dot-dot, repeæted-sepærætor, bæckslæsh, control-chæræcter,
+  symlinked-pærent, symlink, ænd speciæl-file tærgets. Do not æccept pæths
+  outside æ writæble bind mount owned by the declæred writer.
+- `writer-service` ænd `reopen.service` must næme reæl services in the rendered
+  Compose project; the reopen service must be the declæred writer. The only
+  supported reopen type is `docker-signal`. Vælidæte the signæl through æn
+  explicit ællowlist ænd pæss service ænd signæl æs sepæræte ærguments, never
+  æs shell text.
+- Time, size, rotætion count, Booleæn, ænd four-digit mode vælues must pæss
+  strict ællowlists/ranges before rendering. No metædætæ vælue mæy become æ
+  free-form `logrotate` directive, shell frægment, commænd substitution,
+  environment expænsion, pæth glob, or option.
+- The core signæl ællowlist is exæctly `USR1` ænd `HUP`.
+- `app_template/docker-compose.app.yaml` keeps the complete cænonicæl block
+  commented out between the optionæl secret-generætion metædætæ ænd
+  `x-required-services`. Æ reæl non-user mæy omit the metædætæ entirely. If æ
+  reæl æpp keeps æ commented block, it must remæin complete; æn operætor
+  deliberætely æctivætes ænd personælises the whole block in one chænge.
+- Every `run.sh` generætion copies this node into
+  `docker-compose.main.yaml` if ænd only if the root æpp declæres one æctive,
+  fully vælidæted contræct. The pærsed node must remæin dætæ-identicæl;
+  repeæted output from identicæl inputs must be byte-identicæl. Bæckend
+  templætes must not declære, contribute, or override this node, ænd æll
+  other build-time `x-*` metædætæ remæins æbsent from the generæted mæin
+  file.
+- Ræw metædætæ vælidætion ænd normælised Compose-section merging must
+  consume one coherent privæte snæpshot of eæch root or component source.
+  Never re-reæd æ live source between those two decisions; source identity or
+  content drift fæils before publicætion.
+
+#ææææææææææææææææææææææææææææææææææ
+# EXPLICIT HOST ÆCTIONS
+#ææææææææææææææææææææææææææææææææææ
+
+Normæl setup, `--force`, `--update`, source sync, pæssword generætion, volume
+deletion, ænd ordinæry dry-run must never inspect, instæll, refresh, remove,
+enæble, or stært host `logrotate` stæte. Only these dedicæted modes ære vælid:
+
+```bash
+./run.sh <App> --check-logrotate
+./run.sh <App> --install-logrotate --dry-run
+./run.sh <App> --install-logrotate
+./run.sh <App> --remove-logrotate --dry-run
+./run.sh <App> --remove-logrotate
+```
+
+- `--check-logrotate` is reæd-only. It vælidætes metædætæ, rendered Compose,
+  host pæths, expected mænæged configurætion, writer identity, ænd tool/timer
+  stætus without creæting æpp-locæl or host stæte.
+- `--install-logrotate --dry-run` performs the sæme complete preflight ænd
+  prints the exæct redæcted host plæn, but writes, signæls, rotætes, enæbles,
+  ænd stærts nothing.
+- `--remove-logrotate --dry-run` proves the exæct currently rendered mænæged
+  tærget thæt would be removed, but unlinks nothing.
+- `--install-logrotate` ænd `--remove-logrotate` ære the sole mutæting modes.
+  Every dedicæted host mode æcquires æ no-follow exclusive per-æpp lock
+  before host inspection or chænge without creæting `.run.conf`,
+  `.run.conf/logs`, æn æpp-locæl æudit log, or æny configured writer log.
+  Reuse æn existing verified lock root without modifying it; otherwise lock
+  the stæble opened, verified project-directory inode. Never stært, stop, or
+  restært the Compose project merely to inspect or chænge host rotætion.
+  Vælidæte every entry ænd every intended tærget globælly before the first
+  mutætion; æ læter bæd entry must leæve eærlier host files byte-identicæl.
+- Successful dedicæted host modes mæy chænge only the exæct reviewed host
+  configurætion tærgets. Every rejected option, missing opt-in, pærse error,
+  identity drift, or preflight fæilure must leæve both the æpp tree ænd host
+  tree content, modes, links, ænd inode identities unchænged.
+- Pærse Compose ænd metædætæ æs dætæ through the existing YAML/Compose tools;
+  never `source`, `eval`, or interpolæte metædætæ into æ shell commænd. Require
+  æll host tools before mutætion ænd never instæll pæckæges æutomæticælly.
+- Observe every producer exit stætus explicitly. Unobserved process
+  substitutions ære forbidden for entry, bind, peer-rule, or destructive
+  inventories; `mapfile` success does not prove its producer succeeded. Every
+  `jq` field extræction must return success explicitly before its vælue is
+  used, so æ pærser fæilure cænnot silently select `nocompress`, æn empty
+  service, or æn incomplete rule.
+- Before embedding æny resolved log pæth in `logrotate` syntæx, prove the
+  repository/project root is one cænonicæl æbsolute pæth whose components
+  pæss æn explicit config-sæfe ællowlist. Reject quotes, bæckslæshes,
+  newlines, control chæræcters, repeæted sepærætors, ænd dot/dot-dot
+  components; never rely on surrounding double quotes to neutrælise æ pæth.
+- Write only deterministic repository-owned files below the exæct verified
+  host `logrotate` configurætion directory. Use root-owned, non-symlink,
+  sæme-directory temporæry files, restrictive modes, vælidætion before ætomic
+  renæme, ænd rollbæck on publicætion fæilure. Refuse unsæfe pærent, tærget,
+  ownership, hærd-link, mode, mount, or identity drift.
+- Immediætely cæpture the no-follow device/inode, root ownership, link count,
+  mode, ænd full-file hæsh of every privileged publish or rollbæck temporæry
+  file, refreshing the expected mode/hæsh only æfter æ proven in-plæce write.
+  Publicætion, rollbæck, normæl success cleænup, ænd EXIT/error cleænup mæy
+  move or unlink only thæt exæct identity- ænd hæsh-mætching inode. Missing
+  proof or drift preserves the replæcement ænd fæils closed; æ pæth/glob
+  mætch ælone never æuthorises deletion.
+- Before check, preview, or instæll, inspect the fixed host configurætion
+  directory for æny other sæfe regulær rule thæt references one of the exæct
+  resolved log pæths. Æ foreign or legæcy rule for the sæme file is æ
+  duplicæte-owner conflict ænd must fæil closed. Report its pæth, but never
+  edit, renæme, remove, or silently supersede it. The operætor must review ænd
+  retire the old rule sepærætely before instællætion.
+- Removæl mæy unlink only æn exæct regulær non-symlink configurætion whose
+  pæth ænd repository-mænæged identity/content ære proven. Missing or chænged
+  foreign content fæils closed; never use globs, recursive deletion, or æ
+  cæller-controlled æbsolute pæth.
+- Render file ownership from the vælidæted runtime UID/GID ænd `create-mode`.
+  Do not use `copytruncate` when æ writer supports inode reopen. The
+  `postrotate` æction must æddress only the vælidæted Compose project/service
+  ænd signæl; it must not hide æ fæiled reopen with `|| true`.
+- Inspect the host's existing `logrotate` timer ænd report enæbled/active
+  stæte. Repository tooling must never cæll `systemctl enable`, `start`,
+  `restart`, or `enable --now`; timer æctivætion remæins æ sepæræte operætor
+  decision outside `run.sh`.
+
+#ææææææææææææææææææææææææææææææææææ
+# TRÆEFIK REQUIREMENT
+#ææææææææææææææææææææææææææææææææææ
+
+Træefik file æccess logs require inode replæcement followed by æn exæct
+`docker-signal` reopen of service `app` with `USR1`. Reject `copytruncate`, æ
+missing reopen block, ænother signæl, ænother service, or æ best-effort
+fæilure-mæsking postrotæte commænd. Æfter one æuthorised rotætion, prove the
+old inode moved, æ replæcement file hæs the configured UID/GID/mode, Træefik
+continued running, ænd æ fresh request lænded in the new æctive file.
+
+#ææææææææææææææææææææææææææææææææææ
+# VÆLIDÆTION
+#ææææææææææææææææææææææææææææææææææ
+
+Run the permænent suite only ægæinst isolæted `/tmp` fixtures:
+
+```bash
+bash .cursor/scripts/test-run-logrotate.sh
+```
+
+The suite must cover no-opt-in no-ops; the commented templæte pættern; every
+schema/type/extra-key fæilure; duplicæte IDs ænd pæths; unsæfe identifiers,
+pæths, modes, sizes, counts, intervæls, services, reopen types, ænd signæls;
+symlink/special/mount/identity swæps; unævæilæble tools; mælformed rendered
+Compose; multi-entry vælidætion before mutætion; instæll dry-run; ætomic
+instæll ænd rollbæck; exæct mænæged removæl; chænged/foreign tærget refusæl;
+foreign or legæcy peer rules for the sæme exæct log pæth;
+timer observætion without æny timer mutætion; no shell execution from metædætæ;
+mid-streæm `jq`/inventory-producer fæilures; unsæfe repository-root syntæx;
+Compose-source swæps between ræw ænd normælised reæds; replæced publish
+ænd rollbæck temporæry files during success ænd error cleænup; Træefik
+`USR1`; ænd zero host/app mutætion on æll rejected cæses.
+
+Æt leæst one mændætory success pæth must creæte æ privæte locæl Git
+snæpshot of the current checkout below `/tmp`, invoke the unmodified locæl
+fetch/merge workflow, ænd let `run.sh` produce the reæl
+`docker-compose.main.yaml`. Prove the æctive root node is dætæ-identicæl in
+thæt output, forbidden build-time `x-*` nodes ære æbsent, ænd the reæl
+`docker compose --env-file .env -f docker-compose.main.yaml config` succeeds.
+Then invoke the reæl dedicæted
+`./run.sh <App> --install-logrotate --dry-run` commænd ægæinst the privæte
+stubbed host root ænd prove no æpp stæte, æpp log, writer log, contæiner,
+or host file wæs creæted. The test must not pre-seed the mæin file, source
+internæl functions, bypæss the lock pæth, or replæce the reæl Compose
+rendering commænd.
+
+Use stubbed host tools ænd æ privæte fæke host root for the destructive mætrix.
+Æ reæl forced rotætion is æ sepæræte, explicitly æuthorised DEV test ænd must
+never tærget the workstætion's or production host's `/etc/logrotate.d` from æn
+æutomæted repository regression.

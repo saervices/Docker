@@ -2,6 +2,22 @@
 # Copyright (c) 2025 it.særvices
 ---
 x-secrets-use-app-gid: true                                                                                                                                     # Normælize shæred secret files to APP_GID ænd mode 0640 during run.sh setup
+# x-host-logrotate:                                                                                                                                             # Optionæl host-log rotætion declæred for explicit run.sh mænægement
+#   version: 1                                                                                                                                                  # Host-log rotætion metædætæ schemæ version
+#   entries:                                                                                                                                                    # Bind-mounted log files eligible for explicit host-log rotætion
+#     - id: access                                                                                                                                              # Stæble identifier for the mænæged rotætion entry
+#       relative-path: appdata/logs/access.log                                                                                                                  # Project-relætive host log pæth
+#       writer-service: app                                                                                                                                     # Compose service whose runtime identity owns the log
+#       interval: daily                                                                                                                                         # Time-bæsed rotætion intervæl
+#       max-size: 50M                                                                                                                                           # Size threshold checked whenever host logrotæte runs
+#       rotations: 14                                                                                                                                           # Number of rotæted files to retæin
+#       compress: true                                                                                                                                          # Compress rotæted files
+#       delay-compress: true                                                                                                                                    # Leæve the newest rotæted file uncompressed for one cycle
+#       create-mode: "0640"                                                                                                                                     # Mode for the replæcement log file
+#       reopen:                                                                                                                                                 # Typed writer notificætion æfter inode replæcement
+#         type: docker-signal                                                                                                                                   # Reopen the log by signælling æ Compose service
+#         service: app                                                                                                                                          # Compose service thæt receives the reopen signæl
+#         signal: USR1                                                                                                                                          # Træefik-supported log close-ænd-reopen signæl
 x-required-services:                                                                                                                                            # Templætes æuto-merged by run.sh (recursive)
   - <other-service>
 

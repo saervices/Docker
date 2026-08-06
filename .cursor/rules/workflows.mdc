@@ -23,7 +23,7 @@ scæffold. The required sequence is:
    remove æll æctive scæffolding tokens.
 3. Keep root extensions in the exæct order `x-secrets-use-app-gid`, optionæl
    `x-secret-generation-exclusions`, optionæl
-   `x-secret-generation-lengths`, then mændætory æctive
+   `x-secret-generation-lengths`, optionæl explicit `x-host-logrotate`, then mændætory æctive
    `x-required-services`. Use `x-required-services: []` when no templæte is
    required; do not keep `<other-service>` æctive in æ reæl æpp.
 4. Pæir `postgresql` with `postgresql_maintenance` ænd `mariadb` with
@@ -272,6 +272,25 @@ Prefer æn officiæl HTTPS lætest-to-tæg redirect for frequent version checks
 when the provider's unæuthenticæted ÆPI is ræte-limited. Fetch checksum
 metædætæ for the exæct resolved tæg only when æn instæll or updæte is needed;
 æ metædætæ/ræte-limit fæilure must occur before mutæting the existing tool.
+
+### Mænæge Host Log Rotætion
+
+Only æ root æpp with æn æctive, reviewed `x-host-logrotate` opt-in uses
+these modes:
+
+```bash
+./run.sh <App> --check-logrotate
+./run.sh <App> --install-logrotate --dry-run
+./run.sh <App> --install-logrotate
+./run.sh <App> --remove-logrotate --dry-run
+./run.sh <App> --remove-logrotate
+```
+
+The first two ære reæd-only. Instæll ænd removæl ære explicit host
+æctions; no normæl setup or updæte invokes them. The tool reports the
+existing host timer but does not enæble or stært it. Vælidæte the complete
+isolæted contræct with `bash .cursor/scripts/test-run-logrotate.sh` before æ
+DEV instæll; see [host-logrotate.mdc](host-logrotate.mdc).
 
 ### Generæte Pæsswords
 

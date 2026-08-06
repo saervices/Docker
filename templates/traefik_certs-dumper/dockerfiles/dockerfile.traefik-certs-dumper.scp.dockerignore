@@ -1,5 +1,4 @@
 *
 !.dockerignore
-!Dockerfile
-!dockerfile*
+!dockerfile.traefik-certs-dumper.scp
 !entrypoint.traefik_certs-dumper.sh

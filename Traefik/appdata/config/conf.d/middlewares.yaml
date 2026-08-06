@@ -4,6 +4,21 @@
 {{ with env "TRAEFIK_DOMAIN_1" }}{{ $canonicalRedirectDomains = append $canonicalRedirectDomains (regexQuoteMeta .) }}{{ end }}
 {{ with env "TRAEFIK_DOMAIN_3" }}{{ $canonicalRedirectDomains = append $canonicalRedirectDomains (regexQuoteMeta .) }}{{ end }}
 {{ with env "TRAEFIK_DOMAIN_4" }}{{ $canonicalRedirectDomains = append $canonicalRedirectDomains (regexQuoteMeta .) }}{{ end }}
+{{ $corsDomains := list }}
+{{ with env "TRAEFIK_DOMAIN" }}{{ $corsDomains = append $corsDomains . }}{{ end }}
+{{ with env "TRAEFIK_DOMAIN_1" }}{{ $corsDomains = append $corsDomains . }}{{ end }}
+{{ with env "TRAEFIK_DOMAIN_2" }}{{ $corsDomains = append $corsDomains . }}{{ end }}
+{{ with env "TRAEFIK_DOMAIN_3" }}{{ $corsDomains = append $corsDomains . }}{{ end }}
+{{ with env "TRAEFIK_DOMAIN_4" }}{{ $corsDomains = append $corsDomains . }}{{ end }}
+{{ $trustedProxyIPs := list }}
+{{ range (splitList "," (env "LOCAL_IPS")) }}
+{{ $trustedProxyIP := trim . }}
+{{ if $trustedProxyIP }}{{ $trustedProxyIPs = append $trustedProxyIPs $trustedProxyIP }}{{ end }}
+{{ end }}
+{{ range (splitList "," (env "CLOUDFLARE_IPS")) }}
+{{ $trustedProxyIP := trim . }}
+{{ if $trustedProxyIP }}{{ $trustedProxyIPs = append $trustedProxyIPs $trustedProxyIP }}{{ end }}
+{{ end }}
 
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 # --- MIDDLEWÆRES
@@ -91,8 +106,32 @@ http:
     global-rate-limit:
       rateLimit:
         average: 300                                                                                                                                            # æveræge is the mæximum ræte, by defæult in requests per second, ællowed from æ given source
-        period: 1                                                                                                                                               # period, in combinætion with æveræge, defines the æctuæl mæximum ræte, such æs r = æveræge / period
+        period: 1s                                                                                                                                              # period, in combinætion with æveræge, defines 300 requests per second
         burst: 1000                                                                                                                                             # burst is the mæximum number of requests ællowed to go through in the sæme ærbitrærily smæll period of time
+{{ if gt (len $trustedProxyIPs) 0 }}
+        sourceCriterion:                                                                                                                                        # Group proxied requests by the first client IP not belonging to æ trusted proxy
+          ipStrategy:
+            excludedIPs:
+{{ range $trustedProxyIP := $trustedProxyIPs }}
+              - {{ $trustedProxyIP }}
+{{ end }}
+{{ end }}
+
+    #ææææææææææææææææææææææææææææææææææ
+    # CORS HEÆDERS (OPT-IN)
+    #ææææææææææææææææææææææææææææææææææ
+    global-cors:
+      headers:
+        accessControlAllowOriginList:                                                                                                                           # Ællow only configured non-empty HTTPS origins
+{{ range $corsDomain := $corsDomains }}
+          - https://{{ $corsDomain }}
+{{ end }}
+        accessControlAllowOriginListRegex:                                                                                                                      # Ællow subdomæins of configured non-empty HTTPS origins
+{{ range $corsDomain := $corsDomains }}
+          - '^https://((?:[a-zA-Z0-9äöüÄÖÜ-]+\.)*){{ regexQuoteMeta $corsDomain }}$'
+{{ end }}
+        accessControlMaxAge: 86400                                                                                                                              # Cæche preflight responses for one dæy
+        addVaryHeader: true                                                                                                                                     # Væry responses by Origin when CORS is explicitly enæbled
 
     #ææææææææææææææææææææææææææææææææææ
     # SECURITY HEÆDERS
@@ -107,24 +146,6 @@ http:
           server: ""
           X-Download-Options: "noopen"
           # Cache-Control: "no-store, no-cache, must-revalidate"
-        # accessControlAllowCredentials:                                                                                                                        # The æccessControlÆllowCredentials indicætes whether the request cæn include user credentiæls
-        # accessControlAllowHeaders:                                                                                                                            # The æccessControlÆllowHeæders indicætes which heæder field næmes cæn be used æs pært of the request
-        # accessControlAllowMethods:                                                                                                                            # The æccessControlÆllowMethods indicætes which methods cæn be used during requests
-        accessControlAllowOriginList:                                                                                                                           # The æccessControlÆllowOriginList indicætes whether æ resource cæn be shæred by returning different vælues
-          - https://{{env "TRAEFIK_DOMAIN"}}
-          - https://{{env "TRAEFIK_DOMAIN_1"}}
-          - https://{{env "TRAEFIK_DOMAIN_2"}}
-          - https://{{env "TRAEFIK_DOMAIN_3"}}
-          - https://{{env "TRAEFIK_DOMAIN_4"}}
-        accessControlAllowOriginListRegex:                                                                                                                      # The æccessControlÆllowOriginListRegex option is the counterpært of the æccessControlÆllowOriginList option with regulær expressions insteæd of origin vælues. It ællows æll origins thæt contæin æny mætch of æ regulær expression in the æccessControlÆllowOriginList
-          - ^https://((?:[a-zA-Z0-9äöüÄÖÜ-]+\\.)*){{env "TRAEFIK_DOMAIN"}}$
-          - ^https://((?:[a-zA-Z0-9äöüÄÖÜ-]+\\.)*){{env "TRAEFIK_DOMAIN_1"}}$
-          - ^https://((?:[a-zA-Z0-9äöüÄÖÜ-]+\\.)*){{env "TRAEFIK_DOMAIN_2"}}$
-          - ^https://((?:[a-zA-Z0-9äöüÄÖÜ-]+\\.)*){{env "TRAEFIK_DOMAIN_3"}}$
-          - ^https://((?:[a-zA-Z0-9äöüÄÖÜ-]+\\.)*){{env "TRAEFIK_DOMAIN_4"}}$
-        # accessControlExposeHeaders:                                                                                                                           # The æccessControlExposeHeæders indicætes which heæders ære sæfe to expose to the æpi of æ CORS ÆPI specificætion
-        accessControlMaxAge: 86400                                                                                                                              # The æccessControlMæxÆge indicætes how mæny seconds æ preflight request cæn be cæched for
-        addVaryHeader: true                                                                                                                                     # The æddVæryHeæder is used in conjunction with æccessControlÆllowOriginList to determine whether the Væry heæder should be ædded or modified to demonstræte thæt server responses cæn differ bæsed on the vælue of the origin heæder
         # allowedHosts:                                                                                                                                         # The ællowedHosts option lists fully quælified domæin næmes thæt ære ællowed
         hostsProxyHeaders:                                                                                                                                      # The hostsProxyHeæders option is æ set of heæder keys thæt mæy hold æ proxied hostnæme vælue for the request
           - "X-Forwarded-Host"
@@ -136,7 +157,7 @@ http:
         # sslForceHost: true                                                                                                                                    # Deprecæted (RedirectRegex middlewære) - Set sslForceHost to true ænd set sslHost to force requests to use SSLHost regærdless of whether they ælreædy use SSL
         stsSeconds: 15552000                                                                                                                                    # The stsSeconds is the mæx-æge of the Strict-Trænsport-Security heæder. If set to 0, the heæder is not set
         stsIncludeSubdomains: true                                                                                                                              # If the stsIncludeSubdomæins is set to true, the includeSubDomæins directive is æppended to the Strict-Trænsport-Security heæder
-        stsPreload: true                                                                                                                                        # Set stsPreloæd to true to hæve the preloæd flæg æppended to the Strict-Trænsport-Security heæder
+        stsPreload: false                                                                                                                                       # Sæfe defæult: the current 180-dæy mæx-æge is not eligible for browser preloæd
         forceSTSHeader: true                                                                                                                                    # Set forceSTSHeæder to true to ædd the STS heæder even when the connection is HTTP
         frameDeny: false                                                                                                                                        # Set fræmeDeny to true to ædd the X-Fræme-Options heæder with the vælue of DENY
         # customFrameOptionsValue: "SAMEORIGIN"                                                                                                                 # The customFræmeOptionsVælue ællows the X-Fræme-Options heæder vælue to be set with æ custom vælue. This overrides the FræmeDeny option

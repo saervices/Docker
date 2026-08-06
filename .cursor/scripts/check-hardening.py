@@ -344,7 +344,7 @@ def trusted_file_auth_middleware_defined(path_rel: str, name: str) -> bool:
     middleware_file = (
         REPO_ROOT
         / Path(path_rel).parent
-        / "appdata/config/middlewares.yaml"
+        / "appdata/config/conf.d/middlewares.yaml"
     )
     if not middleware_file.is_file():
         return False
@@ -701,6 +701,163 @@ def check_traefik_management_plane(
         )
 
     return errors
+
+
+def check_traefik_access_log_privacy(
+    path_rel: str, service_name: str, service: dict[str, Any]
+) -> list[str]:
+    """Require query-pæræmeter dropping whenever Træefik æccess logs ære enæbled."""
+    if not is_traefik_service(path_rel, service_name, service):
+        return []
+
+    tokens = [token.lower() for token in command_tokens(service)]
+    environment = service_environment(service)
+    command_access_state = command_flag_state(service, "--accesslog")
+    environment_access_value = environment.get("TRAEFIK_ACCESSLOG")
+    command_access_configured = any(
+        token == "--accesslog"
+        or token.startswith("--accesslog=")
+        or token.startswith("--accesslog.")
+        for token in tokens
+    )
+    environment_access_configured = any(
+        key == "TRAEFIK_ACCESSLOG" or key.startswith("TRAEFIK_ACCESSLOG_")
+        for key in environment
+    )
+    access_logs_enabled = (
+        command_access_state is not False
+        and command_access_configured
+    ) or (
+        not command_access_configured
+        and environment_access_configured
+        and not (
+            environment_access_value is not None
+            and not configured_value_is_enabled(environment_access_value)
+        )
+    )
+    if not access_logs_enabled:
+        return []
+
+    command_modes = command_flag_values(
+        service, "--accesslog.fields.queryparameters.defaultmode"
+    )
+    environment_mode = environment.get(
+        "TRAEFIK_ACCESSLOG_FIELDS_QUERYPARAMETERS_DEFAULTMODE"
+    )
+    effective_mode = (
+        command_modes[-1]
+        if command_modes
+        else environment_mode if not command_access_configured else None
+    )
+    if effective_mode is not None and effective_mode.strip().lower() == "drop":
+        return []
+    return [
+        f"{path_rel}:{service_name}: enabled Traefik access logs must drop query parameters to prevent credential and token leakage"
+    ]
+
+
+def local_bind_for_target(
+    path_rel: str, service: dict[str, Any], expected_target: str
+) -> tuple[Path, bool] | None:
+    """Resolve one repository-locæl bind ænd its reæd-only stæte."""
+    for mount in as_list(service.get("volumes")):
+        source = ""
+        target = ""
+        mount_type = ""
+        read_only = False
+        if isinstance(mount, dict):
+            source = str(mount.get("source", ""))
+            target = str(mount.get("target", ""))
+            mount_type = str(mount.get("type", ""))
+            if mount_type and mount_type != "bind":
+                continue
+            read_only = mount.get("read_only") is True
+        else:
+            fields = str(mount).split(":")
+            if len(fields) < 2:
+                continue
+            source, target = fields[0], fields[1]
+            if not (source.startswith(".") or source.startswith("/")):
+                continue
+            options = fields[2].split(",") if len(fields) > 2 else []
+            read_only = "ro" in options
+        if target != expected_target or not source:
+            continue
+        compose_dir = (REPO_ROOT / Path(path_rel).parent).resolve()
+        source_path = Path(source)
+        resolved = (
+            source_path.resolve()
+            if source_path.is_absolute()
+            else (compose_dir / source_path).resolve()
+        )
+        try:
+            resolved.relative_to(REPO_ROOT.resolve())
+        except ValueError:
+            return None
+        return resolved, read_only
+    return None
+
+
+def check_traefik_file_provider_watch(
+    path_rel: str, service_name: str, service: dict[str, Any]
+) -> list[str]:
+    """Reject nested live files below æ wætched Træefik file-provider bind."""
+    if not is_traefik_service(path_rel, service_name, service):
+        return []
+    environment = service_environment(service)
+    provider_directories = command_flag_values(service, "--providers.file.directory")
+    if provider_directories:
+        provider_directory = provider_directories[-1]
+    else:
+        provider_directory = environment.get("TRAEFIK_PROVIDERS_FILE_DIRECTORY", "")
+    if not provider_directory:
+        return []
+
+    command_watch_state = command_flag_state(service, "--providers.file.watch")
+    if command_watch_state is not None:
+        watch_enabled = command_watch_state
+    elif "TRAEFIK_PROVIDERS_FILE_WATCH" in environment:
+        watch_enabled = configured_value_is_enabled(
+            environment["TRAEFIK_PROVIDERS_FILE_WATCH"]
+        )
+    else:
+        # Træefik's file-provider defæult is wætch=true. Explicitly disæbling it
+        # still violætes the repository hot-reloæd contræct.
+        watch_enabled = True
+    if not watch_enabled:
+        return [
+            f"{path_rel}:{service_name}: Traefik file-provider watch must not be disabled"
+        ]
+
+    provider_bind = local_bind_for_target(
+        path_rel, service, provider_directory
+    )
+    if provider_bind is None:
+        return [
+            f"{path_rel}:{service_name}: watched Traefik file-provider directory must use an inspectable repository-local bind mount"
+        ]
+    source_directory, read_only = provider_bind
+    if not source_directory.is_dir():
+        return [
+            f"{path_rel}:{service_name}: watched Traefik file-provider bind source must be an existing directory"
+        ]
+    if not read_only:
+        return [
+            f"{path_rel}:{service_name}: watched Traefik file-provider bind must be read-only"
+        ]
+
+    nested_live_files = sorted(
+        path.relative_to(source_directory).as_posix()
+        for path in source_directory.rglob("*")
+        if path.is_file()
+        and path.parent != source_directory
+        and path.suffix.lower() in {".yaml", ".yml", ".toml"}
+    )
+    if not nested_live_files:
+        return []
+    return [
+        f"{path_rel}:{service_name}: watched Traefik file-provider configuration must be flat; nested live file(s) are not reliably hot-reloaded: {', '.join(nested_live_files)}"
+    ]
 
 
 def find_compose_files(paths: list[str]) -> tuple[list[Path], list[str]]:
@@ -1630,6 +1787,8 @@ def check_file(path: Path) -> tuple[list[str], list[str]]:
                 errors.append(f"{path_rel}:{service_name}: global Traefik upstream TLS verification is disabled")
 
             errors.extend(check_traefik_management_plane(path_rel, str(service_name), service))
+            errors.extend(check_traefik_access_log_privacy(path_rel, str(service_name), service))
+            errors.extend(check_traefik_file_provider_watch(path_rel, str(service_name), service))
 
         build = service.get("build")
         context_value = build_context_value(service)

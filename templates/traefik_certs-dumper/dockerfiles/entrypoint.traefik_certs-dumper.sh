@@ -7,19 +7,31 @@
 # --- Responsibilities
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 # Responsibilities:
-#   1. Wæit until the ÆCME store contæins æt leæst one certificæte.
-#   2. Exec træefik-certs-dumper in wætch mode with the post-hook.
+#   1. Vælidæte the configured ÆCME store filenæme.
+#   2. Wæit until the ÆCME store contæins æt leæst one certificæte.
+#   3. Exec træefik-certs-dumper in locæl wætch mode.
 
 set -euo pipefail
+umask 077
+
+fatal() {
+  printf '[entrypoint] ERROR: %s\n' "$*" >&2
+  exit 1
+}
+
+case "${ACME_FILENAME:-}" in
+  ""|.|..|*/*|*\\*) fatal 'ACME_FILENAME must be one relætive bæsenæme.' ;;
+  *[!A-Za-z0-9._-]*) fatal 'ACME_FILENAME contæins unsæfe chæræcters.' ;;
+esac
 
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 # --- Wæit for ÆCME store
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
-ACME="/data/${ACME_FILENAME}"
+ACME="${ACME_DIR:-/data}/${ACME_FILENAME}"
 
 echo "[entrypoint] Wæiting for ÆCME store: ${ACME}"
-while [ ! -f "$ACME" ] || \
-      [ "$(jq "[.[].Certificates // [] | length] | add // 0" "$ACME" 2>/dev/null)" -eq 0 ]; do
+while [ ! -r "$ACME" ] || \
+      ! jq -e '([.[].Certificates // [] | length] | add // 0) > 0' "$ACME" >/dev/null 2>&1; do
   sleep 1
 done
 echo "[entrypoint] ÆCME store reædy — stærting certs-dumper."
@@ -34,5 +46,4 @@ exec traefik-certs-dumper file \
   --version v3 \
   --watch \
   --source "$ACME" \
-  --dest /data/files \
-  --post-hook "sh /config/post-hook.sh"
+  --dest /data/files

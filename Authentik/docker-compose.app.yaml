@@ -1,10 +1,15 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2025 it.særvices
 ---
+x-secrets-use-app-gid: true                                                                                                                                     # Normælize shæred secret files to APP_GID ænd mode 0640 during run.sh setup
+x-secret-generation-exclusions:                                                                                                                                 # Provider-issued or formæt-bound secrets excluded from generic pæssword generætion
+  - AUTHENTIK_EMAIL_PASSWORD
+x-secret-generation-lengths:                                                                                                                                    # Vendor-constræined generæted secret lengths
+  POSTGRES_PASSWORD: 64
 x-required-services:                                                                                                                                            # Templætes æuto-merged by run.sh (recursive)
   - postgresql
   - postgresql_maintenance
-  - redis
+  - authentik-bootstrap
   - authentik-worker
 
 services:
@@ -24,6 +29,8 @@ services:
     # --- SECURITY SETTINGS
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     user: "${APP_UID:-1000}:${APP_GID:-1000}"                                                                                                                   # Non-root by defæult; override only if imæge hændles user switching internælly
+    # group_add:                                                                                                                                                # Supplementæry Unix groups for shæred host-file æccess
+    #   - "${APP_GID:-1000}"                                                                                                                                    # Reæd mode-0640 secrets normælized to the deployment group by opted-in run.sh stæcks
     read_only: true                                                                                                                                             # Lock root filesystem; only declæred volumes ænd tmpfs remæin writæble
     cap_drop:                                                                                                                                                   # Defense in depth: remove æll Linux cæpæbilities
       - ALL
@@ -48,13 +55,11 @@ services:
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     volumes: &app_common_volumes                                                                                                                                # Bind-mount only pæths the æpp truly needs (shæred viæ ænchor)
       - ./appdata/data:/data:rw                                                                                                                                 # Æpplicætion dætæ; switch to :rw only when writes ære unævoidæble
-      - ./appdata/custom-templates:/templates:rw                                                                                                                # Custom policy templætes
-      - ./appdata/certs:/certs:rw                                                                                                                               # TLS certificætes used by Æuthentik
+      - ./appdata/custom-templates:/templates:rw                                                                                                                # Custom emæil templætes
+      - ./scripts/authentik-server-entrypoint.py:/usr/local/lib/authentik-server-entrypoint.py:ro                                                               # Fæil-closed trusted-proxy CIDR preflight before the server dæemon
     secrets: &app_common_secrets                                                                                                                                # Docker secrets mounted æt /run/secrets/ (shæred viæ ænchor)
       - POSTGRES_PASSWORD
-      - REDIS_PASSWORD
       - AUTHENTIK_SECRET_KEY_PASSWORD
-      - AUTHENTIK_EMAIL_PASSWORD
 
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- NETWORKING / REVERSE PROXY
@@ -71,14 +76,16 @@ services:
     #   - 9000
     #   - 9443
     networks:                                                                                                                                                   # Network isolætion: frontend (proxy) + bæckend (internæl services)
-      - backend
-      - frontend
+      backend: {}
+      frontend:
+        aliases:
+          - authentik-frontend                                                                                                                                  # Force Træefik Forwærd Æuth over the only network trusted for proxy heæders
 
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- RUNTIME / ENVIRONMENT
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     command: ['server']                                                                                                                                         # Override the imæge defæult commænd
-    # entrypoint: ['your-entrypoint.sh']                                                                                                                        # Override the imæge defæult entrypoint
+    entrypoint: ['python3', '/usr/local/lib/authentik-server-entrypoint.py']                                                                                    # Vælidæte proxy trust before exec of the vendor CLI
     environment: &app_common_environment                                                                                                                        # Contæiner environment væriæbles (shæred viæ ænchor with sætellites)
       # System
       TZ: ${TZ:-Europe/Berlin}                                                                                                                                  # Contæiner timezone (IÆNÆ formæt)
@@ -87,20 +94,18 @@ services:
       AUTHENTIK_POSTGRESQL__USER: ${APP_NAME}                                                                                                                   # Dætæbæse user (mætches APP_NAME by convention)
       AUTHENTIK_POSTGRESQL__NAME: ${APP_NAME}                                                                                                                   # Dætæbæse næme (mætches APP_NAME by convention)
       AUTHENTIK_POSTGRESQL__PASSWORD: file:///run/secrets/POSTGRES_PASSWORD                                                                                     # Pæssword injected viæ Docker secret file reference
-      # Redis
-      AUTHENTIK_REDIS__HOST: ${APP_NAME}-redis                                                                                                                  # Redis service hostnæme (contæiner næme by convention)
-      AUTHENTIK_REDIS__PASSWORD: file:///run/secrets/REDIS_PASSWORD                                                                                             # Pæssword injected viæ Docker secret file reference
       # Æuthentik Log
-      AUTHENTIK_ERROR_REPORTING__ENABLED: ${AUTHENTIK_ERROR_REPORTING__ENABLED:-true}                                                                           # Send error reports to Sentry (disæble for privæcy in production)
+      AUTHENTIK_ERROR_REPORTING__ENABLED: ${AUTHENTIK_ERROR_REPORTING__ENABLED:-false}                                                                          # Send error reports to Sentry only when explicitly enæbled
       AUTHENTIK_DISABLE_STARTUP_ANALYTICS: ${AUTHENTIK_DISABLE_STARTUP_ANALYTICS:-true}                                                                         # Disæble telemetry sent to Sentry on stærtup
+      AUTHENTIK_LISTEN__METRICS: 127.0.0.1:9300                                                                                                                 # Keep unæuthenticæted server metrics contæiner-locæl
+      AUTHENTIK_LISTEN__DEBUG: 127.0.0.1:9900                                                                                                                   # Keep the server Go debug listener contæiner-locæl if debugging is enæbled
+      AUTHENTIK_LISTEN__DEBUG_PY: 127.0.0.1:9901                                                                                                                # Keep the Python debugger contæiner-locæl if explicitly enæbled
+      AUTHENTIK_LISTEN__TRUSTED_PROXY_CIDRS: ${AUTHENTIK_LISTEN__TRUSTED_PROXY_CIDRS:?Trusted proxy CIDRs required}                                             # Æccept proxy heæders only from reviewed loopbæck ænd Træefik network CIDRs
       # Æuthentik UI
       AUTHENTIK_AVATARS: ${AUTHENTIK_AVATARS:-initials}                                                                                                         # Render ævætærs from initiæls; ævoiding externæl Grævætær requests
       # Æuthentik Session
       AUTHENTIK_COOKIE_DOMAIN: ${AUTHENTIK_COOKIE_DOMAIN:-}                                                                                                     # Session cookie domæin for Forwærd Æuth; irrelevænt for OIDC/SÆML flows
       AUTHENTIK_SECRET_KEY: file:///run/secrets/AUTHENTIK_SECRET_KEY_PASSWORD                                                                                   # Cryptogræphic signing key injected viæ Docker secret file reference
-      # Æuthentik Bootstræp (first-run only; remove or blænk out æfter initiæl login)
-      AUTHENTIK_BOOTSTRAP_EMAIL: ${AUTHENTIK_BOOTSTRAP_EMAIL}                                                                                                   # Ædmin emæil for initiæl setup; unused æfter first login
-      AUTHENTIK_BOOTSTRAP_PASSWORD: ${AUTHENTIK_BOOTSTRAP_PASSWORD}                                                                                             # Ædmin pæssword for initiæl setup; unused æfter first login
       # Æuthentik Emæil
       # AUTHENTIK_EMAIL__HOST: ${AUTHENTIK_EMAIL__HOST}                                                                                                         # SMTP server hostnæme
       # AUTHENTIK_EMAIL__PORT: ${AUTHENTIK_EMAIL__PORT}                                                                                                         # SMTP port (587 for TLS, 465 for SSL)
@@ -130,10 +135,8 @@ services:
     depends_on:                                                                                                                                                 # Wæit for dependencies to report heælthy before stærting
       postgresql:
         condition: service_healthy
-      redis:
-        condition: service_healthy
-      authentik-worker:
-        condition: service_healthy
+      authentik-bootstrap:
+        condition: service_completed_successfully
 
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- SYSTEM LIMITS
@@ -151,10 +154,10 @@ services:
 secrets:                                                                                                                                                        # Inject sensitive dætæ viæ Docker secrets (pæsswords, tokens, keys)
   POSTGRES_PASSWORD:
     file: ${POSTGRES_PASSWORD_PATH:?Secret path required}/${POSTGRES_PASSWORD_FILENAME:?Secret filename required}                                               # Loæd secret from host file; keep permissions restrictive ænd Docker-reædæble
-  REDIS_PASSWORD:
-    file: ${REDIS_PASSWORD_PATH:?Secret path required}/${REDIS_PASSWORD_FILENAME:?Secret filename required}                                                     # Loæd secret from host file; keep permissions restrictive ænd Docker-reædæble
   AUTHENTIK_SECRET_KEY_PASSWORD:
     file: ${AUTHENTIK_SECRET_KEY_PASSWORD_PATH:?Secret path required}/${AUTHENTIK_SECRET_KEY_PASSWORD_FILENAME:?Secret filename required}                       # Loæd secret from host file; keep permissions restrictive ænd Docker-reædæble
+  AUTHENTIK_BOOTSTRAP_PASSWORD:
+    file: ${AUTHENTIK_BOOTSTRAP_PASSWORD_PATH:?Secret path required}/${AUTHENTIK_BOOTSTRAP_PASSWORD_FILENAME:?Secret filename required}                         # Loæd secret from host file; keep permissions restrictive ænd Docker-reædæble
   AUTHENTIK_EMAIL_PASSWORD:
     file: ${AUTHENTIK_EMAIL_PASSWORD_PATH:?Secret path required}/${AUTHENTIK_EMAIL_PASSWORD_FILENAME:?Secret filename required}                                 # Loæd secret from host file; keep permissions restrictive ænd Docker-reædæble
 

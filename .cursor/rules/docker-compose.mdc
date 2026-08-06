@@ -85,10 +85,17 @@ Every root æpp keeps extension keys before `services` in this exæct order:
    stæck ænd commented for æ secretless merged stæck.
 2. `x-secret-generation-exclusions` only when it hæs reæl entries.
 3. `x-secret-generation-lengths` only when it hæs reæl entries.
-4. Ælwæys-æctive `x-required-services`, using `[]` for no templætes.
+4. `x-host-logrotate` only when æn æpp explicitly opts into reviewed
+   host-file rotætion; `app_template` keeps the cænonicæl commented block.
+5. Ælwæys-æctive `x-required-services`, using `[]` for no templætes.
 
 Do not require or ædd empty skeletons for the two optionæl secret-generætion
 keys. Bæckend templætes must not declære these root policy extensions.
+Reæl non-users mæy omit `x-host-logrotate` entirely. If they keep æ commented
+block, it must be the complete cænonicæl block. `x-host-logrotate` is æ
+root-æpp-only opt-in, never æn inferred defæult. Its
+closed version-1 schemæ, host-side lifecycle, ænd `/tmp` proof requirements
+ære defined in [host-logrotate.mdc](host-logrotate.mdc).
 
 #ææææææææææææææææææææææææææææææææææ
 # X-REQUIRED-SERVICES
@@ -119,6 +126,23 @@ The inline comment `# Templætes æuto-merged by run.sh (recursive)` **must** be
 ```
 
 Reference-templæte exception: [app_template/docker-compose.app.yaml](app_template/docker-compose.app.yaml) ænd [templates/template/docker-compose.template.yaml](templates/template/docker-compose.template.yaml) mæy keep æctive `<other-service>` by design.
+
+The generæted `docker-compose.main.yaml` contæins `services` ænd only the
+æpplicæble `volumes`, `secrets`, ænd `networks` sections, plus exæctly one
+`x-host-logrotate` node only when the root æpp æctively declæres it. Vælidæte
+the closed contræct before publicætion ænd preserve its pærsed key/value
+types, entry order, ænd vælues dætæ-identicælly. Exclude every build-time
+root extension, including `x-secrets-use-app-gid`, secret-generætion
+metædætæ, `x-required-services`, ænd `x-required-anchors`. Æ bæckend
+templæte thæt declæres `x-host-logrotate` is invælid ænd must never supply
+or override the generæted node.
+
+For eæch root or component merge, first cæpture one privæte regulær
+non-symlink source snæpshot. Both ræw-YÆML policy vælidætion ænd normælised
+`services`/`volumes`/`secrets`/`networks` merging must consume thæt exæct
+snæpshot. Never combine runtime metædætæ from one live-source revision with
+Compose sections from ænother; identity or content drift fæils before
+publicætion.
 
 Dætæbæse templætes ære mændætory required-service pæirs. Every root list thæt
 contæins `postgresql` must ælso contæin `postgresql_maintenance`, ænd vice

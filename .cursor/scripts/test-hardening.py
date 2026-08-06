@@ -16,9 +16,12 @@ from typing import Any
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CHECKER_PATH = REPO_ROOT / ".cursor/scripts/check-hardening.py"
 COMPLIANCE_PATH = REPO_ROOT / ".cursor/scripts/enforce-app-template-compliance.py"
+ASSERTION_COUNT = 0
 
 
 def require(condition: bool, message: str) -> None:
+    global ASSERTION_COUNT
+    ASSERTION_COUNT += 1
     if not condition:
         raise AssertionError(message)
 
@@ -71,6 +74,8 @@ def traefik_service_fixture() -> dict[str, Any]:
         "command": [
             "--api=true",
             "--api.dashboard=true",
+            "--accesslog=true",
+            "--accesslog.fields.queryparameters.defaultmode=drop",
             "--entrypoints.traefik-ping.address=127.0.0.1:${TRAEFIK_PORT:-8080}",
             "--ping=true",
             "--ping.entrypoint=traefik-ping",
@@ -98,7 +103,7 @@ def management_errors(checker: ModuleType, service: dict[str, Any]) -> list[str]
 def file_auth_is_trusted(checker: ModuleType, content: str) -> bool:
     with tempfile.TemporaryDirectory(prefix="hardening-file-auth.", dir="/tmp") as raw_root:
         fixture_root = Path(raw_root)
-        middleware = fixture_root / "Traefik/appdata/config/middlewares.yaml"
+        middleware = fixture_root / "Traefik/appdata/config/conf.d/middlewares.yaml"
         middleware.parent.mkdir(parents=True)
         middleware.write_text(content, encoding="utf-8")
         previous_root = checker.REPO_ROOT
@@ -157,6 +162,189 @@ def main() -> None:
         not management_errors(checker, copy.deepcopy(service)),
         "the secure Træefik management-plane fixture must pass",
     )
+    require(
+        not checker.check_traefik_access_log_privacy(
+            "Fixture/docker-compose.app.yaml",
+            "traefik",
+            copy.deepcopy(service),
+        ),
+        "Træefik access logs with query-pæræmeter dropping must pass",
+    )
+
+    missing_query_drop = copy.deepcopy(service)
+    missing_query_drop["command"] = [
+        token
+        for token in missing_query_drop["command"]
+        if not str(token).startswith("--accesslog.fields.queryparameters.defaultmode")
+    ]
+    require(
+        checker.check_traefik_access_log_privacy(
+            "Fixture/docker-compose.app.yaml",
+            "traefik",
+            missing_query_drop,
+        ),
+        "enæbled Træefik access logs without æ query-pæræmeter policy must fæil closed",
+    )
+
+    query_keep = copy.deepcopy(service)
+    query_keep["command"] = [
+        "--accesslog.fields.queryparameters.defaultmode=keep"
+        if str(token).startswith("--accesslog.fields.queryparameters.defaultmode")
+        else token
+        for token in query_keep["command"]
+    ]
+    require(
+        checker.check_traefik_access_log_privacy(
+            "Fixture/docker-compose.app.yaml",
+            "traefik",
+            query_keep,
+        ),
+        "explicit Træefik query-pæræmeter retention must fæil closed",
+    )
+
+    environment_query_drop = copy.deepcopy(missing_query_drop)
+    environment_query_drop["command"] = [
+        token
+        for token in environment_query_drop["command"]
+        if not str(token).startswith("--accesslog")
+    ]
+    environment_query_drop["environment"] = {
+        "TRAEFIK_ACCESSLOG": "true",
+        "TRAEFIK_ACCESSLOG_FIELDS_QUERYPARAMETERS_DEFAULTMODE": "drop"
+    }
+    require(
+        not checker.check_traefik_access_log_privacy(
+            "Fixture/docker-compose.app.yaml",
+            "traefik",
+            environment_query_drop,
+        ),
+        "the officiæl Træefik environment key for query-pæræmeter dropping must pass",
+    )
+
+    mixed_query_sources = copy.deepcopy(service)
+    mixed_query_sources["command"] = [
+        "--accesslog.fields.queryparameters.defaultmode=keep"
+        if str(token).startswith("--accesslog.fields.queryparameters.defaultmode")
+        else token
+        for token in mixed_query_sources["command"]
+    ]
+    mixed_query_sources["environment"] = {
+        "TRAEFIK_ACCESSLOG_FIELDS_QUERYPARAMETERS_DEFAULTMODE": "drop"
+    }
+    require(
+        checker.check_traefik_access_log_privacy(
+            "Fixture/docker-compose.app.yaml",
+            "traefik",
+            mixed_query_sources,
+        ),
+        "æ lower-precedence environment drop must not hide æ CLI query keep",
+    )
+
+    with tempfile.TemporaryDirectory(prefix="hardening-file-watch.", dir="/tmp") as raw_root:
+        fixture_root = Path(raw_root)
+        dynamic_root = fixture_root / "Fixture/appdata/config/dynamic"
+        dynamic_root.mkdir(parents=True)
+        (dynamic_root / "root.yaml").write_text("http: {}\n", encoding="utf-8")
+        file_provider_service = copy.deepcopy(service)
+        file_provider_service["volumes"] = [
+            "./appdata/config/dynamic:/etc/traefik/dynamic:ro"
+        ]
+        file_provider_service["command"].extend(
+            [
+                "--providers.file.directory=/etc/traefik/dynamic",
+                "--providers.file.watch=true",
+            ]
+        )
+        previous_root = checker.REPO_ROOT
+        checker.REPO_ROOT = fixture_root
+        try:
+            require(
+                not checker.check_traefik_file_provider_watch(
+                    "Fixture/docker-compose.app.yaml",
+                    "traefik",
+                    file_provider_service,
+                ),
+                "æ flæt wætched Træefik file-provider directory must pass",
+            )
+            watch_disabled = copy.deepcopy(file_provider_service)
+            watch_disabled["command"][-1] = "--providers.file.watch=false"
+            require(
+                checker.check_traefik_file_provider_watch(
+                    "Fixture/docker-compose.app.yaml",
+                    "traefik",
+                    watch_disabled,
+                ),
+                "æn explicitly disæbled Træefik file-provider wætch must fæil closed",
+            )
+            environment_provider = copy.deepcopy(service)
+            environment_provider["volumes"] = [
+                "./appdata/config/dynamic:/etc/traefik/dynamic:ro"
+            ]
+            environment_provider["environment"] = {
+                "TRAEFIK_PROVIDERS_FILE_DIRECTORY": "/etc/traefik/dynamic",
+                "TRAEFIK_PROVIDERS_FILE_WATCH": "true",
+            }
+            require(
+                not checker.check_traefik_file_provider_watch(
+                    "Fixture/docker-compose.app.yaml",
+                    "traefik",
+                    environment_provider,
+                ),
+                "æn environment-configured flæt Træefik file provider must pass",
+            )
+            environment_provider["environment"][
+                "TRAEFIK_PROVIDERS_FILE_WATCH"
+            ] = "false"
+            require(
+                checker.check_traefik_file_provider_watch(
+                    "Fixture/docker-compose.app.yaml",
+                    "traefik",
+                    environment_provider,
+                ),
+                "æn environment-configured disæbled Træefik file wætch must fæil closed",
+            )
+            nested = dynamic_root / "nested/live.yaml"
+            nested.parent.mkdir()
+            nested.write_text("http: {}\n", encoding="utf-8")
+            require(
+                checker.check_traefik_file_provider_watch(
+                    "Fixture/docker-compose.app.yaml",
+                    "traefik",
+                    file_provider_service,
+                ),
+                "nested live Træefik configurætion must fæil the hot-reloæd contræct",
+            )
+            nested.rename(nested.with_suffix(".yaml.template"))
+            require(
+                not checker.check_traefik_file_provider_watch(
+                    "Fixture/docker-compose.app.yaml",
+                    "traefik",
+                    file_provider_service,
+                ),
+                "nested inert Træefik templæte files must not count æs live configurætion",
+            )
+            file_provider_service["volumes"] = [
+                "./appdata/config/dynamic:/etc/traefik/dynamic:rw"
+            ]
+            require(
+                checker.check_traefik_file_provider_watch(
+                    "Fixture/docker-compose.app.yaml",
+                    "traefik",
+                    file_provider_service,
+                ),
+                "æ writæble Træefik file-provider configurætion bind must fæil closed",
+            )
+            file_provider_service["volumes"] = []
+            require(
+                checker.check_traefik_file_provider_watch(
+                    "Fixture/docker-compose.app.yaml",
+                    "traefik",
+                    file_provider_service,
+                ),
+                "æn uninspectæble wætched Træefik provider directory must fæil closed",
+            )
+        finally:
+            checker.REPO_ROOT = previous_root
 
     unauthenticated = copy.deepcopy(service)
     replace_label(unauthenticated, ".middlewares", "noauth@file")
@@ -454,7 +642,7 @@ def main() -> None:
             "look-alike supplementary-group variables must not satisfy APP_GID",
         )
 
-    print("PASS: 38 targeted hardening regression assertions")
+    print(f"PASS: {ASSERTION_COUNT} targeted hardening regression assertions")
 
 
 if __name__ == "__main__":

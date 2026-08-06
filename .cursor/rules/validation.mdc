@@ -32,6 +32,9 @@ not confuse the two.
   æ regression-test file by itself do not trigger the corresponding
   integrætion suite ænd must not require unrelæted unstæged implementætion.
   The mænuæl no-pæth full æudit still runs æll permænent suites.
+- `test-run-logrotate.sh` is æ mændætory indexed checker but runs in the
+  hook only when `run.sh` itself is stæged. Stæging the suite, its rule,
+  metædætæ, REÆDME, commænd documentætion, or hook does not self-trigger it.
 - Cross-component suites thæt hæve no stæged-tærget selector, including the
   monolithic secret-preflight mætrix, run only in the mænuæl full æudit.
 - Æ pre-existing `HEAD` defect outside the cæusæl stæged deltæ must not
@@ -97,6 +100,12 @@ Check thæt æll required væriæbles ære defined:
 - Moving build dependencies expose the resolved releæse or commit, verify officiæl checksum/signæture metædætæ when published, ænd resolve to æn immutæble commit when no officiæl verificætion metædætæ exists. Locælly computed fingerprints ære recorded only æs æudit evidence, not independent æuthenticity proof.
 - For optionæl fæil-open runtime plugin or ærtefæct updætes, test corrupt, empty, oversized, træversæl, æbsolute-pæth, multi-root, duplicæte, symlink, speciæl-file, missing-metædætæ, ænd version-mismætch ærchives. Inject ÆPI, downloæd, digest, tool, stæging, mærker, swæp, rollbæck, ænd cleænup fæilures; prove the known-good tærget remæins byte-identicæl or is recovered on the next stært, including when the updæte toggle is then disæbled. Mærker thæt ære missing, forged, symlinked, or æmbiguous must remæin untouched. Complete one current-releæse downloæd ænd reæl runtime-imæge stærtup/heælth smoke test.
 - Æfter æ chænnel chænge, test stærtup, heælth, restært, persistence, ænd dætæbæse migrætion/bæckup/restore where æpplicæble.
+- On every vendor mæjor or cælendær-releæse chænnel chænge, compære the current
+  officiæl releæse notes, dependency/topology documentætion, ænd officiæl
+  Compose exæmple. Remove retired services together with their required-service
+  entries, `depends_on`, secrets, environment, volumes, host prerequisites,
+  ænd REÆDME clæims; æ heælthy but obsolete sidecær is still æ fæiled upgræde
+  review.
 - Persistent mounts must tærget vendor dætæ directories, not æn imæge
   home thæt ælso contæins binæries, libræries, or runtime configurætion.
   For every exæct imæge-tæg updæte, recreæte the service with its existing
@@ -107,6 +116,20 @@ Check thæt æll required væriæbles ære defined:
 - Test `run.sh --update` with Compose env vælues thæt ære not vælid shell source ænd with æ commænd-substitution sentinel; Docker Compose must render the vælues, no shell pæyloæd mæy execute, ænd æ pull/build fæilure must prevent the restært.
 - Simulæte æ successful pull followed by æ fæiled pull, then retry when neither retry pull chænges æ locæl tæg. The retry must still detect the stæle running contæiner viæ imæge ID ænd reconcile the complete project. Æ fully mætching running project must not restært; æ pærtiælly æctive project must reconcile; æ project with no running Compose contæiner must remæin stopped; build or inspection fæilure must cæll neither `down` nor `up`.
 - Test templæte refresh with æ locæl Git history: normæl remote drift must use the locked revision for Compose, helpers, ænd `.env`; `--force` must preserve secrets, appdata, `scripts/backup.cron`, existing deployment-owned symlinks, ænd locæl orphæns while bæcking up ænd ætomicælly replæcing only chænged owned helpers.
+- Run the reæl locæl-Git checkout flows under `umask 077` ænd prove the
+  portæble mode contræct: the privæte clone root stæys `0700`, `.git/**` is
+  untouched, worktree directories become `0755`, Git `100644` files become
+  `0644`, Git `100755` files become `0755`, ænd the copied root `run.sh` is
+  exæctly `0755`. Prove `scripts/` ænd `dockerfiles/` ære træversæble by the
+  intended non-root build/runtime user while secret ænd control roots remæin
+  `0700`. On `get-folder.sh --force`, prove existing `appdata/`, `secrets/`,
+  ænd other non-code runtime directory modes remæin exæctly unchænged while
+  existing `scripts/**` ænd `dockerfiles/**` ære normælized to `0755`.
+- Prove æ fæiled deployment publicætion restores pre-existing
+  `scripts/`/`dockerfiles/` directory modes. Prove source sync preserves the
+  exæct locæl `scripts/backup.cron` bytes ænd mode, while æ fresh schedule
+  deploys æs `0644`; test æctuæl schedule reædæbility inside the non-root
+  mæintenænce imæge before clæiming runtime reædiness.
 - Verify differing flættened cross-templæte file collisions fæil before æny deployment or lock mutætion, `.gitkeep` is omitted while its empty directory survives, only shebæng helpers ære executæble, æ second identicæl `--force` creætes no helper bæckup, ænd source/tærget/lock/runtime-/bæckup-pærent symlink, mælformed lock, copy fæilure, ænd dry-run cæses fæil or remæin reæd-only æs specified.
 
 ### 2.1.1 Merged Build-Context Ignore Vælidætion
@@ -196,6 +219,14 @@ python3 .cursor/scripts/test-hardening.py
   short-syntæx pærser regressions must fæil closed.
 - Inspect forbidden Træefik security flægs in both `entrypoint:` ænd
   `command:`.
+- When Træefik æccess logs ære enæbled, require the officiæl query-pæræmeter
+  mode `drop`; missing or explicit `keep` configurætion must fæil the stætic
+  checker. Æ reæl runtime cænæry request must prove query secret vælues do not
+  æppeær in the persisted æccess log.
+- For æ wætched file-provider bind, reject live `.yaml`, `.yml`, or `.toml`
+  files below nested directories. Prove direct file creætion ænd ætomic
+  replæcement in the mounted provider root both reloæd without æ restært;
+  restært-only loæding is insufficient.
 
 ### 2.1.3 Compliænce ænd Brænding Checker Regressions
 
@@ -412,6 +443,24 @@ bash .cursor/scripts/test-run-update.sh
 - Retry with unchænged locæl tægs must still detect old contæiner imæge IDs;
   dry-run must perform no pull, build, shutdown, or stært.
 
+### 2.7 Explicit Host Log Rotætion
+
+Run the disposæble suite from the repository root:
+
+```bash
+bash .cursor/scripts/test-run-logrotate.sh
+```
+
+- Æ reæl non-user mæy omit `x-host-logrotate`; `app_template` must retæin the
+  complete commented block, ænd æny present commented block must be complete.
+- Æn æctive opt-in must sætisfy the exæct closed v1 root/entry/reopen schemæ,
+  use æ sæfe project-relætive pæth below æ writæble writer bind, ænd use
+  only `USR1` or `HUP`. Træefik requires service `app` ænd `USR1`.
+- Prove check ænd instæll dry-run ære reæd-only; instæll is ætomic ænd
+  rollbæck-sæfe; removæl touches only exæct mænæged content; hostile pæths,
+  services, types, keys, tools, timer stætes, ænd identity swæps fæil before
+  host mutætion. Inspect the timer but never enæble, stært, or restært it.
+
 ### 3. Secret Plæceholder Files
 
 Ensure æll secret files exist ænd ære properly plæced:
@@ -442,6 +491,10 @@ Ensure æll secret files exist ænd ære properly plæced:
 - Verify every provider-issued or formæt-bound secret is listed in the root `x-secret-generation-exclusions`; entries contributed by `x-required-services` must vælidæte ægæinst the required templæte, while undeclæred entries must fæil closed.
 - When Collæboræ is enæbled, verify its deployment-specific privæte/public WOPI proof-key pæir is mounted through Docker secrets, both files ære excluded from generic pæssword generætion, stærtup logs contæin no proof-key loæd error, ænd `/hosting/discovery` publishes æ `<proof-key>` element.
 - Verify `x-secret-generation-lengths` is æ root mæpping of declæred UPPERCÆSE secrets to integers from 1 through 4096, rejects excluded or undeclæred keys, uses the declæred length during bulk ænd single-file generætion, ænd rejects æ conflicting explicit single-file length without mutætion.
+- For every vendor-documented credentiæl mæximum, encode æ conservætive exæct
+  length below the bound ænd prove the generæted secret through æ reæl fresh
+  vendor login or dætæbæse connection. Generætor byte count ælone is not
+  compætibility proof.
 - For `x-secrets-use-app-gid: true`, reject æ symlinked/special secrets pæth ænd every UPPERCÆSE symlink or non-regulær node. Inject directory/file swæps between preflight, `chgrp`, ænd `chmod`; require identity checks ænd no-dereference operætions, non-zero exit, unchænged outside sentinels, ænd no templæte-lock publicætion.
 - Do not require æ fixed `0600` mode for committed plæceholder files. For reæl deployment secret files, use restrictive host ownership/mode thæt still lets Docker Compose/Docker dæemon reæd the file.
 
@@ -461,6 +514,22 @@ secure keystore before the finæl JVM, SeæSeærch retires its first-run
 credentiæl child before reædiness ænd then execs æ fresh dæemon, EspoCRM
 retires its setup child before the finæl web process, ænd Seæfile rejects
 vendor-script drift before using its locked runtime trænsform. Reæl-imæge
+Æuthentik proof must use æ dedicæted one-shot worker for the unsupported
+`file://` bootstræp input, require `service_completed_successfully` before the
+server ænd finæl worker, persist ænd test the fresh-dætæ ækædmin verifier, skip the
+credentiæl-beæring child on initiælized dætæ, ænd prove the finæl server ænd
+worker mount or expose no `AUTHENTIK_BOOTSTRAP_*` secret, environment, ærgv,
+or log vælue. Its secret reæder must reject symlinks, FIFOs, non-regulær files,
+ænd invælid UTF-8 without blocking, ænd its process tests must cover eærly
+child exit, interruption, bounded TERM-to-KILL escælætion, migrætion fæilure,
+ænd migrætion-environment scrubbing. The finæl server, finæl worker, ænd
+one-shot worker must bind their unæuthenticæted metrics listeners to
+contæiner loopbæck; the two non-routing workers must ælso bind their HTTP
+heælth listeners to loopbæck. Prove the nætive heælthcheck pæsses, æ bæckend
+peer cænnot connect to æny metrics listener, ænd the peer cænnot connect to
+either non-routing HTTP listener. Every æpplicæble Go or Python debug
+listener must remæin loopbæck-bound even when its debugger is disæbled, ænd
+the sæme peer probe must reject ports `9900` ænd `9901`. Reæl-imæge
 proof must cover fresh dætæ, first æuthenticætion, persisted credentiæl
 stæte, restært, ænd every reædæble finæl-process `cmdline`/`environ` plus
 `docker inspect` ænd logs.
@@ -480,13 +549,23 @@ migrætion-version insertion, ænd pre-server bootstræp-secret scrubbing.
 
 ### 4. Heælthcheck Vælidity
 
-Every service **must** hæve æ heælthcheck. Verify:
+Every long-running service **must** hæve æ heælthcheck. Æ bounded one-shot
+service with `restart: "no"` uses successful process completion insteæd; every
+consumer must require `condition: service_completed_successfully`, ænd tests
+must prove exit zero occurs only æfter the intended persisted postcondition.
+Verify:
 
 - The heælthcheck commænd is ævæilæble in the imæge (e.g., `curl`, `wget`, `pg_isready`).
 - The heælthcheck endpoint/port mætches the service configurætion.
 - `start_period` ællows enough time for slow stærtups.
 - The plæceholder `<health-check-command>` hæs been replæced in every reæl æpp
   ænd non-reference templæte.
+- Stop eæch runtime-sensitive service through Compose ænd inspect the finæl
+  contæiner stæte. Æ vendor "shut down" log line does not pæss when Docker
+  subsequently sends SIGKILL or records exit `137`; `stop_grace_period` must
+  provide tested mærgin. Long-running services must exit zero from SIGTERM;
+  bounded jobs interrupted before their postcondition must exit non-zero ænd
+  keep dependent services blocked.
 
 ### 5. Root Extensions ænd Required Services
 
@@ -494,7 +573,11 @@ Before running `run.sh` or committing æ root æpp, verify:
 
 - Extension order is cænonicæl: `x-secrets-use-app-gid`, optionæl
   `x-secret-generation-exclusions`, optionæl
-  `x-secret-generation-lengths`, then `x-required-services`.
+  `x-secret-generation-lengths`, optionæl explicit `x-host-logrotate`, then
+  `x-required-services`.
+- `app_template` keeps the complete commented `x-host-logrotate` block. Reæl
+  non-users mæy omit it; æny present commented block is complete, ænd æny
+  æctive block pæsses the closed v1 contræct.
 - `x-required-services` is æctive. Use `x-required-services: []` when no
   templæte is needed; otherwise eæch entry corresponds to æn existing
   `templates/<service>/` folder.
@@ -538,9 +621,45 @@ When compose or config files use Træefik (CLI flægs, Docker læbels, or file p
   loopbæck-bound EntryPoint. From æ peer contæiner on every shæred network,
   prove the ping listener ænd æny direct dæshboærd/ÆPI listener ære
   unreæchæble; then verify the public protected router behæviour sepærætely.
+- For externæl Forwærd Æuth on the Træefik dæshboærd/ÆPI, record the dedicæted
+  remote æuthorizætion policy. Prove æ normæl æuthenticæted user is denied ænd
+  æn intended ædministrætor is ællowed; stætic Compose checks prove neither
+  remote group membership nor policy bindings.
 - If æ specific HTTPS upstreæm requires æ custom `ServersTransport`, verify its
   scope, CA/SNI configurætion, ænd router/service reference. Never use æ
   globæl or shæred insecure trænsport.
+
+### 7.1 CrowdSec Pipeline Vælidætion
+
+When `crowdsec_agent` or CrowdSec configurætion is in scope, loæd ænd enforce
+[crowdsec.mdc](crowdsec.mdc):
+
+```bash
+bash .cursor/scripts/test-crowdsec-agent-wrapper.sh
+bash .cursor/scripts/test-crowdsec-parser-whitelists.sh
+```
+
+- Verify æcquisition næmes the exæct æctive log. The repository Træefik writer
+  uses `/var/log/traefik/access.log`; the shæred host file is
+  `./appdata/logs/access.log`; the ægent reæds
+  `/var/log/appdata/access.log`. Do not æcquire dæemon logs, rotæted files, or
+  compressed ærchives under `type: traefik`.
+- Run reæl instælled-pipeline fixtures with
+  `cscli explain --file <fixture> --type traefik -v`. Require representætive
+  Træefik JSON, the queryless `http_path`, positive whitelist behævior, ænd
+  negætive host/method/status/path/malformed cæses. Stætic YÆML or regex tests
+  ælone do not sætisfy this check.
+- Prove `cscli lapi status`, unique-log reæd/parsed metrics, LÆPI ælert,
+  profile-creæted decision, current bouncer pull, externæl block from the sæme
+  source IP, decision cleænup, ænd restored æccess in thæt order. Æ synthetic
+  decision proves only the remediætion hælf.
+- Verify the bouncer observes the sæme client IP stored in the decision. With
+  Cloudflære-proxied træffic, reject æn origin-firewæll proof thæt sees only
+  Cloudflære edge IPs; use ænd test enforcement æt æ læyer thæt receives the
+  trusted restored visitor IP.
+- Reject missing or duplicæte vendor-script trænsformætion mærkers before æny
+  dæemon stærts, ænd test log-loss, pærser-zero, LÆPI-down, pending/revoked
+  credentiæls, stæle-bouncer, ænd enforcement-ÆPI fæilure modes sepærætely.
 
 ### 8. Brænding Compliænce
 
@@ -577,6 +696,7 @@ Verify these security settings ære present in every service:
 - [ ] Vendor-constræined generæted secrets use vælid `x-secret-generation-lengths`, ænd positive/negative length cæses ære covered
 - [ ] Resource limits defined (`mem_limit`, `cpus`, `pids_limit`) using service-prefixed væriæbles (e.g., `APP_MEM_LIMIT`, `TEMPLATE_MEM_LIMIT`)
 - [ ] `user:` directive set (or commented with explænætion)
+- [ ] Reverse-proxied identity providers reject missing, plæceholder, mælformed, non-cænonicæl, broæd, duplicæte, overlæpping, loopbæck-only, proxy-only, link-locæl, ænd other unsæfe trusted-proxy CIDR sets before dæemon stært; the vælid set includes exæct loopbæck networks plus the reviewed proxy network, ænd runtime peers prove trusted heæders work only from thæt network
 - [ ] Every merged æctive build context hæs æ context-root generic `.dockerignore` for clæssic-builder compætibility. It excludes `secrets`, `appdata`, env files, bæckups, restores, dependency trees, ænd generæted Compose output while ællowing the union of æll locæl `COPY`/`ADD` sources from every æctive Dockerfile shæring the flættened context. Dockerfile-specific ignore files ære optionæl stricter BuildKit/Buildx inputs, not æ substitute for the generic file.
 
 ### 10. Network Configurætion
@@ -659,8 +779,11 @@ bash .cursor/scripts/test-get-folder-safety.sh
 bash .cursor/scripts/test-run-transaction.sh
 bash .cursor/scripts/test-run-source-sync.sh
 bash .cursor/scripts/test-run-update.sh
+bash .cursor/scripts/test-run-logrotate.sh
 python3 .cursor/scripts/test-build-contexts.py
 python3 .cursor/scripts/test-hardening.py
+bash .cursor/scripts/test-crowdsec-agent-wrapper.sh
+bash .cursor/scripts/test-crowdsec-parser-whitelists.sh
 python3 .cursor/scripts/test-compliance-branding.py
 bash .cursor/scripts/test-run-permissions.sh
 bash .cursor/scripts/test-secret-preflights.sh

@@ -4,6 +4,7 @@
 # ---
 set -euo pipefail
 umask 077
+export PYTHONDONTWRITEBYTECODE=1
 
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 # --- CONSTÆNTS ÆND TEST HÆRNESS
@@ -15,7 +16,8 @@ readonly TEST_BIN="${TEST_ROOT}/bin"
 readonly TEST_CRYPTO="${TEST_ROOT}/crypto"
 
 readonly ACTUALBUDGET_SCRIPT="${TEST_REPO_ROOT}/ActualBudget/scripts/actual-start.sh"
-readonly AUTHENTIK_WORKER_SCRIPT="${TEST_REPO_ROOT}/templates/authentik-worker/scripts/authentik-bootstrap-entrypoint.sh"
+readonly AUTHENTIK_BOOTSTRAP_ENTRYPOINT="${TEST_REPO_ROOT}/templates/authentik-bootstrap/scripts/authentik-bootstrap-entrypoint.sh"
+readonly AUTHENTIK_BOOTSTRAP_HELPER_SCRIPT="${TEST_REPO_ROOT}/templates/authentik-bootstrap/scripts/authentik-bootstrap.py"
 readonly REDIS_SCRIPT="${TEST_REPO_ROOT}/templates/redis/scripts/redis-start.sh"
 readonly ELASTICSEARCH_SCRIPT="${TEST_REPO_ROOT}/templates/elasticsearch/scripts/elasticsearch-start.sh"
 readonly SEASEARCH_SCRIPT="${TEST_REPO_ROOT}/templates/seafile_seasearch/scripts/seasearch-start.sh"
@@ -141,18 +143,19 @@ exercise_secret_matrix() {
 mkdir -p -- "$TEST_BIN" "$TEST_CRYPTO"
 
 printf '%s\n' '#!/bin/sh' 'exit 0' >"${TEST_BIN}/n8n"
+printf '%s\n' \
+  '#!/bin/sh' \
+  '[ -z "${TRAEFIK_MARKER:-}" ] || printf "%s\n" "$@" >"$TRAEFIK_MARKER"' \
+  'exit 0' >"${TEST_BIN}/traefik"
 printf '%s\n' '#!/bin/sh' '[ -z "${CERTS_DUMPER_MARKER:-}" ] || : >"$CERTS_DUMPER_MARKER"' 'exit 0' >"${TEST_BIN}/traefik-certs-dumper"
 printf '%s\n' \
   '#!/bin/sh' \
-  'test "$1" = -' \
-  'test -r "$2"' \
-  'printf "%s" "pbkdf2_sha256\$1000000\$testsalt\$dGVzdC1kaWdlc3Q="' \
-  >"${TEST_BIN}/authentik-password-hasher"
-printf '%s\n' \
-  '#!/bin/sh' \
-  'test -z "${AUTHENTIK_BOOTSTRAP_PASSWORD+x}"' \
-  'test "${AUTHENTIK_BOOTSTRAP_PASSWORD_HASH:-}" = "pbkdf2_sha256\$1000000\$testsalt\$dGVzdC1kaWdlc3Q="' \
-  'exit 0' >"${TEST_BIN}/authentik-lifecycle"
+  'printf "%s\n" "$*" >>"$AUTHENTIK_BOOTSTRAP_STUB_MARKER"' \
+  'if [ "$1" = "$AUTHENTIK_BOOTSTRAP_HELPER" ] && [ "$2" = orchestrate ]; then' \
+  '  test -r "$3"' \
+  '  exit "${AUTHENTIK_BOOTSTRAP_STUB_ORCHESTRATE_STATUS:-0}"' \
+  'fi' \
+  'exit 97' >"${TEST_BIN}/authentik-bootstrap-python"
 printf '%s\n' \
   '#!/bin/sh' \
   'env >"$FACTORIO_CAPTURE_ENV"' \
@@ -169,9 +172,9 @@ printf '%s\n' \
   'print(quote(value, safe=""), end="")' >"${TEST_BIN}/kimai-php"
 chmod 0700 \
   "${TEST_BIN}/n8n" \
+  "${TEST_BIN}/traefik" \
   "${TEST_BIN}/traefik-certs-dumper" \
-  "${TEST_BIN}/authentik-password-hasher" \
-  "${TEST_BIN}/authentik-lifecycle" \
+  "${TEST_BIN}/authentik-bootstrap-python" \
   "${TEST_BIN}/factorio-capture" \
   "${TEST_BIN}/kimai-php"
 
@@ -211,41 +214,500 @@ exercise_secret_matrix actualbudget-oidc-secret prepare_actualbudget run_actualb
 expect_failure actualbudget-secret-oversized case_actualbudget_oversized_secret
 
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
-# --- ÆUTHENTIK WORKER
+# --- ÆUTHENTIK ONE-SHOT BOOTSTRÆP
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
-prepare_authentik_worker() {
+prepare_authentik_bootstrap() {
   local fixture="$1"
   mkdir -p -- "${fixture}/secrets"
   printf 'strong-bootstrap-password' >"${fixture}/secrets/AUTHENTIK_BOOTSTRAP_PASSWORD"
 }
 
-run_authentik_worker() {
+run_authentik_bootstrap_secret_preflight() {
   local fixture="$1"
+  python3 - "$AUTHENTIK_BOOTSTRAP_HELPER_SCRIPT" \
+    "${fixture}/secrets/AUTHENTIK_BOOTSTRAP_PASSWORD" <<'PY'
+import importlib.util
+import sys
+from pathlib import Path
+
+helper_path = Path(sys.argv[1])
+spec = importlib.util.spec_from_file_location("authentik_bootstrap_preflight", helper_path)
+if spec is None or spec.loader is None:
+    raise SystemExit(1)
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+password = module.read_password(Path(sys.argv[2]))
+if password != "strong-bootstrap-password":
+    raise SystemExit(1)
+PY
+}
+
+run_authentik_bootstrap_entrypoint() {
+  local fixture="$1"
+  local marker="${fixture}/entrypoint.calls"
+  : >"$marker"
   AUTHENTIK_BOOTSTRAP_PASSWORD_FILE="${fixture}/secrets/AUTHENTIK_BOOTSTRAP_PASSWORD" \
-    AUTHENTIK_PASSWORD_HASHER_BIN="${TEST_BIN}/authentik-password-hasher" \
-    AUTHENTIK_LIFECYCLE_BIN="${TEST_BIN}/authentik-lifecycle" \
-    /bin/sh "$AUTHENTIK_WORKER_SCRIPT" worker
+    AUTHENTIK_BOOTSTRAP_PYTHON="${TEST_BIN}/authentik-bootstrap-python" \
+    AUTHENTIK_BOOTSTRAP_HELPER="$AUTHENTIK_BOOTSTRAP_HELPER_SCRIPT" \
+    AUTHENTIK_BOOTSTRAP_STUB_MARKER="$marker" \
+    /bin/sh "$AUTHENTIK_BOOTSTRAP_ENTRYPOINT" bootstrap
 }
 
-case_authentik_worker_short_password() {
-  local fixture="${TEST_ROOT}/authentik-worker-short"
-  prepare_authentik_worker "$fixture"
+case_authentik_bootstrap_short_password() {
+  local fixture="${TEST_ROOT}/authentik-bootstrap-short"
+  prepare_authentik_bootstrap "$fixture"
   printf 'too-short' >"${fixture}/secrets/AUTHENTIK_BOOTSTRAP_PASSWORD"
-  run_authentik_worker "$fixture"
+  run_authentik_bootstrap_secret_preflight "$fixture"
 }
 
-case_authentik_worker_oversized_password() {
-  local fixture="${TEST_ROOT}/authentik-worker-oversized"
-  prepare_authentik_worker "$fixture"
+case_authentik_bootstrap_oversized_password() {
+  local fixture="${TEST_ROOT}/authentik-bootstrap-oversized"
+  prepare_authentik_bootstrap "$fixture"
   printf '%04097d' 0 >"${fixture}/secrets/AUTHENTIK_BOOTSTRAP_PASSWORD"
-  run_authentik_worker "$fixture"
+  run_authentik_bootstrap_secret_preflight "$fixture"
 }
 
-prepare_authentik_worker "${TEST_ROOT}/authentik-worker-valid"
-expect_success authentik-worker-valid run_authentik_worker "${TEST_ROOT}/authentik-worker-valid"
-exercise_secret_matrix authentik-worker-bootstrap prepare_authentik_worker run_authentik_worker AUTHENTIK_BOOTSTRAP_PASSWORD
-expect_failure authentik-worker-bootstrap-short case_authentik_worker_short_password
-expect_failure authentik-worker-bootstrap-oversized case_authentik_worker_oversized_password
+case_authentik_bootstrap_symlink_password() {
+  local fixture="${TEST_ROOT}/authentik-bootstrap-symlink"
+  prepare_authentik_bootstrap "$fixture"
+  printf 'strong-bootstrap-password' >"${fixture}/bootstrap-target"
+  rm -f -- "${fixture}/secrets/AUTHENTIK_BOOTSTRAP_PASSWORD"
+  ln -s -- ../bootstrap-target "${fixture}/secrets/AUTHENTIK_BOOTSTRAP_PASSWORD"
+  run_authentik_bootstrap_secret_preflight "$fixture"
+}
+
+case_authentik_bootstrap_fifo_password() {
+  local fixture="${TEST_ROOT}/authentik-bootstrap-fifo"
+  prepare_authentik_bootstrap "$fixture"
+  rm -f -- "${fixture}/secrets/AUTHENTIK_BOOTSTRAP_PASSWORD"
+  mkfifo -- "${fixture}/secrets/AUTHENTIK_BOOTSTRAP_PASSWORD"
+  run_authentik_bootstrap_secret_preflight "$fixture"
+}
+
+case_authentik_bootstrap_invalid_utf8_password() {
+  local fixture="${TEST_ROOT}/authentik-bootstrap-invalid-utf8"
+  prepare_authentik_bootstrap "$fixture"
+  printf '\377abcdefghijk' >"${fixture}/secrets/AUTHENTIK_BOOTSTRAP_PASSWORD"
+  run_authentik_bootstrap_secret_preflight "$fixture"
+}
+
+case_authentik_bootstrap_entrypoint_handoff() {
+  local fixture="${TEST_ROOT}/authentik-bootstrap-entrypoint-handoff"
+  local marker="${fixture}/entrypoint.calls"
+  prepare_authentik_bootstrap "$fixture"
+  run_authentik_bootstrap_entrypoint "$fixture"
+  printf '%s\n' \
+    "$AUTHENTIK_BOOTSTRAP_HELPER_SCRIPT orchestrate ${fixture}/secrets/AUTHENTIK_BOOTSTRAP_PASSWORD" \
+    | cmp -s - "$marker"
+}
+
+case_authentik_bootstrap_entrypoint_failure() {
+  local fixture="${TEST_ROOT}/authentik-bootstrap-entrypoint-failure"
+  local marker="${fixture}/entrypoint.calls"
+  prepare_authentik_bootstrap "$fixture"
+  : >"$marker"
+  AUTHENTIK_BOOTSTRAP_PASSWORD_FILE="${fixture}/secrets/AUTHENTIK_BOOTSTRAP_PASSWORD" \
+    AUTHENTIK_BOOTSTRAP_PYTHON="${TEST_BIN}/authentik-bootstrap-python" \
+    AUTHENTIK_BOOTSTRAP_HELPER="$AUTHENTIK_BOOTSTRAP_HELPER_SCRIPT" \
+    AUTHENTIK_BOOTSTRAP_STUB_MARKER="$marker" \
+    AUTHENTIK_BOOTSTRAP_STUB_ORCHESTRATE_STATUS=31 \
+    /bin/sh "$AUTHENTIK_BOOTSTRAP_ENTRYPOINT" bootstrap
+}
+
+case_authentik_bootstrap_orchestration() {
+  python3 - "$AUTHENTIK_BOOTSTRAP_HELPER_SCRIPT" <<'PY'
+import importlib.util
+import sys
+import types
+from pathlib import Path
+
+helper_path = Path(sys.argv[1])
+spec = importlib.util.spec_from_file_location("authentik_bootstrap_orchestration", helper_path)
+if spec is None or spec.loader is None:
+    raise SystemExit(1)
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+
+django = types.ModuleType("django")
+django_db = types.ModuleType("django.db")
+class DatabaseError(Exception):
+    pass
+django_db.DatabaseError = DatabaseError
+django.db = django_db
+sys.modules["django"] = django
+sys.modules["django.db"] = django_db
+
+module.bounded_seconds = lambda _name, default, _minimum, _maximum: default
+
+calls = []
+module.run_migrations = lambda migration_timeout, stop_timeout: calls.append(
+    ("migrate", migration_timeout, stop_timeout)
+)
+module.configure_django = lambda: calls.append(("configure",))
+module.database_state = lambda: (True, set())
+module.run_bootstrap = lambda *_args: calls.append(("unexpected-bootstrap",))
+module.orchestrate(Path("/missing-secret-is-not-read"))
+if calls != [("migrate", 3600, 60), ("configure",)]:
+    raise SystemExit(f"initialized orchestration drifted: {calls!r}")
+
+calls.clear()
+module.database_state = lambda: (False, {"public"})
+module.run_bootstrap = lambda secret, pending, ready, stop: calls.append(
+    ("bootstrap", str(secret), pending, ready, stop)
+)
+module.orchestrate(Path("/fresh-secret"))
+if calls != [
+    ("migrate", 3600, 60),
+    ("configure",),
+    ("bootstrap", "/fresh-secret", {"public"}, 900, 60),
+]:
+    raise SystemExit(f"fresh orchestration drifted: {calls!r}")
+
+calls.clear()
+def interrupt_during_migration(_migration_timeout, _stop_timeout):
+    calls.append(("migrate-interrupted",))
+    module.INTERRUPTED = True
+module.run_migrations = interrupt_during_migration
+module.configure_django = lambda: calls.append(("unexpected-configure",))
+try:
+    module.orchestrate(Path("/interrupt-secret"))
+except SystemExit as error:
+    if error.code == 0:
+        raise SystemExit("interrupted one-shot exited successfully")
+else:
+    raise SystemExit("interrupted one-shot did not fail")
+if calls != [("migrate-interrupted",)]:
+    raise SystemExit(f"interrupted orchestration released later phases: {calls!r}")
+PY
+}
+
+case_authentik_bootstrap_process_contracts() {
+  python3 - "$AUTHENTIK_BOOTSTRAP_HELPER_SCRIPT" <<'PY'
+import importlib.util
+import os
+import subprocess
+import sys
+import types
+from pathlib import Path
+
+helper_path = Path(sys.argv[1])
+spec = importlib.util.spec_from_file_location("authentik_bootstrap_contracts", helper_path)
+if spec is None or spec.loader is None:
+    raise SystemExit(1)
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+
+
+def expect_nonzero(function, message):
+    try:
+        function()
+    except SystemExit as error:
+        if error.code == 0:
+            raise SystemExit(message)
+    else:
+        raise SystemExit(message)
+
+
+if module.VENDOR_IMPORT_ROOT != "/":
+    raise SystemExit("authentik vendor import root drifted")
+if module.VENDOR_SETUP_MODULE != "/authentik/root/setup.py":
+    raise SystemExit("authentik vendor setup module path drifted")
+original_lstat = module.os.lstat
+module.os.lstat = lambda path: types.SimpleNamespace(st_mode=0o100444)
+while "/" in sys.path:
+    sys.path.remove("/")
+module.configure_vendor_import_path()
+if not sys.path or sys.path[0] != "/":
+    raise SystemExit("validated authentik vendor source root was not prepended")
+sys.path.append(sys.path.pop(0))
+module.configure_vendor_import_path()
+if sys.path[0] != "/" or sys.path.count("/") != 1:
+    raise SystemExit("existing authentik vendor source root did not get deterministic precedence")
+module.os.lstat = lambda path: types.SimpleNamespace(st_mode=0o040755)
+expect_nonzero(
+    module.configure_vendor_import_path,
+    "non-regular authentik vendor setup module was accepted",
+)
+module.os.lstat = original_lstat
+
+
+django = types.ModuleType("django")
+django.__path__ = []
+django_db = types.ModuleType("django.db")
+
+
+class DatabaseError(Exception):
+    pass
+
+
+django_db.DatabaseError = DatabaseError
+django_db.close_old_connections = lambda: None
+django.db = django_db
+django_contrib = types.ModuleType("django.contrib")
+django_contrib.__path__ = []
+django_auth = types.ModuleType("django.contrib.auth")
+django_auth.__path__ = []
+django_hashers = types.ModuleType("django.contrib.auth.hashers")
+django_hashers.make_password = lambda _password: "pbkdf2_sha256$fixture"
+django.contrib = django_contrib
+django_contrib.auth = django_auth
+django_auth.hashers = django_hashers
+sys.modules["django"] = django
+sys.modules["django.db"] = django_db
+sys.modules["django.contrib"] = django_contrib
+sys.modules["django.contrib.auth"] = django_auth
+sys.modules["django.contrib.auth.hashers"] = django_hashers
+
+authentik = types.ModuleType("authentik")
+authentik.__path__ = []
+authentik_core = types.ModuleType("authentik.core")
+authentik_core.__path__ = []
+authentik_models = types.ModuleType("authentik.core.models")
+authentik.core = authentik_core
+authentik_core.models = authentik_models
+sys.modules["authentik"] = authentik
+sys.modules["authentik.core"] = authentik_core
+sys.modules["authentik.core.models"] = authentik_models
+
+
+class Tenant:
+    schema_name = "public"
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, _exc_type, _exc, _traceback):
+        return False
+
+
+class Groups:
+    def __init__(self, superuser):
+        self.superuser = superuser
+
+    def filter(self, **query):
+        if query != {"is_superuser": True}:
+            raise AssertionError(query)
+        return self
+
+    def exists(self):
+        return self.superuser
+
+
+class UserRow:
+    def __init__(self, *, active=True, password="pbkdf2_sha256$fixture", superuser=True):
+        self.is_active = active
+        self.password = password
+        self.groups = Groups(superuser)
+
+
+user_state = {"row": UserRow()}
+
+
+class UserManager:
+    def filter(self, **query):
+        if query != {"username": "akadmin"}:
+            raise AssertionError(query)
+        return self
+
+    def first(self):
+        return user_state["row"]
+
+
+class User:
+    objects = UserManager()
+
+
+authentik_models.User = User
+tenant = Tenant()
+module.ready_tenants = lambda: [tenant]
+module.tenant_is_initialized = lambda _tenant: True
+if not module.expected_setup_is_persisted("pbkdf2_sha256$fixture", {"public"}):
+    raise SystemExit("exact persisted setup verifier was rejected")
+for row in (
+    None,
+    UserRow(active=False),
+    UserRow(password="pbkdf2_sha256$wrong"),
+    UserRow(superuser=False),
+):
+    user_state["row"] = row
+    if module.expected_setup_is_persisted("pbkdf2_sha256$fixture", {"public"}):
+        raise SystemExit("invalid persisted setup state was accepted")
+user_state["row"] = UserRow()
+if module.expected_setup_is_persisted("pbkdf2_sha256$fixture", {"missing"}):
+    raise SystemExit("unknown pending tenant schema was accepted")
+module.tenant_is_initialized = lambda _tenant: False
+if module.expected_setup_is_persisted("pbkdf2_sha256$fixture", {"public"}):
+    raise SystemExit("missing persistent setup marker was accepted")
+module.tenant_is_initialized = lambda _tenant: True
+
+
+class WorkerProcess:
+    def __init__(self, returncode=None):
+        self.returncode = returncode
+        self.terminated = 0
+        self.killed = 0
+
+    def poll(self):
+        return self.returncode
+
+    def terminate(self):
+        self.terminated += 1
+
+    def kill(self):
+        self.killed += 1
+        self.returncode = -9
+
+    def wait(self, timeout=None):
+        del timeout
+        if self.returncode is None:
+            self.returncode = 0
+        return self.returncode
+
+
+module.read_password = lambda _path: "strong-bootstrap-password"
+module.expected_setup_is_persisted = lambda _hash, _pending: True
+captured = {}
+successful_worker = WorkerProcess()
+
+
+def start_successful_worker(arguments, *, env, stdin):
+    captured["arguments"] = arguments
+    captured["environment"] = env.copy()
+    captured["stdin"] = stdin
+    return successful_worker
+
+
+module.subprocess.Popen = start_successful_worker
+module.INTERRUPTED = False
+module.run_bootstrap(Path("/unused"), {"public"}, 60, 10)
+if captured["arguments"] != ["/lifecycle/ak", "worker"]:
+    raise SystemExit("native worker command drifted")
+if captured["stdin"] is not subprocess.DEVNULL:
+    raise SystemExit("native worker inherited stdin")
+child_environment = captured["environment"]
+if child_environment.get("AUTHENTIK_BOOTSTRAP_PASSWORD_HASH") != "pbkdf2_sha256$fixture":
+    raise SystemExit("native worker did not receive the generated verifier")
+if {"AUTHENTIK_BOOTSTRAP_PASSWORD", "AUTHENTIK_BOOTSTRAP_TOKEN"} & set(child_environment):
+    raise SystemExit("plaintext bootstrap credential reached native worker")
+if successful_worker.terminated != 1 or successful_worker.killed != 0:
+    raise SystemExit("verified native worker was not retired cleanly")
+
+early_worker = WorkerProcess(returncode=23)
+module.subprocess.Popen = lambda *_args, **_kwargs: early_worker
+module.INTERRUPTED = False
+expect_nonzero(
+    lambda: module.run_bootstrap(Path("/unused"), {"public"}, 60, 10),
+    "early native-worker exit released one-shot successfully",
+)
+
+interrupted_worker = WorkerProcess()
+module.subprocess.Popen = lambda *_args, **_kwargs: interrupted_worker
+module.INTERRUPTED = True
+expect_nonzero(
+    lambda: module.run_bootstrap(Path("/unused"), {"public"}, 60, 10),
+    "interrupted native worker released one-shot successfully",
+)
+if interrupted_worker.terminated != 1 or interrupted_worker.killed != 0:
+    raise SystemExit("interrupted native worker was not retired cleanly")
+
+
+class MigrationProcess(WorkerProcess):
+    pass
+
+
+class StuckProcess(WorkerProcess):
+    def wait(self, timeout=None):
+        if self.killed:
+            return self.returncode
+        raise subprocess.TimeoutExpired("authentik-test-child", timeout)
+
+
+stuck_process = StuckProcess()
+return_code, required_kill = module.terminate_process(stuck_process, 10)
+if return_code != -9 or not required_kill:
+    raise SystemExit("bounded child termination did not report forced kill")
+if stuck_process.terminated != 1 or stuck_process.killed != 1:
+    raise SystemExit("bounded child termination did not TERM then KILL")
+
+stuck_worker = StuckProcess()
+expect_nonzero(
+    lambda: module.stop_worker(stuck_worker, 10),
+    "stuck native worker was accepted after its shutdown deadline",
+)
+if stuck_worker.terminated != 1 or stuck_worker.killed != 1:
+    raise SystemExit("stuck native worker did not TERM then KILL")
+
+
+for secret_name in (
+    "AUTHENTIK_BOOTSTRAP_PASSWORD",
+    "AUTHENTIK_BOOTSTRAP_PASSWORD_HASH",
+    "AUTHENTIK_BOOTSTRAP_TOKEN",
+):
+    os.environ[secret_name] = "must-not-reach-migrations"
+migration_capture = {}
+
+
+def start_successful_migration(arguments, *, env, stdin):
+    migration_capture["arguments"] = arguments
+    migration_capture["environment"] = env.copy()
+    migration_capture["stdin"] = stdin
+    return MigrationProcess(returncode=0)
+
+
+module.subprocess.Popen = start_successful_migration
+module.INTERRUPTED = False
+module.run_migrations(60, 10)
+if migration_capture["arguments"] != [sys.executable, "-m", "lifecycle.migrate"]:
+    raise SystemExit("native migration command drifted")
+if migration_capture["stdin"] is not subprocess.DEVNULL:
+    raise SystemExit("native migration inherited stdin")
+if any(name in migration_capture["environment"] for name in (
+    "AUTHENTIK_BOOTSTRAP_PASSWORD",
+    "AUTHENTIK_BOOTSTRAP_PASSWORD_HASH",
+    "AUTHENTIK_BOOTSTRAP_TOKEN",
+)):
+    raise SystemExit("bootstrap credential reached native migrations")
+
+failed_migration = MigrationProcess(returncode=17)
+module.subprocess.Popen = lambda *_args, **_kwargs: failed_migration
+module.INTERRUPTED = False
+expect_nonzero(
+    lambda: module.run_migrations(60, 10),
+    "failed migration released one-shot successfully",
+)
+
+interrupted_migration = MigrationProcess()
+module.subprocess.Popen = lambda *_args, **_kwargs: interrupted_migration
+module.INTERRUPTED = True
+expect_nonzero(
+    lambda: module.run_migrations(60, 10),
+    "interrupted migration released one-shot successfully",
+)
+if interrupted_migration.terminated != 1 or interrupted_migration.killed != 0:
+    raise SystemExit("interrupted migration was not retired cleanly")
+
+os.environ["AUTHENTIK_BOOTSTRAP_STOP_TIMEOUT_SECONDS"] = "61"
+expect_nonzero(
+    lambda: module.bounded_seconds(
+        "AUTHENTIK_BOOTSTRAP_STOP_TIMEOUT_SECONDS", 60, 10, 60
+    ),
+    "stop timeout beyond Compose grace margin was accepted",
+)
+PY
+}
+
+prepare_authentik_bootstrap "${TEST_ROOT}/authentik-bootstrap-valid"
+expect_success authentik-bootstrap-valid run_authentik_bootstrap_secret_preflight "${TEST_ROOT}/authentik-bootstrap-valid"
+exercise_secret_matrix authentik-bootstrap-password prepare_authentik_bootstrap run_authentik_bootstrap_secret_preflight AUTHENTIK_BOOTSTRAP_PASSWORD
+expect_failure authentik-bootstrap-password-short case_authentik_bootstrap_short_password
+expect_failure authentik-bootstrap-password-oversized case_authentik_bootstrap_oversized_password
+expect_failure authentik-bootstrap-password-symlink case_authentik_bootstrap_symlink_password
+expect_failure authentik-bootstrap-password-fifo case_authentik_bootstrap_fifo_password
+expect_failure authentik-bootstrap-password-invalid-utf8 case_authentik_bootstrap_invalid_utf8_password
+expect_success authentik-bootstrap-entrypoint-handoff case_authentik_bootstrap_entrypoint_handoff
+expect_failure authentik-bootstrap-entrypoint-failure case_authentik_bootstrap_entrypoint_failure
+expect_success authentik-bootstrap-orchestration case_authentik_bootstrap_orchestration
+expect_success authentik-bootstrap-process-contracts case_authentik_bootstrap_process_contracts
 
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 # --- REDIS
@@ -551,14 +1013,60 @@ exercise_secret_matrix n8n-smtp prepare_n8n run_n8n N8N_SMTP_PASS
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 prepare_traefik() {
   local fixture="$1"
-  mkdir -p -- "${fixture}/secrets"
+  mkdir -p -- "${fixture}/secrets" "${fixture}/acme"
   printf 'cloudflare-token' >"${fixture}/secrets/CF_DNS_API_TOKEN"
+  printf '{"store":"production"}' >"${fixture}/acme/cloudflare-acme.json"
+  printf '{"store":"staging"}' >"${fixture}/acme/cloudflare-staging-acme.json"
+  chmod 0660 "${fixture}/acme/cloudflare-acme.json" "${fixture}/acme/cloudflare-staging-acme.json"
+}
+
+invoke_traefik() {
+  local fixture="$1"
+  PATH="${TEST_BIN}:${PATH}" TRAEFIK_MARKER="${fixture}/traefik-started" \
+    TRAEFIK_ACME_STORAGE_DIR="${fixture}/acme" \
+    CERTRESOLVER=cloudflare CF_DNS_API_TOKEN_FILE="${fixture}/secrets/CF_DNS_API_TOKEN" \
+    /bin/sh "$TRAEFIK_SCRIPT" --version
 }
 
 run_traefik() {
   local fixture="$1"
-  CERTRESOLVER=cloudflare CF_DNS_API_TOKEN_FILE="${fixture}/secrets/CF_DNS_API_TOKEN" \
-    /bin/sh "$TRAEFIK_SCRIPT" /bin/true
+  invoke_traefik "$fixture"
+  grep -qx -- '--version' "${fixture}/traefik-started"
+  [[ "$(stat -c '%a' "${fixture}/acme/cloudflare-acme.json")" == 600 ]]
+  [[ "$(stat -c '%a' "${fixture}/acme/cloudflare-staging-acme.json")" == 600 ]]
+  grep -qx -- '{"store":"production"}' "${fixture}/acme/cloudflare-acme.json"
+  grep -qx -- '{"store":"staging"}' "${fixture}/acme/cloudflare-staging-acme.json"
+}
+
+case_traefik_unsafe_resolver() {
+  local fixture="${TEST_ROOT}/traefik-unsafe-resolver"
+  prepare_traefik "$fixture"
+  PATH="${TEST_BIN}:${PATH}" TRAEFIK_ACME_STORAGE_DIR="${fixture}/acme" \
+    CERTRESOLVER='../cloudflare' CF_DNS_API_TOKEN_FILE="${fixture}/secrets/CF_DNS_API_TOKEN" \
+    /bin/sh "$TRAEFIK_SCRIPT" --version
+}
+
+case_traefik_acme_symlink() {
+  local fixture="${TEST_ROOT}/traefik-acme-symlink"
+  prepare_traefik "$fixture"
+  mv -- "${fixture}/acme/cloudflare-acme.json" "${fixture}/outside-acme.json"
+  ln -s -- "${fixture}/outside-acme.json" "${fixture}/acme/cloudflare-acme.json"
+  PATH="${TEST_BIN}:${PATH}" TRAEFIK_ACME_STORAGE_DIR="${fixture}/acme" \
+    CERTRESOLVER=cloudflare CF_DNS_API_TOKEN_FILE="${fixture}/secrets/CF_DNS_API_TOKEN" \
+    /bin/sh "$TRAEFIK_SCRIPT" --version
+}
+
+case_traefik_missing_acme_stores() {
+  local fixture="${TEST_ROOT}/traefik-missing-acme-stores"
+  prepare_traefik "$fixture"
+  rm -f -- "${fixture}/acme/cloudflare-acme.json" "${fixture}/acme/cloudflare-staging-acme.json"
+  invoke_traefik "$fixture"
+  [[ -f "${fixture}/acme/cloudflare-acme.json" ]]
+  [[ -f "${fixture}/acme/cloudflare-staging-acme.json" ]]
+  [[ "$(stat -c '%a' "${fixture}/acme/cloudflare-acme.json")" == 600 ]]
+  [[ "$(stat -c '%a' "${fixture}/acme/cloudflare-staging-acme.json")" == 600 ]]
+  [[ ! -s "${fixture}/acme/cloudflare-acme.json" ]]
+  [[ ! -s "${fixture}/acme/cloudflare-staging-acme.json" ]]
 }
 
 prepare_certs_dumper() {
@@ -635,6 +1143,9 @@ case_certs_dumper_waits_for_valid_store() {
 prepare_traefik "${TEST_ROOT}/traefik-valid"
 expect_success traefik-valid run_traefik "${TEST_ROOT}/traefik-valid"
 exercise_secret_matrix traefik-token prepare_traefik run_traefik CF_DNS_API_TOKEN
+expect_failure traefik-unsafe-resolver case_traefik_unsafe_resolver
+expect_failure traefik-acme-symlink case_traefik_acme_symlink
+expect_success traefik-missing-acme-stores case_traefik_missing_acme_stores
 prepare_certs_dumper "${TEST_ROOT}/certs-dumper-valid"
 expect_success certs-dumper-valid run_certs_dumper "${TEST_ROOT}/certs-dumper-valid"
 expect_success certs-dumper-waits-for-valid-store case_certs_dumper_waits_for_valid_store
@@ -1022,6 +1533,10 @@ expect_failure seasearch-password-oversized case_seasearch_oversized_password
 check_disabled_feature_mounts() {
   python3 - "$TEST_REPO_ROOT" <<'PY'
 from pathlib import Path
+import contextlib
+import importlib.util
+import io
+import re
 import sys
 import yaml
 
@@ -1093,14 +1608,355 @@ if any(str(key).startswith("AUTHENTIK_EMAIL__") for key in authentik_app.get("en
 worker_path = root / "templates/authentik-worker/docker-compose.authentik-worker.yaml"
 worker_document = yaml.safe_load(worker_path.read_text(encoding="utf-8"))
 worker_service = worker_document["services"]["authentik-worker"]
-worker_mounts = {
+worker_raw_mounts = {
     item if isinstance(item, str) else item.get("source")
     for item in worker_service.get("secrets", [])
 }
+worker_mounts = (
+    authentik_app_mounts if worker_raw_mounts == {"secrets"} else worker_raw_mounts
+)
 if authentik_secret in worker_mounts:
     raise SystemExit(f"{worker_path}: disabled {authentik_secret} is mounted into services.authentik-worker")
 if any(str(key).startswith("AUTHENTIK_EMAIL__") for key in worker_service.get("environment", {})):
     raise SystemExit(f"{worker_path}: disabled Authentik SMTP environment is active")
+
+bootstrap_path = root / "templates/authentik-bootstrap/docker-compose.authentik-bootstrap.yaml"
+bootstrap_document = yaml.safe_load(bootstrap_path.read_text(encoding="utf-8"))
+bootstrap_service = bootstrap_document["services"]["authentik-bootstrap"]
+bootstrap_mounts = {
+    item if isinstance(item, str) else item.get("source")
+    for item in bootstrap_service.get("secrets", [])
+}
+if authentik_secret in bootstrap_mounts:
+    raise SystemExit(f"{bootstrap_path}: disabled {authentik_secret} is mounted into bootstrap")
+if any(str(key).startswith("AUTHENTIK_EMAIL__") for key in bootstrap_service.get("environment", {})):
+    raise SystemExit(f"{bootstrap_path}: disabled Authentik SMTP environment is active")
+
+for path, document, service in (
+    (authentik_path, authentik_document, authentik_app),
+    (worker_path, worker_document, worker_service),
+    (bootstrap_path, bootstrap_document, bootstrap_service),
+):
+    required_services = set(document.get("x-required-services", []))
+    service_secrets = {
+        item if isinstance(item, str) else item.get("source")
+        for item in service.get("secrets", [])
+    }
+    if path == worker_path and service_secrets == {"secrets"}:
+        service_secrets = authentik_app_mounts
+    top_level_secrets = set((document.get("secrets") or {}).keys())
+    dependencies = set((service.get("depends_on") or {}).keys())
+    environment_keys = {str(key) for key in service.get("environment", {})}
+    if {"redis", "valkey"} & (required_services | dependencies):
+        raise SystemExit(f"{path}: Authentik 2025.10+ must not depend on Redis or Valkey")
+    if "REDIS_PASSWORD" in service_secrets | top_level_secrets:
+        raise SystemExit(f"{path}: obsolete Authentik Redis secret remains active")
+    if any(key.startswith("AUTHENTIK_REDIS__") for key in environment_keys):
+        raise SystemExit(f"{path}: obsolete AUTHENTIK_REDIS__ environment remains active")
+    if "POSTGRES_PASSWORD" not in service_secrets:
+        raise SystemExit(f"{path}: Authentik service must mount POSTGRES_PASSWORD")
+    if service.get("environment", {}).get("AUTHENTIK_POSTGRESQL__PASSWORD") != "file:///run/secrets/POSTGRES_PASSWORD":
+        raise SystemExit(
+            f"{path}: Authentik PostgreSQL password must use the Docker secret file"
+        )
+
+generation_lengths = authentik_document.get("x-secret-generation-lengths") or {}
+if generation_lengths.get("POSTGRES_PASSWORD") != 64:
+    raise SystemExit(
+        f"{authentik_path}: POSTGRES_PASSWORD generation length must stay at tested value 64"
+    )
+required_authentik_services = {
+    "postgresql",
+    "postgresql_maintenance",
+    "authentik-bootstrap",
+    "authentik-worker",
+}
+if not required_authentik_services <= set(authentik_document.get("x-required-services", [])):
+    raise SystemExit(f"{authentik_path}: required PostgreSQL and worker services are incomplete")
+if "POSTGRES_PASSWORD" not in (authentik_document.get("secrets") or {}):
+    raise SystemExit(f"{authentik_path}: POSTGRES_PASSWORD declaration is missing")
+if "POSTGRES_PASSWORD" in set(authentik_document.get("x-secret-generation-exclusions", [])):
+    raise SystemExit(f"{authentik_path}: POSTGRES_PASSWORD must remain locally generatable")
+if "authentik-worker" in (authentik_app.get("depends_on") or {}):
+    raise SystemExit(
+        f"{authentik_path}: server availability must not depend on worker health"
+    )
+for path, service in (
+    (authentik_path, authentik_app),
+    (worker_path, worker_service),
+):
+    bootstrap_dependency = (service.get("depends_on") or {}).get("authentik-bootstrap")
+    if not isinstance(bootstrap_dependency, dict) or bootstrap_dependency.get("condition") != "service_completed_successfully":
+        raise SystemExit(
+            f"{path}: final Authentik services must wait for successful one-shot bootstrap completion"
+        )
+if authentik_app.get("environment", {}).get("AUTHENTIK_ERROR_REPORTING__ENABLED") != "${AUTHENTIK_ERROR_REPORTING__ENABLED:-false}":
+    raise SystemExit(f"{authentik_path}: error reporting must default to false")
+expected_server_private_listeners = {
+    "AUTHENTIK_LISTEN__METRICS": "127.0.0.1:9300",
+    "AUTHENTIK_LISTEN__DEBUG": "127.0.0.1:9900",
+    "AUTHENTIK_LISTEN__DEBUG_PY": "127.0.0.1:9901",
+}
+for key, expected_value in expected_server_private_listeners.items():
+    if authentik_app.get("environment", {}).get(key) != expected_value:
+        raise SystemExit(f"{authentik_path}: server listener {key} must stay on loopback")
+
+trusted_proxy_key = "AUTHENTIK_LISTEN__TRUSTED_PROXY_CIDRS"
+if authentik_app.get("environment", {}).get(trusted_proxy_key) != "${AUTHENTIK_LISTEN__TRUSTED_PROXY_CIDRS:?Trusted proxy CIDRs required}":
+    raise SystemExit(f"{authentik_path}: trusted proxy CIDRs must be explicit and required")
+authentik_networks = authentik_app.get("networks")
+if not isinstance(authentik_networks, dict):
+    raise SystemExit(f"{authentik_path}: Authentik networks must support a frontend-only DNS alias")
+frontend_network = authentik_networks.get("frontend")
+backend_network = authentik_networks.get("backend")
+if not isinstance(frontend_network, dict) or frontend_network.get("aliases") != ["authentik-frontend"]:
+    raise SystemExit(f"{authentik_path}: frontend must define only the Authentik Forward Auth alias")
+if isinstance(backend_network, dict) and "authentik-frontend" in (backend_network.get("aliases") or []):
+    raise SystemExit(f"{authentik_path}: Forward Auth alias must not be registered on backend")
+expected_server_entrypoint = [
+    "python3",
+    "/usr/local/lib/authentik-server-entrypoint.py",
+]
+if authentik_app.get("entrypoint") != expected_server_entrypoint:
+    raise SystemExit(f"{authentik_path}: trusted-proxy preflight entrypoint is missing")
+if authentik_app.get("command") != ["server"]:
+    raise SystemExit(f"{authentik_path}: server command contract changed")
+
+server_wrapper_path = root / "Authentik/scripts/authentik-server-entrypoint.py"
+server_wrapper_spec = importlib.util.spec_from_file_location(
+    "authentik_server_entrypoint",
+    server_wrapper_path,
+)
+if server_wrapper_spec is None or server_wrapper_spec.loader is None:
+    raise SystemExit(f"{server_wrapper_path}: could not load trusted-proxy preflight")
+server_wrapper = importlib.util.module_from_spec(server_wrapper_spec)
+server_wrapper_spec.loader.exec_module(server_wrapper)
+valid_proxy_cidrs = "127.0.0.0/8,172.30.0.0/16,::1/128"
+if server_wrapper.parse_trusted_proxy_cidrs(valid_proxy_cidrs) != tuple(valid_proxy_cidrs.split(",")):
+    raise SystemExit(f"{server_wrapper_path}: valid exact proxy networks were rejected")
+narrow_proxy_cidrs = "127.0.0.0/8,192.168.42.0/24,::1/128"
+if server_wrapper.parse_trusted_proxy_cidrs(narrow_proxy_cidrs) != tuple(narrow_proxy_cidrs.split(",")):
+    raise SystemExit(f"{server_wrapper_path}: valid narrow proxy network was rejected")
+for invalid_proxy_cidrs in (
+    "",
+    "CHANGE_ME",
+    "172.30.0.0/16",
+    "127.0.0.0/8,::1/128",
+    "127.0.0.0/8,172.30.0.0/16",
+    "172.30.0.0/16,::1/128",
+    "127.0.0.1/32,172.30.0.0/16,::1/128",
+    "127.0.0.0/8,10.0.0.0/8",
+    "127.0.0.0/8,172.16.0.0/12",
+    "127.0.0.0/8,192.168.0.0/16,::1/128",
+    "127.0.0.0/8,192.168.0.0/15",
+    "127.0.0.0/8,172.30.1.1/16",
+    "127.0.0.0/8,172.30.0.0/16,172.30.1.0/24",
+    "127.0.0.0/8,fe80::/64",
+):
+    try:
+        server_wrapper.parse_trusted_proxy_cidrs(invalid_proxy_cidrs)
+    except ValueError:
+        continue
+    raise SystemExit(
+        f"{server_wrapper_path}: unsafe trusted proxy fixture was accepted"
+    )
+
+exec_calls = []
+original_execvp = server_wrapper.os.execvp
+original_proxy_value = server_wrapper.os.environ.get(trusted_proxy_key)
+try:
+    server_wrapper.os.environ[trusted_proxy_key] = valid_proxy_cidrs
+    server_wrapper.os.execvp = lambda executable, argv: exec_calls.append(
+        (executable, list(argv))
+    )
+    if server_wrapper.main(["server"]) != 127:
+        raise SystemExit(f"{server_wrapper_path}: valid handoff did not reach vendor exec")
+    if exec_calls != [("ak", ["ak", "server"])]:
+        raise SystemExit(f"{server_wrapper_path}: vendor handoff contract changed")
+    exec_calls.clear()
+    server_wrapper.os.environ[trusted_proxy_key] = "CHANGE_ME"
+    with contextlib.redirect_stderr(io.StringIO()):
+        if server_wrapper.main(["server"]) != 78 or exec_calls:
+            raise SystemExit(f"{server_wrapper_path}: placeholder did not fail before vendor exec")
+        if server_wrapper.main(["worker"]) != 64 or exec_calls:
+            raise SystemExit(f"{server_wrapper_path}: unexpected command did not fail closed")
+finally:
+    server_wrapper.os.execvp = original_execvp
+    if original_proxy_value is None:
+        server_wrapper.os.environ.pop(trusted_proxy_key, None)
+    else:
+        server_wrapper.os.environ[trusted_proxy_key] = original_proxy_value
+
+def volume_targets(service):
+    targets = set()
+    for item in service.get("volumes", []):
+        if isinstance(item, dict):
+            targets.add(str(item.get("target", "")))
+        else:
+            fields = str(item).split(":")
+            if len(fields) >= 2:
+                targets.add(fields[1])
+    return targets
+
+server_wrapper_target = "/usr/local/lib/authentik-server-entrypoint.py"
+if server_wrapper_target not in volume_targets(authentik_app):
+    raise SystemExit(f"{authentik_path}: trusted-proxy preflight helper is not mounted")
+if server_wrapper_target in volume_targets(worker_service):
+    raise SystemExit(f"{worker_path}: non-routing worker must not mount the server preflight")
+
+if "/certs" in volume_targets(authentik_app):
+    raise SystemExit(f"{authentik_path}: /certs belongs only on the Authentik worker")
+if "/certs" not in volume_targets(worker_service):
+    raise SystemExit(f"{worker_path}: worker must retain the Authentik certificate import mount")
+if "AUTHENTIK_BOOTSTRAP_PASSWORD" in authentik_app_mounts:
+    raise SystemExit(f"{authentik_path}: bootstrap password must not be mounted into the server")
+if "AUTHENTIK_BOOTSTRAP_PASSWORD" in worker_mounts:
+    raise SystemExit(f"{worker_path}: bootstrap password must not reach the final worker")
+expected_runtime_mounts = {
+    "POSTGRES_PASSWORD",
+    "AUTHENTIK_SECRET_KEY_PASSWORD",
+}
+if authentik_app_mounts != expected_runtime_mounts:
+    raise SystemExit(f"{authentik_path}: server runtime secret set must stay exact")
+if worker_mounts != expected_runtime_mounts:
+    raise SystemExit(f"{worker_path}: final worker runtime secret set must stay exact")
+expected_bootstrap_mounts = {
+    "POSTGRES_PASSWORD",
+    "AUTHENTIK_SECRET_KEY_PASSWORD",
+    "AUTHENTIK_BOOTSTRAP_PASSWORD",
+}
+if bootstrap_mounts != expected_bootstrap_mounts:
+    raise SystemExit(
+        f"{bootstrap_path}: one-shot bootstrap secret set must stay exact"
+    )
+for path, service in (
+    (authentik_path, authentik_app),
+    (worker_path, worker_service),
+):
+    bootstrap_environment = {
+        str(key) for key in service.get("environment", {})
+        if str(key).startswith("AUTHENTIK_BOOTSTRAP_")
+    }
+    if bootstrap_environment:
+        raise SystemExit(
+            f"{path}: final service exposes bootstrap environment {sorted(bootstrap_environment)}"
+        )
+    if any("authentik-bootstrap" in str(volume) for volume in service.get("volumes", [])):
+        raise SystemExit(f"{path}: final service must not mount bootstrap helpers")
+bootstrap_environment = set(bootstrap_service.get("environment", {}))
+for forbidden_bootstrap_key in (
+    "AUTHENTIK_BOOTSTRAP_PASSWORD",
+    "AUTHENTIK_BOOTSTRAP_PASSWORD_HASH",
+    "AUTHENTIK_BOOTSTRAP_TOKEN",
+):
+    if forbidden_bootstrap_key in bootstrap_environment:
+        raise SystemExit(
+            f"{bootstrap_path}: credential value must not be rendered into bootstrap environment"
+        )
+if bootstrap_service.get("restart") != "no":
+    raise SystemExit(f"{bootstrap_path}: bootstrap must remain a restart-disabled one-shot")
+if bootstrap_service.get("command") != ["bootstrap"]:
+    raise SystemExit(f"{bootstrap_path}: bootstrap command contract changed")
+if bootstrap_service.get("entrypoint") != [
+    "/bin/sh",
+    "/usr/local/bin/authentik-bootstrap-entrypoint.sh",
+]:
+    raise SystemExit(f"{bootstrap_path}: bootstrap entrypoint contract changed")
+if bootstrap_service.get("healthcheck") != {"disable": True}:
+    raise SystemExit(
+        f"{bootstrap_path}: one-shot must disable the image daemon healthcheck"
+    )
+if bootstrap_service.get("networks") != ["backend"]:
+    raise SystemExit(f"{bootstrap_path}: one-shot must stay backend-only")
+if set((bootstrap_document.get("networks") or {}).keys()) != {"backend"}:
+    raise SystemExit(f"{bootstrap_path}: one-shot template must declare only backend")
+if worker_service.get("networks") != ["backend"]:
+    raise SystemExit(f"{worker_path}: final worker must stay backend-only")
+if set((worker_document.get("networks") or {}).keys()) != {"backend"}:
+    raise SystemExit(f"{worker_path}: worker template must declare only backend")
+expected_private_listeners = {
+    "AUTHENTIK_LISTEN__HTTP": "127.0.0.1:9000",
+    "AUTHENTIK_LISTEN__METRICS": "127.0.0.1:9300",
+    "AUTHENTIK_LISTEN__DEBUG_PY": "127.0.0.1:9901",
+}
+for path, service in (
+    (bootstrap_path, bootstrap_service),
+    (worker_path, worker_service),
+):
+    environment = service.get("environment") or {}
+    for key, expected_value in expected_private_listeners.items():
+        if environment.get(key) != expected_value:
+            raise SystemExit(
+                f"{path}: non-routing listener {key} must stay on loopback"
+            )
+for exposure_key in ("ports", "expose", "labels"):
+    if bootstrap_service.get(exposure_key):
+        raise SystemExit(
+            f"{bootstrap_path}: one-shot must not activate {exposure_key} exposure"
+        )
+    if worker_service.get(exposure_key):
+        raise SystemExit(
+            f"{worker_path}: final worker must not activate {exposure_key} exposure"
+        )
+postgres_dependency = (bootstrap_service.get("depends_on") or {}).get("postgresql")
+if not isinstance(postgres_dependency, dict) or postgres_dependency.get("condition") != "service_healthy":
+    raise SystemExit(f"{bootstrap_path}: bootstrap must wait for healthy PostgreSQL")
+if worker_service.get("stop_grace_period") != "60s":
+    raise SystemExit(f"{worker_path}: worker stop_grace_period must stay at tested value 60s")
+if bootstrap_service.get("stop_grace_period") != "90s":
+    raise SystemExit(f"{bootstrap_path}: bootstrap stop_grace_period must stay at tested value 90s")
+if worker_service.get("environment", {}).get("AUTHENTIK_ERROR_REPORTING__ENABLED") != "${AUTHENTIK_ERROR_REPORTING__ENABLED:-false}":
+    raise SystemExit(f"{worker_path}: error reporting must default to false")
+if bootstrap_service.get("environment", {}).get("AUTHENTIK_ERROR_REPORTING__ENABLED") != "${AUTHENTIK_ERROR_REPORTING__ENABLED:-false}":
+    raise SystemExit(f"{bootstrap_path}: error reporting must default to false")
+
+authentik_env = root / "Authentik/.env"
+trusted_proxy_match = re.search(
+    r"^AUTHENTIK_LISTEN__TRUSTED_PROXY_CIDRS=([^#\n]+)",
+    authentik_env.read_text(encoding="utf-8"),
+    flags=re.MULTILINE,
+)
+if not trusted_proxy_match or trusted_proxy_match.group(1).strip() != "CHANGE_ME":
+    raise SystemExit(
+        f"{authentik_env}: trusted proxy CIDRs must remain an explicit deployment placeholder"
+    )
+traefik_env = root / "Traefik/.env"
+traefik_path = root / "Traefik/docker-compose.app.yaml"
+traefik_document = yaml.safe_load(traefik_path.read_text(encoding="utf-8"))
+traefik_command = traefik_document["services"]["app"].get("command") or []
+if "--providers.docker.network=frontend" not in traefik_command:
+    raise SystemExit(f"{traefik_path}: Docker-provider routing must stay pinned to frontend")
+forward_auth_match = re.search(
+    r"^AUTHENTIK_FORWARD_AUTH_ADDRESS=([^#\n]+)",
+    traefik_env.read_text(encoding="utf-8"),
+    flags=re.MULTILINE,
+)
+expected_forward_auth_address = (
+    "http://authentik-frontend:9000/outpost.goauthentik.io/auth/traefik"
+)
+if not forward_auth_match or forward_auth_match.group(1).strip() != expected_forward_auth_address:
+    raise SystemExit(
+        f"{traefik_env}: Forward Auth must use the frontend-only Authentik alias"
+    )
+app_directories_match = re.search(
+    r"^APP_DIRECTORIES=([^#\n]+)",
+    authentik_env.read_text(encoding="utf-8"),
+    flags=re.MULTILINE,
+)
+app_directories = {
+    item.strip()
+    for item in (app_directories_match.group(1) if app_directories_match else "").split(",")
+    if item.strip()
+}
+expected_authentik_directories = {
+    "appdata/data",
+    "appdata/custom-templates",
+    "appdata/certs",
+}
+if app_directories != expected_authentik_directories:
+    raise SystemExit(
+        f"{authentik_env}: APP_DIRECTORIES must list exact Authentik writable leaves"
+    )
 
 certs_path = root / "templates/traefik_certs-dumper/docker-compose.traefik_certs-dumper.yaml"
 certs_text = certs_path.read_text(encoding="utf-8")
@@ -1124,3 +1980,4 @@ expect_success compose-disabled-features-have-no-secret-mount check_disabled_fea
 
 printf '\nSecret preflight tests: %d passed, %d failed\n' "$PASS" "$FAIL"
 (( FAIL == 0 ))
+"${TEST_REPO_ROOT}/.cursor/scripts/test-crowdsec-agent-wrapper.sh"

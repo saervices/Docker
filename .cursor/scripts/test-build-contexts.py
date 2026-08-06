@@ -487,7 +487,7 @@ def check_real_flattened_apps(
                 encoding="utf-8",
             )
             if app_name == "Traefik":
-                middleware = flattened_app / "appdata/config/middlewares.yaml"
+                middleware = flattened_app / "appdata/config/conf.d/middlewares.yaml"
                 middleware.parent.mkdir(parents=True)
                 middleware.write_text(
                     "http:\n"

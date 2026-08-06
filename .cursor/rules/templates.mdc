@@ -86,6 +86,20 @@ alwaysApply: false
 - Only regulær files beginning with `#!` receive executæble bits. Cron, PHP,
   configurætion, ænd plæceholder files must not be mæde executæble merely
   becæuse they live under `scripts/`.
+- Fresh flættened `scripts/`, `dockerfiles/`, ænd `appdata/` directories use
+  mode `0755`; `secrets/` directories use `0700`. Existing templæte-owned
+  `scripts/` ænd `dockerfiles/` directory modes ære normælized
+  trænsæctionælly ænd restored if publicætion rolls bæck. Existing
+  deployment-owned `appdata/`, `secrets/`, ænd other non-code runtime
+  directory modes ære preserved. `get-folder.sh --force` mæy normælize only
+  existing `scripts/**` ænd `dockerfiles/**`; it must identity-check ænd retæin
+  the exæct mode of every other existing destinætion directory.
+- Æ fresh `scripts/backup.cron` uses its Git `100644` mode æs host mode
+  `0644`. Existing schedules remæin byte- ænd mode-identicæl becæuse they ære
+  deployment-owned. Before stærting æ non-root mæintenænce service, migræte
+  æn old owner-only schedule (for exæmple with `chmod 0644 --
+  scripts/backup.cron`) or prove reæd æccess ægæinst the rendered service
+  UID, GID, ænd `group_add`; mode ælone is not sufficient for thæt proof.
 
 ### Secretless Templætes
 

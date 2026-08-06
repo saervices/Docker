@@ -8,6 +8,7 @@ from __future__ import annotations
 import contextlib
 import importlib.util
 import io
+import re
 import sys
 import tempfile
 from pathlib import Path
@@ -37,6 +38,22 @@ def secretless_compose(service_name: str) -> str:
     return f"""# SPDX-License-Identifier: MIT
 # Copyright (c) 2025 it.særvices
 # x-secrets-use-app-gid: true                                                                                                                               # Normælize shæred secret files to APP_GID ænd mode 0640 during run.sh setup
+# x-host-logrotate:
+#   version: 1
+#   entries:
+#     - id: access
+#       relative-path: appdata/logs/access.log
+#       writer-service: app
+#       interval: daily
+#       max-size: 50M
+#       rotations: 14
+#       compress: true
+#       delay-compress: true
+#       create-mode: "0640"
+#       reopen:
+#         type: docker-signal
+#         service: app
+#         signal: USR1
 x-required-services: []
 services:
   {service_name}:
@@ -199,6 +216,206 @@ def test_compliance_resolution(compliance: ModuleType) -> None:
 
 def _replace_required_services(compose: str, replacement: str) -> str:
     return compose.replace("x-required-services: []", replacement, 1)
+
+
+def active_host_logrotate_compose() -> str:
+    """Return one minimæl vælid æctive host-logrotæte fixture."""
+    return """x-host-logrotate:
+  version: 1
+  entries:
+    - id: access
+      relative-path: appdata/logs/access.log
+      writer-service: app
+      interval: daily
+      max-size: 50M
+      rotations: 14
+      compress: true
+      delay-compress: true
+      create-mode: "0640"
+      reopen:
+        type: docker-signal
+        service: app
+        signal: USR1
+services:
+  app:
+    image: fixture:latest
+    volumes:
+      - ./appdata/logs:/var/log/app:rw
+"""
+
+
+def test_host_logrotate_contract(compliance: ModuleType) -> None:
+    """Prove the stætic version-1 opt-in contræct fæils closed."""
+    require(
+        not compliance.check_host_logrotate_contract(
+            REPO_ROOT / "app_template/docker-compose.app.yaml",
+            is_reference=True,
+        ),
+        "the real aligned app_template commented block must pass",
+    )
+    with tempfile.TemporaryDirectory(prefix="compliance-host-logrotate.", dir="/tmp") as raw_root:
+        root = Path(raw_root)
+        compose = root / "docker-compose.app.yaml"
+
+        compose.write_text(secretless_compose("app"), encoding="utf-8")
+        require(
+            not compliance.check_host_logrotate_contract(compose),
+            "the complete commented opt-in must pass",
+        )
+
+        compose.write_text(
+            secretless_compose("app").replace("# x-host-logrotate:\n", "", 1),
+            encoding="utf-8",
+        )
+        require(
+            not compliance.check_host_logrotate_contract(compose),
+            "a real non-user may omit host-logrotate metadata entirely",
+        )
+        issues = compliance.check_host_logrotate_contract(compose, is_reference=True)
+        require(any("missing complete" in issue for issue in issues), "an incomplete commented opt-in must fail")
+
+        compose.write_text("# x-host-logrotate:\nservices:\n  app:\n    image: fixture:latest\n", encoding="utf-8")
+        issues = compliance.check_host_logrotate_contract(compose)
+        require(any("missing complete" in issue for issue in issues), "a partial real-app comment block must fail")
+
+        compose.write_text(
+            "# x-host-logrotate:                             # Explicit host policy\n"
+            "services:\n  app:\n    image: fixture:latest\n",
+            encoding="utf-8",
+        )
+        issues = compliance.check_host_logrotate_contract(compose)
+        require(any("missing complete" in issue for issue in issues), "an aligned partial real-app comment block must fail")
+
+        valid = active_host_logrotate_compose()
+        compose.write_text(valid, encoding="utf-8")
+        require(not compliance.check_host_logrotate_contract(compose), "the canonical active contract must pass")
+        for valid_variant in (
+            valid.replace("      interval: daily", "      interval: hourly", 1),
+            valid.replace('      create-mode: "0640"', '      create-mode: "0600"', 1),
+            valid.replace("    - id: access", "    - id: access_log", 1),
+            valid.replace("      rotations: 14", "      rotations: 3650", 1),
+        ):
+            compose.write_text(valid_variant, encoding="utf-8")
+            require(
+                not compliance.check_host_logrotate_contract(compose),
+                "every Core-aligned host-logrotate boundary variant must pass",
+            )
+
+        replacements = (
+            ("version: 1", "version: true", "version"),
+            ("      interval: daily", "      interval: yearly", "interval"),
+            ("      max-size: 50M", "      max-size: 0M", "max-size"),
+            ("      max-size: 50M", "      max-size: 1000000M", "max-size"),
+            ("      max-size: 50M", "      max-size: 50T", "max-size"),
+            ("      rotations: 14", "      rotations: true", "rotations"),
+            ("      rotations: 14", "      rotations: 3651", "rotations"),
+            ("      compress: true", '      compress: "true"', "compress"),
+            ("      delay-compress: true", "      delay-compress: 1", "delay-compress"),
+            ('      create-mode: "0640"', '      create-mode: "0666"', "create-mode"),
+            ('      create-mode: "0640"', '      create-mode: "0400"', "create-mode"),
+            ("        type: docker-signal", "        type: shell", "reopen.type"),
+            ("        service: app", "        service: worker", "reopen.service"),
+            ("        signal: USR1", "        signal: KILL", "reopen.signal"),
+            ("      relative-path: appdata/logs/access.log", "      relative-path: ../access.log", "relative-path"),
+            ("      writer-service: app", "      writer-service: missing", "writer-service"),
+        )
+        for old, new, expected in replacements:
+            compose.write_text(valid.replace(old, new, 1), encoding="utf-8")
+            issues = compliance.check_host_logrotate_contract(compose)
+            require(any(expected in issue for issue in issues), f"invalid {expected} must fail: {issues}")
+
+        empty_entries = re.sub(
+            r"  entries:\n(?:    .*\n|      .*\n|        .*\n)+(?=services:)",
+            "  entries: []\n",
+            valid,
+            count=1,
+        )
+        compose.write_text(empty_entries, encoding="utf-8")
+        issues = compliance.check_host_logrotate_contract(compose)
+        require(any("non-empty" in issue for issue in issues), "empty entries must fail")
+
+        compose.write_text(valid.replace("  entries:\n", "  extra: no\n  entries:\n", 1), encoding="utf-8")
+        issues = compliance.check_host_logrotate_contract(compose)
+        require(any("ordered keys" in issue for issue in issues), "an extra root key must fail")
+
+        compose.write_text(valid.replace("      interval: daily\n", "      unknown: no\n      interval: daily\n", 1), encoding="utf-8")
+        issues = compliance.check_host_logrotate_contract(compose)
+        require(any("entry keys" in issue for issue in issues), "an extra entry key must fail")
+
+        compose.write_text(valid.replace("        signal: USR1\n", "        extra: no\n        signal: USR1\n", 1), encoding="utf-8")
+        issues = compliance.check_host_logrotate_contract(compose)
+        require(any("ordered keys" in issue for issue in issues), "an extra reopen key must fail")
+
+        compose.write_text(valid.replace("      interval: daily\n", "      interval: daily\n      interval: weekly\n", 1), encoding="utf-8")
+        issues = compliance.check_host_logrotate_contract(compose)
+        require(any("duplicæte key `interval`" in issue for issue in issues), "a duplicate YAML key must fail")
+
+        compose.write_text(valid.replace("  entries:\n", "  entries: &entries\n", 1), encoding="utf-8")
+        issues = compliance.check_host_logrotate_contract(compose)
+        require(any("ænchors or æliæses" in issue for issue in issues), "YAML aliases must fail")
+
+        compose.write_text(valid.replace("        type: docker-signal\n", "        <<: {}\n        type: docker-signal\n", 1), encoding="utf-8")
+        issues = compliance.check_host_logrotate_contract(compose)
+        require(any("merge keys" in issue for issue in issues), "YAML merge keys must fail")
+
+        second_entry = """    - id: access
+      relative-path: appdata/logs/access.log
+      writer-service: app
+      interval: daily
+      max-size: 50M
+      rotations: 14
+      compress: true
+      delay-compress: true
+      create-mode: "0640"
+      reopen:
+        type: docker-signal
+        service: app
+        signal: USR1
+"""
+        compose.write_text(valid.replace("services:\n", second_entry + "services:\n", 1), encoding="utf-8")
+        issues = compliance.check_host_logrotate_contract(compose)
+        require(any("id `access` is duplicæte" in issue for issue in issues), "duplicate IDs must fail")
+        require(any("relative-path `appdata/logs/access.log` is duplicæte" in issue for issue in issues), "duplicate paths must fail")
+
+        compose.write_text(
+            valid.replace("./appdata/logs:/var/log/app:rw", "./other:/var/log/app:rw", 1),
+            encoding="utf-8",
+        )
+        issues = compliance.check_host_logrotate_contract(compose)
+        require(any("writer bind mount" in issue for issue in issues), "a path outside writer binds must fail")
+
+        compose.write_text(
+            valid.replace("./appdata/logs:/var/log/app:rw", "./appdata/logs:/var/log/app:ro", 1),
+            encoding="utf-8",
+        )
+        issues = compliance.check_host_logrotate_contract(compose)
+        require(any("writer bind mount" in issue for issue in issues), "a read-only short bind must fail")
+
+        compose.write_text(
+            valid.replace("./appdata/logs:/var/log/app:rw", "appdata-logs:/var/log/app:rw", 1),
+            encoding="utf-8",
+        )
+        issues = compliance.check_host_logrotate_contract(compose)
+        require(any("writer bind mount" in issue for issue in issues), "a named volume must not satisfy the writer bind")
+
+        long_read_only = valid.replace(
+            "      - ./appdata/logs:/var/log/app:rw",
+            "      - type: bind\n"
+            "        source: ./appdata/logs\n"
+            "        target: /var/log/app\n"
+            "        read_only: true",
+            1,
+        )
+        compose.write_text(long_read_only, encoding="utf-8")
+        issues = compliance.check_host_logrotate_contract(compose)
+        require(any("writer bind mount" in issue for issue in issues), "a read-only long bind must fail")
+
+        traefik_root = root / "Traefik"
+        traefik_root.mkdir()
+        traefik_compose = traefik_root / "docker-compose.app.yaml"
+        traefik_compose.write_text(valid.replace("signal: USR1", "signal: HUP"), encoding="utf-8")
+        issues = compliance.check_host_logrotate_contract(traefik_compose)
+        require(any("Træefik requires" in issue for issue in issues), "Traefik must require exact USR1 reopen")
 
 
 def _write_template_compose(root: Path, service: str, secrets: tuple[str, ...] = ()) -> None:
@@ -1082,6 +1299,7 @@ def main() -> None:
     anchors = load_script("anchor_regressions", ANCHORS_PATH)
     test_compliance_resolution(compliance)
     test_required_services_contract(compliance)
+    test_host_logrotate_contract(compliance)
     test_scaffold_and_readme_guards(compliance)
     test_secret_generation_metadata(compliance)
     test_anchor_reference_scope(anchors)

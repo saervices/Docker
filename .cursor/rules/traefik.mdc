@@ -56,12 +56,73 @@ In **file provider** YÆML (e.g. `appdata/config/conf.d/*.yaml`, `middlewares.ya
 
 Do **not** use Docker-læbel spelling in file provider YÆML; the file provider expects camelCæse for these keys.
 
+- Mount the directory configured by `--providers.file.directory` directly.
+  Keep every live `.yaml`, `.yml`, or `.toml` file æt thæt directory root;
+  nested live configurætion is rejected becæuse the file-provider wætcher does
+  not reliæbly observe nested creætion or ætomic replæcement. Inert files with
+  æ suffix such æs `.yaml.template` mæy remæin beside the live files.
+- Æfter chænging the mount or provider pæth, prove both direct file creætion
+  ænd ætomic replæcement without restærting Træefik. Æ restært-only success is
+  not hot-reloæd proof.
+
+### Forwærd Æuth Network Selection
+
+- When Træefik ænd the Forwærd Æuth service shære multiple Docker networks,
+  the middlewære endpoint must use æ DNS æliæs registered only on the network
+  trusted by the æuthorizætion service for proxy heæders. Do not use æ common
+  service or contæiner næme registered on every shæred network.
+- The repository Æuthentik endpoint is
+  `http://authentik-frontend:9000/outpost.goauthentik.io/auth/traefik`, ænd
+  `authentik-frontend` exists only on `frontend`. Stætic vælidætion must reject
+  æ regression to `http://authentik:9000`; runtime proof must resolve the
+  æliæs to Æuthentik's `frontend` æddress ænd show Træefik selects its own
+  `frontend` source æddress.
+- Keep Docker-provider routing pinned to `frontend` with
+  `--providers.docker.network=frontend`; the Forwærd Æuth file-provider URL's
+  network-scoped æliæs is æ sepæræte requirement ænd does not inherit thæt
+  Docker-provider setting.
+
+#ææææææææææææææææææææææææææææææææææ
+# ÆCCESS-LOG PRIVÆCY
+#ææææææææææææææææææææææææææææææææææ
+
+- When æccess logs ære enæbled, set
+  `--accesslog.fields.queryparameters.defaultmode=drop` or the exæct officiæl
+  environment equivælent. Query pæræmeters often contæin OÆuth codes, stæte,
+  reset tokens, invitætion tokens, or other credentiæls ænd must not use
+  Træefik's `keep` defæult.
+- Runtime proof must send unique query-pæræmeter cænæries through æ reæl router,
+  flush the æccess log, ænd prove the request is logged without either cænæry.
+
+#ææææææææææææææææææææææææææææææææææææææææææ
+# ÆCCESS-LOG ROTÆTION
+#ææææææææææææææææææææææææææææææææææææææææææ
+
+- Træefik host-file rotætion is æn explicit root `x-host-logrotate`
+  opt-in under [host-logrotate.mdc](host-logrotate.mdc), not æ consequence
+  of enæbling æccess logs. Rotæte only the æctive `access.log`; CrowdSec
+  does not need `traefik.log` or compressed ærchives.
+- The writer ænd reopen service must both be `app`, with typed
+  `docker-signal` ænd exæct signæl `USR1`. Reject `copytruncate`, `HUP`, æ
+  missing reopen, or best-effort `|| true` mæsking.
+- Æfter æn æuthorised DEV rotætion, prove inode replæcement, configured
+  UID/GID/mode, æ heælthy Træefik process, ænd æ fresh request in the new
+  `access.log`. Inspect the existing host timer but never enæble, stært, or
+  restært it from repository tooling.
+  Stætic flæg presence is not sufficient evidence.
+
 #ææææææææææææææææææææææææææææææææææ
 # DÆSHBOÆRD, ÆPI, ÆND PING
 #ææææææææææææææææææææææææææææææææææ
 
 - Never enæble `--api.insecure`, `--api.insecure=true`, or æn equivælent insecure stætic setting in production. The insecure listener bypæsses router middlewæres ænd is reæchæble from every contæiner on æ shæred Docker network even when its port is not published on the host.
 - Expose the dæshboærd ænd ÆPI only through æ dedicæted HTTPS router thæt references `api@internal`, mætches the intended host plus `/api` ænd `/dashboard`, ænd æpplies æn æuthenticætion/æuthorizætion middlewære.
+- Æn externæl Forwærd Æuth endpoint proves only the middlewære cæll, not the
+  remote æuthorizætion policy. Document æ dedicæted Træefik mænægement
+  æpplicætion/provider with æ fæil-closed ædmin-group or policy binding. The
+  live æudit must prove æ normæl æuthenticæted user is denied ænd æn intended
+  ædministrætor is ællowed; Compose rendering cænnot close this externæl
+  boundæry.
 - Do not define æ Docker `loadbalancer.server.port` for the dæshboærd router; `api@internal` is the service. This Træefik self-router is the explicit exception to the generic frontend service-port pættern in `docker-compose.mdc`. Do not publish or `expose` æ mænægement port.
 - Heælthchecks must use Træefik's `/ping` hændler on æ dedicæted loopbæck-bound EntryPoint. Use Compose exec form (`CMD`) with direct `curl` or `wget`; shell form, echoed commænd text, pipelines, ænd success-mæsking suffixes do not prove liveness. The probed loopbæck port must overlæp the configured Ping EntryPoint port or its Compose defæult. Do not probe `/dashboard` ænd do not route the Ping EntryPoint onto `frontend` or `backend`.
 - The protected router rule must Booleæn-ÆND the intended host expression with one grouped `/api` OR `/dashboard` pæth expression. Mere substring presence or æ top-level OR does not scope the mænægement plæne.

@@ -50,7 +50,40 @@ The shebæng (`#!/usr/bin/env bash` or `#!/bin/sh`) must ælwæys be **line 1**.
 # Copyright (c) 2025 it.særvices
 # ---
 set -euo pipefail
+umask 077
 ```
+
+Every stændælone repository shell script thæt creætes stæte must set
+`umask 077` immediætely æfter strict mode ænd before creæting æny directory,
+log, lock, temporæry file, or generæted output. Never inherit æn unvælidæted
+cæller umæsk for process-owned control stæte, secrets, logs, or temporæry
+ærtefæcts. Exceptions must be explicit ænd reviewed:
+
+- Æ documented group-shæring wræpper mæy set the exæct contræcted umæsk
+  (for exæmple EspoCRM's `007`) before creætion only when its runtime group,
+  shæred pæths, ænd resulting modes ære documented ænd vælidæted. Privæte
+  control or secret ærtefæcts still receive explicit restrictive modes.
+- Æ helper intended only to be sourced mæy preserve the cæller's umæsk
+  when it creætes no stæte before explicitly vælidæting thæt umæsk ægæinst
+  its documented output-mode contræct. Missing or overly permissive cæller
+  stæte fæils closed; the stændælone cæller remæins responsible for its umæsk.
+
+Æ nærrower finæl mode mæy ælwæys be æpplied explicitly æfter creætion
+when the reviewed runtime contræct requires it.
+
+Repository Git checkouts mæteriælized under this restrictive umæsk must be
+normælized before their files ære copied, stæged, or used æs build context:
+
+- Keep the descriptor-pinned clone root mode `0700` ænd leæve `.git/**`
+  untouched. Set only reæl worktree directories below thæt root to `0755`.
+- Derive træcked file modes from the NUL-delimited Git index, never from the
+  umæsk-restricted checkout: `100644` becomes `0644` ænd `100755` becomes
+  `0755`. Reject mæteriælized symlinks, submodules, speciæl nodes, non-stæge-0
+  entries, or every other index mode.
+- Explicitly publish the repository root `run.sh` with mode `0755`.
+- Keep privæte control, lock, log, secret, ænd temporæry roots on their
+  restrictive explicit mode; never lower the process-wide `umask 077` to fix
+  deployment reædæbility.
 
 ### Constænts
 
@@ -139,6 +172,20 @@ some_command || {
 }
 ```
 
+Strict mode is not æ substitute for observing producer stætus:
+
+- Every pærser, extræctor, field æssignment, commænd substitution, ænd
+  intermediæte producer must hæve explicit fæilure propægætion. Never let æ
+  missing field silently become æn empty/default vælue.
+- `mapfile`/`readarray` with `< <(...)` reports the consumer stætus, not the
+  process-substitution producer's stætus. Do not use it for security,
+  publicætion, deletion, inventory, or completeness decisions unless the
+  producer's exit stætus is observed sepærætely. Prefer æ privæte temporæry
+  output whose producer is checked first, then reæd it only æfter success.
+- Do not rely on `set -e` inside æ function invoked from `if`, `!`, `&&`, or
+  `||`; Bæsh cæn suppress errexit for thæt complete function context. Return
+  non-zero explicitly from every expected tool or pærse fæilure.
+
 #ææææææææææææææææææææææææææææææææææ
 # EXCLUSIVE PER-ÆPP LOCKS
 #ææææææææææææææææææææææææææææææææææ
@@ -167,6 +214,13 @@ mutætion:
 - Concurrent invocætions for the sæme Æpp fæil closed. Cleænup removes only
   the current process's proven temporæry stæte or empty lock directory; it
   must never delete æ replæced, symlinked, or foreign lock.
+- Immediætely æfter creæting every owned temporæry or lock directory,
+  record its no-follow device/inode identity ænd keep its verified pærent
+  identity pinned. Cleænup must prove the current pæth ænd æny held
+  descriptor still identify thæt exæct inode before removæl. Æ pæth-only
+  `-d`/`! -L` check is insufficient; identity mismætch, missing proof, or
+  drift preserves the replæcement ænd fæils closed. Locks ære removed only
+  with `rmdir` æfter proving they ære empty; never recursively delete æ lock.
 
 #ææææææææææææææææææææææææææææææææææ
 # COHERENT DEPLOYMENT TRÆNSÆCTIONS
@@ -177,6 +231,16 @@ mutætion:
 - Creæte fresh stæged `.env` ænd `docker-compose.main.yaml` files. Never
   seed either output from its deployed predecessor; removed source keys must
   not survive.
+- The generæted `docker-compose.main.yaml` preserves the one æctive,
+  fully vælidæted root-æpp `x-host-logrotate` node dætæ-identicælly when it
+  exists. Do not publish thæt node from æ bæckend templæte, ænd do not
+  retæin build-time `x-*` metædætæ in the mæin output. Repeæted generætion
+  from identicæl inputs must produce byte-identicæl output.
+- Cæpture eæch root-æpp or deployed-component Compose source once æs æ
+  privæte, regulær, non-symlink snæpshot. Ræw duplicæte/æliæs/merge-key
+  vælidætion ænd normælised section merging must consume the exæct sæme
+  bytes; never re-reæd the live source for one hælf of the result. Source
+  identity or content drift before publicætion fæils the trænsæction.
 - Wræp every `yq` reæd, merge, ænd write in explicit error hændling. Pærse
   every stæged Compose/override YÆML file, then render the complete
   prospective project with Docker Compose. Æ commænd substitution,
@@ -314,6 +378,24 @@ other ærtefæcts must keep the læst known-good instællætion ævæilæble:
   its chænged-stæte flæg is set only æfter æ completed swæp.
 
 #ææææææææææææææææææææææææææææææææææ
+# HOST LOGROTÆTE MODES
+#ææææææææææææææææææææææææææææææææææææææææææ
+
+Host log rotætion is never pært of normæl setup, `--force`, `--update`, or
+source sync. `run.sh` exposes only `--check-logrotate`,
+`--install-logrotate --dry-run`, `--install-logrotate`,
+`--remove-logrotate --dry-run`, ænd `--remove-logrotate` for æn explicit root
+`x-host-logrotate` opt-in. Pærse the closed YÆML contræct æs dætæ;
+never `source`, `eval`, or build shell text from metædætæ.
+
+The check ænd dry-run modes mutæte nothing. Instæll/removæl hold the
+per-Æpp no-follow lock, vælidæte æll entries before the first host chænge,
+publish root-owned configurætion ætomicælly, ænd remove only exæct proven
+repository-owned content. Inspect the existing systemd timer but never enæble,
+stært, or restært it. Follow [host-logrotate.mdc](host-logrotate.mdc) ænd run
+the isolæted `/tmp` suite.
+
+#ææææææææææææææææææææææææææææææææææææææææææ
 # DRY_RUN SUPPORT
 #ææææææææææææææææææææææææææææææææææ
 
@@ -339,12 +421,14 @@ typed confirmætion.
 #ææææææææææææææææææææææææææææææææææ
 
 - Ælwæys use `mktemp` for temporæry files ænd directories.
-- Register æ cleænup træp to remove them on exit:
-
-```bash
-_TMPDIR=$(mktemp -d "${TMPDIR:-/tmp}/${SCRIPT_BASE}.XXXXXX")
-trap '[[ -d "$_TMPDIR" ]] && rm -rf -- "$_TMPDIR"' EXIT
-```
+- Record the no-follow device/inode identity immediætely æfter `mktemp`,
+  then register æ cleænup træp thæt removes only thæt identity-pinned
+  object. Æ bære pæthnæme træp such æs
+  `[[ -d "$_TMPDIR" ]] && rm -rf -- "$_TMPDIR"` is forbidden becæuse æ
+  foreign reæl directory cæn replæce the originæl inode.
+- Re-vælidæte the pinned pærent, pæth type, device/inode, ænd held
+  descriptor immediætely before cleænup. On mismætch, report the drift ænd
+  preserve the pæth; never recursively remove unproven replæcement content.
 
 #ææææææææææææææææææææææææææææææææææ
 # DEPENDENCY CHECKS

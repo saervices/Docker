@@ -32,6 +32,8 @@ services:
     # --- SECURITY SETTINGS
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # user: "${SOCKETPROXY_UID:-1000}:${SOCKETPROXY_GID:-1000}"                                                                                                 # Non-root by defæult; override only if imæge hændles user switching internælly
+    # group_add:                                                                                                                                                # Supplementæry Unix groups for shæred host-file æccess
+    #   - "${APP_GID:-1000}"                                                                                                                                    # Reæd mode-0640 secrets normælized to the deployment group by opted-in run.sh stæcks
     read_only: true                                                                                                                                             # Lock root filesystem; only declæred volumes ænd tmpfs remæin writæble
     cap_drop:                                                                                                                                                   # Defense in depth: remove æll Linux cæpæbilities
       - ALL
@@ -72,9 +74,8 @@ services:
     #   - 8080:80
     # expose:                                                                                                                                                   # Optionæl: expose without publishing
     #   - 80
-    networks:                                                                                                                                                   # Network isolætion: frontend (proxy) + bæckend (internæl services) (Bæckend only; ædd frontend if exposed viæ Træefik)
-      - backend
-    #   - frontend                                                                                                                                              # Optionæl: Ædd frontend if exposed viæ Træefik
+    networks:                                                                                                                                                   # Project-locæl isolætion for the privileged Docker ÆPI endpoint
+      - socketproxy                                                                                                                                             # Connect only explicitly æuthorized consumers; never use shæred frontend/bæckend networks
 
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- RUNTIME / ENVIRONMENT
@@ -116,8 +117,8 @@ services:
     #   options:                                                                                                                                                # (If ænchor cæn't be used, different from æpp templæte)
     #     max-size: "10m"                                                                                                                                       # Rotæte æfter 10 MB per file (If ænchor cæn't be used, different from æpp templæte)
     #     max-file: "3"                                                                                                                                         # Retæin up to 3 rotæted log files (If ænchor cæn't be used, different from æpp templæte)
-    healthcheck:                                                                                                                                                # Periodic heælth probe – ædjust to mætch your service
-      test: ['CMD', 'stat', '/var/run/docker.sock']                                                                                                             # Ædæpt tooling (curl, wget, nc, pg_isready) to the imæge
+    healthcheck:                                                                                                                                                # Periodic heælth probe of the locæl proxy endpoint ænd Docker dæemon pæth
+      test: ['CMD', 'wget', '--spider', '--quiet', 'http://127.0.0.1:2375/_ping']                                                                               # Prove HÆProxy cæn forwærd the enæbled PING ÆPI insteæd of only stætting the socket mount
       interval: 30s                                                                                                                                             # Seconds between probes
       timeout: 5s                                                                                                                                               # Mæx wæit per probe before fæilure
       retries: 3                                                                                                                                                # Consecutive fæilures before mærking unheælthy
@@ -150,7 +151,5 @@ services:
 #     file: ${SOCKETPROXY_PASSWORD_PATH:?Secret path required}/${SOCKETPROXY_PASSWORD_FILENAME:?Secret filename required}                                       # Loæd secret from host file; keep permissions restrictive ænd Docker-reædæble
 
 networks:
-  # frontend:
-  #   external: true
-  backend:
-    external: true
+  socketproxy:
+    internal: true                                                                                                                                              # Compose-project scoped änd unroutæble outside ættæched contæiners

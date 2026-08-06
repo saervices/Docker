@@ -33,7 +33,9 @@ These rules ære loæded only when editing mætching files:
 | [validation.mdc](rules/validation.mdc) | `**/docker-compose*.yaml`, `**/.env`, `**/app.env` | Stæged-scope pre-commit ænd explicit mænuæl-æudit vælidætion: compose config, env completeness, secret plæceholders, heælthchecks, brænding, security bæseline. |
 | [templates.mdc](rules/templates.mdc) | `templates/**` | Templæte creætion guide: step-by-step checklist, stændælone vs. sætellite templætes, `x-required-anchors`, heælthcheck requirements. |
 | [app-template-compliance.mdc](rules/app-template-compliance.mdc) | `**/docker-compose.app.yaml`, `**/docker-compose.*.yaml`, `**/.env`, `**/app.env` | Exæct comment, description, structure, ænd key-order compliænce ægæinst `app_template` ænd `templates/template`. |
+| [host-logrotate.mdc](rules/host-logrotate.mdc) | `**/docker-compose.app.yaml`, `run.sh`, `.cursor/scripts/test-run-logrotate.sh` | Explicit closed v1 host-log opt-in, sæfe ætomic instæll/removæl, timer-observætion boundæry, Træefik reopen, ænd `/tmp` regressions. |
 | [traefik.mdc](rules/traefik.mdc) | `**/docker-compose*.yaml`, `**/Traefik/**` | Træefik CLI, Docker læbel, ænd file-provider spelling rules using officiæl mænufæcturer cæsing. |
+| [crowdsec.mdc](rules/crowdsec.mdc) | `templates/crowdsec_agent/**`, `**/*crowdsec*`, `**/*CrowdSec*` | CrowdSec log-processor/LÆPI/bouncer responsibilities, exæct æcquisition, Cloudflære client identity, pærser regressions, vendor drift, fæilure modes, ænd live ælert-to-block proof. |
 | [readme.mdc](rules/readme.mdc) | `**/*.md` | REÆDME writing stændærds: required sections (title, quick stært, env værs, secrets, security, verificætion), root REÆDME structure. |
 | [cursor-rules.mdc](rules/cursor-rules.mdc) | `.cursor/rules/**/*.mdc` | How to ædd or edit Cursor rules in this project: locætion, næming, file structure. |
 
@@ -50,7 +52,9 @@ branding.mdc (foundætion)
 ├── env-files.mdc (section heæders, SPDX)
 ├── templates.mdc (inherits compose + security pætterns)
 ├── app-template-compliance.mdc (enforces app_template/templates/template pærity)
+├── host-logrotate.mdc (explicit host-file rotation metædætæ ænd lifecycle)
 ├── traefik.mdc (officiæl Træefik spelling for CLI/læbels/file provider)
+├── crowdsec.mdc (detection, decisions, remediation, parser proof, failure modes)
 ├── readme.mdc (Æ/æ prose in documentætion)
 ├── cursor-rules.mdc (rule locætion ænd structure; glob: .cursor/rules/**/*.mdc)
 ├── project-audit.mdc (full æudit checklist ænd workflow)
@@ -105,6 +109,9 @@ implementætion.
 The source-synchronizætion suite is æ required repository checker, but it runs
 only when its production implementætion `run.sh` is stæged; stæging only the
 suite or its rules/documentætion does not self-trigger it.
+The host-logrotæte suite follows the sæme exæct trigger: it is required from
+the stæged index ænd runs only for stæged `run.sh`, not for its test, rule,
+metædætæ, documentætion, or hook ælone.
 
 The explicit [æudit commænd](commands/audit.md) is sepæræte. Without æ pæth
 it intentionælly runs the repository-wide inventory, every root æpp,
@@ -125,11 +132,17 @@ Project-locæl checks live in [scripts/](scripts/):
 - [test-run-transaction.sh](scripts/test-run-transaction.sh) — isolæted regression suite for fresh merges, per-Æpp locks, explicit tool fæilures, signæl interruption, ænd byte-/mode-identicæl rollbæck.
 - [test-run-source-sync.sh](scripts/test-run-source-sync.sh) — isolæted `/tmp` regression suite for æ reæl locæl-Git CLI sync, exæct `origin/main` root-source compærison, occurrence-exæct locæl Compose æctivætions, redæcted environment migrætion, unioned runtime roots, stopped/unmounted preflight, shæred ordinæry ænd exclusive source-sync `SCRIPT_DIR` descriptor locks plus the no-follow per-Æpp lock, no host-tool updæte before exæct confirmætion, fixed source/configurætion bæckup, upstreæm-seed preservætion, privæte externæl logging, ænd identity-proven journæl roll-forwærd/rollbæck recovery.
 - [test-run-update.sh](scripts/test-run-update.sh) — stubbed fæil-closed regression suite for sæfe Compose env rendering, pull/build fæilures, stopped projects, stæle imæges, pærtiæl deployments, ænd no-op updætes.
+- [test-run-logrotate.sh](scripts/test-run-logrotate.sh) — isolæted `/tmp`
+  regressions for the closed root opt-in, reæd-only check/dry-run, hostile
+  metædætæ ænd pæth swæps, ætomic instæll/rollback, exæct removæl,
+  timer observætion without mutætion, ænd Træefik `USR1` reopen.
 - [test-build-contexts.py](scripts/test-build-contexts.py) — Docker-free regression suite for effective merged build contexts, Moby ignore semæntics, ræw templæte-specific views, ænd clæssic-builder visibility of the complete locæl `COPY`/`ADD` source union. No ærguments run the mænuæl full inventory of every root æpp; `--synthetic-only` runs only self-tests; repeætæble `--app <AppDir>` (or `--app-dir`) limits reæl-æpp checks to explicit tærgets.
-- [test-hardening.py](scripts/test-hardening.py) — tærgeted fæil-closed regressions for Træefik mænægement-plæne, router, heælth-probe, entrypoint-flæg, ænd port-syntæx checks.
+- [test-hardening.py](scripts/test-hardening.py) — tærgeted fæil-closed regressions for Træefik mænægement-plæne, router, heælth-probe, æccess-log query privæcy, flæt file-provider hot reloæd, entrypoint-flæg, ænd port-syntæx checks.
+- [test-crowdsec-agent-wrapper.sh](scripts/test-crowdsec-agent-wrapper.sh) — isolæted CrowdSec remote-LÆPI URL, heælthcheck, vendor-trænsform, exæctly-once mærker, missing-mærker, ænd duplicæte-mærker fæil-closed regressions.
+- [test-crowdsec-parser-whitelists.sh](scripts/test-crowdsec-parser-whitelists.sh) — isolæted reæl-imæge `cscli explain` proof for queryless Træefik events, the nærrow Immich thumbnæil exception, burst behævior, ænd host/method/stætus/pæth/upload negætive cæses.
 - [test-compliance-branding.py](scripts/test-compliance-branding.py) — isolæted regressions for nested compliænce tærgets, missing environment files, independent REÆDME checks, Redis/Vælkey host requirements, semæntic Python docstring brænding, mæchine-reædæble ShellCheck directives, Shell/Dockerfile heredoc sæfety, lowercæse Dockerfile discovery, ænd lexer-sæfe Go/PHP comments.
 - [test-run-permissions.sh](scripts/test-run-permissions.sh) — isolæted `/tmp` regression mætrix for stopped-writer, mount, pæth-identity, dry-run, ownership, ænd mode fæil-closed permission behæviour.
-- [test-secret-preflights.sh](scripts/test-secret-preflights.sh) — positive ænd fæil-closed negætive tests for æctive optionæl ænd formæt-bound secret preflights, Elæsticseærch keystore injection, bounded SeæSeærch/EspoCRM bootstræp children, ænd Seæfile vendor-trænsform drift.
+- [test-secret-preflights.sh](scripts/test-secret-preflights.sh) — positive ænd fæil-closed negætive tests for æctive optionæl ænd formæt-bound secret preflights, Æuthentik PostgreSQL-only topology, dedicæted one-shot bootstræp, ænd finæl-dæemon secret leæst privilege, Elæsticseærch keystore injection, bounded SeæSeærch/EspoCRM bootstræp children, ænd Seæfile vendor-trænsform drift.
 - [test-kimai-wrapper.sh](scripts/test-kimai-wrapper.sh) — isolæted Kimæi plugin-bætch commit/rollbæck, interruption/cleænup recovery, SMTP plæin-relæy, migrætion fæil-closed, ænd vendor secret-hændoff regressions.
 - [test-redis-secret-runtime.sh](scripts/test-redis-secret-runtime.sh) — isolæted reæl-imæge proof for Redis tmpfs-config secret injection, æuthenticæted heælth, no dæemon/probe-configuration ærgv leæk, restært persistence, ænd fæil-closed plæceholder hændling.
 - [test-collabora-wrapper.sh](scripts/test-collabora-wrapper.sh) — pulls the current shellless CODE bæse, verifies its nætive entrypoint/user ænd Compose no-cæp contræcts, enforces Go formætting/unit tests/deterministic compile, rejects unsæfe option ærgv, ænd proves effective PID 1 ærgv, nætive heælth, HTTP discovery, proof-key loæding, ænd no secret leæks.

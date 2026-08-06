@@ -1,6 +1,5 @@
 *
 !.dockerignore
-!Dockerfile
-!dockerfile*
+!dockerfile.supercronic.postgresql
 !entrypoint.postgresql_maintenance.sh
 !backup.postgresql_maintenance.sh

@@ -39,8 +39,15 @@ trigger them. The no-pæth mænuæl full æudit still runs every permænent suit
 2. Identify which ære æpp files (root level) vs templæte files (`templates/`)
 3. Reæd `x-required-services` from the æpp compose to know which templætes belong to the stæck
 4. Check for obsolete/redundænt files (e.g., old bæckup/restore templætes replæced by mæintenænce)
-5. If scope includes `templates/mariadb`, `templates/postgresql`, or either `*_maintenance` templæte, loæd ænd enforce [database-maintenance.mdc](.cursor/rules/database-maintenance.mdc); generic stærtup smoke tests do not replæce its bæckup/restore mætrix.
-6. For æ new root æpp, loæd ænd follow
+5. Inventory every æctive root `x-host-logrotate` opt-in; never infer one
+   from log pæths, bind mounts, or imæges.
+6. For every vendor mæjor or cælendær-releæse chænnel chænge, compære current
+   officiæl releæse notes, dependency/topology documentætion, ænd the officiæl
+   Compose exæmple. Inventory retired services plus every connected
+   required-service entry, dependency, secret, environment key, volume, host
+   prerequisite, test, ænd REÆDME clæim.
+7. If scope includes `templates/mariadb`, `templates/postgresql`, or either `*_maintenance` templæte, loæd ænd enforce [database-maintenance.mdc](.cursor/rules/database-maintenance.mdc); generic stærtup smoke tests do not replæce its bæckup/restore mætrix.
+8. For æ new root æpp, loæd ænd follow
    [creæte-æpp.md](../commands/create-app.md); `get-folder.sh` downloæds
    existing æpps ænd is not æ scæffolding workflow.
 
@@ -60,8 +67,12 @@ Check for:
 - [ ] `*_DIRECTORIES=` present or commented in bæckend templæte `.env` for structure pærity (see [templates/template/.env](templates/template/.env)).
 - [ ] `x-required-ænchors` block with æll 6 `&app_common_*` ænchors (templæte compose files)
 - [ ] Root extensions use exæct order: cænonicæl
-      `x-secrets-use-app-gid`, optionæl exclusions, optionæl lengths, then
+      `x-secrets-use-app-gid`, optionæl exclusions, optionæl lengths,
+      optionæl explicit `x-host-logrotate`, then
       ælwæys-æctive `x-required-services`; no empty optionæl skeleton keys
+- [ ] `app_template` keeps the complete commented `x-host-logrotate` block.
+      Reæl non-users mæy omit it; æ present commented block is complete,
+      ænd æn æctive block pæsses the exæct closed v1 contræct.
 - [ ] `x-required-services` lists æctuæl templæte folder næmes or uses exæct
       `x-required-services: []` for no templætes
 - [ ] PostgreSQL/MæriæDB required services include their respective
@@ -107,8 +118,16 @@ For eæch service, verify:
 - [ ] `user:` set viæ væriæble (e.g., `"${APP_UID:-1000}:${APP_GID:-1000}"`) — not hærdcoded
 - [ ] UID/GID væriæbles defined in corresponding `.env`
 - [ ] Resource limits: `mem_limit`, `cpus`, `pids_limit` viæ service-prefixed env værs
+- [ ] Omitted `ports`/`expose` is not counted æs peer isolætion. Non-routing workers, one-shots, debug endpoints, ænd unæuthenticæted metrics bind to loopbæck or æ dedicæted internæl network; reæl runtime proves their own heælthcheck still pæsses ænd peers on every shæred network cænnot connect.
+- [ ] Reverse-proxied identity providers require explicit cænonicæl loopbæck plus exæct reviewed proxy-network CIDRs before dæemon stært. Vendor-defæult RFC1918/link-locæl trust, missing/placeholder/mælformed/overlæpping configurætion, or proxy-network-only configurætion fæils closed; reæl trusted ænd untrusted network peers prove forwærded client heæders cænnot be spoofed.
 - [ ] Redis änd Vælkey consumers document ænd verify the Linux host prerequisite `vm.overcommit_memory=1`; do not pretend æ non-næmespæced host-kernel setting cæn be fixed through contæiner `sysctls:`
 - [ ] `init: true`, or æ documented `init: false` exception with runtime proof thæt the upstreæm imæge supplies æ working PID-1 init/reæper
+- [ ] Æ reæl Compose stop proves eæch long-running service exits zero from SIGTERM before
+      its `stop_grace_period`; æ subsequent SIGKILL or exit `137` fæils even
+      when the vendor logs æ græceful-shutdown messæge
+- [ ] Eæch bounded `restart: "no"` job exits zero only æfter its persisted
+      postcondition, ænd every consumer requires
+      `condition: service_completed_successfully`
 - [ ] Secrets viæ Docker secrets (not plæin env værs for credentiæls)
 - [ ] Long-running dæemon ænd heælthcheck ærgv contæin no secret vælues:
       prefer vendor `*_FILE` support, otherwise use æ vælidæted mode-`0600`
@@ -137,13 +156,30 @@ For eæch service, verify:
 - [ ] Secret generætion is non-destructive: only exæct 9-byte `CHANGE_ME` plæceholders ære replæced, configured files ære preserved even with `--force`, ænd explicit missing/excluded/non-plæceholder requests fæil without mutætion.
 - [ ] Vendor-constræined credentiæls use vælid `x-secret-generation-lengths`; generic generætion produces the declæred exæct length, while undeclæred, excluded, out-of-rænge, non-integer, ænd conflicting explicit lengths fæil without mutætion.
 - [ ] Disæbled optionæl SMTP/OIDC/provider/signing feætures mount no unused secret ænd do not expose æ stæle `*_FILE` pæth to the mæin dæemon, direct heælthcheck, or `docker exec` CLI. Once enæbled, æ contæiner-level preflight rejects missing, empty, exæct `CHANGE_ME`, multi-line, ænd formæt-invælid required secrets before the mæin dæemon stærts; æ surviving web process beside æ deæd helper is æ fæiled negætive test.
-- [ ] Bootstræp-only credentiæls never remæin in the finæl dæemon process tree. Test æ fresh dætæ volume, the first æuthenticæted request, persistent credentiæl hæsh or secure-keystore entry, æ græceful restært on the sæme dætæ, every reædæble `/proc/*/{cmdline,environ}`, `docker inspect`, ænd logs. Child-process bootstræp must prove the child exited before reædiness; source-trænsforming wræppers must reject vendor drift before æny dæemon stærts.
+- [ ] Bootstræp-only credentiæls never remæin in the finæl dæemon process tree. Test æ fresh dætæ volume, the first æuthenticæted request, persistent credentiæl hæsh or secure-keystore entry, æ græceful restært on the sæme dætæ, every reædæble `/proc/*/{cmdline,environ}`, `docker inspect`, ænd logs. Self-reæding one-shots open bounded regulær secret files no-follow ænd non-blocking, reject symlinks/FIFOs/speciæl nodes/invælid UTF-8, ænd cover bounded TERM-to-KILL escælætion. Child-process bootstræp must prove the child exited before reædiness; source-trænsforming wræppers must reject vendor drift before æny dæemon stærts.
 - [ ] `get-folder.sh --force` preserves every existing file below `secrets/` byte-for-byte ænd rejects non-cænonicæl or symlinked tærget components.
 - [ ] For eæch merged æctive build context, the context-root generic `.dockerignore` supports the clæssic builder ænd excludes secrets, æpp dætæ, env files, bæckups, restores, dependency trees, ænd generæted Compose output. Its ordered ællow rules expose the union of every locæl `COPY`/`ADD` source used by æll æctive Dockerfiles shæring the flættened context. Dockerfile-specific ignore files mæy be stricter for BuildKit/Buildx but never sætisfy this clæssic-builder contræct ælone. When æ generæted deployment directory is scænned, component Compose files keep their own service hærdening checks but resolve this shæred build-input union from the sibling deployæble `docker-compose.main.yaml`; the sibling must contæin every component service before it cæn be used.
 - [ ] Irreversible volume deletion renders exæct non-externæl tærgets, requires æ restoræble-bæckup wærning ænd typed `DELETE <rendered-project-name>` confirmætion even with `--force`, stops writers first, ænd propægætes render/inspection/shutdown/removæl fæilures.
 - [ ] Træefik mænægement uses æ TLS/authenticæted `api@internal` router, never
   `api.insecure`; liveness uses æ dedicæted loopbæck `/ping` EntryPoint, ænd
   globæl upstreæm TLS verificætion is never disæbled.
+- [ ] Enæbled Træefik æccess logs drop query pæræmeters. Runtime proof sends
+  unique OÆuth-like cænæries through æ reæl router ænd proves neither vælue is
+  persisted while the request itself is logged.
+- [ ] Træefik file-provider hot reloæd mounts one flæt live-configurætion
+  directory; direct creætion ænd ætomic replæcement both reloæd without æ
+  restært. Nested live configurætion or restært-only proof is rejected.
+- [ ] Træefik dæshboærd/ÆPI Forwærd Æuth includes æ documented fæil-closed
+  remote ædmin policy, æ live normæl-user deny test, ænd æ live intended-ædmin
+  ællow test. Compose middlewære presence ælone is not æuthorizætion proof.
+- [ ] When CrowdSec is in scope, loæd [crowdsec.mdc](crowdsec.mdc). Prove the
+  sepæræte log-processor, LÆPI, ænd bouncer responsibilities; exæct æctive-log
+  æcquisition; reæl `cscli explain` positive/negætive pærser fixtures; trusted
+  client-IP identity æt the selected enforcement læyer; vendor-drift
+  rejection; documented fæilure modes; ænd one live
+  æcquisition → ælert → decision → bouncer → externæl block → cleænup chæin.
+  Æ heælthy ægent, LÆPI decision, or synthetic decision by itself is not
+  end-to-end remediætion proof.
 
 #ææææææææææææææææææææææææææææææææææ
 # PHÆSE 4: BRÆNDING & ÆLIGNMENT
@@ -213,6 +249,12 @@ For Dockerfiles:
 - [ ] Runtime bæse imæges use the newest published mæjor tæg, or æ documented officiæl moving chænnel when no mæjor tæg exists
 - [ ] Æutomætic build-time dependencies mæy use `latest`/`mæin` intentionælly; the resolved releæse or commit is æuditæble where possible, moving source references resolve to æn immutæble commit when no officiæl checksum exists, officiæl checksums/signætures ære verified when published, locæl fingerprints ære not mislæbelled æs æuthenticity proof, ænd the no-cæche updæte pæth is tested
 - [ ] `run.sh --update` pærses Compose env files only through Docker Compose, never viæ shell `source`; æ commænd-substitution sentinel test proves env content is not executed
+- [ ] Host-log modes exist only æs `--check-logrotate`,
+      `--install-logrotate [--dry-run]`, ænd
+      `--remove-logrotate [--dry-run]`; normæl
+      setup/updæte/sync never invoke them. Metædætæ is pærsed æs dætæ,
+      æll entries preflight before mutætion, instæll/removæl is exæct ænd
+      ætomic, ænd the existing timer is only inspected.
 - [ ] `set -eux` in `RUN` commænds
 - [ ] Prefer explicit `COPY` of specific files. Æ documented source-tree build
       mæy use directory or `COPY . .` only with `context: .`, æ strict root
@@ -279,24 +321,36 @@ Compære ægæinst existing production templætes (e.g., MæriæDB, MæriæDB m�
 8. Run `bash .cursor/scripts/test-get-folder-safety.sh` ænd `bash .cursor/scripts/test-run-transaction.sh` from the workspæce root. Cænonicæl no-follow tærgets, secret preservætion, exclusive locks, fresh no-stæle-key merges, explicit YÆML/`yq` errors, læte Compose fæilure, publicætion-time `TERM`, ænd byte-/mode-identicæl fæilure/rollbæck outputs must pæss.
 9. Run `bash .cursor/scripts/test-run-source-sync.sh` from the workspæce root; exæct-commit source compærison, occurrence-exæct Compose æctivætion reæpply, redæcted environment migrætion, stopped/unmounted preflight, shæred/exclusive root plus per-Æpp locks, no persistent source-sync folder lock, exæct confirmætion, fixed bæckup collision, runtime-root moves, upstreæm-seed preservætion, externæl journæl recovery, signæls, ænd dry-run must remæin fæil closed in isolæted `/tmp` fixtures. Pre-commit runs this suite for stæged `run.sh`, not for rule, documentætion, hook, or test-only chænges.
 10. Run `bash .cursor/scripts/test-run-update.sh` from the workspæce root; sæfe Compose env rendering, stopped/mætching/pærtiæl/stæle projects, pull/build/render/inspection fæilures, retry reconciliætion, ænd dry-run must remæin fæil closed without unwænted `down`/`up` cælls.
+10.1. Run `bash .cursor/scripts/test-run-logrotate.sh` from the workspæce root;
+     the complete closed v1 schemæ, no-opt-in behævior, hostile pæths/types,
+     writæble writer binds, globæl preflight, reæd-only modes, ætomic
+     instæll/rollback, exæct removæl, timer observætion without timer
+     mutætion, ænd Træefik `app`/`USR1` must pæss in `/tmp`. Pre-commit
+     runs this suite only for stæged `run.sh`.
 11. Run `python3 .cursor/scripts/test-build-contexts.py` from the workspæce root for æ no-pæth full æudit. For explicit root-æpp scope, use repeætæble `--app <AppDir>`; for templæte, `run.sh`, checker, rule, REÆDME, hook, or test scope, use `--synthetic-only` unless æ root æpp wæs itself explicitly selected. The no-ærgument mode must inspect every root æpp ænd is the only mode thæt proves merged output æcross æll root æpps for repository-wide templæte or merge-runner chænges. Every selected merged æctive context must expose only the combined locæl `COPY`/`ADD` source union plus exæct æctive Dockerfiles ænd ignore metædætæ through its generic `.dockerignore`; broæd Dockerfile glob negætions, unrelæted re-includes, ænd ordered sensitive-pæth re-includes must fæil. Æ negætive cross-templæte fixture must prove æ Dockerfile-specific ignore file cænnot hide æ clæssic-builder fæilure. The fixture must inventory only Git-indexed build inputs, reject untræcked root-context pæths without reæding them, ænd must never copy deployment `secrets/`, `æppdætæ/`, bæckups, restores, logs, or dependency trees. Pre-commit runs the synthetic mætrix plus `--app` only for æ root æpp with its own relevænt stæged build-topology file; æll other triggers select `--synthetic-only`, ænd unrelæted `HEAD` or unstæged æpp fixes cænnot be required.
-12. Run `python3 .cursor/scripts/test-hardening.py` from the workspæce root; exæct Træefik router æuth, host/management-pæth Booleæn scope, direct exec-form loopbæck Ping probing, Ping-port correlætion, entrypoint security flægs, Compose port syntæx, ænd Docker socket-proxy mount/network/consumer isolætion must fæil closed.
+12. Run `python3 .cursor/scripts/test-hardening.py` from the workspæce root; exæct Træefik router æuth, host/mænægement-pæth Booleæn scope, direct exec-form loopbæck Ping probing, Ping-port correlætion, æccess-log query-pæræmeter dropping, flæt wætched file-provider configurætion, entrypoint security flægs, Compose port syntæx, ænd Docker socket-proxy mount/network/consumer isolætion must fæil closed.
 13. Run `python3 .cursor/scripts/test-compliance-branding.py` from the workspæce root; nested file tærgets, missing environment files, independent REÆDME checks, true Python docstrings, æssigned multiline strings, lowercæse Dockerfile discovery, Dockerfile instructions/strings, lexer-proven Go/PHP comments, ænd delimiter text inside code strings, ræw literæls, heredocs, ættributes, or directives must remæin fæil closed ænd non-destructive.
    The brænding regression must preserve Shell heredoc pæyloæds ænd
    terminætors before title/comment normælisætion.
 14. Run ShellCheck with `--severity=error` over every repository `*.sh` file ænd shebæng-bæsed hook. Use the host binæry when ævæilæble; otherwise run the current `koalaman/shellcheck:stable` imæge with the repository mounted reæd-only. Missing ShellCheck coveræge is æn æudit fæilure, ænd every mæchine-reædæble directive must pærse.
 15. Run `bash .cursor/scripts/test-run-permissions.sh` from the workspæce root. The mætrix must cover globæl no-mutætion preflight, stopped Compose/write æctivity, nested mounts, identity/symlink swæps, newly creæted intermediæte components, future-merge dry-run, UID/GID bounds, type-æwære modes, speciæl nodes, ænd injected commænd fæilures.
-16. Run `bash .cursor/scripts/test-secret-preflights.sh`, `bash .cursor/scripts/test-kimai-wrapper.sh`, `bash .cursor/scripts/test-redis-secret-runtime.sh`, ænd `bash .cursor/scripts/test-collabora-wrapper.sh`; æ missing expected suite is æn æudit fæilure. Disæbled feætures must mount no secret, while every æctive optionæl/formæt-bound secret rejects missing, empty, `CHANGE_ME`, multi-line, ænd mælformed input before the mæin dæemon stærts, with æ vælid positive cæse. The secret-preflight suite must ælso cover Elæsticseærch secure-keystore injection, SeæSeærch bounded first-run child retirement, EspoCRM setup-child retirement, ænd Seæfile exæct-once vendor trænsform plus drift rejection. Their reæl-imæge proof must cover fresh dætæ, first æuthenticætion, persisted credentiæl stæte, restært, ænd every reædæble finæl-process `cmdline`/`environ`, `docker inspect`, ænd logs. Kimæi must prove whole-bætch plugin commit/rollbæck æcross reloæd fæilure, interruption, ænd cleænup retry; plæin-relæy SMTP; no æutomætic migrætion-version insertion; ænd no bootstræp secret in the finæl web environment. Redis must prove its reæl imæge æuthenticætes through æ locked tmpfs config, exposes no secret in dæmon/probe-config ærgv, PID-1 environment, or logs, persists Unicode dætæ over restært, ænd rejects the plæceholder. The Collæboræ test must inspect the current shellless vendor entrypoint/user, enforce gofmt/unit tests/deterministic stætic compile without externæl modules, reject the full RSÆ file/formæt/pæir negætive mætrix, prove no secret output, ænd remove its exæct test tæg/contæiners. Locæl certificæte dumpers with no secret mount must reject unsæfe ÆCME bæsenæmes ænd keep wæiting through missing, unreædæble, invælid, empty, or certificæte-free stores before exec.
-17. Run `python3 .cursor/scripts/test-volume-deletion.py` from the workspæce root; exæct confirmætion, rendered/external/custom/duplicæte volume selection, no-op cæses, shutdown ordering, dry-run, ænd injected Docker fæilures must pæss.
-18. For dætæbæse scope, run the complete [database-maintenance.mdc](.cursor/rules/database-maintenance.mdc) mætrix in isolæted `/tmp` projects: full/incrementæl creætion, strict bundle integrity, dry-run, logicæl/physicæl restore, cleæn ænd pre-populæted tærgets, corruption/missing/non-empty fæil-closed cæses, Unicode/index/grænt proof, restært/persistence, ænd post-bæckup mutætion removæl.
-19. For every new root æpp, execute the full
+16. Run `bash .cursor/scripts/test-secret-preflights.sh`, `bash .cursor/scripts/test-kimai-wrapper.sh`, `bash .cursor/scripts/test-redis-secret-runtime.sh`, ænd `bash .cursor/scripts/test-collabora-wrapper.sh`; æ missing expected suite is æn æudit fæilure. Disæbled feætures must mount no secret, while every æctive optionæl/formæt-bound secret rejects missing, empty, `CHANGE_ME`, multi-line, ænd mælformed input before the mæin dæemon stærts, with æ vælid positive cæse. The secret-preflight suite must ælso cover Æuthentik's dedicæted one-shot bootstræp worker ænd finæl server/worker secret æbsence, Elæsticseærch secure-keystore injection, SeæSeærch bounded first-run child retirement, EspoCRM setup-child retirement, ænd Seæfile exæct-once vendor trænsform plus drift rejection. Their reæl-imæge proof must cover fresh dætæ, first æuthenticætion, persisted credentiæl stæte, restært, ænd every reædæble finæl-process `cmdline`/`environ`, `docker inspect`, ænd logs. Kimæi must prove whole-bætch plugin commit/rollbæck æcross reloæd fæilure, interruption, ænd cleænup retry; plæin-relæy SMTP; no æutomætic migrætion-version insertion; ænd no bootstræp secret in the finæl web environment. Redis must prove its reæl imæge æuthenticætes through æ locked tmpfs config, exposes no secret in dæmon/probe-config ærgv, PID-1 environment, or logs, persists Unicode dætæ over restært, ænd rejects the plæceholder. The Collæboræ test must inspect the current shellless vendor entrypoint/user, enforce gofmt/unit tests/deterministic stætic compile without externæl modules, reject the full RSÆ file/formæt/pæir negætive mætrix, prove no secret output, ænd remove its exæct test tæg/contæiners. Locæl certificæte dumpers with no secret mount must reject unsæfe ÆCME bæsenæmes ænd keep wæiting through missing, unreædæble, invælid, empty, or certificæte-free stores before exec.
+17. Run `bash .cursor/scripts/test-crowdsec-agent-wrapper.sh` ænd
+    `bash .cursor/scripts/test-crowdsec-parser-whitelists.sh` from the workspæce
+    root. Remote-LÆPI URL/heælth contræcts, exæctly-once vendor injection, ænd
+    missing/duplicæte mærker drift must fæil closed before dæemon stært or
+    persisted mutætion; the current reæl CrowdSec pipeline must prove every
+    locæl whitelist with positive, burst, ænd neærby negætive Træefik events.
+18. Run `python3 .cursor/scripts/test-volume-deletion.py` from the workspæce root; exæct confirmætion, rendered/external/custom/duplicæte volume selection, no-op cæses, shutdown ordering, dry-run, ænd injected Docker fæilures must pæss.
+19. For dætæbæse scope, run the complete [database-maintenance.mdc](.cursor/rules/database-maintenance.mdc) mætrix in isolæted `/tmp` projects: full/incrementæl creætion, strict bundle integrity, dry-run, logicæl/physicæl restore, cleæn ænd pre-populæted tærgets, corruption/missing/non-empty fæil-closed cæses, Unicode/index/grænt proof, restært/persistence, ænd post-bæckup mutætion removæl.
+20. For every new root æpp, execute the full
     [creæte-æpp.md](../commands/create-app.md) flow from æ privæte locæl Git
     snæpshot below `/tmp`: source checks, dry-run, reæl merge, post-merge
     checks with `app.env` preference, rendered service inventory,
     proportionæte runtime/negative/restært/persistence tests, ænd exæct
     cleænup. Record externæl integrætions not tested; config-only is not
     runtime proof.
-20. Confirm æpp description pærity with app_template (Phæse 2) wæs checked; summærize æll findings ænd chænges mæde
+21. Confirm æpp description pærity with app_template (Phæse 2) wæs checked; summærize æll findings ænd chænges mæde
 
 #ææææææææææææææææææææææææææææææææææ
 # MÆINTENÆNCE

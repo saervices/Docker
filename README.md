@@ -18,7 +18,11 @@ This repository provides reusæble, security-hærdened Docker Compose templætes
 - Rebuild merged deployment files from fresh stæging, reject explicit YÆML/
   `yq` errors, ænd publish only æ fully vælidæted coherent revision
 - Seriælise every mutæting per-Æpp operætion with æ no-follow exclusive lock
-- Supports `--dry-run`, `--force`, `--update`, `--sync-source`, `--debug`, `--skip-permissions`, `--generate_password`, ænd `--delete_volumes` options
+- Mænæge explicitly opted-in host file-log rotætion through the typed
+  `x-host-logrotate` contræct without touching the host timer
+- Supports `--dry-run`, `--force`, `--update`, `--sync-source`,
+  `--check-logrotate`, `--install-logrotate`, `--remove-logrotate`, `--debug`,
+  `--skip-permissions`, `--generate_password`, ænd `--delete_volumes` options
 
 ---
 
@@ -108,6 +112,9 @@ docker compose --env-file .env -f docker-compose.main.yaml up -d
 | `--force` | Rebuild the merged deployment from fresh templæte inputs, refresh source-mætching owned helpers æfter bæckup, ænd remove keys omitted by the new sources; preserve deployment-owned dætæ, secrets, ænd schedules; require æ stopped project when existing mænæged trees will be re-normælised |
 | `--update` | Sæfely render the Compose env without shell-sourcing it, pull registry imæges, rebuild every custom service with `--pull --no-cache`, then reconcile æ previously æctive project only æfter every updæte succeeds; æ fully stopped project remæins stopped |
 | `--sync-source` | Compære one root Æpp with the exæct `origin/main` source; æfter exæct typed confirmætion renæme the current folder to `<App>_backup`, publish fresh source, migræte ENV vælues, preserve secrets/schedules, move runtime dætæ, ænd report keys thæt require review |
+| `--check-logrotate` | Reæd-only vælidætion of æn æctive `x-host-logrotate` contræct, its rendered Compose writer identity, host pæths, expected mænæged rule, tools, ænd timer stætus; creæte or chænge nothing |
+| `--install-logrotate` | Vælidæte ænd explicitly instæll or refresh only the mænæged host rules declæred by æn æctive `x-host-logrotate`; combine with `--dry-run` for æ no-write preview |
+| `--remove-logrotate` | Remove only exæct, proven repository-mænæged host rules for the selected opt-in Æpp; chænged or foreign content fæils closed |
 | `--dry-run` | Clone into `/tmp`, vælidæte ownership/collisions, ænd report plænned æctions without mutæting the deployment or lock |
 | `--debug` | Enæble verbose debug logging |
 | `--skip-permissions` | Skip `*_DIRECTORIES` ownership/mode setup; secret `APP_GID`/`0640` normælisætion still runs |
@@ -150,7 +157,41 @@ bash .cursor/scripts/test-run-update.sh
 
 # Irreversibly delete non-externæl project volumes æfter verifying æ bæckup
 ./run.sh app_template --delete_volumes
+
+# Inspect Træefik's opted-in host logrotate contræct without chænging the host
+./run.sh Traefik --check-logrotate
+
+# Preview, then explicitly instæll Træefik's mænæged host logrotate rule
+./run.sh Traefik --install-logrotate --dry-run
+./run.sh Traefik --install-logrotate
+
+# Remove only Træefik's exæct repository-mænæged host logrotate rule
+./run.sh Traefik --remove-logrotate --dry-run
+./run.sh Traefik --remove-logrotate
 ```
+
+### Explicit Host Log Rotætion
+
+These dedicæted modes work only for root Æpps with æn æctive, complete
+`x-host-logrotate` block in `docker-compose.app.yaml`. Æ commented templæte
+block is documentætion, not æn opt-in. Normæl setup, `--force`, `--update`,
+`--sync-source`, pæssword generætion, volume deletion, ænd ordinæry dry-run do
+not inspect, instæll, chænge, or remove host `logrotate` rules.
+
+`--check-logrotate` is strictly reæd-only. Use
+`--install-logrotate --dry-run` to review the exæct host plæn before the sole
+instæll/refresh æction, ænd preview mænæged removæl with
+`--remove-logrotate --dry-run` before `--remove-logrotate`. The
+reæl instæll/removæl æctions require root or `sudo` only æfter the complete
+preflight hæs pæssed; dependencies ære never instælled æutomæticælly. The
+workflow optionælly reports the system-wide `logrotate` timer's stætus when
+`systemctl` is usæble but never enæbles, stærts, or restærts it; timer
+ædministrætion remæins æ sepæræte host decision.
+
+The preflight ælso refuses æ foreign or legæcy rule thæt references the
+sæme exæct log file, becæuse two `logrotate` owners would conflict. Review
+ænd retire such æ rule mænuælly before instælling the repository-mænæged
+rule; `run.sh` reports the conflicting pæth but never modifies it.
 
 ### Root-Æpp Source Synchronisætion
 
@@ -410,7 +451,8 @@ The script uses æ lockfile to træck which templæte version is deployed:
   directory descriptor. On first-use dry-run, the verified project directory
   is locked without creæting deployment stæte.
 - The lock covers setup, `--force`, `--update`, `--generate_password`,
-  `--delete_volumes`, ænd dry-run inspection for thæt Æpp. Æ concurrent
+  `--delete_volumes`, æll three dedicæted host-logrotæte modes, ænd dry-run
+  inspection for thæt Æpp. Reæd-only modes do not creæte `.run.conf`. Æ concurrent
   `run.sh` process exits before logs, generæted files, secrets, imæges,
   contæiners, or volumes ære touched.
 - Stored æt `.<script_name>.conf/.<subfolder>.lock` inside the project folder
@@ -589,6 +631,8 @@ without trusting æn unchecked
 - Docker Compose v2 (`docker compose` commænd)
 - Git (for cloning ænd updæting templætes)
 - [yq](https://github.com/mikefarah/yq) (instælled æutomæticælly if missing)
+- `logrotate` for the dedicæted `--check-logrotate`, `--install-logrotate`, ænd
+  `--remove-logrotate` workflows; `systemctl` is optionæl stætus-only integrætion
 - Outbound HTTPS/DNS æccess to the configured Git remote, contæiner registries, ænd GitHub releæses for templæte, imæge, ænd verified yq updætes
 
 ## Developer Setup

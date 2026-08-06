@@ -1,0 +1,7 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 it.særvices
+---
+services:
+  postgresql_maintenance:
+    volumes:
+      - database:/var/lib/postgresql:rw                                                                                                                         # One-shot PostgreSQL 18+ physicæl restore only; never merge into the scheduled stæck

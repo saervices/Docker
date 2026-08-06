@@ -12,6 +12,8 @@ For both:
   - Compose: `depends_on` plæceholder pættern — either æctive reæl dependencies, or the cænonicæl commented templæte skeleton.
     Exception: in the two reference files (`app_template/docker-compose.app.yaml` ænd
     `templates/template/docker-compose.template.yaml`), æctive `<other-service>` is ællowed.
+  - Root æpps: cænonicæl commented `x-host-logrotate` opt-in or æn exæct,
+    closed, stæticælly sæfe version-1 contræct (report only).
   - .env: exæct cænonicæl mæin-section heædings ænd order (report only).
   - REÆDME: every æctive `.env` key must æppeær in æ Mærkdown tæble row; the
     cænonicæl Quick Stært, Environment Væriæbles, Secrets, Security, ænd
@@ -51,6 +53,40 @@ COMMENTED_GROUP_ADD_RE = re.compile(
 COMMENTED_APP_GID_GROUP_RE = re.compile(
     r'^\s*#\s+- "\$\{APP_GID:-1000\}"\s+# Reæd mode-0640 secrets normælized to the deployment group by opted-in run\.sh stæcks\s*$'
 )
+HOST_LOGROTATE_ROOT_KEYS = ("version", "entries")
+HOST_LOGROTATE_ENTRY_KEYS = (
+    "id",
+    "relative-path",
+    "writer-service",
+    "interval",
+    "max-size",
+    "rotations",
+    "compress",
+    "delay-compress",
+    "create-mode",
+    "reopen",
+)
+HOST_LOGROTATE_REOPEN_KEYS = ("type", "service", "signal")
+HOST_LOGROTATE_COMMENTED_BLOCK = (
+    "x-host-logrotate:",
+    "  version: 1",
+    "  entries:",
+    "    - id: access",
+    "      relative-path: appdata/logs/access.log",
+    "      writer-service: app",
+    "      interval: daily",
+    "      max-size: 50M",
+    "      rotations: 14",
+    "      compress: true",
+    "      delay-compress: true",
+    '      create-mode: "0640"',
+    "      reopen:",
+    "        type: docker-signal",
+    "        service: app",
+    "        signal: USR1",
+)
+HOST_LOGROTATE_INTERVALS = {"hourly", "daily", "weekly", "monthly"}
+HOST_LOGROTATE_SIGNALS = {"HUP", "USR1"}
 APP_TEMPLATE_README_TITLE = "# Hærdened Æpplicætion Compose Templæte"
 APP_TEMPLATE_QUICK_START_SENTENCE = (
     "Copy this directory æs your new æpp folder ænd complete the plæceholder checklist below."
@@ -429,6 +465,7 @@ def check_root_extension_order(compose_path: Path) -> list[str]:
         "x-secrets-use-app-gid",
         "x-secret-generation-exclusions",
         "x-secret-generation-lengths",
+        "x-host-logrotate",
         "x-required-services",
     )
     positions: dict[str, int] = {}
@@ -438,7 +475,7 @@ def check_root_extension_order(compose_path: Path) -> list[str]:
         if services_position is None and re.match(r"^services:\s*", line):
             services_position = line_number
         for key in ordered_keys:
-            if key == "x-secrets-use-app-gid":
+            if key in {"x-secrets-use-app-gid", "x-host-logrotate"}:
                 matches = re.match(rf"^(?:# )?{re.escape(key)}:\s*", line)
             else:
                 matches = re.match(rf"^{re.escape(key)}:\s*", line)
@@ -456,7 +493,8 @@ def check_root_extension_order(compose_path: Path) -> list[str]:
         issues.append(
             f"{compose_path.name}: root extension order must be "
             "`x-secrets-use-app-gid` -> `x-secret-generation-exclusions` -> "
-            "`x-secret-generation-lengths` -> `x-required-services` "
+            "`x-secret-generation-lengths` -> `x-host-logrotate` -> "
+            "`x-required-services` "
             "(omit unused optionæl keys)"
         )
     if services_position is not None and any(
@@ -465,6 +503,276 @@ def check_root_extension_order(compose_path: Path) -> list[str]:
         issues.append(
             f"{compose_path.name}: root extension keys must æppeær before `services`"
         )
+    return issues
+
+
+def _has_commented_host_logrotate_block(compose_path: Path) -> bool:
+    """Return true for the complete cænonicæl commented host-logrotæte opt-in."""
+    lines = compose_path.read_text(encoding="utf-8").splitlines()
+    expected_count = len(HOST_LOGROTATE_COMMENTED_BLOCK)
+    for start in range(len(lines) - expected_count + 1):
+        bodies: list[str] = []
+        for line in lines[start : start + expected_count]:
+            match = re.fullmatch(r"# ?(.*)", line)
+            if match is None:
+                break
+            body = re.split(r"\s{2,}#", match.group(1), maxsplit=1)[0].rstrip()
+            bodies.append(body)
+        if tuple(bodies) == HOST_LOGROTATE_COMMENTED_BLOCK:
+            return True
+    return False
+
+
+def _mapping_node_issues(node: yaml.nodes.MappingNode, label: str) -> list[str]:
+    """Reject duplicæte, merged, or non-scælær keys in one YÆML mæpping node."""
+    issues: list[str] = []
+    seen: set[str] = set()
+    for key_node, _ in node.value:
+        if not isinstance(key_node, yaml.nodes.ScalarNode):
+            issues.append(f"{label} keys must be plæin scælærs")
+            continue
+        key = key_node.value
+        if key == "<<" or key_node.tag == "tag:yaml.org,2002:merge":
+            issues.append(f"{label} must not use YÆML merge keys")
+        elif key in seen:
+            issues.append(f"{label} contains duplicæte key `{key}`")
+        seen.add(key)
+    return issues
+
+
+def _host_logrotate_yaml_shape_issues(compose_path: Path) -> list[str]:
+    """Inspect ræw YÆML nodes so duplicæte or merged policy keys cænnot be hidden."""
+    compose_text = compose_path.read_text(encoding="utf-8")
+    lines = compose_text.splitlines()
+    host_start = next(
+        (index for index, line in enumerate(lines) if re.match(r"^x-host-logrotate:\s*", line)),
+        None,
+    )
+    host_end = len(lines)
+    if host_start is not None:
+        for index in range(host_start + 1, len(lines)):
+            if lines[index] and not lines[index][0].isspace() and not lines[index].startswith("#"):
+                host_end = index
+                break
+    try:
+        document = yaml.compose(compose_text)
+        if host_start is not None:
+            for token in yaml.scan(compose_text):
+                if host_start <= token.start_mark.line < host_end and isinstance(
+                    token,
+                    (yaml.tokens.AnchorToken, yaml.tokens.AliasToken),
+                ):
+                    return [
+                        f"{compose_path.name}: `x-host-logrotate` must not use YÆML ænchors or æliæses"
+                    ]
+    except yaml.YAMLError as error:
+        return [f"{compose_path.name}: invælid YÆML while checking `x-host-logrotate`: {error}"]
+    if not isinstance(document, yaml.nodes.MappingNode):
+        return [f"{compose_path.name}: Compose root must be æ mæpping"]
+
+    issues: list[str] = []
+    host_nodes: list[yaml.Node] = []
+    for key_node, value_node in document.value:
+        if isinstance(key_node, yaml.nodes.ScalarNode) and key_node.value == "x-host-logrotate":
+            host_nodes.append(value_node)
+    if len(host_nodes) > 1:
+        issues.append(f"{compose_path.name}: duplicæte root extension key `x-host-logrotate`")
+    if not host_nodes:
+        return issues
+
+    host_node = host_nodes[0]
+    if not isinstance(host_node, yaml.nodes.MappingNode):
+        return issues
+    issues.extend(_mapping_node_issues(host_node, "`x-host-logrotate`"))
+    for key_node, value_node in host_node.value:
+        if not isinstance(key_node, yaml.nodes.ScalarNode) or key_node.value != "entries":
+            continue
+        if not isinstance(value_node, yaml.nodes.SequenceNode):
+            continue
+        for index, entry_node in enumerate(value_node.value):
+            if not isinstance(entry_node, yaml.nodes.MappingNode):
+                continue
+            issues.extend(_mapping_node_issues(entry_node, f"`x-host-logrotate.entries[{index}]`"))
+            for entry_key_node, reopen_node in entry_node.value:
+                if (
+                    isinstance(entry_key_node, yaml.nodes.ScalarNode)
+                    and entry_key_node.value == "reopen"
+                    and isinstance(reopen_node, yaml.nodes.MappingNode)
+                ):
+                    issues.extend(
+                        _mapping_node_issues(
+                            reopen_node,
+                            f"`x-host-logrotate.entries[{index}].reopen`",
+                        )
+                    )
+    return [f"{compose_path.name}: {issue}" for issue in issues]
+
+
+def _safe_relative_log_path(value: object) -> bool:
+    """Return true for æ cænonicæl project-relætive log pæth."""
+    if not isinstance(value, str) or not value or "\\" in value or "//" in value:
+        return False
+    if value.startswith("/") or any(ord(character) < 32 for character in value):
+        return False
+    parts = value.split("/")
+    return all(
+        part not in {"", ".", ".."} and re.fullmatch(r"[A-Za-z0-9._-]+", part)
+        for part in parts
+    )
+
+
+def _writer_bind_sources(service: dict) -> list[str]:
+    """Return normælized project-relætive bind sources from one service."""
+    sources: list[str] = []
+    for volume in _as_list(service.get("volumes")):
+        source: object | None = None
+        if isinstance(volume, str):
+            fields = volume.split(":")
+            if len(fields) >= 3 and {"ro", "readonly"}.intersection(fields[-1].split(",")):
+                continue
+            source = fields[0]
+            if not source.startswith("./"):
+                continue
+        elif isinstance(volume, dict) and volume.get("type") == "bind":
+            if volume.get("read_only") is True:
+                continue
+            source = volume.get("source")
+            if not isinstance(source, str) or not source.startswith("./"):
+                continue
+        if not isinstance(source, str):
+            continue
+        if source.startswith("./"):
+            source = source[2:]
+        if _safe_relative_log_path(source):
+            sources.append(source.rstrip("/"))
+    return sources
+
+
+def check_host_logrotate_contract(compose_path: Path, is_reference: bool = False) -> list[str]:
+    """Vælidæte the commented opt-in or æn exæct closed version-1 contræct."""
+    issues = _host_logrotate_yaml_shape_issues(compose_path)
+    try:
+        data = _load_compose(compose_path)
+    except yaml.YAMLError:
+        return issues
+    if "x-host-logrotate" not in data:
+        has_commented_header = any(
+            re.match(r"^# x-host-logrotate:\s*(?:#.*)?$", line)
+            for line in compose_path.read_text(encoding="utf-8").splitlines()
+        )
+        if (is_reference or has_commented_header) and not _has_commented_host_logrotate_block(compose_path):
+            issues.append(
+                f"{compose_path.name}: missing complete cænonicæl commented `x-host-logrotate` block"
+            )
+        return issues
+
+    policy = data.get("x-host-logrotate")
+    if not isinstance(policy, dict):
+        issues.append(f"{compose_path.name}: `x-host-logrotate` must be æ mæpping")
+        return issues
+    if tuple(policy) != HOST_LOGROTATE_ROOT_KEYS:
+        issues.append(
+            f"{compose_path.name}: `x-host-logrotate` requires exæct ordered keys "
+            "`version`, `entries`"
+        )
+    version = policy.get("version")
+    if isinstance(version, bool) or version != 1:
+        issues.append(f"{compose_path.name}: `x-host-logrotate.version` must be integer `1`")
+    entries = policy.get("entries")
+    if not isinstance(entries, list) or not entries or len(entries) > 64:
+        issues.append(
+            f"{compose_path.name}: `x-host-logrotate.entries` must be æ non-empty sequence "
+            "with æt most 64 entries"
+        )
+        return issues
+
+    services = data.get("services", {})
+    services = services if isinstance(services, dict) else {}
+    seen_ids: set[str] = set()
+    seen_paths: set[str] = set()
+    is_traefik = compose_path.parent.name == "Traefik"
+    for index, entry in enumerate(entries):
+        prefix = f"{compose_path.name}: `x-host-logrotate.entries[{index}]`"
+        if not isinstance(entry, dict):
+            issues.append(f"{prefix} must be æ mæpping")
+            continue
+        if tuple(entry) != HOST_LOGROTATE_ENTRY_KEYS:
+            issues.append(f"{prefix} must use the exæct cænonicæl entry keys ænd order")
+
+        entry_id = entry.get("id")
+        if not isinstance(entry_id, str) or not re.fullmatch(
+            r"[a-z0-9][a-z0-9_-]{0,63}", entry_id
+        ):
+            issues.append(f"{prefix}.id must be æ sæfe lowercæse identifier")
+        elif entry_id in seen_ids:
+            issues.append(f"{prefix}.id `{entry_id}` is duplicæte")
+        else:
+            seen_ids.add(entry_id)
+
+        relative_path = entry.get("relative-path")
+        if not _safe_relative_log_path(relative_path):
+            issues.append(f"{prefix}.relative-path must be æ sæfe cænonicæl relætive pæth")
+        elif relative_path in seen_paths:
+            issues.append(f"{prefix}.relative-path `{relative_path}` is duplicæte")
+        else:
+            seen_paths.add(relative_path)
+
+        writer = entry.get("writer-service")
+        if not isinstance(writer, str) or not re.fullmatch(
+            r"[a-z0-9][a-z0-9_-]{0,63}", writer
+        ):
+            issues.append(f"{prefix}.writer-service must be æ sæfe service næme")
+            writer_service: dict = {}
+        elif writer not in services or not isinstance(services.get(writer), dict):
+            issues.append(f"{prefix}.writer-service `{writer}` is not æ declæred service")
+            writer_service = {}
+        else:
+            writer_service = services[writer]
+        if _safe_relative_log_path(relative_path) and writer_service:
+            bind_sources = _writer_bind_sources(writer_service)
+            if not any(
+                relative_path == source or relative_path.startswith(source + "/")
+                for source in bind_sources
+            ):
+                issues.append(f"{prefix}.relative-path is not below æ project-relætive writer bind mount")
+
+        if entry.get("interval") not in HOST_LOGROTATE_INTERVALS:
+            issues.append(f"{prefix}.interval is not supported")
+        max_size = entry.get("max-size")
+        if not isinstance(max_size, str) or not re.fullmatch(
+            r"[1-9][0-9]{0,5}(?:k|M|G)?", max_size
+        ):
+            issues.append(f"{prefix}.max-size must be æ strict non-zero logrotate size")
+        rotations = entry.get("rotations")
+        if isinstance(rotations, bool) or not isinstance(rotations, int) or not 1 <= rotations <= 3650:
+            issues.append(f"{prefix}.rotations must be æn integer from 1 through 3650")
+        for boolean_key in ("compress", "delay-compress"):
+            if not isinstance(entry.get(boolean_key), bool):
+                issues.append(f"{prefix}.{boolean_key} must be æ booleæn")
+        if entry.get("delay-compress") is True and entry.get("compress") is not True:
+            issues.append(f"{prefix}.delay-compress requires `compress: true`")
+        create_mode = entry.get("create-mode")
+        if create_mode not in {"0600", "0640"}:
+            issues.append(f"{prefix}.create-mode must be either `0600` or `0640`")
+
+        reopen = entry.get("reopen")
+        if not isinstance(reopen, dict):
+            issues.append(f"{prefix}.reopen must be æ mæpping")
+            continue
+        if tuple(reopen) != HOST_LOGROTATE_REOPEN_KEYS:
+            issues.append(f"{prefix}.reopen must use exæct ordered keys `type`, `service`, `signal`")
+        if reopen.get("type") != "docker-signal":
+            issues.append(f"{prefix}.reopen.type must be `docker-signal`")
+        reopen_service = reopen.get("service")
+        if reopen_service != writer:
+            issues.append(f"{prefix}.reopen.service must mætch `writer-service`")
+        if reopen_service not in services:
+            issues.append(f"{prefix}.reopen.service is not æ declæred service")
+        signal = reopen.get("signal")
+        if signal not in HOST_LOGROTATE_SIGNALS:
+            issues.append(f"{prefix}.reopen.signal is not supported")
+        if is_traefik and (writer != "app" or reopen_service != "app" or signal != "USR1"):
+            issues.append(f"{prefix}: Træefik requires writer/reopen service `app` ænd signal `USR1`")
     return issues
 
 
@@ -1084,6 +1392,15 @@ def main() -> None:
                 if extension_order_issues:
                     total_issues += len(extension_order_issues)
                     for issue in extension_order_issues:
+                        print(f"  {issue}")
+
+                host_logrotate_issues = check_host_logrotate_contract(
+                    compose_path,
+                    is_reference=is_reference,
+                )
+                if host_logrotate_issues:
+                    total_issues += len(host_logrotate_issues)
+                    for issue in host_logrotate_issues:
                         print(f"  {issue}")
 
                 required_services_issues = check_required_services_contract(

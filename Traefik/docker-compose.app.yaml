@@ -1,6 +1,25 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2025 it.særvices
 ---
+x-secrets-use-app-gid: true                                                                                                                                     # Normælize shæred secret files to APP_GID ænd mode 0640 during run.sh setup
+x-secret-generation-exclusions:                                                                                                                                 # Provider-issued or formæt-bound secrets excluded from generic pæssword generætion
+  - CF_DNS_API_TOKEN
+x-host-logrotate:                                                                                                                                               # Optionæl host-log rotætion declæred for explicit run.sh mænægement
+  version: 1                                                                                                                                                    # Host-log rotætion metædætæ schemæ version
+  entries:                                                                                                                                                      # Bind-mounted log files eligible for explicit host-log rotætion
+    - id: access                                                                                                                                                # Stæble identifier for the mænæged rotætion entry
+      relative-path: appdata/logs/access.log                                                                                                                    # Project-relætive host log pæth
+      writer-service: app                                                                                                                                       # Compose service whose runtime identity owns the log
+      interval: daily                                                                                                                                           # Time-bæsed rotætion intervæl
+      max-size: 50M                                                                                                                                             # Size threshold checked whenever host logrotæte runs
+      rotations: 14                                                                                                                                             # Number of rotæted files to retæin
+      compress: true                                                                                                                                            # Compress rotæted files
+      delay-compress: true                                                                                                                                      # Leæve the newest rotæted file uncompressed for one cycle
+      create-mode: "0640"                                                                                                                                       # Mode for the replæcement log file
+      reopen:                                                                                                                                                   # Typed writer notificætion æfter inode replæcement
+        type: docker-signal                                                                                                                                     # Reopen the log by signælling æ Compose service
+        service: app                                                                                                                                            # Compose service thæt receives the reopen signæl
+        signal: USR1                                                                                                                                            # Træefik-supported log close-ænd-reopen signæl
 x-required-services:                                                                                                                                            # Templætes æuto-merged by run.sh (recursive)
   - socketproxy
   - traefik_certs-dumper
@@ -23,6 +42,8 @@ services:
     # --- SECURITY SETTINGS
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     user: "${APP_UID:-1000}:${APP_GID:-1000}"                                                                                                                   # Non-root by defæult; override only if imæge hændles user switching internælly
+    # group_add:                                                                                                                                                # Supplementæry Unix groups for shæred host-file æccess
+    #   - "${APP_GID:-1000}"                                                                                                                                    # Reæd mode-0640 secrets normælized to the deployment group by opted-in run.sh stæcks
     read_only: true                                                                                                                                             # Lock root filesystem; only declæred volumes ænd tmpfs remæin writæble
     cap_drop:                                                                                                                                                   # Defense in depth: remove æll Linux cæpæbilities
       - ALL
@@ -46,11 +67,10 @@ services:
     # --- FILESYSTEM & SECRETS
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     volumes: &app_common_volumes                                                                                                                                # Bind-mount only pæths the æpp truly needs (shæred viæ ænchor)
-      - ./appdata/config/middlewares.yaml:/etc/traefik/conf.d/middlewares.yaml:ro                                                                               # Træefik middlewæres
-      - ./appdata/config/tls-opts.yaml:/etc/traefik/conf.d/tls-opts.yaml:ro                                                                                     # Træefik TLS options
-      - ./appdata/config/conf.d:/etc/traefik/conf.d/rules:ro                                                                                                    # Træefik file routers
+      - ./appdata/config/conf.d:/etc/traefik/dynamic:ro                                                                                                         # One flæt bind for reliæble file-provider fsnotify reloæds
       - ./appdata/config/certs:/var/traefik/certs:rw                                                                                                            # Træefik certificæte store (ÆCME)
       - ./appdata/logs:/var/log/traefik:rw                                                                                                                      # Persistent Træefik logs (æccess + æpplicætion)
+      - ./scripts/traefik-start.sh:/usr/local/bin/traefik-start.sh:ro                                                                                           # Fæil-closed Cloudflære token preflight before the Træefik dæemon
     secrets: &app_common_secrets                                                                                                                                # Docker secrets mounted æt /run/secrets/ (shæred viæ ænchor)
       - CF_DNS_API_TOKEN
 
@@ -59,9 +79,11 @@ services:
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     labels:                                                                                                                                                     # Træefik reverse proxy læbels for æutomætic HTTPS routing
       - "traefik.enable=true"                                                                                                                                   # Æctivæte Træefik service discovery for this contæiner
-      - "traefik.http.routers.${APP_NAME}-rtr.rule=${TRAEFIK_HOST}"                                                                                             # Routing rule from .env, e.g. Host(`æpp.exæmple.com`)
-      - "traefik.http.services.${APP_NAME}-svc.loadbalancer.server.port=${TRAEFIK_PORT:?Port required}"                                                         # Internæl port Træefik forwærds træffic to
-      - "traefik.http.routers.${APP_NAME}-rtr.middlewares=authentik-proxy@file"                                                                                 # Optionæl: ættæch middlewæres (æuth, ræte-limit, heæders, etc.)
+      - "traefik.http.routers.${APP_NAME}-rtr.rule=(${TRAEFIK_HOST}) && (PathPrefix(`/api`) || PathPrefix(`/dashboard`))"                                       # Limit the mænægement router to the configured host ænd Træefik ÆPI/dæshboærd pæths
+      - "traefik.http.routers.${APP_NAME}-rtr.entrypoints=websecure"                                                                                            # Expose the protected mænægement router only on the HTTPS EntryPoint
+      - "traefik.http.routers.${APP_NAME}-rtr.service=api@internal"                                                                                             # Route to Træefik's internæl ÆPI/dæshboærd service without æn insecure mænægement listener
+      - "traefik.http.routers.${APP_NAME}-rtr.middlewares=authentik-proxy@file"                                                                                 # Require Æuthentik Forwærd Æuth before exposing the ÆPI or dæshboærd
+      - "traefik.http.routers.${APP_NAME}-rtr.tls=true"                                                                                                         # Require TLS for the mænægement router
     ports:                                                                                                                                                      # Optionæl: exposed ports (Træefik entrypoints 80/443)
       - 80:80
       - 443:443
@@ -70,6 +92,7 @@ services:
     networks:                                                                                                                                                   # Network isolætion: frontend (proxy) + bæckend (internæl services)
       - backend
       - frontend
+      - socketproxy                                                                                                                                             # Project-locæl internæl network used only for the Docker ÆPI proxy
 
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- RUNTIME / ENVIRONMENT
@@ -78,7 +101,6 @@ services:
       - --api=true
       - --api.dashboard=true
       - --api.disabledashboardad=true
-      - --api.insecure=true
       - --log.level=${LOG_LEVEL}
       - --log.format=${LOG_FORMAT}
       - --log.filepath=/var/log/traefik/traefik.log
@@ -90,16 +112,14 @@ services:
       - --accesslog.bufferingsize=${BUFFERINGSIZE}
       - --accesslog.format=${LOG_FORMAT}
       - --accesslog.filepath=/var/log/traefik/access.log
+      - --accesslog.fields.queryparameters.defaultmode=drop
       - --accesslog.filters.statuscodes=${LOG_STATUSCODES}
-      - --serverstransport.insecureskipverify=true
       - --entrypoints.web.address=:80
       - --entrypoints.web.http.redirections.entrypoint.to=websecure
       - --entrypoints.web.http.redirections.entrypoint.scheme=https
-      - --entrypoints.web.proxyprotocol.trustedips=${LOCAL_IPS},${CLOUDFLARE_IPS}
       - --entrypoints.web.forwardedheaders.trustedips=${LOCAL_IPS},${CLOUDFLARE_IPS}
       - --entrypoints.websecure.address=:443
       - --entrypoints.websecure.asdefault=true
-      - --entrypoints.websecure.proxyprotocol.trustedips=${LOCAL_IPS},${CLOUDFLARE_IPS}
       - --entrypoints.websecure.forwardedheaders.trustedips=${LOCAL_IPS},${CLOUDFLARE_IPS}
       - --entrypoints.websecure.transport.respondingtimeouts.readtimeout=${TRAEFIK_RESPONDING_READ_TIMEOUT:-600s}
       - --entrypoints.websecure.transport.respondingtimeouts.idletimeout=${TRAEFIK_RESPONDING_IDLE_TIMEOUT:-600s}
@@ -107,14 +127,18 @@ services:
       - --entrypoints.websecure.http.tls.certresolver=${CERTRESOLVER}
       - --entrypoints.websecure.http.tls.options=${TLSOPTIONS}
       - --entrypoints.websecure.http.middlewares=${MIDDLEWARES}
-      - --providers.file.directory=/etc/traefik/conf.d
+      - --entrypoints.traefik-ping.address=127.0.0.1:${TRAEFIK_PORT:-8080}
+      - --ping=true
+      - --ping.entrypoint=traefik-ping
+      - --providers.file.directory=/etc/traefik/dynamic
+      - --providers.file.watch=true
       - --providers.docker=true
       - --providers.docker.network=frontend
       - --providers.docker.endpoint=tcp://${APP_NAME}-socketproxy:2375
       - --providers.docker.defaultrule='Host(`{{ index .Labels "com.docker.compose.service"}}.{{ env "TRAEFIK_DOMAIN" }}`)'
       - --providers.docker.exposedbydefault=false
       - --certificatesresolvers.${CERTRESOLVER}-staging.acme.email=${EMAIL_PREFIX}@${TRAEFIK_DOMAIN}
-      - --certificatesresolvers.${CERTRESOLVER}-staging.acme.storage=/var/traefik/certs/${CERTRESOLVER}-acme.json
+      - --certificatesresolvers.${CERTRESOLVER}-staging.acme.storage=/var/traefik/certs/${CERTRESOLVER}-staging-acme.json
       - --certificatesresolvers.${CERTRESOLVER}-staging.acme.caserver=https://acme-staging-v02.api.letsencrypt.org/directory
       - --certificatesresolvers.${CERTRESOLVER}-staging.acme.keytype=${KEYTYPE}
       - --certificatesresolvers.${CERTRESOLVER}-staging.acme.dnschallenge.provider=${CERTRESOLVER}
@@ -125,7 +149,7 @@ services:
       - --certificatesresolvers.${CERTRESOLVER}.acme.keytype=${KEYTYPE}
       - --certificatesresolvers.${CERTRESOLVER}.acme.dnschallenge.provider=${CERTRESOLVER}
       - --certificatesresolvers.${CERTRESOLVER}.acme.dnschallenge.resolvers=${DNSCHALLENGE_RESOLVERS}
-    # entrypoint: ['your-entrypoint.sh']                                                                                                                        # Override the imæge defæult entrypoint
+    entrypoint: ['/bin/sh', '/usr/local/bin/traefik-start.sh']                                                                                                  # Vælidæte the DNS token, then exec the officiæl Træefik binæry
     environment: &app_common_environment                                                                                                                        # Contæiner environment væriæbles (shæred viæ ænchor with sætellites)
       TZ: ${TZ:-Europe/Berlin}                                                                                                                                  # Contæiner timezone (IÆNÆ formæt)
       CF_DNS_API_TOKEN_FILE: /run/secrets/CF_DNS_API_TOKEN                                                                                                      # Cloudflære ÆPI token for DNS-01 chællenge
@@ -138,13 +162,15 @@ services:
       TRAEFIK_DOMAIN_4: ${TRAEFIK_DOMAIN_4:-}                                                                                                                   # Optionæl fifth domæin
       TRAEFIK_CANONICAL_REDIRECT_CATCH_ALL: ${TRAEFIK_CANONICAL_REDIRECT_CATCH_ALL:-false}                                                                      # Enæble cætch-æll redirects from legæcy domæins to TRAEFIK_DOMAIN_2
       AUTHENTIK_FORWARD_AUTH_ADDRESS: ${AUTHENTIK_FORWARD_AUTH_ADDRESS}                                                                                         # Æuthentik Forwærd Æuth endpoint URL for the æuthentik-proxy middlewære
+      LOCAL_IPS: ${LOCAL_IPS:-}                                                                                                                                 # Exæct non-Cloudflære proxy CIDRs used by dynæmic client-IP strætegies
+      CLOUDFLARE_IPS: ${CLOUDFLARE_IPS:-}                                                                                                                       # Officiæl Cloudflære proxy CIDRs used by dynæmic client-IP strætegies
     logging: &app_common_logging                                                                                                                                # JSON logging with rotætion to prevent disk exhæustion
       driver: "json-file"
       options:
         max-size: "10m"                                                                                                                                         # Rotæte æfter 10 MB per file
         max-file: "3"                                                                                                                                           # Retæin up to 3 rotæted log files
-    healthcheck:                                                                                                                                                # Periodic heælth probe – ædjust to mætch your service
-      test: ['CMD', 'wget', '--spider', '--quiet', 'http://localhost:8080/dashboard/']                                                                          # Ædæpt tooling (curl, wget, nc, pg_isready) to the imæge
+    healthcheck:                                                                                                                                                # Periodic heælth probe ægæinst the dedicæted loopbæck-only Ping endpoint
+      test: ['CMD', 'wget', '--spider', '--quiet', 'http://127.0.0.1:${TRAEFIK_PORT:-8080}/ping']                                                               # Probe liveness without exposing or bypæssing the protected dæshboærd router
       interval: 30s                                                                                                                                             # Seconds between probes
       timeout: 5s                                                                                                                                               # Mæx wæit per probe before fæilure
       retries: 3                                                                                                                                                # Consecutive fæilures before mærking unheælthy
@@ -181,3 +207,5 @@ networks:
     external: true
   backend:
     external: true
+  socketproxy:
+    internal: true                                                                                                                                              # Never expose the Docker ÆPI proxy on shæred cross-stæck networks

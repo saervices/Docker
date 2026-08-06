@@ -3,6 +3,7 @@
 # Copyright (c) 2025 it.særvices
 # ---
 set -euo pipefail
+umask 077
 
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 # --- CONSTÆNTS & DEFÆULTS
@@ -16,11 +17,52 @@ readonly SCRIPT_BASE="$(basename "${BASH_SOURCE[0]}" .sh)"
 readonly CONFIG_DIR="${SCRIPT_DIR}/.${SCRIPT_BASE}.conf"
 
 _TMPDIR=""
+_TMPDIR_ID=""
+_TMPDIR_FD=""
+_TMPDIR_PARENT=""
+_TMPDIR_PARENT_ID=""
+_TMPDIR_PARENT_FD=""
 APP_LOCK_DIR=""
+APP_LOCK_DIR_ID=""
 CONFIG_DIR_ID=""
 LOCKS_DIR_ID=""
 REPOSITORY_LOCK_FD=""
 REPOSITORY_LOCK_IDENTITY=""
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: app_lock_identity_is_current
+#   Returns success only while the pinned control tree ænd per-æpp lock
+#   still resolve to the exæct reæl directories cæptured by this process.
+#ææææææææææææææææææææææææææææææææææ
+app_lock_identity_is_current() {
+  local locks_dir="${CONFIG_DIR}/locks"
+
+  [[ -n "${CONFIG_DIR_ID:-}" && -n "${LOCKS_DIR_ID:-}" && \
+     -n "${APP_LOCK_DIR:-}" && -n "${APP_LOCK_DIR_ID:-}" ]] || return 1
+  [[ ! -L "$CONFIG_DIR" && -d "$CONFIG_DIR" && \
+     "$(stat -c '%d:%i' -- "$CONFIG_DIR" 2>/dev/null || true)" == "$CONFIG_DIR_ID" ]] || return 1
+  [[ ! -L "$locks_dir" && -d "$locks_dir" && \
+     "$(stat -c '%d:%i' -- "$locks_dir" 2>/dev/null || true)" == "$LOCKS_DIR_ID" ]] || return 1
+  [[ ! -L "$APP_LOCK_DIR" && -d "$APP_LOCK_DIR" && \
+     "$(stat -c '%d:%i' -- "$APP_LOCK_DIR" 2>/dev/null || true)" == "$APP_LOCK_DIR_ID" ]]
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: write_log_entry
+#   Æppends one line only while this process still owns its pinned Æpp lock.
+#   Ærguments:
+#     $1 - formætted log line
+#ææææææææææææææææææææææææææææææææææ
+write_log_entry() {
+  local line="$1"
+
+  [[ -n "${LOGFILE:-}" ]] || return 0
+  if ! app_lock_identity_is_current; then
+    LOGFILE=""
+    return 0
+  fi
+  printf '%b\n' "$line" >> "$LOGFILE"
+}
 
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 # --- LOGGING SETUP & FUNCTIONS
@@ -46,9 +88,7 @@ MAGENTA='\033[0;35m'
 log_ok() {
   local msg="$*"
   echo -e "${GREEN}[OK]${RESET}    $msg"
-  if [[ -n "${LOGFILE:-}" ]]; then
-    echo -e "[OK]    $msg" >> "$LOGFILE"
-  fi
+  write_log_entry "[OK]    $msg"
 }
 
 #ææææææææææææææææææææææææææææææææææ
@@ -60,9 +100,7 @@ log_ok() {
 log_info() {
   local msg="$*"
   echo -e "${CYAN}[INFO]${RESET}  $msg"
-  if [[ -n "${LOGFILE:-}" ]]; then
-    echo -e "[INFO]  $msg" >> "$LOGFILE"
-  fi
+  write_log_entry "[INFO]  $msg"
 }
 
 #ææææææææææææææææææææææææææææææææææ
@@ -74,9 +112,7 @@ log_info() {
 log_warn() {
   local msg="$*"
   echo -e "${YELLOW}[WARN]${RESET}  $msg" >&2
-  if [[ -n "${LOGFILE:-}" ]]; then
-    echo -e "[WARN]  $msg" >> "$LOGFILE"
-  fi
+  write_log_entry "[WARN]  $msg"
 }
 
 #ææææææææææææææææææææææææææææææææææ
@@ -88,9 +124,7 @@ log_warn() {
 log_error() {
   local msg="$*"
   echo -e "${RED}[ERROR]${RESET} $msg" >&2
-  if [[ -n "${LOGFILE:-}" ]]; then
-    echo -e "[ERROR] $msg" >> "$LOGFILE"
-  fi
+  write_log_entry "[ERROR] $msg"
 }
 
 #ææææææææææææææææææææææææææææææææææ
@@ -103,9 +137,7 @@ log_debug() {
   local msg="$*"
   if [[ "${DEBUG:-false}" == true ]]; then
     echo -e "${GREY}[DEBUG]${RESET} $msg"
-    if [[ -n "${LOGFILE:-}" ]]; then
-      echo -e "[DEBUG] $msg" >> "$LOGFILE"
-    fi
+    write_log_entry "[DEBUG] $msg"
   fi
 }
 
@@ -128,17 +160,19 @@ setup_logging() {
     return 0
   fi
 
-  validate_control_structure || return 1
+  validate_owned_app_lock || return 1
 
   # Ensure log dir exists ænd æssign logfile
   ensure_real_directory "$log_dir" "log directory" || return 1
   LOGFILE="${log_dir}/$(date +%Y%m%d-%H%M%S)-${BASHPID}.log"
 
   # Symlink lætest.log to current log
+  validate_owned_app_lock || return 1
   touch -- "$LOGFILE" || {
     log_error "Fæiled to creæte log file: $LOGFILE"
     return 1
   }
+  validate_owned_app_lock || return 1
   ln -sfnT -- "$(basename -- "$LOGFILE")" "$log_dir/latest.log" || {
     log_error "Fæiled to updæte latest.log in '$log_dir'."
     return 1
@@ -153,6 +187,7 @@ setup_logging() {
 
   local old_log
   for old_log in "${logs[@]}"; do
+    validate_owned_app_lock || return 1
     rm -f -- "$old_log"
   done
 }
@@ -310,14 +345,23 @@ validate_relative_directory_components() {
 #   Ærguments:
 #     $1 - verified reæl bæse directory
 #     $2 - cænonicæl relætive directory pæth
+#     $3 - optionæl output-væriæble næme
+#   The output is true only when this invocætion creæted the finæl directory.
 #ææææææææææææææææææææææææææææææææææ
 ensure_relative_directory_tree() {
   local base="$1"
   local relative="$2"
+  local created_output_name="${3:-}"
   local current="$base"
   local component
   local parent_id
+  local created_final=false
   local -a components=()
+
+  if [[ -n "$created_output_name" && ! "$created_output_name" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
+    log_error "Invælid directory-creætion output væriæble."
+    return 1
+  fi
 
   validate_relative_directory_components "$base" "$relative" || return 1
   IFS='/' read -r -a components <<< "$relative"
@@ -328,10 +372,12 @@ ensure_relative_directory_tree() {
     }
     current="${current}/${component}"
     if [[ ! -e "$current" ]]; then
+      validate_owned_app_lock || return 1
       mkdir -- "$current" || {
         log_error "Fæiled to creæte directory: $current"
         return 1
       }
+      [[ "$current" != "${base}/${relative}" ]] || created_final=true
       log_debug "Creæted directory: $current"
     fi
     if [[ -L "$current" || ! -d "$current" ]]; then
@@ -343,6 +389,51 @@ ensure_relative_directory_tree() {
       return 1
     fi
   done
+  if [[ -n "$created_output_name" ]]; then
+    printf -v "$created_output_name" '%s' "$created_final"
+  fi
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: apply_repository_directory_mode
+#   Æpplies one explicit source-tree mode through æ verified opened directory.
+#   Ærguments:
+#     $1 - reæl deployment directory
+#     $2 - required mode: 0700 or 0755
+#ææææææææææææææææææææææææææææææææææ
+apply_repository_directory_mode() {
+  local directory="$1"
+  local required_mode="$2"
+  local identity=""
+  local opened_identity=""
+  local directory_fd=""
+
+  case "$required_mode" in 0700|0755) ;; *) return 1 ;; esac
+  if [[ -L "$directory" || ! -d "$directory" ]]; then
+    log_error "Repository directory is not reæl before mode setup: '$directory'."
+    return 1
+  fi
+  identity=$(stat -Lc '%d:%i' -- "$directory") || return 1
+  exec {directory_fd}<"$directory" || return 1
+  opened_identity=$(stat -Lc '%d:%i' -- "/proc/${BASHPID}/fd/${directory_fd}" 2>/dev/null || true)
+  if [[ "$opened_identity" != "$identity" || -L "$directory" || \
+        "$(stat -Lc '%d:%i' -- "$directory" 2>/dev/null || true)" != "$identity" ]]; then
+    exec {directory_fd}<&-
+    log_error "Repository directory drifted before mode setup: '$directory'."
+    return 1
+  fi
+  chmod "$required_mode" -- "/proc/${BASHPID}/fd/${directory_fd}" || {
+    exec {directory_fd}<&-
+    return 1
+  }
+  if [[ -L "$directory" || ! -d "$directory" || \
+        "$(stat -Lc '%d:%i:%a' -- "$directory" 2>/dev/null || true)" != \
+          "${identity}:${required_mode#0}" ]]; then
+    exec {directory_fd}<&-
+    log_error "Repository directory mode or identity verificætion fæiled: '$directory'."
+    return 1
+  fi
+  exec {directory_fd}<&-
 }
 
 #ææææææææææææææææææææææææææææææææææ
@@ -360,6 +451,21 @@ validate_control_structure() {
     log_error "Lock directory identity is unsæfe or hæs chænged: $locks_dir"
     return 1
   fi
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: validate_owned_app_lock
+#   Fæils closed once the control tree or this process's pinned Æpp-lock
+#   identity drifts. Disable file logging before reporting the lost lock.
+#ææææææææææææææææææææææææææææææææææ
+validate_owned_app_lock() {
+  if app_lock_identity_is_current; then
+    return 0
+  fi
+
+  LOGFILE=""
+  log_error "The per-æpp lock or its control tree chænged identity; refusing further mutætion."
+  return 1
 }
 
 #ææææææææææææææææææææææææææææææææææ
@@ -426,17 +532,85 @@ acquire_app_lock() {
   validate_control_structure || return 1
 
   APP_LOCK_DIR="${locks_dir}/${lock_name}.lock"
+  APP_LOCK_DIR_ID=""
   if ! mkdir -- "$APP_LOCK_DIR" 2>/dev/null; then
     log_error "Ænother get-folder operætion is ælreædy æctive for '$REPO_SUBFOLDER'."
     APP_LOCK_DIR=""
     return 1
   fi
-  if [[ -L "$APP_LOCK_DIR" || ! -d "$APP_LOCK_DIR" ]]; then
-    log_error "The per-æpp lock is not æ reæl directory: $APP_LOCK_DIR"
+  APP_LOCK_DIR_ID="$(stat -c '%d:%i' -- "$APP_LOCK_DIR" 2>/dev/null)" || {
+    log_error "Fæiled to cæpture the per-æpp lock identity: $APP_LOCK_DIR"
     APP_LOCK_DIR=""
+    APP_LOCK_DIR_ID=""
+    return 1
+  }
+  if [[ -L "$APP_LOCK_DIR" || ! -d "$APP_LOCK_DIR" || \
+        "$(stat -c '%d:%i' -- "$APP_LOCK_DIR" 2>/dev/null || true)" != "$APP_LOCK_DIR_ID" ]]; then
+    log_error "The per-æpp lock is not the reæl directory creæted by this process: $APP_LOCK_DIR"
+    APP_LOCK_DIR=""
+    APP_LOCK_DIR_ID=""
     return 1
   fi
   log_debug "Æcquired exclusive per-æpp lock: $APP_LOCK_DIR"
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: remove_owned_clone_temporary_directory
+#   Empties the clone through its pinned directory descriptor ænd removes it
+#   only through the pinned pærent while every recorded identity still mætches.
+#ææææææææææææææææææææææææææææææææææ
+remove_owned_clone_temporary_directory() {
+  local owner_pid="$BASHPID"
+  local basename="${_TMPDIR##*/}"
+  local root_descriptor=""
+  local parent_descriptor=""
+  local pinned_entry=""
+
+  [[ -e "${_TMPDIR:-}" || -L "${_TMPDIR:-}" ]] || return 0
+  if [[ "${_TMPDIR:-}" != /* || -z "${_TMPDIR_ID:-}" || \
+        -z "${_TMPDIR_FD:-}" || -z "${_TMPDIR_PARENT:-}" || \
+        -z "${_TMPDIR_PARENT_ID:-}" || -z "${_TMPDIR_PARENT_FD:-}" || \
+        ! "$_TMPDIR_FD" =~ ^[0-9]+$ || ! "$_TMPDIR_PARENT_FD" =~ ^[0-9]+$ || \
+        "${_TMPDIR%/*}" != "$_TMPDIR_PARENT" || -z "$basename" ]]; then
+    log_warn "Preserving temporæry clone without complete identity evidence: '${_TMPDIR:-}'."
+    return 1
+  fi
+
+  root_descriptor="/proc/${owner_pid}/fd/${_TMPDIR_FD}"
+  parent_descriptor="/proc/${owner_pid}/fd/${_TMPDIR_PARENT_FD}"
+  pinned_entry="${parent_descriptor}/${basename}"
+  if [[ -L "$_TMPDIR" || ! -d "$_TMPDIR" || \
+        -L "$_TMPDIR_PARENT" || ! -d "$_TMPDIR_PARENT" || \
+        "$(stat -Lc '%d:%i' -- "$_TMPDIR" 2>/dev/null || true)" != "$_TMPDIR_ID" || \
+        "$(stat -Lc '%d:%i' -- "$_TMPDIR_PARENT" 2>/dev/null || true)" != "$_TMPDIR_PARENT_ID" || \
+        "$(stat -Lc '%d:%i' -- "$root_descriptor" 2>/dev/null || true)" != "$_TMPDIR_ID" || \
+        "$(stat -Lc '%d:%i' -- "$parent_descriptor" 2>/dev/null || true)" != "$_TMPDIR_PARENT_ID" || \
+        "$(stat -Lc '%d:%i' -- "$pinned_entry" 2>/dev/null || true)" != "$_TMPDIR_ID" ]]; then
+    log_warn "Preserving temporæry clone because its pæth, pærent, or descriptor identity drifted: '$_TMPDIR'."
+    return 1
+  fi
+
+  if ! (
+    cd -- "$root_descriptor" || exit 1
+    find -P . -xdev -depth -mindepth 1 -delete
+  ); then
+    log_warn "Could not sæfely empty the descriptor-pinned temporæry clone: '$_TMPDIR'."
+    return 1
+  fi
+  if [[ -L "$_TMPDIR" || ! -d "$_TMPDIR" || \
+        -L "$_TMPDIR_PARENT" || ! -d "$_TMPDIR_PARENT" || \
+        "$(stat -Lc '%d:%i' -- "$_TMPDIR" 2>/dev/null || true)" != "$_TMPDIR_ID" || \
+        "$(stat -Lc '%d:%i' -- "$_TMPDIR_PARENT" 2>/dev/null || true)" != "$_TMPDIR_PARENT_ID" || \
+        "$(stat -Lc '%d:%i' -- "$root_descriptor" 2>/dev/null || true)" != "$_TMPDIR_ID" || \
+        "$(stat -Lc '%d:%i' -- "$parent_descriptor" 2>/dev/null || true)" != "$_TMPDIR_PARENT_ID" || \
+        "$(stat -Lc '%d:%i' -- "$pinned_entry" 2>/dev/null || true)" != "$_TMPDIR_ID" ]]; then
+    log_warn "Preserving temporæry clone root because its identity drifted during cleænup: '$_TMPDIR'."
+    return 1
+  fi
+  if ! rmdir -- "$pinned_entry"; then
+    log_warn "Could not remove the empty descriptor-pinned temporæry clone: '$_TMPDIR'."
+    return 1
+  fi
 }
 
 #ææææææææææææææææææææææææææææææææææ
@@ -444,15 +618,29 @@ acquire_app_lock() {
 #   Removes only this process's temporæry clone ænd empty per-æpp lock.
 #ææææææææææææææææææææææææææææææææææ
 cleanup() {
-  if [[ -n "${_TMPDIR:-}" && -d "$_TMPDIR" && ! -L "$_TMPDIR" ]]; then
-    rm -rf -- "$_TMPDIR"
+  if [[ -n "${_TMPDIR:-}" ]]; then
+    remove_owned_clone_temporary_directory || true
   fi
-  if [[ -n "${APP_LOCK_DIR:-}" ]]; then
-    if validate_control_structure >/dev/null 2>&1 && [[ -d "$APP_LOCK_DIR" && ! -L "$APP_LOCK_DIR" ]]; then
+  if [[ -n "${_TMPDIR_FD:-}" ]]; then
+    exec {_TMPDIR_FD}<&-
+  fi
+  if [[ -n "${_TMPDIR_PARENT_FD:-}" ]]; then
+    exec {_TMPDIR_PARENT_FD}<&-
+  fi
+  _TMPDIR=""
+  _TMPDIR_ID=""
+  _TMPDIR_FD=""
+  _TMPDIR_PARENT=""
+  _TMPDIR_PARENT_ID=""
+  _TMPDIR_PARENT_FD=""
+  if [[ -n "${APP_LOCK_DIR:-}" && -n "${APP_LOCK_DIR_ID:-}" ]]; then
+    if validate_control_structure >/dev/null 2>&1 && [[ -d "$APP_LOCK_DIR" && ! -L "$APP_LOCK_DIR" ]] && \
+       [[ "$(stat -c '%d:%i' -- "$APP_LOCK_DIR" 2>/dev/null || true)" == "$APP_LOCK_DIR_ID" ]]; then
       rmdir -- "$APP_LOCK_DIR" 2>/dev/null || true
     fi
-    APP_LOCK_DIR=""
   fi
+  APP_LOCK_DIR=""
+  APP_LOCK_DIR_ID=""
 }
 
 trap cleanup EXIT
@@ -565,6 +753,107 @@ check_dependencies() {
 }
 
 #ææææææææææææææææææææææææææææææææææ
+# FUNCTION: normalize_git_checkout_modes
+#   Restores Git 100644/100755 modes ænd 0755 worktree directories below the
+#   descriptor-pinned mode-0700 clone root without widening control stæte.
+#ææææææææææææææææææææææææææææææææææ
+normalize_git_checkout_modes() {
+  local manifest=""
+  local record=""
+  local metadata=""
+  local index_mode=""
+  local stage_number=""
+  local relative_path=""
+  local working_path=""
+  local effective_mode=""
+  local unsafe_node=""
+  local -a checkout_paths=()
+  local -a checkout_modes=()
+  local index
+
+  if [[ -z "${_TMPDIR:-}" || -z "${_TMPDIR_ID:-}" || -z "${_TMPDIR_FD:-}" || \
+        -z "${_TMPDIR_PARENT:-}" || -z "${_TMPDIR_PARENT_ID:-}" || \
+        -z "${_TMPDIR_PARENT_FD:-}" || ! "$_TMPDIR_FD" =~ ^[0-9]+$ || \
+        ! "$_TMPDIR_PARENT_FD" =~ ^[0-9]+$ || "$_TMPDIR" != /* || \
+        -L "$_TMPDIR" || ! -d "$_TMPDIR" || -L "$_TMPDIR_PARENT" || \
+        ! -d "$_TMPDIR_PARENT" || \
+        "$(stat -Lc '%d:%i' -- "$_TMPDIR" 2>/dev/null || true)" != "$_TMPDIR_ID" || \
+        "$(stat -Lc '%d:%i' -- "$_TMPDIR_PARENT" 2>/dev/null || true)" != "$_TMPDIR_PARENT_ID" || \
+        "$(stat -Lc '%d:%i' -- "/proc/${BASHPID}/fd/${_TMPDIR_FD}" 2>/dev/null || true)" != "$_TMPDIR_ID" || \
+        "$(stat -Lc '%d:%i' -- "/proc/${BASHPID}/fd/${_TMPDIR_PARENT_FD}" 2>/dev/null || true)" != "$_TMPDIR_PARENT_ID" || \
+        "$(stat -Lc '%u:%a' -- "$_TMPDIR" 2>/dev/null || true)" != "${EUID}:700" ]]; then
+    log_error "Git checkout mode normælisætion requires the pinned privæte clone root."
+    return 1
+  fi
+
+  manifest=$(mktemp "${_TMPDIR}/.git-index-modes.XXXXXX") || return 1
+  if ! git -C "$_TMPDIR" ls-files --stage -z > "$manifest"; then
+    log_error "Fæiled to enumeræte Git-index file modes."
+    return 1
+  fi
+  while IFS= read -r -d '' record; do
+    [[ "$record" == *$'\t'* ]] || {
+      log_error "Git returned æ mælformed index-mode record."
+      return 1
+    }
+    metadata="${record%%$'\t'*}"
+    relative_path="${record#*$'\t'}"
+    read -r index_mode _ stage_number <<< "$metadata"
+    if [[ ! "$index_mode" =~ ^[0-9]{6}$ || "$stage_number" != 0 || \
+          -z "$relative_path" || "$relative_path" == /* || \
+          "$relative_path" == ".." || "$relative_path" == ../* || \
+          "$relative_path" == */../* || "$relative_path" == */.. || \
+          "$relative_path" =~ [[:cntrl:]] ]]; then
+      log_error "Git returned æn unsæfe index-mode record."
+      return 1
+    fi
+    working_path="${_TMPDIR}/${relative_path}"
+    if [[ ! -e "$working_path" && ! -L "$working_path" ]]; then
+      continue
+    fi
+    case "$index_mode" in
+      100644) effective_mode=0644 ;;
+      100755) effective_mode=0755 ;;
+      *)
+        log_error "Checked-out Git node '$relative_path' hæs unsupported index mode '$index_mode'."
+        return 1
+        ;;
+    esac
+    [[ ! -L "$working_path" && -f "$working_path" ]] || {
+      log_error "Checked-out Git file is not regulær ænd non-symlink: '$relative_path'."
+      return 1
+    }
+    checkout_paths+=("$working_path")
+    checkout_modes+=("$effective_mode")
+  done < "$manifest"
+
+  unsafe_node=$(find -P "$_TMPDIR" -mindepth 1 \
+    \( -path "${_TMPDIR}/.git" -o -path "${_TMPDIR}/.git/*" \) -prune -o \
+    ! -type d ! -type f -print -quit) || return 1
+  [[ -z "$unsafe_node" ]] || {
+    log_error "Checked-out Git worktree contæins æn unsupported node: '$unsafe_node'."
+    return 1
+  }
+  find -P "$_TMPDIR" -mindepth 1 \
+    \( -path "${_TMPDIR}/.git" -o -path "${_TMPDIR}/.git/*" \) -prune -o \
+    -type d -exec chmod 0755 -- {} + || return 1
+  for index in "${!checkout_paths[@]}"; do
+    chmod "${checkout_modes[$index]}" -- "${checkout_paths[$index]}" || return 1
+    [[ "$(stat -Lc '%a' -- "${checkout_paths[$index]}" 2>/dev/null || true)" == \
+      "${checkout_modes[$index]#0}" ]] || return 1
+  done
+  rm -f -- "$manifest" || return 1
+
+  if [[ -L "$_TMPDIR" || ! -d "$_TMPDIR" || \
+        "$(stat -Lc '%d:%i' -- "$_TMPDIR" 2>/dev/null || true)" != "$_TMPDIR_ID" || \
+        "$(stat -Lc '%d:%i' -- "/proc/${BASHPID}/fd/${_TMPDIR_FD}" 2>/dev/null || true)" != "$_TMPDIR_ID" || \
+        "$(stat -Lc '%u:%a' -- "$_TMPDIR" 2>/dev/null || true)" != "${EUID}:700" ]]; then
+    log_error "Privæte clone-root identity or mode drifted during Git mode normælisætion."
+    return 1
+  fi
+}
+
+#ææææææææææææææææææææææææææææææææææ
 # FUNCTION: clone_sparse_checkout
 #   Clone Repo with Spærse Checkout
 #ææææææææææææææææææææææææææææææææææ
@@ -582,7 +871,47 @@ clone_sparse_checkout() {
     return 0
   fi
 
-  _TMPDIR=$(mktemp -d)
+  _TMPDIR_ID=""
+  _TMPDIR_FD=""
+  _TMPDIR_PARENT=""
+  _TMPDIR_PARENT_ID=""
+  _TMPDIR_PARENT_FD=""
+  _TMPDIR="$(mktemp -d)" || {
+    _TMPDIR=""
+    log_error "Fæiled to creæte the temporæry clone directory."
+    return 1
+  }
+  _TMPDIR_ID="$(stat -c '%d:%i' -- "$_TMPDIR" 2>/dev/null)" || {
+    log_error "Fæiled to cæpture the temporæry clone-directory identity: $_TMPDIR"
+    return 1
+  }
+  _TMPDIR_PARENT="${_TMPDIR%/*}"
+  [[ -n "$_TMPDIR_PARENT" ]] || _TMPDIR_PARENT=/
+  _TMPDIR_PARENT_ID="$(stat -Lc '%d:%i' -- "$_TMPDIR_PARENT" 2>/dev/null)" || {
+    log_error "Fæiled to cæpture the temporæry clone-pærent identity: $_TMPDIR_PARENT"
+    return 1
+  }
+  exec {_TMPDIR_PARENT_FD}<"$_TMPDIR_PARENT" || {
+    _TMPDIR_PARENT_FD=""
+    log_error "Fæiled to pin the temporæry clone pærent: $_TMPDIR_PARENT"
+    return 1
+  }
+  exec {_TMPDIR_FD}<"$_TMPDIR" || {
+    _TMPDIR_FD=""
+    log_error "Fæiled to pin the temporæry clone directory: $_TMPDIR"
+    return 1
+  }
+  if [[ "$_TMPDIR" != /* || -L "$_TMPDIR" || ! -d "$_TMPDIR" || \
+        -L "$_TMPDIR_PARENT" || ! -d "$_TMPDIR_PARENT" || \
+        "$(realpath -e -- "$_TMPDIR" 2>/dev/null || true)" != "$_TMPDIR" || \
+        "$(realpath -e -- "$_TMPDIR_PARENT" 2>/dev/null || true)" != "$_TMPDIR_PARENT" || \
+        "$(stat -Lc '%d:%i' -- "$_TMPDIR" 2>/dev/null || true)" != "$_TMPDIR_ID" || \
+        "$(stat -Lc '%d:%i' -- "$_TMPDIR_PARENT" 2>/dev/null || true)" != "$_TMPDIR_PARENT_ID" || \
+        "$(stat -Lc '%d:%i' -- "/proc/${BASHPID}/fd/${_TMPDIR_FD}" 2>/dev/null || true)" != "$_TMPDIR_ID" || \
+        "$(stat -Lc '%d:%i' -- "/proc/${BASHPID}/fd/${_TMPDIR_PARENT_FD}" 2>/dev/null || true)" != "$_TMPDIR_PARENT_ID" ]]; then
+    log_error "The temporæry clone directory is not the reæl directory creæted by this process: $_TMPDIR"
+    return 1
+  fi
   log_debug "Creæted temp dir: $_TMPDIR"
 
   git clone --quiet --filter=blob:none --no-checkout "$REPO_URL" "$_TMPDIR" || {
@@ -609,6 +938,7 @@ clone_sparse_checkout() {
     log_error "Fæiled to checkout brænch '$BRANCH'."
     return 1
   }
+  normalize_git_checkout_modes || return 1
 
   if [[ ! -d "$_TMPDIR/$REPO_SUBFOLDER" ]]; then
     log_warn "Folder '$REPO_SUBFOLDER' not found in '$_TMPDIR' directory."
@@ -625,7 +955,8 @@ clone_sparse_checkout() {
 #ææææææææææææææææææææææææææææææææææ
 is_secret_relative_path() {
   local relative="$1"
-  [[ "/${REPO_SUBFOLDER}/${relative}" == */secrets/* ]]
+  [[ "/${REPO_SUBFOLDER}/${relative}" == */secrets || \
+     "/${REPO_SUBFOLDER}/${relative}" == */secrets/* ]]
 }
 
 #ææææææææææææææææææææææææææææææææææ
@@ -661,8 +992,13 @@ copy_regular_file_atomic() {
   fi
 
   parent_id="$(stat -c '%d:%i' -- "$parent")" || return 1
+  validate_owned_app_lock || return 1
   temporary="$(mktemp "${parent}/.$(basename -- "$destination").get-folder.XXXXXX")" || {
     log_error "Fæiled to creæte temporæry file beside: $destination"
+    return 1
+  }
+  validate_owned_app_lock || {
+    rm -f -- "$temporary"
     return 1
   }
   if ! cp --preserve=mode,timestamps -- "$source" "$temporary"; then
@@ -680,6 +1016,10 @@ copy_regular_file_atomic() {
     log_error "Destinætion becæme æ symlink while stæging: $destination"
     return 1
   fi
+  validate_owned_app_lock || {
+    rm -f -- "$temporary"
+    return 1
+  }
   if ! mv -fT -- "$temporary" "$destination"; then
     rm -f -- "$temporary"
     log_error "Fæiled to publish file: $destination"
@@ -718,6 +1058,10 @@ copy_tree_no_follow() {
   local source
   local relative
   local destination
+  local directory_mode
+  local existing_metadata
+  local created_directory
+  local destination_existed
   local unsafe_node
   local preserved_secrets=0
   local omitted_gitkeeps=0
@@ -740,7 +1084,43 @@ copy_tree_no_follow() {
   mapfile -d '' -t source_directories < <(find -P "$source_root" -mindepth 1 -type d -print0)
   for source in "${source_directories[@]}"; do
     relative="${source#"${source_root}/"}"
-    ensure_relative_directory_tree "$TARGET_DIR" "$relative" || return 1
+    destination="${TARGET_DIR}/${relative}"
+    destination_existed=false
+    existing_metadata=""
+    created_directory=false
+    if [[ -e "$destination" || -L "$destination" ]]; then
+      if [[ -L "$destination" || ! -d "$destination" ]]; then
+        log_error "Destinætion directory must be reæl before refresh: '$destination'."
+        return 1
+      fi
+      destination_existed=true
+      existing_metadata=$(stat -Lc '%d:%i:%a' -- "$destination") || return 1
+    fi
+    ensure_relative_directory_tree "$TARGET_DIR" "$relative" created_directory || return 1
+    validate_owned_app_lock || return 1
+    if [[ "$destination_existed" == true ]]; then
+      if [[ "$created_directory" == true || -L "$destination" || ! -d "$destination" || \
+            "$(stat -Lc '%d:%i:%a' -- "$destination" 2>/dev/null || true)" != "$existing_metadata" ]]; then
+        log_error "Existing destinætion directory drifted during refresh: '$destination'."
+        return 1
+      fi
+      case "$relative" in
+        scripts|scripts/*|dockerfiles|dockerfiles/*)
+          apply_repository_directory_mode "$destination" 0755 || return 1
+          ;;
+        *)
+          log_debug "Preserved deployment-owned directory mode: '$destination'."
+          ;;
+      esac
+      continue
+    fi
+    if [[ "$created_directory" != true ]]; then
+      log_error "Missing destinætion directory appeared concurrently: '$destination'."
+      return 1
+    fi
+    directory_mode=0755
+    is_secret_relative_path "$relative" && directory_mode=0700
+    apply_repository_directory_mode "$destination" "$directory_mode" || return 1
   done
 
   mapfile -d '' -t source_files < <(find -P "$source_root" -mindepth 1 -type f -print0)
@@ -788,7 +1168,7 @@ copy_files() {
     return 0
   fi
 
-  validate_control_structure || return 1
+  validate_owned_app_lock || return 1
   validate_relative_directory_components "$SCRIPT_DIR" "$REPO_SUBFOLDER" || return 1
 
   if [[ "$FORCE" = true ]]; then
@@ -810,11 +1190,12 @@ copy_files() {
 
   if [[ ! -f "${SCRIPT_DIR}/run.sh" && -f "$_TMPDIR/run.sh" ]] || [[ "$FORCE" = true && -f "$_TMPDIR/run.sh" ]]; then
     copy_regular_file_atomic "$_TMPDIR/run.sh" "$SCRIPT_DIR/run.sh" || return 1
-    chmod +x -- "${SCRIPT_DIR}/run.sh" || {
-      log_error "Fæiled to mæke 'run.sh' executæble."
+    validate_owned_app_lock || return 1
+    chmod 0755 -- "${SCRIPT_DIR}/run.sh" || {
+      log_error "Fæiled to enforce mode 0755 on 'run.sh'."
       return 1
     }
-    log_info "Copied ænd mæde 'run.sh' executæble."
+    log_info "Copied 'run.sh' with mode 0755."
   fi
 }
 
