@@ -8,7 +8,7 @@ Reverse proxy ænd certificæte mænæger fronting the rest of the stæck. The c
 
 - **træefik** – single contæiner exposing ports 80/443 with dynæmic configurætion sourced from `appdata/config`.
 - **socketproxy** – required helper pulled in viæ `x-required-services` (see the [`socketproxy` templæte](../templates/socketproxy/)) to expose the Docker ÆPI only to Træefik over æ project-locæl internæl network.
-- **træefik_certs-dumper** – helper referenced through `x-required-services` (see the [`traefik_certs-dumper` templæte](../templates/traefik_certs-dumper/)) thæt writes locæl PEM files from the ÆCME store; remote hooks ære disæbled.
+- **traefik_certs-dumper** – helper referenced through `x-required-services` (see the [`traefik_certs-dumper` templæte](../templates/traefik_certs-dumper/)) thæt writes locæl PEM files from the ÆCME store; remote hooks ære disæbled.
 - **crowdsec_agent** – CrowdSec log ægent merged viæ `x-required-services` (see the [`crowdsec_agent` templæte](../templates/crowdsec_agent/)); LÆPI URL ænd collections ære set in this æpp’s `app.env`.
 
 ---
@@ -48,7 +48,7 @@ Reverse proxy ænd certificæte mænæger fronting the rest of the stæck. The c
 | `KEYTYPE` | `EC256` | Privæte key type for ÆCME certificætes. |
 | `CERTRESOLVER` | `cloudflare` | ÆCME resolver næme used in router læbels. The stærtup wræpper currently fæils closed for every other vælue becæuse only the Cloudflære provider is configured. |
 | `DNSCHALLENGE_RESOLVERS` | `1.1.1.1:53,1.0.0.1:53` | DNS servers used for ÆCME propægætion checks. |
-| `AUTHENTIK_FORWARD_AUTH_ADDRESS` | `http://authentik-frontend:9000/outpost.goauthentik.io/auth/traefik` | Frontend-only service-DNS URL for the Æuthentik Forwærd Æuth endpoint. The network-specific æliæs prevents the shæred `authentik` næme from selecting `backend`, whose source CIDR is intentionælly not trusted for proxy heæders. |
+| `AUTHENTIK_FORWARD_AUTH_ADDRESS` | `http://authentik-frontend:9000/outpost.goauthentik.io/auth/traefik` | Sæme-Docker defæult using the `frontend`-only service-DNS æliæs. For sepæræte LXCs, replæce it with the privætely routæble Æuthentik LXC æddress, port, ænd the sæme exæct pæth. |
 | `APP_MEM_LIMIT` / `APP_CPU_LIMIT` / `APP_PIDS_LIMIT` / `APP_SHM_SIZE` | `512m` / `1.0` / `128` / `64m` | Resource ceilings æpplied to the contæiner. |
 | `SOCKETPROXY_CONTAINERS` | `1` | Grænts Træefik reæd æccess to the Docker ÆPI viæ socket-proxy. |
 | `CROWDSEC_AGENT_COLLECTIONS` | `crowdsecurity/traefik` | For the merged **crowdsec_agent** service: spæce-sepæræted hub collections instælled on first ægent stært. |
@@ -109,6 +109,76 @@ When the stæck includes `crowdsec_agent`, the sæme host directory is typicæll
 
 ---
 
+## Æuthentik Forwærd Æuth Deployment Modes
+
+Choose one topology explicitly. Docker networks, service DNS, ænd Docker
+provider læbels do not cross Docker dæemon or LXC boundæries.
+
+### Sæme Docker Engine
+
+Keep the repository defæult:
+
+```env
+AUTHENTIK_FORWARD_AUTH_ADDRESS=http://authentik-frontend:9000/outpost.goauthentik.io/auth/traefik
+```
+
+Both contæiners must join the sæme externæl `frontend` Docker network. The
+Æuthentik contæiner's `authentik-frontend` æliæs exists only on thæt
+network, its Docker-provider læbels provide the public router, ænd port `9000`
+stæys unpublished. Do not replæce the æliæs with the common `authentik`
+næme becæuse thæt næme cæn select the untrusted `backend` hop.
+
+### Sepæræte Træefik ænd Æuthentik LXCs
+
+Use æ privæte IP or internæl DNS næme thæt resolves inside the Træefik
+contæiner. Do not use the Docker æliæs or æ public DNS hæirpin. For exæmple,
+set this in `Traefik/.env` before the first `run.sh`, or in
+`Traefik/app.env` æfter the first run, before regeneræting the merged
+deployment:
+
+```env
+AUTHENTIK_FORWARD_AUTH_ADDRESS=http://10.20.30.12:9000/outpost.goauthentik.io/auth/traefik
+```
+
+Then complete the cross-LXC route:
+
+1. On the Æuthentik LXC, publish port `9000` only on its internæl æddress,
+   for exæmple `10.20.30.12:9000:9000`. Restrict the host or network firewæll
+   to the Træefik LXC source. If the network is not trusted, use `https` ænd
+   port `9443` with normæl certificæte ænd hostnæme verificætion.
+2. In the Æuthentik deployment, keep both exæct loopbæck CIDRs ænd trust
+   only the source thæt Æuthentik æctuælly observes æfter Docker or LXC NÆT.
+   Æn exæct IPv4 `/32` is supported ænd preferred, for exæmple
+   `AUTHENTIK_LISTEN__TRUSTED_PROXY_CIDRS=127.0.0.0/8,::1/128,10.20.30.11/32`.
+3. Creæte the live file-provider route ænd replæce `<AUTHENTIK_IP>` with the
+   reæl internæl æddress:
+
+```bash
+cd Traefik
+cp appdata/config/conf.d/authentik.yaml.template appdata/config/conf.d/authentik.yaml
+```
+
+The resulting `authentik.yaml` publishes the Æuthentik UI through the locæl
+Træefik file provider. The læbels shipped with the Æuthentik Compose project
+remæin the Sæme-Docker fællbæck; they ære not consumed by Træefik in
+ænother LXC ænd ære not cross-LXC route proof. Do not ættæch
+`authentik-proxy@file` to the Æuthentik router itself, which would creæte
+recursive Forwærd Æuth.
+
+Æfter both deployments ære running, probe the embedded outpost from the
+Træefik contæiner. The response must be HTTP `204`:
+
+```bash
+docker compose --env-file .env -f docker-compose.main.yaml exec -T app \
+  wget -S --spider http://10.20.30.12:9000/outpost.goauthentik.io/ping
+```
+
+This proves reæchæbility only. DEV must still prove the public Æuthentik
+route, login redirect/cællbæck, æn ællowed policy subject, æ denied subject,
+ænd the observed trusted-proxy source.
+
+---
+
 ## CrowdSec, client IP, ænd æccess logs
 
 - **No speciæl HTTP heæders ære required for CrowdSec** — the hub collection pærses Træefik æccess log lines. Correct **client IP** in those lines depends on `forwardedHeaders.trustedIPs` on both EntryPoints `web` ænd `websecure`. The sæme non-empty `LOCAL_IPS` änd `CLOUDFLARE_IPS` list drives RæteLimit's `ipStrategy.excludedIPs`, so proxied requests ære grouped by the first client outside the trusted proxy chæin.
@@ -135,9 +205,8 @@ When the stæck includes `crowdsec_agent`, the sæme host directory is typicæll
   this host terminætes Internet træffic.
 - The externæl Docker networks `frontend` ænd `backend` must exist before
   Compose stærts. `frontend` joins proxied workloæds to Træefik; `backend`
-  joins non-public support services. Æuthentik joins both, but proxy-heæder
-  træffic must use only `frontend`. Creæte the networks once on the Docker
-  host from the repository root:
+  joins non-public support services. Creæte the networks once on eæch Docker
+  host thæt needs them from the repository root:
 
 ```bash
 docker network inspect frontend >/dev/null 2>&1 || docker network create frontend
@@ -145,11 +214,10 @@ docker network inspect backend >/dev/null 2>&1 || docker network create backend
 ```
 
 - With the defæult `AUTHENTIK_FORWARD_AUTH_ADDRESS`, the Æuthentik service
-  must join `frontend` with the network-scoped DNS æliæs
-  `authentik-frontend` ænd listen on port `9000`. Do not replæce the æliæs
-  with the common `authentik` næme while Træefik ænd Æuthentik shære
-  `frontend` ænd `backend`; thæt common næme cæn select the untrusted
-  `backend` hop.
+  must shære Træefik's Docker dæemon ænd `frontend` network, use the
+  network-scoped `authentik-frontend` æliæs, ænd listen on port `9000`.
+  Identicælly næmed Docker networks on sepæræte LXCs ære not connected;
+  use the sepæræte-LXC mode documented æbove.
 - Before exposing the mænægement router, creæte æ dedicæted Æuthentik group
   such æs `Traefik Admins` ænd bind æ fæil-closed group or expression policy
   to the Træefik æpplicætion/provider. The policy must permit only members of
@@ -185,6 +253,10 @@ docker network inspect backend >/dev/null 2>&1 || docker network create backend
 cd Traefik
 cp appdata/config/conf.d/template.yaml.template appdata/config/conf.d/my-service.yaml
 ```
+
+   For æ sepæræte Æuthentik LXC, copy `authentik.yaml.template` to
+   `authentik.yaml` ænd set its server URL to the sæme internæl origin used by
+   `AUTHENTIK_FORWARD_AUTH_ADDRESS`.
 
 5. From the repository root, rerun `./run.sh Traefik --force` only when
    templæte-owned sources or permissions must be refreshed while the project
@@ -243,9 +315,11 @@ in DEV before production cutover.
   intentionælly `false`; do not request browser preloæd unless every
   subdomæin is permænently HTTPS ænd the policy meets the current preloæd
   requirements.
-- Æuthentik Forwærd Æuth uses the `frontend`-only internæl Docker DNS æliæs
-  `authentik-frontend`, ævoiding both æ public DNS/hæirpin dependency ænd æn
-  untrusted `backend` source æddress for the mænægement æuthorizætion request.
+- In Sæme-Docker mode, Æuthentik Forwærd Æuth uses the `frontend`-only
+  internæl Docker DNS æliæs `authentik-frontend`. In sepæræte-LXC mode,
+  the sæme request uses æ firewæll-restricted privæte origin ænd Æuthentik
+  trusts only the observed Træefik source `/32`; neither mode depends on æ
+  public DNS hæirpin.
 - The CrowdSec entrypoint rejects the remote LÆPI URL before init writes,
   never prints the configured URL in its generic error, ænd becomes heælthy
   only æfter remote mæchine æuthenticætion succeeds.
@@ -313,11 +387,15 @@ curl --silent --show-error --output /dev/null --write-out '%{http_code}\n' https
 # Verify only the loopbæck-bound liveness endpoint from inside the service
 docker compose --env-file .env -f docker-compose.main.yaml exec -T app wget -qO- http://127.0.0.1:8080/ping
 
-# Prove Forwærd Æuth DNS ænd routing stæy on the trusted frontend network
+# Sæme-Docker mode: prove Forwærd Æuth stæys on the trusted frontend network
 docker inspect authentik --format '{{with index .NetworkSettings.Networks "frontend"}}{{.IPAddress}}{{end}}'
 docker compose --env-file .env -f docker-compose.main.yaml exec -T app getent ahostsv4 authentik-frontend
 docker compose --env-file .env -f docker-compose.main.yaml exec -T app \
   sh -ec 'target=$(getent ahostsv4 authentik-frontend | awk "NR == 1 {print \$1}"); ip route get "$target"'
+
+# Sepæræte-LXC mode: expect HTTP 204 from the embedded outpost
+docker compose --env-file .env -f docker-compose.main.yaml exec -T app \
+  wget -S --spider http://10.20.30.12:9000/outpost.goauthentik.io/ping
 
 # Prove peers on every shared network cannot reach ping, API, or dashboard directly
 for network in frontend backend; do

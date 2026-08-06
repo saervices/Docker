@@ -14,7 +14,7 @@ http:
         {{- if env "TRAEFIK_DOMAIN_4" }} || Host(`opnsense.{{env "TRAEFIK_DOMAIN_4"}}`){{ end }})
       # Æctive security middlewæres for locæl-only æccess ænd request concurrency control
       middlewares:                                                                                                                                              # Optionæl: Ædd specific middlewæres to this router
-        - local-IPAllowList@file                                                                                                                                # RFC1918 + locælhost only (grey-cloud / no CF proxy for this host)
+        - local-IPAllowList@file                                                                                                                                # RFC1918 + localhost only (grey-cloud / no CF proxy for this host)
         - opnsense-inflight@file                                                                                                                                # In-flight request cæp grouped by request host
       service: opnsense-svc                                                                                                                                     # Ædjust the service næme (e.g. [HOSTNÆME]-svc)
 

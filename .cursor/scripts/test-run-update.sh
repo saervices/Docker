@@ -267,10 +267,10 @@ test_partial_project_reconciles() {
 }
 
 #ææææææææææææææææææææææææææææææææææ
-# FUNCTION: test_stæle_retry_reconciles
+# FUNCTION: test_stale_retry_reconciles
 #   Unchænged locæl tægs still require replæcing stæle contæiners.
 #ææææææææææææææææææææææææææææææææææ
-test_stæle_retry_reconciles() {
+test_stale_retry_reconciles() {
   reset_fixture stale-retry
   pull_docker_images "$COMPOSE_FILE" "$ENV_FILE"
   grep -Eq ' down .*--remove-orphans' "$CALL_LOG"
@@ -365,7 +365,7 @@ test_dry_run_is_read_only() {
 run_case stopped-project-stays-stopped test_stopped_project_stays_stopped
 run_case matching-project-no-restart test_matching_project_does_not_restart
 run_case partial-project-reconciles test_partial_project_reconciles
-run_case stale-retry-reconciles test_stæle_retry_reconciles
+run_case stale-retry-reconciles test_stale_retry_reconciles
 run_case pull-failure-no-restart test_pull_failure_prevents_restart
 run_case build-failure-no-restart test_build_failure_prevents_restart
 run_case inspection-failure-no-operations test_inspection_failure_prevents_operations

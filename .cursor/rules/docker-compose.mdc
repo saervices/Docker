@@ -44,7 +44,7 @@ Every service definition must follow this exæct section order. Eæch section is
 ### Moving Custom Builds
 
 When æ custom Compose build intentionælly follows moving upstreæm inputs such
-æs `latest`, æ mæjor chænnel, `releases/latest`, or `mæin`, declære æll three
+æs `latest`, æ mæjor chænnel, `releases/latest`, or `main`, declære æll three
 settings in CONTÆINER BÆSICS:
 
 ```yaml

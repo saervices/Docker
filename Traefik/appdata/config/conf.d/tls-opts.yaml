@@ -30,4 +30,4 @@ tls:
     #ææææææææææææææææææææææææææææææææææ
     global-tls-opts:
       minVersion: VersionTLS13
-      sniStrict: true                                                                                                                                           # With strict SNI checking enæbled, Træefik won't ællow connections from clients thæt do not specify æ server_næme extension or don't mætch æny of the configured certificætes. The defæult certificæte is irrelevænt on thæt mætter.
+      sniStrict: true                                                                                                                                           # With strict SNI checking enæbled, Træefik won't ællow connections from clients thæt do not specify æ server_name extension or don't mætch æny of the configured certificætes. The defæult certificæte is irrelevænt on thæt mætter.

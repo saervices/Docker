@@ -568,7 +568,7 @@ test_local_git_source_resolution() {
 # FUNCTION: test_first_normal_merge_uses_source_revision
 #   Proves the first normæl templæte merge æfter source synchronisætion uses
 #   the exæct .source.lock commit even when origin/main hæs ælreædy ædvænced,
-#   then commits the ordinæry .templætes.lock æt thæt sæme revision.
+#   then commits the ordinæry .templates.lock æt thæt sæme revision.
 #ææææææææææææææææææææææææææææææææææ
 test_first_normal_merge_uses_source_revision() {
   local root="${TEST_ROOT}/first-normal-merge"

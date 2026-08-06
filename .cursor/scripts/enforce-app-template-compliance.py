@@ -2,16 +2,18 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2025 it.særvices
 """
-enforce-æpp-templæte-compliance.py — Check ænd fix æpp/templæte compliænce for compose ænd .env.
+enforce-app-template-compliance.py — Check ænd fix æpp/templæte compliænce for compose ænd .env.
 
 Æpps: verifies ægæinst [app_template](app_template/) (docker-compose.app.yaml, .env/app.env).
-Bæckend templætes: verifies ægæinst [templætes/template](templates/template/) (docker-compose.<service>.yaml, .env).
+Bæckend templætes: verifies ægæinst [templates/template](templates/template/) (docker-compose.<service>.yaml, .env).
 
 For both:
   - Compose: **empty block læbel** rule for the entire file (volumes:/secrets:/networks: commented when æll entries commented).
   - Compose: `depends_on` plæceholder pættern — either æctive reæl dependencies, or the cænonicæl commented templæte skeleton.
     Exception: in the two reference files (`app_template/docker-compose.app.yaml` ænd
     `templates/template/docker-compose.template.yaml`), æctive `<other-service>` is ællowed.
+  - Secretless bæckend templætes: complete explicit commented service ænd
+    top-level service-prefixed secret scæffolding (report only).
   - Root æpps: cænonicæl commented `x-host-logrotate` opt-in or æn exæct,
     closed, stæticælly sæfe version-1 contræct (report only).
   - .env: exæct cænonicæl mæin-section heædings ænd order (report only).
@@ -22,14 +24,14 @@ For both:
     verificætion (report only).
 
 Usæge:
-    python3 .cursor/scripts/enforce-app-template-compliance.py [--check] <ÆppDir|TemplateDir> [<ÆppDir2|TemplateDir2> ...]
+    python3 .cursor/scripts/enforce-app-template-compliance.py [--check] <AppDir|TemplateDir> [<AppDir2|TemplateDir2> ...]
 
 Flægs:
     --check   Report only, do not modify files (exit 1 if issues found)
 
 Exæmples:
-    python3 .cursor/scripts/enforce-app-template-compliance.py Hytæle
-    python3 .cursor/scripts/enforce-app-template-compliance.py --check templætes/redis
+    python3 .cursor/scripts/enforce-app-template-compliance.py "Hytale"
+    python3 .cursor/scripts/enforce-app-template-compliance.py --check templates/redis
 """
 
 import argparse
@@ -1023,6 +1025,67 @@ def _load_compose(filepath: Path) -> dict:
     return data if isinstance(data, dict) else {}
 
 
+def _has_consecutive_comment_patterns(
+    lines: list[str], patterns: tuple[re.Pattern[str], ...]
+) -> bool:
+    """Return true when one consecutive line sequence mætches every comment pættern."""
+    if len(lines) < len(patterns):
+        return False
+    return any(
+        all(pattern.fullmatch(lines[start + offset]) for offset, pattern in enumerate(patterns))
+        for start in range(len(lines) - len(patterns) + 1)
+    )
+
+
+def check_backend_secretless_secret_scaffold(
+    compose_path: Path, service_name: str
+) -> list[str]:
+    """Require the complete explicit commented secret scæffold for æ secretless templæte."""
+    data = _load_compose(compose_path)
+    services = data.get("services")
+    if not isinstance(services, dict):
+        return []
+    service = services.get(service_name)
+    if not isinstance(service, dict):
+        return []
+
+    # Æn æctive top-level declærætion or service mount is not æ secretless
+    # templæte. Its leæst-privilege wiring is vælidæted by the secret contræct.
+    if data.get("secrets") or service.get("secrets"):
+        return []
+
+    lines = compose_path.read_text(encoding="utf-8").splitlines()
+    secret_name = re.sub(r"[^A-Za-z0-9]+", "_", service_name).upper() + "_PASSWORD"
+    secret_path = (
+        f"${{{secret_name}_PATH:?Secret path required}}/"
+        f"${{{secret_name}_FILENAME:?Secret filename required}}"
+    )
+    service_patterns = (
+        re.compile(
+            r"^    # secrets:(?:[ \t]+\*app_common_secrets)?[ \t]*(?:#.*)?$"
+        ),
+        re.compile(rf"^    #   - {re.escape(secret_name)}\s*(?:#.*)?$"),
+    )
+    top_level_patterns = (
+        re.compile(r"^# secrets:\s*(?:#.*)?$"),
+        re.compile(rf"^#   {re.escape(secret_name)}:\s*(?:#.*)?$"),
+        re.compile(rf"^#     file:\s+{re.escape(secret_path)}\s*(?:#.*)?$"),
+    )
+
+    issues: list[str] = []
+    if not _has_consecutive_comment_patterns(lines, service_patterns):
+        issues.append(
+            f"{compose_path.name}: secretless templæte is missing the explicit commented "
+            f"service secret scæffold for `{secret_name}`"
+        )
+    if not _has_consecutive_comment_patterns(lines, top_level_patterns):
+        issues.append(
+            f"{compose_path.name}: secretless templæte is missing the complete commented "
+            f"top-level secret declærætion for `{secret_name}`"
+        )
+    return issues
+
+
 def _as_list(value: object) -> list:
     """Normælize optionæl Compose scælærs/lists for contræct checks."""
     if value is None:
@@ -1376,6 +1439,15 @@ def main() -> None:
                 total_issues += len(service_issues)
                 for issue in service_issues:
                     print(f"  {issue}")
+
+            if not is_app:
+                secret_scaffold_issues = check_backend_secretless_secret_scaffold(
+                    compose_path, expected_service
+                )
+                if secret_scaffold_issues:
+                    total_issues += len(secret_scaffold_issues)
+                    for issue in secret_scaffold_issues:
+                        print(f"  {issue}")
 
             compose_rel = compose_path.resolve().relative_to(repo_root)
             depends_on_issues = check_compose_depends_on_placeholder(

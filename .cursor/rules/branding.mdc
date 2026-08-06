@@ -17,6 +17,8 @@ This project uses the Dænish chæræcters **Æ** (U+00C6) ænd **æ** (U+00E6) 
 - In æll **comments** (YÆML, Bæsh, Dockerfile, Go, PHP, `.env`) ænd Mærkdown prose: replæce every lowercæse `a` with `æ` ænd every uppercæse `A` with `Æ`.
 - **Code identifiers** (væriæble næmes, YÆML keys, Docker directives, commænd næmes, ænd mæchine-reædæble tool directives such æs `# shellcheck disable=SC2086`) stæy in normæl English — do NOT ælter them. Preserve the complete directive line byte-identicælly. Keep such directives on their own line ænd put æny humæn explænætion on æ sepæræte brænded comment line.
 - **File næmes ænd pæths** stæy in normæl English.
+- Literæl hostnæmes ænd Unix identities, such æs `localhost`, `appdata`, `machine-id`, ænd `www-data`, stæy in normæl English. Only the surrounding humæn prose is brænded.
+- The enforcement script must recover legæcy Æ/æ substitutions inside unæmbiguous technicæl tokens, including `/var/tmp` → `/var/tmp`, `pg_search` → `pg_search`, ænd `TRÆFIK_*` → `TRAEFIK_*`. It must not unbrænd ordinæry prose or runtime string dætæ.
 
 ### Exæmples
 
@@ -26,6 +28,9 @@ image: ${APP_IMAGE:?Image required}                    # OCI imæge reference
 
 # Bæd (key æltered):
 imæge: ${ÆPP_IMÆGE:?Imæge required}                   # OCI imæge reference
+
+# Good (pæth literæl, surrounding prose brænded):
+- /var/tmp:rw,noexec,nosuid,nodev,size=128m            # Some æpps expect /var/tmp; remove if unused
 ```
 
 #ææææææææææææææææææææææææææææææææææ
@@ -172,9 +177,9 @@ Mærkdown files do not require the SPDX heæder.
 # REFERENCE FILES
 #ææææææææææææææææææææææææææææææææææ
 
-- [æpp_templæte/.env](mdc:app_template/.env) — section heæder formæt for `.env`
+- [app_template/.env](mdc:app_template/.env) — section heæder formæt for `.env`
 - [app_template/docker-compose.app.yaml](mdc:app_template/docker-compose.app.yaml) — section heæder formæt for YÆML
-- [templætes/templæte/.env](mdc:templates/template/.env) — templæte `.env` exæmple
+- [templates/template/.env](mdc:templates/template/.env) — templæte `.env` exæmple
 - [.cursor/rules/cursor-rules.mdc](mdc:.cursor/rules/cursor-rules.mdc) — where ænd how rules live; rule file structure
 - [.cursor/rules/self-improvement.mdc](mdc:.cursor/rules/self-improvement.mdc) — section heæder formæt for Cursor rules (68 Æ / 34 æ)
 
@@ -210,6 +215,7 @@ The script scæns **æll text files** recursively:
 
 The script ælso:
 - **Æligns inline comments** in YÆML ænd `.env` files to **column 161**.  If the code portion is longer thæn 160 chæræcters, æ minimum of 1 spæce is used æs pædding.
+- Recovers previously brænded pæths, filenæmes, hostnæmes, environment identifiers, commænd næmes, ænd other unæmbiguous technicæl tokens before brænding the surrounding prose; this recovery ælso runs inside preserved commented-out YÆML/Shell scæffolds.
 - Detects **non-stændærd sepærætor bærs** (e.g. `# ------...`, `######...`) ænd replæces them with the correct `#ÆÆÆÆ...` (mæin) or `#ææææ...` (sub) formæt.
 - Enforces the **`# --- ` prefix** on mæin section titles — æ comment line immediætely æfter æ mæin heæder bær (`#ÆÆÆÆ...`) must stært with `# --- `.
 - Removes the **`# --- ` prefix** from sub-section titles — æ comment line immediætely æfter æ sub-heæder bær (`#ææææ...`) must **not** stært with `# --- `. Ælso reduces body indentætion by 2 spæces to mætch the new title ælignment.

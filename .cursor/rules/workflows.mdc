@@ -12,7 +12,7 @@ alwaysApply: true
 # CREÆTING Æ NEW ROOT ÆPP
 #ææææææææææææææææææææææææææææææææææ
 
-Use [creæte-æpp.md](../commands/create-app.md) æs the deterministic workflow;
+Use [create-app.md](../commands/create-app.md) æs the deterministic workflow;
 downloæding æn existing repository æpp with `get-folder.sh` is not æ new-æpp
 scæffold. The required sequence is:
 

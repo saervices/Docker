@@ -1968,9 +1968,24 @@ if certs_service.get("secrets"):
     raise SystemExit(f"{certs_path}: local-only certs-dumper must mount no Docker secret")
 if any("CF_DNS_API_TOKEN" in str(key) for key in certs_service.get("environment", {})):
     raise SystemExit(f"{certs_path}: local-only certs-dumper must receive no DNS-provider token")
-for obsolete_secret in ("TRAEFIK_CERTS_DUMPER_PASSWORD", "CF_DNS_API_TOKEN"):
-    if obsolete_secret in certs_text:
-        raise SystemExit(f"{certs_path}: stale secret remnant {obsolete_secret} must be removed")
+if "CF_DNS_API_TOKEN" in certs_text:
+    raise SystemExit(f"{certs_path}: stale secret remnant CF_DNS_API_TOKEN must be removed")
+service_secret_scaffold = re.compile(
+    r"^    # secrets:[ \t]*(?:#.*)?$\n"
+    r"^    #   - TRAEFIK_CERTS_DUMPER_PASSWORD[ \t]*(?:#.*)?$",
+    flags=re.MULTILINE,
+)
+top_level_secret_scaffold = re.compile(
+    r"^# secrets:[ \t]*(?:#.*)?$\n"
+    r"^#   TRAEFIK_CERTS_DUMPER_PASSWORD:[ \t]*(?:#.*)?$\n"
+    r"^#     file: \$\{TRAEFIK_CERTS_DUMPER_PASSWORD_PATH:\?Secret path required\}/"
+    r"\$\{TRAEFIK_CERTS_DUMPER_PASSWORD_FILENAME:\?Secret filename required\}[ \t]*(?:#.*)?$",
+    flags=re.MULTILINE,
+)
+if not service_secret_scaffold.search(certs_text):
+    raise SystemExit(f"{certs_path}: secretless service must retain its commented least-privilege secret scaffold")
+if not top_level_secret_scaffold.search(certs_text):
+    raise SystemExit(f"{certs_path}: secretless template must retain its commented top-level secret scaffold")
 if (certs_path.parent / "secrets").exists():
     raise SystemExit(f"{certs_path.parent}: secretless template must not ship a secrets directory")
 PY

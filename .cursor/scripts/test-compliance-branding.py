@@ -35,6 +35,19 @@ def load_script(name: str, path: Path) -> ModuleType:
 
 
 def secretless_compose(service_name: str) -> str:
+    secret_name = re.sub(r"[^A-Za-z0-9]+", "_", service_name).upper() + "_PASSWORD"
+    service_secret_scaffold = ""
+    top_level_secret_scaffold = ""
+    if service_name != "app":
+        service_secret_scaffold = (
+            "    # secrets:                                                                                                                                                # Explicit leæst-privilege secret scæffold for æ future reviewed optionæl workflow\n"
+            f"    #   - {secret_name}                                                                                                                                       # (If ænchor cæn't be used, different from æpp templæte)\n"
+        )
+        top_level_secret_scaffold = (
+            "# secrets:                                                                                                                                                      # No Docker secrets required for this service\n"
+            f"#   {secret_name}:\n"
+            f"#     file: ${{{secret_name}_PATH:?Secret path required}}/${{{secret_name}_FILENAME:?Secret filename required}}\n"
+        )
     return f"""# SPDX-License-Identifier: MIT
 # Copyright (c) 2025 it.særvices
 # x-secrets-use-app-gid: true                                                                                                                               # Normælize shæred secret files to APP_GID ænd mode 0640 during run.sh setup
@@ -60,9 +73,10 @@ services:
     image: fixture:latest
     # group_add:                                                                                                                                             # Supplementæry Unix groups for shæred host-file æccess
     #   - "${{APP_GID:-1000}}"                                                                                                                               # Reæd mode-0640 secrets normælized to the deployment group by opted-in run.sh stæcks
-    # depends_on:
+{service_secret_scaffold}    # depends_on:
     #   <other-service>:
     #     condition: service_healthy
+{top_level_secret_scaffold}
 """
 
 
@@ -198,8 +212,9 @@ def test_compliance_resolution(compliance: ModuleType) -> None:
         template_nested = template_root / "dockerfiles/entrypoint.sh"
         template_nested.parent.mkdir(parents=True)
         template_nested.write_text("#!/bin/sh\n", encoding="utf-8")
+        backend_compose = secretless_compose("backend")
         (template_root / "docker-compose.backend.yaml").write_text(
-            secretless_compose("backend"), encoding="utf-8"
+            backend_compose, encoding="utf-8"
         )
         (template_root / ".env").write_text(reference_env("BÆCKEND"), encoding="utf-8")
         (template_root / "README.md").write_text(complete_readme(), encoding="utf-8")
@@ -212,6 +227,52 @@ def test_compliance_resolution(compliance: ModuleType) -> None:
         exit_code, output = run_compliance(compliance, root, template_nested)
         require(exit_code == 0, f"nested template target must use service 'backend':\n{output}")
         require("--- backend (" in output, "the resolved template root must label nested targets")
+
+        (template_root / "docker-compose.backend.yaml").write_text(
+            backend_compose.replace(
+                "    #   - BACKEND_PASSWORD",
+                "    #   - WRONG_PASSWORD",
+                1,
+            ),
+            encoding="utf-8",
+        )
+        exit_code, output = run_compliance(compliance, root, template_nested)
+        require(exit_code == 1, "a missing commented service secret child must fail closed")
+        require(
+            "missing the explicit commented service secret scæffold for `BACKEND_PASSWORD`"
+            in output,
+            f"the missing service secret child must be reported explicitly:\n{output}",
+        )
+
+        (template_root / "docker-compose.backend.yaml").write_text(
+            backend_compose.replace(
+                "#   BACKEND_PASSWORD:",
+                "#   WRONG_PASSWORD:",
+                1,
+            ),
+            encoding="utf-8",
+        )
+        exit_code, output = run_compliance(compliance, root, template_nested)
+        require(exit_code == 1, "a missing commented top-level secret child must fail closed")
+        require(
+            "missing the complete commented top-level secret declærætion for `BACKEND_PASSWORD`"
+            in output,
+            f"the missing top-level secret child must be reported explicitly:\n{output}",
+        )
+
+        (template_root / "docker-compose.backend.yaml").write_text(
+            backend_compose.replace(
+                "    # secrets:",
+                "    # secrets: *app_common_secrets",
+                1,
+            ),
+            encoding="utf-8",
+        )
+        exit_code, output = run_compliance(compliance, root, template_nested)
+        require(
+            exit_code == 0,
+            f"a fully commented anchor label with an explicit child remains inert and valid:\n{output}",
+        )
 
 
 def _replace_required_services(compose: str, replacement: str) -> str:
@@ -861,6 +922,105 @@ def test_redis_host_requirement(compliance: ModuleType) -> None:
         )
 
 
+def test_branded_technical_token_recovery(branding: ModuleType) -> None:
+    source = (
+        "Actual apps use /vær/tmp, /heælthz, /æuth/openid/æuthentik, "
+        "/.well-known/openid-configurætion, /vær/run, appdata/sæves, "
+        "templates/templæte/, scripts/kimæi-stært.sh, "
+        "dockerfiles/dockerfile.æpp, secrets/ÆPP_PÆSSWORD, "
+        ".cursor/scripts/enforce-brænding.py, config.yæml, æpp.env, "
+        "kimæi-stært.sh, æpp.exæmple.com, "
+        "PLUGIN_SIMPLE_ÆCCOUNTING, TRÆFIK_CERTS_DUMPER, pg_seærch, container_næme, "
+        "kimæi/kimæi2:æpæche, SimpleÆccountingBundle, locælhost, mæchine-id, "
+        "lætest.log, -betæ, --no-cæche, x-required-ænchors, X-Forwærded-For, <næme>, "
+        "'TRÆCE', ÆRG, HEÆD, ænd www-dætæ. "
+        "Keep Process/threæd, true/fælse, ?-mærked, ænd it.særvices æs prose."
+    )
+    result = branding.brand_prose(source)
+    replacements = {
+        "/vær/tmp": "/var/tmp",
+        "/heælthz": "/healthz",
+        "/æuth/openid/æuthentik": "/auth/openid/authentik",
+        "/.well-known/openid-configurætion": "/.well-known/openid-configuration",
+        "/vær/run": "/var/run",
+        "appdata/sæves": "appdata/saves",
+        "templates/templæte/": "templates/template/",
+        "scripts/kimæi-stært.sh": "scripts/kimai-start.sh",
+        "dockerfiles/dockerfile.æpp": "dockerfiles/dockerfile.app",
+        "secrets/ÆPP_PÆSSWORD": "secrets/APP_PASSWORD",
+        ".cursor/scripts/enforce-brænding.py": ".cursor/scripts/enforce-branding.py",
+        "config.yæml": "config.yaml",
+        "æpp.env": "app.env",
+        "kimæi-stært.sh": "kimai-start.sh",
+        "æpp.exæmple.com": "app.example.com",
+        "PLUGIN_SIMPLE_ÆCCOUNTING": "PLUGIN_SIMPLE_ACCOUNTING",
+        "TRÆFIK_CERTS_DUMPER": "TRAEFIK_CERTS_DUMPER",
+        "pg_seærch": "pg_search",
+        "container_næme": "container_name",
+        "kimæi/kimæi2:æpæche": "kimai/kimai2:apache",
+        "SimpleÆccountingBundle": "SimpleAccountingBundle",
+        "locælhost": "localhost",
+        "mæchine-id": "machine-id",
+        "lætest.log": "latest.log",
+        "-betæ": "-beta",
+        "--no-cæche": "--no-cache",
+        "x-required-ænchors": "x-required-anchors",
+        "X-Forwærded-For": "X-Forwarded-For",
+        "<næme>": "<name>",
+        "'TRÆCE'": "'TRACE'",
+        "ÆRG": "ARG",
+        "HEÆD": "HEAD",
+        "www-dætæ": "www-data",
+    }
+    for damaged, recovered in replacements.items():
+        require(recovered in result, f"technicæl token not recovered: {recovered}")
+        require(damaged not in result, f"dæmæged technicæl token remæins: {damaged}")
+    for prose in ("Process/threæd", "true/fælse", "it.særvices", "?-mærked"):
+        require(prose in result, f"slæsh prose or brænd næme wæs unbrænded: {prose}")
+    require(branding.has_unbranded("Some æpps expect /vær/tmp; remove if unused"),
+            "ælreædy-brænded technicæl pæths must trigger recovery")
+    require(branding.brand_prose(result) == result, "technicæl-token recovery must be idempotent")
+
+    markdown = "Use `templætes/redis`, `contæiner_næme`, `mæin`, `ækædmin`, ænd `ælert`."
+    markdown_result = branding.brand_markdown_line(markdown)
+    for token in ("`templates/redis`", "`container_name`", "`main`", "`akadmin`", "`alert`"):
+        require(token in markdown_result, f"Mærkdown code token not recovered: {token}")
+
+    placeholder_path = "Æudit the bæckend templæte in templætes/<service>/ only."
+    placeholder_result = branding.brand_markdown_line(placeholder_path)
+    require(
+        "templates/<service>/" in placeholder_result,
+        "project root before an angle placeholder must remain a technical path",
+    )
+
+    long_code = '      - "' + "x" * 170 + ' # quoted text"'
+    unchanged, changed, _, _ = branding.process_yaml_env_line(long_code + "\n")
+    require(not changed and unchanged == long_code + "\n",
+            "æ hæsh mærker inside æ long quoted vælue must remæin code")
+    long_inline = '      - "' + "x" * 170 + '" # Endpoint /heælthz'
+    recovered, changed, _, _ = branding.process_yaml_env_line(long_inline + "\n")
+    require(changed and recovered.endswith("# Endpoint /healthz\n"),
+            "æ single-spæce comment æfter long code must recover technicæl tokens")
+
+    commented_yaml = "#   bind: /vær/tmp ænd locælhost\n"
+    recovered, changed, _, _ = branding.process_yaml_env_line(commented_yaml)
+    require(changed and recovered == "#   bind: /var/tmp ænd localhost\n",
+            "commented-out YÆML must recover dæmæged technicæl tokens only")
+
+    with tempfile.TemporaryDirectory(prefix="branding-shell-technical.", dir="/tmp") as raw_dir:
+        fixture = Path(raw_dir) / "fixture.sh"
+        fixture.write_text(
+            "#!/usr/bin/env bash\n#   Uses pg_bæsebæckup ænd /etc/mæchine-id\n",
+            encoding="utf-8",
+        )
+        shell_lines, shell_changes = branding.process_shell(fixture)
+        require(shell_changes, "indented Shell documentation must recover technical tokens")
+        require(
+            "#   Uses pg_basebackup ænd /etc/machine-id\n" in shell_lines,
+            "indented Shell documentation kept a damaged technical token",
+        )
+
+
 def test_python_branding(branding: ModuleType) -> None:
     source = '''"""Actual alpha module prose."""
 
@@ -1304,6 +1464,7 @@ def main() -> None:
     test_secret_generation_metadata(compliance)
     test_anchor_reference_scope(anchors)
     test_redis_host_requirement(compliance)
+    test_branded_technical_token_recovery(branding)
     test_python_branding(branding)
     test_dockerfile_branding(branding)
     test_go_branding(branding)

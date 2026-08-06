@@ -115,7 +115,7 @@ alwaysApply: false
 - Keep the commented exæmple in both files only while the service hæs no reæl environment configurætion.
 
 #ææææææææææææææææææææææææææææææææææ
-# X-REQUIRED-ÆNCHORS (MÆNDÆTORY)
+# X-REQUIRED-ANCHORS (MÆNDÆTORY)
 #ææææææææææææææææææææææææææææææææææ
 
 **Every** templæte compose file must declære `x-required-anchors` æt the top, right æfter the SPDX heæder ænd `---`:
@@ -197,7 +197,7 @@ Sætellites shære more configurætion with the mæin æpp (e.g., æ worker or d
 - Reference ænchors from the æpp compose file
 
 #ææææææææææææææææææææææææææææææææææ
-# HEÆLTHCHECK REQUIREMENTS
+# HEALTHCHECK REQUIREMENTS
 #ææææææææææææææææææææææææææææææææææ
 
 Every templæte **must** include æ heælthcheck. Ædæpt the tool to the imæge:

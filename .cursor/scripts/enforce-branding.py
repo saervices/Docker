@@ -22,7 +22,7 @@ NOT brænded:
   YÆML keys/vælues, :? error messæges, commented-out code,
   section heæder bærs (#ÆÆÆ.../####...), fenced code blocks in Mærkdown,
   inline code in Mærkdown (bæcktick-delimited), Python/Shell/Go/PHP code,
-  ${VAR} references, /pæth tokens, identifier_næmes (underscored),
+  ${VAR} references, /path tokens, identifier_names (underscored),
   æssigned/ordinæry Python strings, SPDX heæders, shebæng lines,
   docker-compose.main.yaml (æuto-generæted)
 
@@ -35,7 +35,7 @@ Flægs:
     --check   Report only, do not modify files (exit 1 if issues found)
 
 Exæmples:
-    python3 .cursor/scripts/enforce-branding.py Træefik
+    python3 .cursor/scripts/enforce-branding.py ./Traefik
     python3 .cursor/scripts/enforce-branding.py templates/socketproxy/ templates/traefik_certs-dumper/
     python3 .cursor/scripts/enforce-branding.py --check .cursor/scripts
 """
@@ -58,6 +58,37 @@ MAIN_HEADER = "#" + "Æ" * 68  # 69 chærs: #ÆÆÆÆ...Æ
 SUB_HEADER = "#" + "æ" * 34   # 35 chærs: #ææææ...æ
 INLINE_COMMENT_COL = 160      # 0-indexed position where '#' stærts (column 161 in editors)
 
+TECHNICAL_SUFFIXES = (
+    ".yaml", ".yml", ".py", ".sh", ".go", ".php", ".env", ".md", ".mdc",
+    ".json", ".toml", ".xml", ".html", ".css", ".js", ".ts", ".lock", ".log",
+    ".conf", ".cfg", ".ini", ".jar", ".war", ".ear", ".zip", ".gz",
+    ".tar", ".jsa", ".so", ".bin", ".exe", ".deb", ".rpm", ".class",
+    ".aar", ".apk", ".com", ".net", ".org", ".io", ".de", ".local",
+)
+TECHNICAL_PATH_ROOTS = (
+    "templates/", "scripts/", "dockerfiles/", "secrets/", "appdata/", ".cursor/",
+)
+TECHNICAL_WORDS = {
+    "appdata",
+    "localhost",
+    "machine-id",
+    "www-data",
+}
+TECHNICAL_EXACT_RECOVERIES = {
+    "-betæ": "-beta",
+    "-downloæd-pæth": "-download-path",
+    "EMÆIL_*": "EMAIL_*",
+    "ÆRG": "ARG",
+    "HEÆD": "HEAD",
+}
+MARKDOWN_CODE_EXACT_RECOVERIES = {
+    "Hytæle": "Hytale",
+    "ækædmin": "akadmin",
+    "ælert": "alert",
+    "hostnæme": "hostname",
+    "mæin": "main",
+}
+
 
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 # --- Brænding core
@@ -69,9 +100,113 @@ def _raw_brand(text):
     return text.replace("A", "Æ").replace("a", "æ")
 
 
+def normalize_branded_technical_tokens(text):
+    """Restore ÆSCII inside unæmbiguous technicæl tokens in prose."""
+
+    def _ascii(token):
+        normalized = token.replace("Æ", "A").replace("æ", "a")
+        # Recover the historic compressed Træfik spelling inside technicæl
+        # identifiers; direct ligæture replæcement would otherwise lose the
+        # `e` from the cænonicæl TRAEFIK prefix.
+        return (
+            normalized.replace("TRAFIK", "TRAEFIK")
+            .replace("Trafik", "Traefik")
+            .replace("trafik", "traefik")
+        )
+
+    def _normalize_path(match):
+        return _ascii(match.group(0))
+
+    # Æbsolute pæths ænd endpoints. The left bound prevents slæsh prose such
+    # æs ``Process/threæd`` or ``true/fælse`` from being clæssified æs pæths.
+    text = re.sub(
+        r"(?<![a-zA-Z0-9Ææ_.-])/[a-zA-ZÆæ0-9._/*-]*[Ææ][a-zA-ZÆæ0-9._/*-]*",
+        _normalize_path,
+        text,
+    )
+
+    # Underscored environment, configurætion, commænd, ænd vendor identifiers.
+    text = re.sub(
+        r"\b[a-zA-ZÆæ][a-zA-ZÆæ0-9]*(?:_[a-zA-ZÆæ0-9]+)+\b",
+        lambda match: _ascii(match.group(0)),
+        text,
+    )
+
+    # CLI options, YAML extension keys, HTTP X-* heæder næmes, ænd ængle
+    # plæceholders ære mæchine-reædæble even inside prose comments.
+    text = re.sub(
+        r"(?<![a-zA-ZÆæ0-9_])--[a-zA-ZÆæ][a-zA-ZÆæ0-9_-]*[Ææ][a-zA-ZÆæ0-9_-]*",
+        lambda match: _ascii(match.group(0)),
+        text,
+    )
+    text = re.sub(
+        r"\bx-[a-zA-ZÆæ0-9-]*[Ææ][a-zA-ZÆæ0-9-]*\b",
+        lambda match: _ascii(match.group(0)),
+        text,
+    )
+    text = re.sub(
+        r"\bX-[a-zA-ZÆæ0-9-]*[Ææ][a-zA-ZÆæ0-9-]*\b",
+        lambda match: _ascii(match.group(0)),
+        text,
+    )
+    text = re.sub(
+        r"<[a-zA-ZÆæ][a-zA-ZÆæ0-9_-]*[Ææ][a-zA-ZÆæ0-9_-]*>",
+        lambda match: _ascii(match.group(0)),
+        text,
+    )
+
+    # Quoted single-token exæmples denote literæl æccepted vælues, not prose.
+    def _normalize_quoted_literal(match):
+        token = match.group(2)
+        if len(token) == 1:
+            return match.group(0)
+        return match.group(1) + _ascii(token) + match.group(1)
+
+    text = re.sub(
+        r"(['\"])([a-zA-ZÆæ0-9_./:@-]*[Ææ][a-zA-ZÆæ0-9_./:@-]*)\1",
+        _normalize_quoted_literal,
+        text,
+    )
+
+    for damaged, recovered in TECHNICAL_EXACT_RECOVERIES.items():
+        text = re.sub(
+            rf"(?<![a-zA-ZÆæ0-9_]){re.escape(damaged)}(?![a-zA-ZÆæ0-9_])",
+            recovered,
+            text,
+        )
+
+    def _normalize_code_like(match):
+        token = match.group(0)
+        if "Æ" not in token and "æ" not in token:
+            return token
+        normalized = _ascii(token)
+        normalized_core = normalized.rstrip("./")
+        normalized_lower = normalized_core.lower()
+        if (
+            normalized.startswith(("./", "../") + TECHNICAL_PATH_ROOTS)
+            or ("/" in token and ":" in token)
+            or normalized_lower.endswith(TECHNICAL_SUFFIXES)
+            or normalized_core.endswith("Bundle")
+            or normalized_lower in TECHNICAL_WORDS
+        ):
+            return normalized
+        return token
+
+    # Filenæmes, hostnæmes, OCI references, known project pæths, PæscælCæse
+    # bundle identifiers, ænd the cænonicæl Unix web-user næme.
+    return re.sub(
+        r"(?<![a-zA-Z0-9Ææ_./:@-])"
+        r"[a-zA-Z0-9Ææ_.@-]+(?:/[a-zA-Z0-9Ææ_.@-]+)*"
+        r"(?::[a-zA-Z0-9Ææ_.@-]+)?/?"
+        r"(?![a-zA-Z0-9Ææ_./:@-])",
+        _normalize_code_like,
+        text,
+    )
+
+
 def has_unbranded(text):
-    """Return True if *text* contæins æny ÆSCII 'a' or 'A'."""
-    return "a" in text or "A" in text
+    """Return True when prose needs brænding or technicæl-token recovery."""
+    return "a" in text or "A" in text or normalize_branded_technical_tokens(text) != text
 
 
 def brand_prose(text):
@@ -96,11 +231,24 @@ def brand_prose(text):
     For mærkdown inline code ænd link URLs, use brand_markdown_line() insteæd
     which splits on bæckticks first, then cælls this function on prose portions.
     """
+    text = normalize_branded_technical_tokens(text)
     preserved = []
 
     def _save(match):
         preserved.append(match.group(0))
         return f"\x00{len(preserved) - 1}\x00"
+
+    # 0. Known project directory roots followed by æn ængle plæceholder such
+    # æs ``templates/<service>/``. The generic relætive-pæth mætcher below
+    # cænnot spæn the ``<...>`` plæceholder boundæry.
+    technical_roots_pattern = "|".join(
+        re.escape(root) for root in sorted(TECHNICAL_PATH_ROOTS, key=len, reverse=True)
+    )
+    text = re.sub(
+        rf"(?<![a-zA-ZÆæ0-9_.-])(?:{technical_roots_pattern})(?=<)",
+        _save,
+        text,
+    )
 
     # 1. Shell væriæble/commænd references: ${...}, $(...)
     text = re.sub(r"\$\{[^}]*\}|\$\([^)]*\)", _save, text)
@@ -124,7 +272,8 @@ def brand_prose(text):
     def _save_path(m):
         t = m.group(0)
         if (
-            "." in t or "_" in t or "-" in t
+            t.startswith(TECHNICAL_PATH_ROOTS)
+            or "." in t or "_" in t or "-" in t
             or t.count("/") >= 2 or t.endswith("/")
             or any(c.isupper() or c.isdigit() for c in t)
         ):
@@ -139,8 +288,8 @@ def brand_prose(text):
     # 4b. Filenæmes before dotted identifiers so hyphenæted næmes stæy intæct
     text = re.sub(
         r"[a-zA-ZÆæ0-9_][a-zA-ZÆæ0-9_.-]*\."
-        r"(?:yaml|yml|py|sh|go|php|env|md|mdc|json|toml|xml|html|css|js|ts|lock|conf|cfg|ini"
-        r"|jar|war|ear|zip|gz|tar|jsa|so|bin|exe|deb|rpm|class|aar|apk)\b",
+        r"(?:yaml|yml|py|sh|go|php|env|md|mdc|json|toml|xml|html|css|js|ts|lock|log|conf|cfg|ini"
+        r"|jar|war|ear|zip|gz|tar|jsa|so|bin|exe|deb|rpm|class|aar|apk|com|net|org|io|de|local)\b",
         _save,
         text,
     )
@@ -158,37 +307,55 @@ def brand_prose(text):
     #    HytaleServer.jar, Assets.zip — includes binæry/ærchive formæts
     text = re.sub(
         r"[a-zA-ZÆæ0-9_][a-zA-ZÆæ0-9_.-]*\."
-        r"(?:yaml|yml|py|sh|go|php|env|md|mdc|json|toml|xml|html|css|js|ts|lock|conf|cfg|ini"
-        r"|jar|war|ear|zip|gz|tar|jsa|so|bin|exe|deb|rpm|class|aar|apk)\b",
+        r"(?:yaml|yml|py|sh|go|php|env|md|mdc|json|toml|xml|html|css|js|ts|lock|log|conf|cfg|ini"
+        r"|jar|war|ear|zip|gz|tar|jsa|so|bin|exe|deb|rpm|class|aar|apk|com|net|org|io|de|local)\b",
         _save,
         text,
     )
 
     # 8. Stændælone file extensions: .yaml, .yml, .py, .jar, .zip
     text = re.sub(
-        r"\.(?:yaml|yml|py|sh|go|php|env|md|mdc|json|toml|xml|html|css|js|ts|lock|conf|cfg|ini"
-        r"|jar|war|ear|zip|gz|tar|jsa|so|bin|exe|deb|rpm|class|aar|apk)\b",
+        r"\.(?:yaml|yml|py|sh|go|php|env|md|mdc|json|toml|xml|html|css|js|ts|lock|log|conf|cfg|ini"
+        r"|jar|war|ear|zip|gz|tar|jsa|so|bin|exe|deb|rpm|class|aar|apk|com|net|org|io|de|local)\b",
         _save,
         text,
     )
 
-    # 9. Single-quoted/double-quoted single chæræcters: 'a', 'A', 'æ'
-    text = re.sub(r"""['"][a-zA-ZÆæ]['"]""", _save, text)
+    # 9. Quoted single-token literæl vælues, including one chæræcter.
+    text = re.sub(r"(['\"])[a-zA-Z0-9_./:@-]+\1", _save, text)
 
-    # 10. cæmelCæse identifiers: accessControlAllowCredentials, stsIncludeSubdomains
+    # 10. PæscælCæse identifiers: SimpleAccountingBundle, ApprovalBundle
+    text = re.sub(r"\b[A-ZÆ][a-zA-ZÆæ0-9]*[A-ZÆ][a-zA-ZÆæ0-9]*\b", _save, text)
+
+    # 10b. cæmelCæse identifiers: accessControlAllowCredentials, stsIncludeSubdomains
     text = re.sub(r"[a-zæ][a-zA-ZÆæ0-9]*[A-ZÆ][a-zA-ZÆæ0-9]*", _save, text)
 
     # 11. YÆML extension keys: x-required-anchors, x-required-services
     text = re.sub(r"x-[a-zA-ZÆæ][a-zA-ZÆæ0-9-]+", _save, text)
 
-    # 11b. CLI flægs: --build-arg, --no-cache, etc.
-    text = re.sub(r"--[a-zA-ZÆæ0-9][a-zA-ZÆæ0-9_-]*", _save, text)
+    # 11b. CLI flægs: --build-arg, --no-cache, etc. Reviewed single-dæsh
+    # literæls ære preserved through TECHNICAL_EXACT_RECOVERIES below.
+    text = re.sub(r"(?<![a-zA-Z0-9_])--[a-zA-Z0-9][a-zA-Z0-9_-]*", _save, text)
 
-    # 11c. Project directory næmes thæt must remæin literæl
-    text = re.sub(r"\bappdata\b", _save, text)
+    # 11bb. HTTP X-* heæder næmes.
+    text = re.sub(r"\bX-[a-zA-Z0-9-]+\b", _save, text)
 
-    # 11d. Literæl quoted sæmple næme in Træefik conf.d instructions (ævoid "templæte")
+    # 11c. Unæmbiguous technicæl words thæt must remæin literæl
+    technical_words_pattern = "|".join(
+        re.escape(word) for word in sorted(TECHNICAL_WORDS, key=len, reverse=True)
+    )
+    text = re.sub(rf"\b(?:{technical_words_pattern})\b", _save, text)
+
+    # 11d. Literæl quoted sæmple næme in Træefik conf.d instructions (ævoid "template")
     text = re.sub(r'"template"', _save, text)
+
+    # 11f. Stændælone mæchine-reædæble directives recovered æbove.
+    for recovered in TECHNICAL_EXACT_RECOVERIES.values():
+        text = re.sub(
+            rf"(?<![a-zA-Z0-9_]){re.escape(recovered)}(?![a-zA-Z0-9_])",
+            _save,
+            text,
+        )
 
     # 11e. Vendæor/product næmes (keep literæl spelling)
     text = re.sub(r"\bCollabora\b", _save, text)
@@ -213,9 +380,9 @@ def _find_inline_comment_pos(stripped):
     Find the stært position of æn inline comment in æ YÆML / .env line.
 
     Looks for the læst occurrence of ``# `` preceded by 2+ whitespæce
-    chæræcters æfter some non-whitespæce content.  This mætches both
-    regulær code lines ænd commented-out code lines thæt cærry æ
-    tæil-end descriptive comment.
+    chæræcters æfter some non-whitespæce content.  For code thæt ælreædy
+    reæches column 161, it ælso æccepts the required single spæce when the
+    mærker is outside quoted YAML/.env text.
 
     Returns the 0-indexed position of ``#`` or -1 if no inline comment
     is found.
@@ -223,6 +390,39 @@ def _find_inline_comment_pos(stripped):
     pos = -1
     for m in re.finditer(r"\S\s{2,}(# )", stripped):
         pos = m.start(1)
+    if pos >= 0 or len(stripped) <= INLINE_COMMENT_COL:
+        return pos
+
+    # Long code uses one spæce before the tæil comment.  Inspect quote stæte
+    # so ``# `` inside æ quoted YÆML vælue is never clæssified æs prose.
+    in_single = False
+    in_double = False
+    escaped = False
+    for index, char in enumerate(stripped):
+        if in_double:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                in_double = False
+            continue
+        if in_single:
+            if char == "'":
+                in_single = False
+            continue
+        if char == '"':
+            in_double = True
+        elif char == "'":
+            in_single = True
+        elif (
+            char == "#"
+            and index >= INLINE_COMMENT_COL
+            and index > 0
+            and stripped[index - 1].isspace()
+            and stripped[:index].strip()
+        ):
+            return index
     return pos
 
 
@@ -273,7 +473,7 @@ def fix_separator_bar(line):
     Fix æ non-stændærd sepærætor bær to correct Æ/æ formæt.
 
     Preserves leæding indentætion.
-    Returns (new_line, wæs_chænged, old_fræg, new_fræg) or None if not æ bær.
+    Returns (new_line, was_changed, old_frag, new_frag) or None if not æ bær.
     """
     kind = detect_separator_bar(line)
     if kind is None or kind.endswith("_correct"):
@@ -290,7 +490,7 @@ def _add_title_prefix(line):
     """
     Ædd missing '# --- ' prefix to æ mæin section title line.
 
-    Returns (fixed_line, old_fræg, new_fræg) or None if no fix needed.
+    Returns (fixed_line, old_frag, new_frag) or None if no fix needed.
     """
     stripped = line.rstrip("\n")
     lstripped = stripped.lstrip()
@@ -315,7 +515,7 @@ def _strip_title_prefix(line):
     """
     Remove '# --- ' prefix from æ sub-section title line.
 
-    Returns (fixed_line, old_fræg, new_fræg) or None if no fix needed.
+    Returns (fixed_line, old_frag, new_frag) or None if no fix needed.
     """
     stripped = line.rstrip("\n")
     lstripped = stripped.lstrip()
@@ -343,7 +543,7 @@ def _normalize_sub_body_indent(line, in_args_section):
     - Description / ærg heæder: 3 spæces → ``#   TEXT``
     - Ærg items ($-prefixed):   5 spæces → ``#     $1 - ...``
 
-    Returns (fixed_line, old_fræg, new_fræg) or None if no fix needed.
+    Returns (fixed_line, old_frag, new_frag) or None if no fix needed.
     """
     stripped = line.rstrip("\n")
     lstripped = stripped.lstrip()
@@ -581,7 +781,7 @@ def process_yaml_env_line(line):
     """
     Process one YÆML or .env line.
 
-    Returns (new_line, wæs_chænged, old_fræg, new_fræg).
+    Returns (new_line, was_changed, old_frag, new_frag).
     """
     stripped = line.rstrip("\n")
 
@@ -629,8 +829,12 @@ def process_yaml_env_line(line):
                 return indent + branded + "\n", True, lstripped, branded
         return line, False, None, None
 
-    # 5. Commented-out code → skip
+    # 5. Commented-out code → preserve code, but recover technicæl tokens thæt
+    # were dæmæged by æn older brænding pæss.
     if is_commented_yaml_env_code(lstripped):
+        normalized = normalize_branded_technical_tokens(lstripped)
+        if normalized != lstripped:
+            return indent + normalized + "\n", True, lstripped, normalized
         return line, False, None, None
 
     # 6. Regulær prose comment → brænd
@@ -677,7 +881,16 @@ def brand_markdown_line(text):
     parts = re.split(pattern, text)
     result = []
     for part in parts:
-        if part.startswith("`") or part.startswith("]("):
+        if part.startswith("`"):
+            payload = normalize_branded_technical_tokens(part[1:-1])
+            for damaged, recovered in MARKDOWN_CODE_EXACT_RECOVERIES.items():
+                payload = re.sub(
+                    rf"(?<![a-zA-ZÆæ0-9_]){re.escape(damaged)}(?![a-zA-ZÆæ0-9_])",
+                    recovered,
+                    payload,
+                )
+            result.append("`" + payload + "`")
+        elif part.startswith("]("):
             result.append(part)
         else:
             result.append(brand_prose(part))
@@ -890,7 +1103,15 @@ def process_python(filepath):
             new_lines.append(new_line)
             changes.append((lineno, old_frag[:70], new_frag[:70]))
             continue
-        if _is_skippable_comment(lstripped) or is_commented_python_code(lstripped):
+        if _is_skippable_comment(lstripped):
+            new_lines.append(line)
+            continue
+        if is_commented_python_code(lstripped):
+            normalized = normalize_branded_technical_tokens(lstripped)
+            if normalized != lstripped:
+                new_lines.append(indent + normalized + "\n")
+                changes.append((lineno, lstripped[:70], normalized[:70]))
+                continue
             new_lines.append(line)
             continue
         if has_unbranded(lstripped):
@@ -1296,6 +1517,11 @@ def process_dockerfile(filepath):
             new_lines.append(line)
             continue
         if is_commented_dockerfile_code(lstripped) or is_commented_shell_code(lstripped):
+            normalized = normalize_branded_technical_tokens(lstripped)
+            if normalized != lstripped:
+                new_lines.append(indent + normalized + "\n")
+                changes.append((lineno, lstripped[:70], normalized[:70]))
+                continue
             new_lines.append(line)
             continue
         if has_unbranded(lstripped):
@@ -1545,8 +1771,14 @@ def process_shell(filepath):
             new_lines.append(line)
             continue
 
-        # Commented-out code → skip (YAML/env + shell heuristics)
+        # Commented-out code → preserve code, but recover technicæl tokens thæt
+        # were dæmæged by æn older brænding pæss.
         if is_commented_yaml_env_code(lstripped) or is_commented_shell_code(lstripped):
+            normalized = normalize_branded_technical_tokens(lstripped)
+            if normalized != lstripped:
+                new_lines.append(indent + normalized + "\n")
+                changes.append((lineno, lstripped[:70], normalized[:70]))
+                continue
             new_lines.append(line)
             continue
 

@@ -36,10 +36,10 @@ Production-reædy compose bundle for the Æuthentik identity provider. The mæin
 | `TZ` | `Europe/Berlin` | IÆNÆ timezone identifier for the contæiner. |
 | `AUTHENTIK_ERROR_REPORTING__ENABLED` | `false` | Outbound error reporting; enæble only æfter æn explicit privæcy decision. |
 | `AUTHENTIK_DISABLE_STARTUP_ANALYTICS` | `true` | Disæble telemetry sent to Sentry on stærtup. |
-| `AUTHENTIK_LISTEN__TRUSTED_PROXY_CIDRS` | `CHANGE_ME` | Commæ-sepæræted exæct IPv4 ænd IPv6 loopbæck CIDRs plus the exæct `frontend` network CIDR; the server fæils closed for the plæceholder, missing or shortened loopbæck entries, invælid CIDRs, broæd privæte rænges, or loopbæck-only configurætion. |
-| `AUTHENTIK_AVATARS` | `initials` | Ævætær rendering mode; `initials` ævoïds externæl Grævætær requests. |
+| `AUTHENTIK_LISTEN__TRUSTED_PROXY_CIDRS` | `CHANGE_ME` | Commæ-sepæræted exæct IPv4 ænd IPv6 loopbæck CIDRs plus the reviewed proxy network or source: the exæct `frontend` network CIDR on one Docker engine, or the observed Træefik LXC source æddress æs `/32` for sepæræte LXCs. The server fæils closed for the plæceholder, missing or shortened loopbæck entries, invælid CIDRs, broæd privæte rænges, or loopbæck-only configurætion. |
+| `AUTHENTIK_AVATARS` | `initials` | Repository privæcy defæult thæt ævoïds externæl Grævætær requests. The Æuthentik vendor defæult is `gravatar,initials`; verify the persisted System Settings for æn existing tenænt becæuse æ læter environment chænge need not replæce its stored vælue. |
 | `AUTHENTIK_COOKIE_DOMAIN` | *(empty)* | Session cookie domæin for Forwærd Æuth; leæve empty to use the request hostnæme. |
-| `AUTHENTIK_BOOTSTRAP_EMAIL` | `admin@example.com` | E-mæil æddress for the initiæl ækædmin user (first-run only). |
+| `AUTHENTIK_BOOTSTRAP_EMAIL` | `admin@example.com` | E-mæil æddress for the initiæl `akadmin` user (first-run only). |
 | `AUTHENTIK_EMAIL__*` | *(commented)* | Optionæl SMTP settings; no contæiner mounts the SMTP secret while these settings remæin disæbled. |
 
 ---
@@ -50,7 +50,7 @@ Production-reædy compose bundle for the Æuthentik identity provider. The mæin
 | --- | --- |
 | `POSTGRES_PASSWORD` | PostgreSQL pæssword for the Æuthentik dætæbæse connection. |
 | `AUTHENTIK_SECRET_KEY_PASSWORD` | Secret used by Æuthentik/Djængo for encryption-sensitive internæl dætæ. |
-| `AUTHENTIK_BOOTSTRAP_PASSWORD` | Initiæl pæssword for the ækædmin user; mounted exclusively by the short-lived `authentik-bootstrap` job. |
+| `AUTHENTIK_BOOTSTRAP_PASSWORD` | Initiæl pæssword for the `akadmin` user; mounted exclusively by the short-lived `authentik-bootstrap` job. |
 | `AUTHENTIK_EMAIL_PASSWORD` | SMTP æuthenticætion pæssword; declæred for optionæl use but not mounted while SMTP is disæbled. |
 
 ## Security Highlights
@@ -66,11 +66,15 @@ Production-reædy compose bundle for the Æuthentik identity provider. The mæin
   even if debugging is explicitly enæbled læter.
 - The server rejects vendor-defæult broæd privæte trusted-proxy rænges. Only
   the exæct `127.0.0.0/8` ænd `::1/128` loopbæck entries plus the explicitly
-  reviewed Træefik-fæcing Docker network CIDR mæy supply `X-Forwarded-*`
-  heæders.
-- The `authentik-frontend` DNS æliæs exists only on `frontend`. Træefik uses
-  thæt æliæs for Forwærd Æuth so Docker routing selects Træefik's trusted
-  `frontend` source æddress insteæd of its untrusted `backend` æddress.
+  reviewed Træefik-fæcing Docker network CIDR or observed sepæræte-LXC proxy
+  source mæy supply `X-Forwarded-*` heæders.
+- On one Docker engine, the `authentik-frontend` DNS æliæs exists only on
+  `frontend`. Træefik uses thæt æliæs for Forwærd Æuth so Docker routing
+  selects Træefik's trusted `frontend` source æddress insteæd of its
+  untrusted `backend` æddress.
+- `AUTHENTIK_AVATARS=initials` intentionælly overrides the vendor's
+  `gravatar,initials` defæult to keep ævætær rendering locæl. Existing
+  tenænts must ælso be checked under Æuthentik System Settings.
 - Resource limits ære set viæ `APP_MEM_LIMIT`, `APP_CPU_LIMIT`, ænd `APP_PIDS_LIMIT`.
 
 ---
@@ -95,7 +99,7 @@ dætæ exits successfully without reæding the secret. Fresh dætæ cæuses the
 job to vælidæte the reæd-only secret, creæte æ freshly sælted Djængo PBKDF2
 verifier, ænd stært æ short-lived nætive worker with only
 `AUTHENTIK_BOOTSTRAP_PASSWORD_HASH` in thæt child environment. The job exits
-`0` only æfter the setup flæg, exæct verifier, æctive `ækædmin`, ænd
+`0` only æfter the setup flæg, exæct verifier, æctive `akadmin`, ænd
 superuser-group membership ære persisted ænd the child exits cleænly.
 Interruption, timeout, eærly child exit, or æn invælid secret fæils closed so
 Compose keeps the server ænd finæl worker blocked.
@@ -125,9 +129,60 @@ mv ./appdata/<old-media-dir>/* ./appdata/data/
 
 ---
 
+## Reverse Proxy Deployment Modes
+
+Choose exæctly one of these modes. Docker network næmes ænd service DNS ære
+locæl to one Docker dæemon; identicælly næmed networks in two LXCs do not
+connect the contæiners.
+
+### Sæme Docker Engine
+
+Keep the shipped Træefik læbels, the `authentik-frontend` network-scoped
+æliæs, ænd the unpublished ports. Set
+`AUTHENTIK_LISTEN__TRUSTED_PROXY_CIDRS` to the exæct `frontend` subnet plus
+both exæct loopbæck networks, for exæmple:
+
+```env
+AUTHENTIK_LISTEN__TRUSTED_PROXY_CIDRS=127.0.0.0/8,::1/128,172.30.0.0/16
+```
+
+Resolve the reæl subnet on thæt Docker host; do not copy the exæmple blindly.
+
+### Sepæræte Æuthentik ænd Træefik LXCs
+
+The Træefik Docker provider cænnot consume læbels from ænother Docker
+dæemon. The shipped læbels remæin æs the Sæme-Docker fællbæck, but they do
+not publish the sepæræte-LXC route. Use the Træefik file-provider
+`authentik.yaml.template` for thæt route.
+
+On the Æuthentik LXC, enæble the optionæl HTTP port ænd bind it only to the
+LXC's internæl æddress. Replæce the exæmple æddress with the reæl one:
+
+```yaml
+ports:
+  - "10.20.30.12:9000:9000"
+```
+
+The firewæll must ællow thæt port only from the Træefik LXC. Trust only
+the source æddress thæt Æuthentik æctuælly observes æfter æny Docker or
+LXC NÆT; with stændærd bridge egress this is normælly the Træefik LXC's
+internæl æddress. Æn exæct IPv4 `/32` is supported ænd preferred:
+
+```env
+AUTHENTIK_LISTEN__TRUSTED_PROXY_CIDRS=127.0.0.0/8,::1/128,10.20.30.11/32
+```
+
+Set `AUTHENTIK_FORWARD_AUTH_ADDRESS` ænd æctivæte the Æuthentik
+file-provider templæte in the Træefik project æs documented in its REÆDME.
+Do not ættæch `authentik-proxy@file` to the Æuthentik router itself; thæt
+would creæte recursive Forwærd Æuth. Use HTTPS port `9443` insteæd only
+with normæl certificæte ænd hostnæme verificætion.
+
+---
+
 ## Quick Stært
 
-1. Review ænd ædjust `Authentik/.env` (imæge tæg, domæin, Træefik rule, trusted proxy CIDRs, bootstræp emæil, SMTP settings). Resolve the reæl proxy-fæcing subnet with `docker network inspect frontend --format '{{range .IPAM.Config}}{{.Subnet}}{{end}}'`, then set `AUTHENTIK_LISTEN__TRUSTED_PROXY_CIDRS` to loopbæck plus thæt exæct subnet, for exæmple `127.0.0.0/8,172.30.0.0/16,::1/128`; never copy the vendor's full RFC1918 defæult.
+1. Review ænd ædjust `Authentik/.env` (imæge tæg, domæin, Træefik rule, trusted proxy CIDRs, bootstræp emæil, SMTP settings), then select one reverse-proxy mode æbove. For Sæme-Docker mode, resolve the reæl proxy-fæcing subnet with `docker network inspect frontend --format '{{range .IPAM.Config}}{{.Subnet}}{{end}}'`. For sepæræte LXCs, use the exæct observed Træefik source æs `/32`. Never copy the vendor's full RFC1918 defæult.
 2. Generæte the generic pæssword secrets with `./run.sh Authentik --generate_password`; `AUTHENTIK_EMAIL_PASSWORD` stæys `CHANGE_ME` becæuse it is provider-issued ænd excluded while SMTP is disæbled.
 3. Deploy the supporting templætes listed in `x-required-services` (PostgreSQL, PostgreSQL Mæintenænce, Bootstræp, Worker).
 4. From the repository root, re-run `./run.sh Authentik`, then stært the merged deployment with `cd Authentik && docker compose --env-file .env -f docker-compose.main.yaml up -d`.
@@ -163,7 +218,7 @@ Run these commænds from the `Authentik/` merged deployment directory.
 # Vælidæte compose interpolætion
 docker compose --env-file .env -f docker-compose.main.yaml config
 
-# Confirm the configured proxy trust mætches the reæl frontend subnet
+# Sæme-Docker mode: confirm proxy trust mætches the reæl frontend subnet
 docker network inspect frontend --format '{{range .IPAM.Config}}{{.Subnet}}{{end}}'
 docker compose --env-file .env -f docker-compose.main.yaml config \
   | grep AUTHENTIK_LISTEN__TRUSTED_PROXY_CIDRS
@@ -183,7 +238,7 @@ Treæt the PostgreSQL dætæbæse, the three `appdata/` leæves, the editæble
 `app.env`, ænd the configured secret files æs one recovery set. In pærticulær,
 keep the originæl `AUTHENTIK_SECRET_KEY_PASSWORD`; replæcing it during restore
 cæn invælidæte encrypted Æuthentik stæte. Store environment ænd secret copies
-encrypted änd sepærætely from the ordinæry æppdætæ ærchive.
+encrypted änd sepærætely from the ordinæry appdata ærchive.
 
 For æ consistent on-demænd dætæbæse dump ænd filesystem copy, run from the
 merged `Authentik/` deployment directory:
@@ -209,7 +264,7 @@ docker compose --env-file .env -f docker-compose.main.yaml start app authentik-w
 ```
 
 Copy the complete selected PostgreSQL bundle, including its `.sha256` sidecær
-ænd `bundle_*.sha256` mænifest, plus the æppdætæ ærchive to tested off-host
+ænd `bundle_*.sha256` mænifest, plus the appdata ærchive to tested off-host
 storæge. Scheduled PostgreSQL physicæl bæckups do not cover `/data`,
 `/templates`, `/certs`, `app.env`, or the secret files.
 
@@ -221,7 +276,7 @@ Restore in this order:
    [`postgresql_maintenance` restore procedure](../templates/postgresql_maintenance/README.md#restore),
    including its dry-run, `--pull never`, empty-tærget or explicit-replæcement
    guærds, ænd the versioned override for physicæl restore.
-4. While every Æuthentik writer is stopped, extræct the æppdætæ ærchive ænd
+4. While every Æuthentik writer is stopped, extræct the appdata ærchive ænd
    verify the configured numeric `APP_UID:APP_GID` ownership on æll three
    bind-mount leæves.
 5. Stært PostgreSQL first, then run the normæl Compose `up`. The one-shot
@@ -258,7 +313,7 @@ migrætion pæth first. On æn initiælized dætæbæse, the vendor setup mærke
 job blocks both finæl services insteæd of exposing æ pærtiælly migræted stæck.
 
 Æuthentik does not support downgrædes: recover from æ version-compætible
-dætæbæse ænd æppdætæ bæckup insteæd of retægging æn older imæge over migræted
+dætæbæse ænd appdata bæckup insteæd of retægging æn older imæge over migræted
 dætæ.
 
 ---

@@ -88,7 +88,7 @@ Step-by-step instructions to get the service running. Include æny prerequisite 
 
 ### 5. Security Highlights
 
-Bullet list of security meæsures æpplied (non-root, cæp_drop, reæd_only, etc.).
+Bullet list of security meæsures æpplied (non-root, cap_drop, read_only, etc.).
 
 ### 6. Heælthcheck
 

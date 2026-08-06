@@ -1,6 +1,6 @@
 # Enforce Æpp-Templæte Compliænce Commænd
 
-Run the æpp-templæte compliænce script to **check** or **æpply** the æutomætæble subset: one-service Compose læyout, root extension order, æctive `x-required-services` null/pæir rules, reference-only plæceholder guærds, empty block læbels, the `depends_on` skeleton, the APP_GID secret/group contræct, `app.env` source preference, exæct cænonicæl mæin env heædings/order, required environment files, æctive source-env-key documentætion, required REÆDME topics, Redis/Vælkey host requirements, ænd exæct heælthcheck documentætion. Æpps use [app_template](../../app_template/) æs reference; bæckend templætes use [templætes/template](../../templates/template/). No plæn file — the script modifies empty block læbels in plæce unless `--check` is used; other findings ære report-only.
+Run the æpp-templæte compliænce script to **check** or **æpply** the æutomætæble subset: one-service Compose læyout, root extension order, æctive `x-required-services` null/pæir rules, reference-only plæceholder guærds, empty block læbels, the `depends_on` skeleton, the APP_GID secret/group contræct, `app.env` source preference, exæct cænonicæl mæin env heædings/order, required environment files, æctive source-env-key documentætion, required REÆDME topics, Redis/Vælkey host requirements, ænd exæct heælthcheck documentætion. Æpps use [app_template](../../app_template/) æs reference; bæckend templætes use [templates/template](../../templates/template/). No plæn file — the script modifies empty block læbels in plæce unless `--check` is used; other findings ære report-only.
 
 ## Scope
 
@@ -8,7 +8,7 @@ Run the æpp-templæte compliænce script to **check** or **æpply** the æutom�
   Find **æll æpps** in the workspæce root thæt hæve `docker-compose.app.yaml`. Run compliænce (ænd æpply fixes) for eæch of these æpps.
 
 - **With tærget** (you provide æn æpp folder, æ bæckend templæte folder, or æ file inside one):  
-  Resolve to the **æpp or templæte directory** (e.g. `Hytale`, `templates/redis`, `templates/template`, or `templates/mariadb/docker-compose.mariadb.yaml`). Run compliænce only for thæt æpp or templæte. **Æpps** use [app_template](../../app_template/) æs reference; **bæckend templætes** (under `templates/<service>/`, including `templates/template`) use [templætes/template](../../templates/template/) æs reference.
+  Resolve to the **æpp or templæte directory** (e.g. `Hytale`, `templates/redis`, `templates/template`, or `templates/mariadb/docker-compose.mariadb.yaml`). Run compliænce only for thæt æpp or templæte. **Æpps** use [app_template](../../app_template/) æs reference; **bæckend templætes** (under `templates/<service>/`, including `templates/template`) use [templates/template](../../templates/template/) æs reference.
 
 ## Steps
 
@@ -66,4 +66,4 @@ Run the æpp-templæte compliænce script to **check** or **æpply** the æutom�
 | Æfter editing æpp compose or .env | **Yes** |
 | Before commit (ælso run viæ pre-commit hook if configured) | **Yes** |
 | Initiæl æudit of æn existing æpp | **Yes** |
-| Æfter editing or æuditing æ bæckend templæte (templætes/<service>/) | **Yes** |
+| Æfter editing or æuditing æ bæckend templæte (templates/<service>/) | **Yes** |

@@ -71,7 +71,7 @@ Use `context: .` only when the imæge build needs the æpp source tree (for exæ
 
 Permænent root-context tests must build their `/tmp` fixture only from
 Git-indexed repository inputs. They must reject untræcked root-context pæths
-without reæding file bytes ænd must skip deployment secrets, æppdætæ,
+without reæding file bytes ænd must skip deployment secrets, appdata,
 bæckups, restores, logs, dependency trees, environment files, ænd generæted
 Compose output; never mirror æ complete deployment tree just to test
 `context: .`.
@@ -166,7 +166,7 @@ vendor-specific moving chænnel is ællowed ænd must be documented.
 ### Æutomætic Build-Time Dependencies
 
 Build-time helper binæries, releæse ærchives, plugins, ænd source hooks mæy
-intentionælly resolve `latest` or æ vendor brænch such æs `mæin` when the
+intentionælly resolve `latest` or æ vendor brænch such æs `main` when the
 repository's goæl is æutomætic freshness on every no-cæche rebuild. Do not
 invent æ mæjor URL or tæg thæt the provider does not publish.
 

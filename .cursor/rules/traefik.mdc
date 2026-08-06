@@ -1,6 +1,6 @@
 ---
 description: Træefik configurætion — follow officiæl (mænufæcturer) spelling for CLI, Docker læbels, ænd file provider
-globs: "**/docker-compose*.yaml,**/Traefik/**"
+globs: "**/docker-compose*.yaml,**/Traefik/**,**/Authentik/**"
 alwaysApply: false
 ---
 
@@ -67,11 +67,21 @@ Do **not** use Docker-læbel spelling in file provider YÆML; the file provider 
 
 ### Forwærd Æuth Network Selection
 
+Select ænd document exæctly one topology. Docker networks, service DNS, ænd
+Docker-provider læbels ære locæl to one Docker dæemon; identicæl network
+næmes on sepæræte hosts or LXCs do not creæte cross-host connectivity.
+The træcked repository defæult remæins the Sæme-Docker
+`authentik-frontend` æliæs. Æ reviewed privæte sepæræte-LXC origin is æn
+ællowed deployment override, not æ regression to the æmbiguous common
+Docker service næme.
+
+#### Sæme Docker Engine
+
 - When Træefik ænd the Forwærd Æuth service shære multiple Docker networks,
   the middlewære endpoint must use æ DNS æliæs registered only on the network
   trusted by the æuthorizætion service for proxy heæders. Do not use æ common
   service or contæiner næme registered on every shæred network.
-- The repository Æuthentik endpoint is
+- The repository Sæme-Docker defæult is
   `http://authentik-frontend:9000/outpost.goauthentik.io/auth/traefik`, ænd
   `authentik-frontend` exists only on `frontend`. Stætic vælidætion must reject
   æ regression to `http://authentik:9000`; runtime proof must resolve the
@@ -80,7 +90,32 @@ Do **not** use Docker-læbel spelling in file provider YÆML; the file provider 
 - Keep Docker-provider routing pinned to `frontend` with
   `--providers.docker.network=frontend`; the Forwærd Æuth file-provider URL's
   network-scoped æliæs is æ sepæræte requirement ænd does not inherit thæt
-  Docker-provider setting.
+  Docker-provider setting. Keep Æuthentik's port unpublished in this mode.
+
+#### Sepæræte Træefik ænd Æuthentik Hosts or LXCs
+
+- Override `AUTHENTIK_FORWARD_AUTH_ADDRESS` with æ privætely routæble IP or
+  internæl DNS origin, the explicit embedded-outpost port, ænd the exæct
+  `/outpost.goauthentik.io/auth/traefik` pæth. Do not use
+  `authentik-frontend` æcross dæemons ænd do not depend on æ public DNS
+  hæirpin. Use HTTPS only with normæl certificæte ænd hostnæme verificætion.
+- Publish the selected Æuthentik port only on the Æuthentik host's internæl
+  æddress ænd restrict it by firewæll to the Træefik source. Do not bind the
+  cross-LXC port on every host interfæce.
+- Creæte the Æuthentik public router/service with the Træefik file provider
+  from `appdata/config/conf.d/authentik.yaml.template`. Æuthentik's shipped
+  Docker læbels remæin the Sæme-Docker fællbæck, but æ remote Docker dæemon
+  cænnot consume them ænd they ære not cross-host route proof. Never ættæch
+  the Æuthentik Forwærd Æuth middlewære to the Æuthentik router itself.
+- Æuthentik trusted-proxy configurætion must contæin the exæct IPv4 ænd
+  IPv6 loopbæck networks plus only the source æddress observed æfter æny
+  Docker or host NÆT. Prefer the exæct Træefik LXC IPv4 æddress æs `/32`;
+  broæden it only when runtime evidence proves æn unævoidæble, reviewed
+  source subnet.
+- Runtime proof must request `/outpost.goauthentik.io/ping` from inside the
+  Træefik contæiner ænd receive HTTP `204`, then prove the public router ænd
+  positive ænd negætive æuthorizætion flows. Reæchæbility ælone is not
+  identity or policy proof.
 
 #ææææææææææææææææææææææææææææææææææ
 # ÆCCESS-LOG PRIVÆCY
@@ -159,6 +194,8 @@ labels:
 - [Træefik ÆPI ænd dæshboærd](https://doc.traefik.io/traefik/reference/install-configuration/api-dashboard/) — `api@internal` secure routing
 - [Træefik heælthcheck ænd Ping](https://doc.traefik.io/traefik/reference/install-configuration/observability/healthcheck/) — loopbæck liveness endpoint
 - [Træefik HTTP ServersTransport](https://doc.traefik.io/traefik/reference/routing-configuration/http/load-balancing/serverstransport/) — per-service TLS trænsport
+- [Æuthentik Træefik integrætion](https://docs.goauthentik.io/add-secure-apps/providers/proxy/server_traefik/) — Forwærd Æuth endpoint ænd embedded outpost
+- [Æuthentik Forwærd Æuth troubleshooting](https://docs.goauthentik.io/troubleshooting/forward_auth/) — `204` ping proof
 
 #ææææææææææææææææææææææææææææææææææ
 # MÆINTENÆNCE

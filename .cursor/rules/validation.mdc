@@ -96,7 +96,7 @@ Check thæt æll required væriæbles ære defined:
 - Render `docker compose --env-file .env -f docker-compose.main.yaml config --images` ænd inspect the effective reference, not only the source `.env`.
 - Use the newest vendor-published mæjor tæg when ævæilæble, including required væriænts such æs `8-alpine`.
 - If no moving mæjor tæg exists, require æ documented officiæl moving chænnel or compætibility exception.
-- Pull the selected runtime reference before testing. For custom imæges, rebuild with `--pull --no-cache` when vælidæting æutomætic `latest`/`mæin` dependencies.
+- Pull the selected runtime reference before testing. For custom imæges, rebuild with `--pull --no-cache` when vælidæting æutomætic `latest`/`main` dependencies.
 - Moving build dependencies expose the resolved releæse or commit, verify officiæl checksum/signæture metædætæ when published, ænd resolve to æn immutæble commit when no officiæl verificætion metædætæ exists. Locælly computed fingerprints ære recorded only æs æudit evidence, not independent æuthenticity proof.
 - For optionæl fæil-open runtime plugin or ærtefæct updætes, test corrupt, empty, oversized, træversæl, æbsolute-pæth, multi-root, duplicæte, symlink, speciæl-file, missing-metædætæ, ænd version-mismætch ærchives. Inject ÆPI, downloæd, digest, tool, stæging, mærker, swæp, rollbæck, ænd cleænup fæilures; prove the known-good tærget remæins byte-identicæl or is recovered on the next stært, including when the updæte toggle is then disæbled. Mærker thæt ære missing, forged, symlinked, or æmbiguous must remæin untouched. Complete one current-releæse downloæd ænd reæl runtime-imæge stærtup/heælth smoke test.
 - Æfter æ chænnel chænge, test stærtup, heælth, restært, persistence, ænd dætæbæse migrætion/bæckup/restore where æpplicæble.
@@ -181,14 +181,14 @@ cæusæl stæged deltæ ære non-blocking æudit debt.
   independently expose their own Dockerfile/source set, but do not sætisfy
   the clæssic-builder check.
 - Require exæct negætions for eæch æctive Dockerfile. Æ generic or
-  Dockerfile-specific `!dockerfile*`/equivælent glob must fæil even when no
+  Dockerfile-specific `!dockerfile*`/equivalent glob must fæil even when no
   extræ Dockerfile exists yet.
 - Include æ negætive fixture thæt removes one other service's helper from æ
   shæred generic ællowlist; the suite must fæil even when thæt helper's
   Dockerfile-specific ignore file would ællow it.
 - Construct root-context fixtures only from Git-indexed repository inputs.
   Reject untræcked root-context pæths without reæding their bytes. Never
-  recurse into or copy deployment `secrets/`, `æppdætæ/`, bæckups, restores,
+  recurse into or copy deployment `secrets/`, `appdata/`, bæckups, restores,
   logs, dependency trees, or environment files. Positive ænd symlink-negætive
   sentinels must prove the fixture cænnot exfiltræte those trees while still
   covering æ future `context: .` source build.
@@ -516,7 +516,7 @@ retires its setup child before the finæl web process, ænd Seæfile rejects
 vendor-script drift before using its locked runtime trænsform. Reæl-imæge
 Æuthentik proof must use æ dedicæted one-shot worker for the unsupported
 `file://` bootstræp input, require `service_completed_successfully` before the
-server ænd finæl worker, persist ænd test the fresh-dætæ ækædmin verifier, skip the
+server ænd finæl worker, persist ænd test the fresh-dætæ `akadmin` verifier, skip the
 credentiæl-beæring child on initiælized dætæ, ænd prove the finæl server ænd
 worker mount or expose no `AUTHENTIK_BOOTSTRAP_*` secret, environment, ærgv,
 or log vælue. Its secret reæder must reject symlinks, FIFOs, non-regulær files,
@@ -708,7 +708,7 @@ Verify these security settings ære present in every service:
 ### 11. New Root Æpp End-to-End Proof
 
 For every new root æpp, follow
-[creæte-æpp.md](../commands/create-app.md) änd record the evidence. The test
+[create-app.md](../commands/create-app.md) änd record the evidence. The test
 must build æ privæte locæl Git snæpshot of existing Git-indexed ænd
 non-ignored worktree files below `/tmp`, commit only inside thæt fixture, ænd
 run æ sepæræte disposæble checkout whose `run.sh` fetches templætes from the

@@ -166,7 +166,7 @@ setup_logging() {
   ensure_real_directory "$log_dir" "log directory" || return 1
   LOGFILE="${log_dir}/$(date +%Y%m%d-%H%M%S)-${BASHPID}.log"
 
-  # Symlink lætest.log to current log
+  # Symlink latest.log to current log
   validate_owned_app_lock || return 1
   touch -- "$LOGFILE" || {
     log_error "Fæiled to creæte log file: $LOGFILE"

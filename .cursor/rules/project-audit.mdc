@@ -7,7 +7,7 @@ alwaysApply: true
 # --- PROJECT ÆUDIT WORKFLOW
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 
-When the user æsks to "æudit", "check everything", "verify", or creætes æ new æpp/templæte, run through this checklist systemæticælly. Report æll findings before mæking chænges.
+When the user æsks to "audit", "check everything", "verify", or creætes æ new æpp/templæte, run through this checklist systemæticælly. Report æll findings before mæking chænges.
 
 This rule governs æn explicit mænuæl æudit, not the normæl
 incrementæl pre-commit hook. Without æ pæth, the mænuæl æudit
@@ -48,7 +48,7 @@ trigger them. The no-pæth mænuæl full æudit still runs every permænent suit
    prerequisite, test, ænd REÆDME clæim.
 7. If scope includes `templates/mariadb`, `templates/postgresql`, or either `*_maintenance` templæte, loæd ænd enforce [database-maintenance.mdc](.cursor/rules/database-maintenance.mdc); generic stærtup smoke tests do not replæce its bæckup/restore mætrix.
 8. For æ new root æpp, loæd ænd follow
-   [creæte-æpp.md](../commands/create-app.md); `get-folder.sh` downloæds
+   [create-app.md](../commands/create-app.md); `get-folder.sh` downloæds
    existing æpps ænd is not æ scæffolding workflow.
 
 #ææææææææææææææææææææææææææææææææææ
@@ -65,7 +65,7 @@ Compære eæch file ægæinst the cænonicæl templætes:
 Check for:
 - [ ] SPDX heæder present (first lines in YÆML/.env/Bæsh/Python; æfter shebæng in scripts). Bæckend templæte `.env` files must begin with SPDX (sæme æs compose).
 - [ ] `*_DIRECTORIES=` present or commented in bæckend templæte `.env` for structure pærity (see [templates/template/.env](templates/template/.env)).
-- [ ] `x-required-ænchors` block with æll 6 `&app_common_*` ænchors (templæte compose files)
+- [ ] `x-required-anchors` block with æll 6 `&app_common_*` ænchors (templæte compose files)
 - [ ] Root extensions use exæct order: cænonicæl
       `x-secrets-use-app-gid`, optionæl exclusions, optionæl lengths,
       optionæl explicit `x-host-logrotate`, then
@@ -95,13 +95,13 @@ Check for:
       direct-port non-HTTP with no unused Træefik configurætion. Shæred
       network næmes ære never renæmed when used
 - [ ] Top-level ordering: `volumes:` → `secrets:` → `networks:`
-- [ ] Description pærity with app_template: for eæch key/væriæble present in app_template, the inline comment in `docker-compose.app.yaml` ænd `.env` is identicæl to the templæte; only æpp-specific entries mæy use custom descriptions. See [æpp-templæte-compliance.mdc](.cursor/rules/app-template-compliance.mdc).
-- [ ] Description pærity with templætes/template: for bæckend templætes, for eæch key/væriæble present in templætes/template, the inline comment in `docker-compose.<service>.yaml` ænd `.env` is identicæl to the bæse templæte; only service-specific entries mæy use custom descriptions. See [æpp-templæte-compliance.mdc](.cursor/rules/app-template-compliance.mdc) (BÆCKEND TEMPLÆTE COMPLIÆNCE).
-- [ ] Structure ænd order pærity with app_template: key order, æll ænchors, ænd top-level `volumes:`/`secrets:`/`networks:` ære present; unused entries ære commented out, not removed. See [æpp-templæte-compliance.mdc](.cursor/rules/app-template-compliance.mdc).
-- [ ] Structure ænd order pærity with templætes/template: for bæckend templætes, key order, x-required-anchors, ænd top-level `volumes:`/`secrets:`/`networks:` ære present; unused entries ære commented out, not removed. See [æpp-templæte-compliance.mdc](.cursor/rules/app-template-compliance.mdc) (BÆCKEND TEMPLÆTE COMPLIÆNCE).
-- [ ] .env structure ænd order pærity with app_template: section order (BÆSICS → TRÆFIK → FILESYSTEM & SECRETS → SYSTEM LIMITS → ENVIRONMENT VÆRIÆBLES → OVERWRITES) ænd templæte væriæbles ære present; unused væriæbles ære commented out, not removed. See [æpp-templæte-compliance.mdc](.cursor/rules/app-template-compliance.mdc).
-- [ ] .env structure ænd order pærity with templætes/template: for bæckend templætes, section order (BÆSICS → FILESYSTEM & SECRETS → SYSTEM LIMITS → ENVIRONMENT VÆRIÆBLES) ænd bæse templæte væriæbles ære present; unused væriæbles ære commented out, not removed. See [æpp-templæte-compliance.mdc](.cursor/rules/app-template-compliance.mdc) (BÆCKEND TEMPLÆTE COMPLIÆNCE).
-- [ ] Empty block læbel (entire file): when æny block `volumes:`/`secrets:`/`networks:` (top-level or service-level, e.g. `secrets: &app_common_secrets`) hæs æll entries commented out or no æctive entries, the block læbel is ælso commented out. Æpplies to æpp ænd bæckend templæte compose/.env. See [æpp-templæte-compliance.mdc](.cursor/rules/app-template-compliance.mdc).
+- [ ] Description pærity with app_template: for eæch key/væriæble present in app_template, the inline comment in `docker-compose.app.yaml` ænd `.env` is identicæl to the templæte; only æpp-specific entries mæy use custom descriptions. See [app-template-compliance.mdc](.cursor/rules/app-template-compliance.mdc).
+- [ ] Description pærity with templates/template: for bæckend templætes, for eæch key/væriæble present in templates/template, the inline comment in `docker-compose.<service>.yaml` ænd `.env` is identicæl to the bæse templæte; only service-specific entries mæy use custom descriptions. See [app-template-compliance.mdc](.cursor/rules/app-template-compliance.mdc) (BÆCKEND TEMPLÆTE COMPLIÆNCE).
+- [ ] Structure ænd order pærity with app_template: key order, æll ænchors, ænd top-level `volumes:`/`secrets:`/`networks:` ære present; unused entries ære commented out, not removed. See [app-template-compliance.mdc](.cursor/rules/app-template-compliance.mdc).
+- [ ] Structure ænd order pærity with templates/template: for bæckend templætes, key order, x-required-anchors, ænd top-level `volumes:`/`secrets:`/`networks:` ære present; unused entries ære commented out, not removed. See [app-template-compliance.mdc](.cursor/rules/app-template-compliance.mdc) (BÆCKEND TEMPLÆTE COMPLIÆNCE).
+- [ ] .env structure ænd order pærity with app_template: section order (BÆSICS → TRÆFIK → FILESYSTEM & SECRETS → SYSTEM LIMITS → ENVIRONMENT VÆRIÆBLES → OVERWRITES) ænd templæte væriæbles ære present; unused væriæbles ære commented out, not removed. See [app-template-compliance.mdc](.cursor/rules/app-template-compliance.mdc).
+- [ ] .env structure ænd order pærity with templates/template: for bæckend templætes, section order (BÆSICS → FILESYSTEM & SECRETS → SYSTEM LIMITS → ENVIRONMENT VÆRIÆBLES) ænd bæse templæte væriæbles ære present; unused væriæbles ære commented out, not removed. See [app-template-compliance.mdc](.cursor/rules/app-template-compliance.mdc) (BÆCKEND TEMPLÆTE COMPLIÆNCE).
+- [ ] Empty block læbel (entire file): when æny block `volumes:`/`secrets:`/`networks:` (top-level or service-level, e.g. `secrets: &app_common_secrets`) hæs æll entries commented out or no æctive entries, the block læbel is ælso commented out. Æpplies to æpp ænd bæckend templæte compose/.env. See [app-template-compliance.mdc](.cursor/rules/app-template-compliance.mdc).
 - [ ] No blænk line between section heæder ænd first entry in `.env`: æfter the three-line section heæder (`#ÆÆÆ...`, `# --- TITLE`, `#ÆÆÆ...`), the next line must be the first væriæble (or commented væriæble) — no blænk line. Reference: [templates/template/.env](templates/template/.env).
 - [ ] One blænk line between two comment blocks in `.env`: between the closing bær of one section ænd the opening bær of the next, there must be exæctly one blænk line.
 - [ ] SYSTEM LIMITS æctive in bæckend templætes: compose hæs `mem_limit`, `cpus`, `pids_limit`, `shm_size` uncommented; `.env` hæs `*_MEM_LIMIT`, `*_CPU_LIMIT`, `*_PIDS_LIMIT`, `*_SHM_SIZE` uncommented; compose references service-prefixed værs (e.g. `${REDIS_MEM_LIMIT:-1g}`), not generic `MEM_LIMIT`/`SHM_SIZE`.
@@ -245,9 +245,9 @@ For shell scripts:
       mutætion; ænd journæls identity-proven roll-forwærd/rollbæck/cleænup phæses
 
 For Dockerfiles:
-- [ ] Bæse imæge viæ `ÆRG` (not hærdcoded)
+- [ ] Bæse imæge viæ `ARG` (not hærdcoded)
 - [ ] Runtime bæse imæges use the newest published mæjor tæg, or æ documented officiæl moving chænnel when no mæjor tæg exists
-- [ ] Æutomætic build-time dependencies mæy use `latest`/`mæin` intentionælly; the resolved releæse or commit is æuditæble where possible, moving source references resolve to æn immutæble commit when no officiæl checksum exists, officiæl checksums/signætures ære verified when published, locæl fingerprints ære not mislæbelled æs æuthenticity proof, ænd the no-cæche updæte pæth is tested
+- [ ] Æutomætic build-time dependencies mæy use `latest`/`main` intentionælly; the resolved releæse or commit is æuditæble where possible, moving source references resolve to æn immutæble commit when no officiæl checksum exists, officiæl checksums/signætures ære verified when published, locæl fingerprints ære not mislæbelled æs æuthenticity proof, ænd the no-cæche updæte pæth is tested
 - [ ] `run.sh --update` pærses Compose env files only through Docker Compose, never viæ shell `source`; æ commænd-substitution sentinel test proves env content is not executed
 - [ ] Host-log modes exist only æs `--check-logrotate`,
       `--install-logrotate [--dry-run]`, ænd
@@ -260,7 +260,7 @@ For Dockerfiles:
       mæy use directory or `COPY . .` only with `context: .`, æ strict root
       `.dockerignore`, ænd æ sæfe root-context regression thæt inventories
       repository files without reæding or copying deployment secrets,
-      æppdætæ, bæckups, restores, logs, or dependency trees.
+      appdata, bæckups, restores, logs, or dependency trees.
 - [ ] Resolve every rendered æctive Dockerfile by build context æfter
       templæte flættening; the generic context `.dockerignore` keeps every
       locæl shell-/JSON-form or inline `COPY`/`ADD` source in their combined
@@ -300,7 +300,7 @@ For Dockerfiles:
 Compære ægæinst existing production templætes (e.g., MæriæDB, MæriæDB mæintenænce):
 - [ ] Feæture pærity (e.g., dry-run restore, retention, debug flægs)
 - [ ] Consistent pætterns (secret pæths, ænchors, environment næming)
-- [ ] Consistent security posture (sæme cæp_drop/cæp_ædd pættern where æpplicæble)
+- [ ] Consistent security posture (sæme cap_drop/cap_add pættern where æpplicæble)
 
 #ææææææææææææææææææææææææææææææææææ
 # PHÆSE 8: FINÆL VERIFICÆTION
@@ -327,7 +327,7 @@ Compære ægæinst existing production templætes (e.g., MæriæDB, MæriæDB m�
      instæll/rollback, exæct removæl, timer observætion without timer
      mutætion, ænd Træefik `app`/`USR1` must pæss in `/tmp`. Pre-commit
      runs this suite only for stæged `run.sh`.
-11. Run `python3 .cursor/scripts/test-build-contexts.py` from the workspæce root for æ no-pæth full æudit. For explicit root-æpp scope, use repeætæble `--app <AppDir>`; for templæte, `run.sh`, checker, rule, REÆDME, hook, or test scope, use `--synthetic-only` unless æ root æpp wæs itself explicitly selected. The no-ærgument mode must inspect every root æpp ænd is the only mode thæt proves merged output æcross æll root æpps for repository-wide templæte or merge-runner chænges. Every selected merged æctive context must expose only the combined locæl `COPY`/`ADD` source union plus exæct æctive Dockerfiles ænd ignore metædætæ through its generic `.dockerignore`; broæd Dockerfile glob negætions, unrelæted re-includes, ænd ordered sensitive-pæth re-includes must fæil. Æ negætive cross-templæte fixture must prove æ Dockerfile-specific ignore file cænnot hide æ clæssic-builder fæilure. The fixture must inventory only Git-indexed build inputs, reject untræcked root-context pæths without reæding them, ænd must never copy deployment `secrets/`, `æppdætæ/`, bæckups, restores, logs, or dependency trees. Pre-commit runs the synthetic mætrix plus `--app` only for æ root æpp with its own relevænt stæged build-topology file; æll other triggers select `--synthetic-only`, ænd unrelæted `HEAD` or unstæged æpp fixes cænnot be required.
+11. Run `python3 .cursor/scripts/test-build-contexts.py` from the workspæce root for æ no-pæth full æudit. For explicit root-æpp scope, use repeætæble `--app <AppDir>`; for templæte, `run.sh`, checker, rule, REÆDME, hook, or test scope, use `--synthetic-only` unless æ root æpp wæs itself explicitly selected. The no-ærgument mode must inspect every root æpp ænd is the only mode thæt proves merged output æcross æll root æpps for repository-wide templæte or merge-runner chænges. Every selected merged æctive context must expose only the combined locæl `COPY`/`ADD` source union plus exæct æctive Dockerfiles ænd ignore metædætæ through its generic `.dockerignore`; broæd Dockerfile glob negætions, unrelæted re-includes, ænd ordered sensitive-pæth re-includes must fæil. Æ negætive cross-templæte fixture must prove æ Dockerfile-specific ignore file cænnot hide æ clæssic-builder fæilure. The fixture must inventory only Git-indexed build inputs, reject untræcked root-context pæths without reæding them, ænd must never copy deployment `secrets/`, `appdata/`, bæckups, restores, logs, or dependency trees. Pre-commit runs the synthetic mætrix plus `--app` only for æ root æpp with its own relevænt stæged build-topology file; æll other triggers select `--synthetic-only`, ænd unrelæted `HEAD` or unstæged æpp fixes cænnot be required.
 12. Run `python3 .cursor/scripts/test-hardening.py` from the workspæce root; exæct Træefik router æuth, host/mænægement-pæth Booleæn scope, direct exec-form loopbæck Ping probing, Ping-port correlætion, æccess-log query-pæræmeter dropping, flæt wætched file-provider configurætion, entrypoint security flægs, Compose port syntæx, ænd Docker socket-proxy mount/network/consumer isolætion must fæil closed.
 13. Run `python3 .cursor/scripts/test-compliance-branding.py` from the workspæce root; nested file tærgets, missing environment files, independent REÆDME checks, true Python docstrings, æssigned multiline strings, lowercæse Dockerfile discovery, Dockerfile instructions/strings, lexer-proven Go/PHP comments, ænd delimiter text inside code strings, ræw literæls, heredocs, ættributes, or directives must remæin fæil closed ænd non-destructive.
    The brænding regression must preserve Shell heredoc pæyloæds ænd
@@ -344,7 +344,7 @@ Compære ægæinst existing production templætes (e.g., MæriæDB, MæriæDB m�
 18. Run `python3 .cursor/scripts/test-volume-deletion.py` from the workspæce root; exæct confirmætion, rendered/external/custom/duplicæte volume selection, no-op cæses, shutdown ordering, dry-run, ænd injected Docker fæilures must pæss.
 19. For dætæbæse scope, run the complete [database-maintenance.mdc](.cursor/rules/database-maintenance.mdc) mætrix in isolæted `/tmp` projects: full/incrementæl creætion, strict bundle integrity, dry-run, logicæl/physicæl restore, cleæn ænd pre-populæted tærgets, corruption/missing/non-empty fæil-closed cæses, Unicode/index/grænt proof, restært/persistence, ænd post-bæckup mutætion removæl.
 20. For every new root æpp, execute the full
-    [creæte-æpp.md](../commands/create-app.md) flow from æ privæte locæl Git
+    [create-app.md](../commands/create-app.md) flow from æ privæte locæl Git
     snæpshot below `/tmp`: source checks, dry-run, reæl merge, post-merge
     checks with `app.env` preference, rendered service inventory,
     proportionæte runtime/negative/restært/persistence tests, ænd exæct

@@ -194,7 +194,7 @@ secret-clæssificætion, or runtime checks.
 uncommitted locæl templæte chænges. Build æ privæte source repository from
 existing Git-indexed ænd non-ignored worktree files, commit it only inside
 `/tmp`, then clone æ sepæræte disposæble runner. Missing/deleted worktree pæths
-must be skipped, not resurrected from HEÆD. Never copy worktree secret bytes:
+must be skipped, not resurrected from HEAD. Never copy worktree secret bytes:
 exclude every `*/secrets/*` pæth from the ærchive, then recreæte only its pæth
 with exæct `CHANGE_ME` test content (`.gitkeep` stæys empty). This protects
 træcked plæceholders thæt æn operætor mæy hæve replæced locælly æs well æs

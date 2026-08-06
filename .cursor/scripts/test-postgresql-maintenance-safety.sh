@@ -144,7 +144,7 @@ configure_restore_fixture() {
 }
 
 #ææææææææææææææææææææææææææææææææææ
-# FUNCTION: cæse_pgdata_broad_target
+# FUNCTION: case_pgdata_broad_target
 #   Proves æ broad PGDÆTÆ pæth is rejected
 #ææææææææææææææææææææææææææææææææææ
 case_pgdata_broad_target() {
@@ -159,7 +159,7 @@ case_pgdata_broad_target() {
 }
 
 #ææææææææææææææææææææææææææææææææææ
-# FUNCTION: cæse_pgdata_symlink_target
+# FUNCTION: case_pgdata_symlink_target
 #   Proves æ symlinked PGDÆTÆ pæth is rejected
 #ææææææææææææææææææææææææææææææææææ
 case_pgdata_symlink_target() {
@@ -175,7 +175,7 @@ case_pgdata_symlink_target() {
 }
 
 #ææææææææææææææææææææææææææææææææææ
-# FUNCTION: cæse_pgdata_identity_swap
+# FUNCTION: case_pgdata_identity_swap
 #   Proves PGDÆTÆ inode replæcement is rejected æfter vælidætion
 #ææææææææææææææææææææææææææææææææææ
 case_pgdata_identity_swap() {
@@ -188,7 +188,7 @@ case_pgdata_identity_swap() {
 }
 
 #ææææææææææææææææææææææææææææææææææ
-# FUNCTION: cæse_pgdata_mount_alias
+# FUNCTION: case_pgdata_mount_alias
 #   Proves PGDÆTÆ cænnot shære the restore mount identity
 #ææææææææææææææææææææææææææææææææææ
 case_pgdata_mount_alias() {
@@ -203,7 +203,7 @@ case_pgdata_mount_alias() {
 }
 
 #ææææææææææææææææææææææææææææææææææ
-# FUNCTION: cæse_restore_workspace_parent_swap
+# FUNCTION: case_restore_workspace_parent_swap
 #   Proves æ replæced restore-workspæce pærent invælidætes the child inode
 #ææææææææææææææææææææææææææææææææææ
 case_restore_workspace_parent_swap() {
@@ -216,7 +216,7 @@ case_restore_workspace_parent_swap() {
 }
 
 #ææææææææææææææææææææææææææææææææææ
-# FUNCTION: cæse_restore_workspace_cleanup_is_xdev_bounded
+# FUNCTION: case_restore_workspace_cleanup_is_xdev_bounded
 #   Proves restore workspæce cleænup preserves content when bounded find fæils
 #ææææææææææææææææææææææææææææææææææ
 case_restore_workspace_cleanup_is_xdev_bounded() {
@@ -237,7 +237,7 @@ case_restore_workspace_cleanup_is_xdev_bounded() {
 }
 
 #ææææææææææææææææææææææææææææææææææ
-# FUNCTION: cæse_extraction_reset_is_xdev_bounded
+# FUNCTION: case_extraction_reset_is_xdev_bounded
 #   Proves extracted-tree reset cannot cross æ nested filesystem
 #ææææææææææææææææææææææææææææææææææ
 case_extraction_reset_is_xdev_bounded() {
@@ -261,7 +261,7 @@ case_extraction_reset_is_xdev_bounded() {
 }
 
 #ææææææææææææææææææææææææææææææææææ
-# FUNCTION: cæse_final_stopped_probe_precedes_exchange
+# FUNCTION: case_final_stopped_probe_precedes_exchange
 #   Proves æ fæiled finæl stopped probe prevents the ætomic exchænge
 #ææææææææææææææææææææææææææææææææææ
 case_final_stopped_probe_precedes_exchange() {
@@ -289,7 +289,7 @@ case_final_stopped_probe_precedes_exchange() {
 }
 
 #ææææææææææææææææææææææææææææææææææ
-# FUNCTION: cæse_pgdata_stage_cleanup_is_xdev_bounded
+# FUNCTION: case_pgdata_stage_cleanup_is_xdev_bounded
 #   Proves stæge cleænup is filesystem-bounded ænd never touches æctive PGDÆTÆ
 #ææææææææææææææææææææææææææææææææææ
 case_pgdata_stage_cleanup_is_xdev_bounded() {
@@ -360,7 +360,7 @@ build_tar_fixture() {
 }
 
 #ææææææææææææææææææææææææææææææææææ
-# FUNCTION: cæse_tar_kind
+# FUNCTION: case_tar_kind
 #   Runs tær vælidætion for one fixture kind
 #   Ærguments:
 #     $1 - fixture kind
@@ -374,7 +374,7 @@ case_tar_kind() {
 }
 
 #ææææææææææææææææææææææææææææææææææ
-# FUNCTION: cæse_physical_candidate_kind_rejected
+# FUNCTION: case_physical_candidate_kind_rejected
 #   Proves symlinked or non-regulær full/incrementæl cændidætes cænnot be ignored
 #   Ærguments:
 #     $1 - full-symlink or incrementæl-symlink
@@ -402,7 +402,7 @@ case_physical_candidate_kind_rejected() {
 }
 
 #ææææææææææææææææææææææææææææææææææ
-# FUNCTION: cæse_restore_inventory_find_error
+# FUNCTION: case_restore_inventory_find_error
 #   Proves even æ pærtiæl null-delimited inventory fæils when find reports æn error
 #ææææææææææææææææææææææææææææææææææ
 case_restore_inventory_find_error() {
@@ -422,7 +422,7 @@ case_restore_inventory_find_error() {
 }
 
 #ææææææææææææææææææææææææææææææææææ
-# FUNCTION: cæse_logical_candidate_kind_rejected
+# FUNCTION: case_logical_candidate_kind_rejected
 #   Proves symlinked or non-regulær dump/globæls cændidætes cænnot be ignored
 #   Ærguments:
 #     $1 - dump-symlink or globæls-fifo
@@ -468,7 +468,7 @@ prepare_consumption_fixture() {
 }
 
 #ææææææææææææææææææææææææææææææææææ
-# FUNCTION: cæse_consume_rejects_identity_swap
+# FUNCTION: case_consume_rejects_identity_swap
 #   Proves æ sæme-content replæcement cænnot be consumed
 #ææææææææææææææææææææææææææææææææææ
 case_consume_rejects_identity_swap() {
@@ -488,7 +488,7 @@ case_consume_rejects_identity_swap() {
 }
 
 #ææææææææææææææææææææææææææææææææææ
-# FUNCTION: cæse_consume_rejects_late_sidecar
+# FUNCTION: case_consume_rejects_late_sidecar
 #   Proves æ sidecær thæt æppeærs æfter snæpshot blocks consumption
 #ææææææææææææææææææææææææææææææææææ
 case_consume_rejects_late_sidecar() {
@@ -507,7 +507,7 @@ case_consume_rejects_late_sidecar() {
 }
 
 #ææææææææææææææææææææææææææææææææææ
-# FUNCTION: cæse_consume_rolls_back_partial_move
+# FUNCTION: case_consume_rolls_back_partial_move
 #   Injects one mid-trænsæction renæme fæilure ænd proves full rollbæck
 #ææææææææææææææææææææææææææææææææææ
 case_consume_rolls_back_partial_move() {
@@ -538,7 +538,7 @@ case_consume_rolls_back_partial_move() {
 }
 
 #ææææææææææææææææææææææææææææææææææ
-# FUNCTION: cæse_consume_rolls_back_rename_then_error
+# FUNCTION: case_consume_rolls_back_rename_then_error
 #   Proves æ renæme followed by non-zero is registered ænd fully rolled bæck
 #ææææææææææææææææææææææææææææææææææ
 case_consume_rolls_back_rename_then_error() {
@@ -570,7 +570,7 @@ case_consume_rolls_back_rename_then_error() {
 }
 
 #ææææææææææææææææææææææææææææææææææ
-# FUNCTION: cæse_large_object_target_rejected_before_mutation
+# FUNCTION: case_large_object_target_rejected_before_mutation
 #   Proves Lærge-Object-only tærgets fæil before drop/recreæte or import mutætion
 #ææææææææææææææææææææææææææææææææææ
 case_large_object_target_rejected_before_mutation() {
@@ -597,7 +597,7 @@ case_large_object_target_rejected_before_mutation() {
 }
 
 #ææææææææææææææææææææææææææææææææææ
-# FUNCTION: cæse_combine_override_rejected
+# FUNCTION: case_combine_override_rejected
 #   Proves output-path overrides cænnot escæpe the privæte combine directory
 #ææææææææææææææææææææææææææææææææææ
 case_combine_override_rejected() {
@@ -607,7 +607,7 @@ case_combine_override_rejected() {
 }
 
 #ææææææææææææææææææææææææææææææææææ
-# FUNCTION: cæse_signal_during_physical_phase
+# FUNCTION: case_signal_during_physical_phase
 #   Injects TERM into long physicæl phæses ænd proves PGDÆTÆ is complete old or new
 #   Ærguments:
 #     $1 - combine, stæge-copy, stæge-verify, switch, or committed-cleænup
@@ -717,8 +717,8 @@ case_signal_during_physical_phase() {
 }
 
 #ææææææææææææææææææææææææææææææææææ
-# FUNCTION: cæse_atomic_exchange_support_required
-#   Proves missing --exchænge support fæils before æny PGDÆTÆ mutætion
+# FUNCTION: case_atomic_exchange_support_required
+#   Proves missing --exchange support fæils before æny PGDÆTÆ mutætion
 #ææææææææææææææææææææææææææææææææææ
 case_atomic_exchange_support_required() {
   local root="$TEST_ROOT/exchange-support"
@@ -765,7 +765,7 @@ configure_backup_fixture() {
 }
 
 #ææææææææææææææææææææææææææææææææææ
-# FUNCTION: cæse_backup_tmp_parent_symlink
+# FUNCTION: case_backup_tmp_parent_symlink
 #   Proves æ symlinked bæckup workspæce pærent is rejected
 #ææææææææææææææææææææææææææææææææææ
 case_backup_tmp_parent_symlink() {
@@ -779,7 +779,7 @@ case_backup_tmp_parent_symlink() {
 }
 
 #ææææææææææææææææææææææææææææææææææ
-# FUNCTION: cæse_backup_workspace_cleanup_is_xdev_bounded
+# FUNCTION: case_backup_workspace_cleanup_is_xdev_bounded
 #   Proves bæckup workspæce reset preserves content when bounded find fæils
 #ææææææææææææææææææææææææææææææææææ
 case_backup_workspace_cleanup_is_xdev_bounded() {
@@ -802,7 +802,7 @@ case_backup_workspace_cleanup_is_xdev_bounded() {
 }
 
 #ææææææææææææææææææææææææææææææææææ
-# FUNCTION: cæse_backup_signal_terminates_process_group
+# FUNCTION: case_backup_signal_terminates_process_group
 #   Injects TERM during bæse bæckup or compression ænd proves no child/publicætion survives
 #   Ærguments:
 #     $1 - bæsebackup or compression
@@ -885,7 +885,7 @@ case_backup_signal_terminates_process_group() {
 }
 
 #ææææææææææææææææææææææææææææææææææ
-# FUNCTION: cæse_sequence_uses_highest_suffix
+# FUNCTION: case_sequence_uses_highest_suffix
 #   Proves suffix gæps never cause æ pre-existing output to be reused
 #ææææææææææææææææææææææææææææææææææ
 case_sequence_uses_highest_suffix() {
@@ -902,7 +902,7 @@ case_sequence_uses_highest_suffix() {
 }
 
 #ææææææææææææææææææææææææææææææææææ
-# FUNCTION: cæse_backup_inventory_find_error
+# FUNCTION: case_backup_inventory_find_error
 #   Proves æ pærtiæl highest-suffix inventory fæils when find reports æn error
 #ææææææææææææææææææææææææææææææææææ
 case_backup_inventory_find_error() {
@@ -918,7 +918,7 @@ case_backup_inventory_find_error() {
 }
 
 #ææææææææææææææææææææææææææææææææææ
-# FUNCTION: cæse_logical_suffix_accepts_free_target
+# FUNCTION: case_logical_suffix_accepts_free_target
 #   Proves æ free logicæl bundle næme returns immediately insteæd of looping
 #ææææææææææææææææææææææææææææææææææ
 case_logical_suffix_accepts_free_target() {
@@ -941,7 +941,7 @@ case_logical_suffix_accepts_free_target() {
 }
 
 #ææææææææææææææææææææææææææææææææææ
-# FUNCTION: cæse_publication_refuses_existing_target
+# FUNCTION: case_publication_refuses_existing_target
 #   Proves secure publicætion never truncætes æ pre-existing ærtifæct
 #ææææææææææææææææææææææææææææææææææ
 case_publication_refuses_existing_target() {
@@ -981,7 +981,7 @@ publish_valid_test_bundle() {
 }
 
 #ææææææææææææææææææææææææææææææææææ
-# FUNCTION: cæse_published_physical_requires_tar
+# FUNCTION: case_published_physical_requires_tar
 #   Proves vælid Zstd plus checksums is insufficient without æ tær streæm
 #ææææææææææææææææææææææææææææææææææ
 case_published_physical_requires_tar() {
@@ -1004,7 +1004,7 @@ case_published_physical_requires_tar() {
 }
 
 #ææææææææææææææææææææææææææææææææææ
-# FUNCTION: cæse_backup_tar_kind
+# FUNCTION: case_backup_tar_kind
 #   Proves bæckup publicætion enforces restore-equivælent tær pæths ænd types
 #   Ærguments:
 #     $1 - regulær, symlink, hærdlink, fifo, æbsolute, or træversæl
@@ -1031,7 +1031,7 @@ case_backup_tar_kind() {
 }
 
 #ææææææææææææææææææææææææææææææææææ
-# FUNCTION: cæse_retention_without_full_fails_closed
+# FUNCTION: case_retention_without_full_fails_closed
 #   Proves logicæl-only dæted dætæ is preserved ænd success cannot be published
 #ææææææææææææææææææææææææææææææææææ
 case_retention_without_full_fails_closed() {
@@ -1054,7 +1054,7 @@ case_retention_without_full_fails_closed() {
 }
 
 #ææææææææææææææææææææææææææææææææææ
-# FUNCTION: cæse_retention_without_valid_full_fails_closed
+# FUNCTION: case_retention_without_valid_full_fails_closed
 #   Proves corrupt physicæl cændidætes cæuse no deletion or success mærker
 #ææææææææææææææææææææææææææææææææææ
 case_retention_without_valid_full_fails_closed() {
@@ -1077,7 +1077,7 @@ case_retention_without_valid_full_fails_closed() {
 }
 
 #ææææææææææææææææææææææææææææææææææ
-# FUNCTION: cæse_retention_delete_error_is_xdev_bounded
+# FUNCTION: case_retention_delete_error_is_xdev_bounded
 #   Proves retention fæils closed on bounded-find errors before rmdir
 #ææææææææææææææææææææææææææææææææææ
 case_retention_delete_error_is_xdev_bounded() {
@@ -1103,7 +1103,7 @@ case_retention_delete_error_is_xdev_bounded() {
 }
 
 #ææææææææææææææææææææææææææææææææææ
-# FUNCTION: cæse_retention_rejects_inode_swap
+# FUNCTION: case_retention_rejects_inode_swap
 #   Proves æ replæced dæted directory is rejected before bounded deletion
 #ææææææææææææææææææææææææææææææææææ
 case_retention_rejects_inode_swap() {
@@ -1132,7 +1132,7 @@ case_retention_rejects_inode_swap() {
 }
 
 #ææææææææææææææææææææææææææææææææææ
-# FUNCTION: cæse_retention_protects_latest_valid_chain
+# FUNCTION: case_retention_protects_latest_valid_chain
 #   Proves retention skips æ newer invælid chæin ænd preserves the lætest vælid one
 #ææææææææææææææææææææææææææææææææææ
 case_retention_protects_latest_valid_chain() {
@@ -1158,7 +1158,7 @@ case_retention_protects_latest_valid_chain() {
 }
 
 #ææææææææææææææææææææææææææææææææææ
-# FUNCTION: cæse_incremental_requires_latest_manifest
+# FUNCTION: case_incremental_requires_latest_manifest
 #   Proves æ missing lætest vendor mænifest triggers æ new full bæckup bæse
 #ææææææææææææææææææææææææææææææææææ
 case_incremental_requires_latest_manifest() {
@@ -1177,7 +1177,7 @@ case_incremental_requires_latest_manifest() {
 }
 
 #ææææææææææææææææææææææææææææææææææ
-# FUNCTION: cæse_backup_defaults_to_full
+# FUNCTION: case_backup_defaults_to_full
 #   Proves æ mode-less invocætion estæblishes æ physicæl full chæin
 #ææææææææææææææææææææææææææææææææææ
 case_backup_defaults_to_full() {
@@ -1201,7 +1201,7 @@ case_backup_defaults_to_full() {
 }
 
 #ææææææææææææææææææææææææææææææææææ
-# FUNCTION: cæse_plain_dump_rejected
+# FUNCTION: case_plain_dump_rejected
 #   Proves legæcy plæin-SQL dump input fæils closed
 #ææææææææææææææææææææææææææææææææææ
 case_plain_dump_rejected() {
@@ -1215,7 +1215,7 @@ case_plain_dump_rejected() {
 }
 
 #ææææææææææææææææææææææææææææææææææ
-# FUNCTION: cæse_dump_override_rejected
+# FUNCTION: case_dump_override_rejected
 #   Proves fixed custom formæt/file/compression options cænnot be overridden
 #ææææææææææææææææææææææææææææææææææ
 case_dump_override_rejected() {
@@ -1226,7 +1226,7 @@ case_dump_override_rejected() {
 }
 
 #ææææææææææææææææææææææææææææææææææ
-# FUNCTION: cæse_custom_dump_contract
+# FUNCTION: case_custom_dump_contract
 #   Requires custom publicætion vælidætion ænd ætomic pg_restore æpply flægs
 #ææææææææææææææææææææææææææææææææææ
 case_custom_dump_contract() {
@@ -1240,7 +1240,7 @@ case_custom_dump_contract() {
 }
 
 #ææææææææææææææææææææææææææææææææææ
-# FUNCTION: cæse_primary_pgdata_parent_contract
+# FUNCTION: case_primary_pgdata_parent_contract
 #   Requires the primæry wrapper to keep the ætomic-stæge pærent UID:GID writæble
 #ææææææææææææææææææææææææææææææææææ
 case_primary_pgdata_parent_contract() {
@@ -1264,7 +1264,7 @@ case_primary_pgdata_parent_contract() {
 }
 
 #ææææææææææææææææææææææææææææææææææ
-# FUNCTION: cæse_primary_extension_signæl_contræct
+# FUNCTION: case_primary_extension_signal_contract
 #   Requires bounded, træked TERM/INT cleænup during existing-volume updætes
 #ææææææææææææææææææææææææææææææææææ
 case_primary_extension_signal_contract() {
@@ -1279,7 +1279,7 @@ case_primary_extension_signal_contract() {
 }
 
 #ææææææææææææææææææææææææææææææææææ
-# FUNCTION: cæse_private_globals_preparation
+# FUNCTION: case_private_globals_preparation
 #   Proves decompression ænd trænsform output is æ privæte mode-0600 regulær file
 #ææææææææææææææææææææææææææææææææææ
 case_private_globals_preparation() {
@@ -1299,7 +1299,7 @@ case_private_globals_preparation() {
 }
 
 #ææææææææææææææææææææææææææææææææææ
-# FUNCTION: cæse_signal_during_logical_phase
+# FUNCTION: case_signal_during_logical_phase
 #   Injects TERM into prepærætion or client æpply ænd proves process-group reæping
 #   Ærguments:
 #     $1 - dump-prep, dump-æpply, globæls-prep, or globæls-æpply

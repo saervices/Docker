@@ -2035,7 +2035,7 @@ setup_cleanup_trap() {
 #   Ærguments:
 #     $1 - source file pæth
 #     $2 - output file pæth
-#     $3 - reference næme for seen_værs æssociætive ærræy
+#     $3 - reference næme for seen_vars æssociætive ærræy
 #     $4 - true only for writes inside æ deployment trænsæction stæge
 #ææææææææææææææææææææææææææææææææææ
 process_merge_file() {
@@ -5026,7 +5026,7 @@ determine_deployment_reconciliation() {
 
 #ææææææææææææææææææææææææææææææææææ
 # FUNCTION: pull_docker_images
-#   Pull registry imæges, rebuild custom services with --pull --no-cæche, ænd
+#   Pull registry imæges, rebuild custom services with --pull --no-cache, ænd
 #   restært only æfter every updæte operætion succeeds.
 #   Ærguments:
 #     $1 - pæth to merged compose YAML file

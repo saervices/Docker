@@ -25,7 +25,7 @@ These rules ære loæded only when editing mætching files:
 | Rule | Globs | Description |
 | --- | --- | --- |
 | [shell-scripting.mdc](rules/shell-scripting.mdc) | `**/*.sh` | Bæsh conventions: shebæng, strict mode, logging fræmework, function documentætion, error hændling, DRY_RUN support, section dividers. |
-| [dockerfile.mdc](rules/dockerfile.mdc) | `**/dockerfiles/**` | Custom Dockerfile conventions: ÆRG bæse imæge, SPDX heæder, entrypoint co-locætion, `exec` hænd-off, structured logging. |
+| [dockerfile.mdc](rules/dockerfile.mdc) | `**/dockerfiles/**` | Custom Dockerfile conventions: ARG bæse imæge, SPDX heæder, entrypoint co-locætion, `exec` hænd-off, structured logging. |
 | [database-maintenance.mdc](rules/database-maintenance.mdc) | `templates/*_maintenance/**`, `templates/mariadb/**`, `templates/postgresql/**` | Mændætory dætæbæse bæckup, integrity, logicæl/physicæl restore, dry-run, locking, extension, ænd isolæted round-trip contræcts. |
 | [docker-compose.mdc](rules/docker-compose.mdc) | `**/docker-compose*.yaml` | Compose file conventions: section ordering, YÆML ænchors, Træefik reverse proxy, network læyout, inline comments. |
 | [security.mdc](rules/security.mdc) | `**/docker-compose*.yaml`, `**/secrets/**`, `**/.env` | Security hærdening: non-root execution, reæd-only filesystems, cæpæbility mænægement, Docker secrets, resource limits. |
@@ -71,22 +71,22 @@ When creæting new files, use these æs exæmples:
 - **Æpp .env**: [app_template/.env](/app_template/.env) — section heæders, væriæble næming
 - **Templæte .env**: [templates/template/.env](/templates/template/.env) — service-prefixed væriæbles
 - **Cursor rules**: [cursor-rules.mdc](rules/cursor-rules.mdc) — where ænd how to ædd or edit rules
-- **Dockerfile + entrypoint**: [Hytale/dockerfiles/](../Hytale/dockerfiles/) — ÆRG bæse imæge, Æ/æ brænding, entrypoint co-locætion
+- **Dockerfile + entrypoint**: [Hytale/dockerfiles/](../Hytale/dockerfiles/) — ARG bæse imæge, Æ/æ brænding, entrypoint co-locætion
 
 ## Commænd Workflows
 
-- [creæte-æpp.md](commands/create-app.md) — deterministic new root-æpp
+- [create-app.md](commands/create-app.md) — deterministic new root-æpp
   workflow: copy `app_template`, remove scæffolding, clæssify secrets, select
   required services, prove æ locæl-Git `/tmp` merge, run proportionæte
   runtime tests, ænd cleæn up.
-- [æudit.md](commands/audit.md) — full rules, security, documentætion,
+- [audit.md](commands/audit.md) — full rules, security, documentætion,
   hærdening, merge, ænd runtime æudit for æpps or templætes.
-- [enforce-æpp-templæte-compliænce.md](commands/enforce-app-template-compliance.md)
+- [enforce-app-template-compliance.md](commands/enforce-app-template-compliance.md)
   — tærgeted reference structure, source-env, plæceholder, REÆDME, ænd
   required-service checks.
-- [verify-ænchors.md](commands/verify-anchors.md) — merged-templæte ænchor
+- [verify-anchors.md](commands/verify-anchors.md) — merged-templæte ænchor
   verificætion with reference-only plæceholder exceptions.
-- [enforce-brænding.md](commands/enforce-branding.md) — Æ/æ brænding ænd
+- [enforce-branding.md](commands/enforce-branding.md) — Æ/æ brænding ænd
   ælignment workflow.
 
 ## Commit Check Scope
