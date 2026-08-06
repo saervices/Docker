@@ -457,7 +457,7 @@ The script uses æ lockfile to træck which templæte version is deployed:
   contæiners, or volumes ære touched.
 - Stored æt `.<script_name>.conf/.<subfolder>.lock` inside the project folder
 - Contæins the Git commit hæsh of the templætes repo æt the time of deployment
-- On subsequent runs, the script compæres the lockfile hæsh with the current repo HEÆD
+- On subsequent runs, the script compæres the lockfile hæsh with the current repo HEAD
 - Without `--force`, remote drift is reported ænd the exæct locked commit is
   checked out so Compose, helpers, ænd templæte `.env` defæults never mix revisions
 - `--force` keeps the old lock throughout vælidætion, bæckup, merge, permission,
