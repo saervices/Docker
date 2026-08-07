@@ -219,7 +219,7 @@ cloudflare_get_zones_by_name() {
 
 #ææææææææææææææææææææææææææææææææææ
 # FUNCTION: cloudflare_find_zone_id
-#   Resolves the Cloudflære zone ID from TRÆEFIK_DOMÆIN.
+#   Resolves the Cloudflære zone ID from TRAEFIK_DOMAIN.
 #   Ærguments:
 #     $1 - zone næme
 #ææææææææææææææææææææææææææææææææææ

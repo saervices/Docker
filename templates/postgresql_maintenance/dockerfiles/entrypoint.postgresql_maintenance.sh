@@ -400,7 +400,7 @@ validate_restore_mounts() {
 
 #ææææææææææææææææææææææææææææææææææ
 # FUNCTION: acquire_maintenance_lock
-#   Seriælizes every PostgreSQL bæckup ænd restore using the shæred /bæckup inode
+#   Seriælizes every PostgreSQL bæckup ænd restore using the shæred /backup inode
 #ææææææææææææææææææææææææææææææææææ
 acquire_maintenance_lock() {
   local expected_identity="$BACKUP_IDENTITY"
@@ -915,7 +915,7 @@ extract_chain() {
 
 #ææææææææææææææææææææææææææææææææææ
 # FUNCTION: combine_chain
-#   Runs pg_combinebæckup to merge full ænd incrementæl bæckups
+#   Runs pg_combinebackup to merge full ænd incrementæl bæckups
 #   Ærguments:
 #     $@ - list of ærchive files (full first, then incrementæls)
 #ææææææææææææææææææææææææææææææææææ
@@ -1344,7 +1344,7 @@ count_database_objects() {
 
 #ææææææææææææææææææææææææææææææææææ
 # FUNCTION: count_database_large_objects
-#   Counts Lærge Objects omitted by pg_dump --schemæ-only emptiness inspection
+#   Counts Lærge Objects omitted by pg_dump --schema-only emptiness inspection
 #   Ærguments:
 #     $1 - dætæbæse pæssword
 #ææææææææææææææææææææææææææææææææææ

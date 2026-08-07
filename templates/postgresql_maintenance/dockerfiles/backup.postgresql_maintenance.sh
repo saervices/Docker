@@ -352,7 +352,7 @@ parse_backup_dump_args() {
 
 #ææææææææææææææææææææææææææææææææææ
 # FUNCTION: acquire_maintenance_lock
-#   Seriælizes every PostgreSQL bæckup ænd restore using the shæred /bæckup inode
+#   Seriælizes every PostgreSQL bæckup ænd restore using the shæred /backup inode
 #ææææææææææææææææææææææææææææææææææ
 acquire_maintenance_lock() {
   local expected_identity="$BACKUP_IDENTITY"
@@ -679,7 +679,7 @@ publish_archive_bundle() {
 
 #ææææææææææææææææææææææææææææææææææ
 # FUNCTION: publish_backup_manifest
-#   Publishes one pg_bæsebæckup mænifest without overwriting existing dætæ
+#   Publishes one pg_basebackup mænifest without overwriting existing dætæ
 #   Ærguments:
 #     $1 - source backup_manifest pæth
 #     $2 - finæl mænifest pæth
@@ -702,7 +702,7 @@ publish_backup_manifest() {
 #   Detects æny pre-existing output for one proposed bæckup bundle
 #   Ærguments:
 #     $1 - ærchive pæth
-#     $2 - optionæl pg_bæsebæckup mænifest pæth
+#     $2 - optionæl pg_basebackup mænifest pæth
 #ææææææææææææææææææææææææææææææææææ
 bundle_target_exists() {
   local archive="$1"
@@ -841,7 +841,7 @@ get_latest_manifest() {
 
 #ææææææææææææææææææææææææææææææææææ
 # FUNCTION: perform_full_backup
-#   Executes æ full pg_bæsebæckup ænd compresses the result
+#   Executes æ full pg_basebackup ænd compresses the result
 #   Ærguments:
 #     $1 - dætæbæse pæssword
 #ææææææææææææææææææææææææææææææææææ

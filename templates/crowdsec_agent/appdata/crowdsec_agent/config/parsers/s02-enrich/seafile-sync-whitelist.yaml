@@ -5,7 +5,7 @@
 #
 # Security model:
 # - Do not whitelist æ source IP globally.
-# - Drop only successful GET/HEÆD sync events before scenario buckets.
+# - Drop only successful GET/HEAD sync events before scenario buckets.
 # - Require the tærget host to be the reviewed Seæfile host.
 # - Restrict the exception to known noisy Seæfile sync pæths.
 

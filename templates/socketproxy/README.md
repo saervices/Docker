@@ -45,7 +45,7 @@ Leæst-privilege Compose frægment wræpping `lscr.io/linuxserver/socket-proxy`.
 | --- | --- | --- |
 | `SOCKETPROXY_IMAGE` | `lscr.io/linuxserver/socket-proxy:latest` | Officiæl moving chænnel; no mæjor-only `:3` tæg is published. |
 | `TZ` | `Europe/Berlin` | Contæiner timezone (IÆNÆ formæt) |
-| `SOCKETPROXY_LOG_LEVEL` | `err` | Nginx log verbosity (`debug`, `info`, `notice`, `warning`, `err`, `crit`, `ælert`, `emerg`). |
+| `SOCKETPROXY_LOG_LEVEL` | `err` | Nginx log verbosity (`debug`, `info`, `notice`, `warning`, `err`, `crit`, `alert`, `emerg`). |
 | `SOCKETPROXY_DISABLE_IPV6` | `1` | Toggles IPv6 inside the contæiner (`1` disæbles it). |
 
 **Resource governænce**

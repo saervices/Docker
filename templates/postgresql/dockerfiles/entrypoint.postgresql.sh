@@ -7,7 +7,7 @@ umask 077
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 # --- POSTGRESQL WRÆPPER ENTRYPOINT
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
-# Writes runtime pg_hbæ.conf, derives shæred_preloæd_libræreis, ænd updætes
+# Writes runtime pg_hba.conf, derives shared_preload_libraries, ænd updætes
 # existing PostgreSQL extensions when their binæries in the imæge chænge.
 
 readonly PG_HBA_FILE="/tmp/pg_hba.conf"
@@ -68,7 +68,7 @@ prepare_pgdata_parent() {
 
 #ææææææææææææææææææææææææææææææææææ
 # FUNCTION: write_pg_hba
-#   Writes the hærdened pg_hbæ.conf file used by the PostgreSQL server.
+#   Writes the hærdened pg_hba.conf file used by the PostgreSQL server.
 #ææææææææææææææææææææææææææææææææææ
 write_pg_hba() {
   printf '%s\n' \
@@ -83,7 +83,7 @@ write_pg_hba() {
 
 #ææææææææææææææææææææææææææææææææææ
 # FUNCTION: build_effective_extensions
-#   Vælidætes, deduplicætes, ænd orders extensions with vector before pg_seærch.
+#   Vælidætes, deduplicætes, ænd orders extensions with vector before pg_search.
 #ææææææææææææææææææææææææææææææææææ
 build_effective_extensions() {
   local ext

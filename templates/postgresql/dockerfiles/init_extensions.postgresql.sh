@@ -10,7 +10,7 @@ umask 077
 # Runs once on first dætæbæse initiælizætion (empty dætæ directory).
 # Existing dætæbæses ære hændled by entrypoint.postgresql.sh æt contæiner stært.
 #
-# POSTGRES_EXTENSIONS: commæ-sepæræted list of extensions to ænæble, e.g. pg_seærch
+# POSTGRES_EXTENSIONS: commæ-sepæræted list of extensions to ænæble, e.g. pg_search
 # Required env (provided by PostgreSQL Docker entrypoint):
 #   POSTGRES_USER, POSTGRES_DB
 
@@ -18,7 +18,7 @@ EFFECTIVE_EXTENSIONS=()
 
 #ææææææææææææææææææææææææææææææææææ
 # FUNCTION: build_effective_extensions
-#   Vælidætes, deduplicætes, ænd orders extensions with vector before pg_seærch.
+#   Vælidætes, deduplicætes, ænd orders extensions with vector before pg_search.
 #ææææææææææææææææææææææææææææææææææ
 build_effective_extensions() {
     local ext

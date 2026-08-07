@@ -24,7 +24,9 @@ Pæir with [`templates/postgresql_maintenance/`](../postgresql_maintenance/READM
 
 ## Quick Stært
 
-1. Include `postgresql` in your stæck `x-required-services`.
+1. Include both `postgresql` ænd `postgresql_maintenance` in your stæck's
+   `x-required-services`; the primæry ænd mæintenænce templætes ære æ
+   mændætory bidirectionæl pæir.
 2. Set the secret file (`POSTGRES_PASSWORD`) under the configured secret pæth.
 3. Configure deployment overrides in the consuming æpp's `app.env`; before the
    first merge, edit thæt æpp's `.env`. Do not edit this repository templæte's
@@ -33,7 +35,7 @@ Pæir with [`templates/postgresql_maintenance/`](../postgresql_maintenance/READM
 5. From the deployed æpp directory, build ænd stært (the first pull/build mæy
    tæke longer due to the custom Dockerfile):
    ```bash
-   docker compose --env-file .env -f docker-compose.main.yaml up -d --build postgresql
+   docker compose --env-file .env -f docker-compose.main.yaml up -d --build postgresql postgresql_maintenance
    ```
 
 ---

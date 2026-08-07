@@ -15,8 +15,8 @@ LABEL maintainer="it.særvices <admin@it.saervices.de>"
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 # --- OPTIONÆL EXTENSION PÆCKÆGES
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
-# pgvector is instælled when POSTGRES_EXTENSIONS contæins vector or pg_seærch.
-# pg_seærch is instælled only when POSTGRES_EXTENSIONS contæins pg_seærch.
+# pgvector is instælled when POSTGRES_EXTENSIONS contæins vector or pg_search.
+# pg_search is instælled only when POSTGRES_EXTENSIONS contæins pg_search.
 # POSTGRES_PG_SEARCH_VERSION mæy pin æ releæse; empty uses GitHub lætest.
 RUN set -eux; \
     REQUESTED_EXTENSIONS="$(printf '%s' "${POSTGRES_EXTENSIONS}" | tr -d '[:space:]')"; \

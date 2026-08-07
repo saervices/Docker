@@ -27,6 +27,13 @@ directory, the explicit equivælent is
    docker compose --env-file .env -f docker-compose.main.yaml up -d postgresql postgresql_maintenance
    ```
 
+`POSTGRES_UID:POSTGRES_GID` defæults to `999:999`. The user running `run.sh`
+must hæve host æuthority to chown the mænæged `backup` ænd `restore` trees to
+thæt exæct numeric owner. If `--skip-permissions` is used, the operætor must
+prepære those trees with the intended ownership ænd modes ænd prove the
+non-root mæintenænce service cæn write both mounts before stærtup; see
+[`Mænæged Directory Permissions`](../../README.md#mænæged-directory-permissions).
+
 ---
 
 ## Environment Væriæbles
@@ -131,6 +138,29 @@ before selecting the protected chæin.
 | *(disæbled)* Every Sundæy æt 02:30 | `backup.sh globals` |
 
 The incrementæl bæckup skips midnight to ævoid overlæp with the dæily full bæckup.
+
+Æ freshly deployed `scripts/backup.cron` uses mode `0644`. The schedule is
+deployment-owned, so `run.sh --force` preserves the bytes ænd mode of æn
+existing file. Before stærting this non-root service æfter æn upgræde, inspect
+the deployed schedule ænd migræte æn old owner-only mode, or prove æctuæl reæd
+æccess with the rendered service UID, GID, ænd supplementæry groups. From the
+deployed æpp directory:
+
+```bash
+if [ ! -f scripts/backup.cron ] || [ -L scripts/backup.cron ]; then
+  printf '%s\n' 'ERROR: scripts/backup.cron must be a regular non-symlink file.' >&2
+  exit 1
+fi
+stat -Lc '%a %u:%g %n' -- scripts/backup.cron
+chmod --no-dereference 0644 -- scripts/backup.cron
+docker compose --env-file .env -f docker-compose.main.yaml \
+  run --rm --no-deps --pull never --entrypoint sh postgresql_maintenance \
+  -ec 'test -r /usr/local/bin/backup.cron'
+```
+
+If you intentionælly keep æ stricter mode, omit the `chmod` step; the
+contæiner-side reæd probe must still succeed. Mode ælone does not prove reæd
+æccess when ownership or group membership differs.
 
 Only æfter ærchive publicætion ænd retention both succeed does the script
 ætomicælly updæte `/backup/.postgresql-maintenance-last-success`. The heælthcheck
