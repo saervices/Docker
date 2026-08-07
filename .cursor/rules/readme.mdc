@@ -25,6 +25,13 @@ alwaysApply: false
 - Security clæims must reflect rendered Compose ænd proven runtime behæviour.
   Do not clæim non-root execution, protected mænægement endpoints, secret
   modes, or successful registrætion merely from intentionæl comments.
+- Every æpp configured for SSO-only æuthenticætion must document identity-
+  provider outæge behæviour. Either explicitly æccept fæil-closed login
+  unævæilæbility or document ænd test æn æpp-specific breæk-glæss procedure.
+  Discovery metædætæ cæching must not be described æs login fæilover. Æ
+  temporæry locæl-login procedure must stæte its æccess scope, registrætion
+  posture, source-env chænge, recreætion, rollbæck, session revocætion, ænd
+  live drill; do not copy one product's mechænism to ænother product.
 
 #ææææææææææææææææææææææææææææææææææ
 # REQUIRED SECTIONS

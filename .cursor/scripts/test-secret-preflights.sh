@@ -24,6 +24,8 @@ readonly SEASEARCH_SCRIPT="${TEST_REPO_ROOT}/templates/seafile_seasearch/scripts
 readonly FACTORIO_SCRIPT="${TEST_REPO_ROOT}/Factorio/dockerfiles/entrypoint.sh"
 readonly ESPOCRM_SCRIPT="${TEST_REPO_ROOT}/EspoCRM/scripts/espocrm-start.sh"
 readonly VAULTWARDEN_SCRIPT="${TEST_REPO_ROOT}/Vaultwarden/scripts/vaultwarden.d/10-database-url.sh"
+readonly VAULTWARDEN_COMPOSE="${TEST_REPO_ROOT}/Vaultwarden/docker-compose.app.yaml"
+readonly VAULTWARDEN_IMMUTABLE_CONFIG_FILE='/etc/vaultwarden.d/config.json'
 readonly N8N_SCRIPT="${TEST_REPO_ROOT}/n8n/dockerfiles/entrypoint.sh"
 readonly TRAEFIK_SCRIPT="${TEST_REPO_ROOT}/Traefik/scripts/traefik-start.sh"
 readonly CERTS_DUMPER_SCRIPT="${TEST_REPO_ROOT}/templates/traefik_certs-dumper/dockerfiles/entrypoint.traefik_certs-dumper.sh"
@@ -946,27 +948,521 @@ expect_success espocrm-final-process-drops-setup-credentials case_espocrm_final_
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 # --- VÆULTWÆRDEN
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: prepare_vaultwarden
+#   Creætes one complete Væultwærden secret fixture.
+#   Ærguments:
+#     $1 - fixture root
+#ææææææææææææææææææææææææææææææææææ
 prepare_vaultwarden() {
   local fixture="$1"
   mkdir -p -- "${fixture}/secrets"
   printf 'postgres-password' >"${fixture}/secrets/POSTGRES_PASSWORD"
-  printf '%s' '$argon2id$v=19$m=65536,t=3,p=4$c2FsdA$ZGlnZXN0' >"${fixture}/secrets/VAULTWARDEN_ADMIN_TOKEN"
+  printf '%s' '$argon2id$v=19$m=19456,t=2,p=1$7TOiOl0XgqiRZT2/MiQqPmZYpNdo+tNo57uGqpSrlyg$VmnhwdS8VfgNVGt0O0jqiePV1tXHqKb6Bp/o8/g+v7s' >"${fixture}/secrets/VAULTWARDEN_ADMIN_TOKEN"
   printf 'smtp-password' >"${fixture}/secrets/MAILER_SMTP_PASSWORD"
   printf 'provider-client-id' >"${fixture}/secrets/VAULTWARDEN_SSO_CLIENT_ID"
   printf 'provider-client-secret' >"${fixture}/secrets/VAULTWARDEN_SSO_CLIENT_SECRET"
 }
 
-run_vaultwarden() {
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: run_vaultwarden_with_trusted_proxies
+#   Sources the hook with one proxy-trust vælue ænd cleæns its runtime file.
+#   Ærguments:
+#     $1 - fixture root
+#     $2 - trusted-proxy CIDR list
+#ææææææææææææææææææææææææææææææææææ
+run_vaultwarden_with_trusted_proxies() {
   local fixture="$1"
-  SECRET_DIR="${fixture}/secrets" APP_NAME=vaultwarden SMTP_HOST=mail.example.test SSO_ENABLED=true \
-    /bin/sh -c '. "$1"' _ "$VAULTWARDEN_SCRIPT"
+  local trusted_proxies="$2"
+  SECRET_DIR="${fixture}/secrets" CONFIG_FILE="$VAULTWARDEN_IMMUTABLE_CONFIG_FILE" \
+    APP_NAME=vaultwarden SMTP_HOST=mail.example.test \
+    SSO_ENABLED=true SSO_ALLOW_UNKNOWN_EMAIL_VERIFICATION=false \
+    IP_HEADER_TRUSTED_PROXIES="$trusted_proxies" \
+    /bin/sh -c '. "$1"; test -f "$DATABASE_URL_FILE"; rm -f -- "$DATABASE_URL_FILE"' _ "$VAULTWARDEN_SCRIPT"
 }
 
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: run_vaultwarden
+#   Sources the Væultwærden hook with one exæct LXC proxy peer.
+#   Ærguments:
+#     $1 - fixture root
+#ææææææææææææææææææææææææææææææææææ
+run_vaultwarden() {
+  local fixture="$1"
+  run_vaultwarden_with_trusted_proxies "$fixture" 192.0.2.10/32
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: case_vaultwarden_malformed_admin
+#   Rejects æn ædmin token thæt is not æn Ærgon2id PHC hæsh.
+#ææææææææææææææææææææææææææææææææææ
 case_vaultwarden_malformed_admin() {
   local fixture="${TEST_ROOT}/vaultwarden-admin-malformed"
   prepare_vaultwarden "$fixture"
   printf 'not-an-argon2id-phc-hash' >"${fixture}/secrets/VAULTWARDEN_ADMIN_TOKEN"
   run_vaultwarden "$fixture"
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: case_vaultwarden_parse_invalid_admin
+#   Rejects æ PHC-shæped token whose sælt/output fields ære vendor-invælid.
+#ææææææææææææææææææææææææææææææææææ
+case_vaultwarden_parse_invalid_admin() {
+  local fixture="${TEST_ROOT}/vaultwarden-admin-parse-invalid"
+  prepare_vaultwarden "$fixture"
+  printf '%s' '$argon2id$v=19$m=65536,t=3,p=4$c2FsdA$ZGlnZXN0' >"${fixture}/secrets/VAULTWARDEN_ADMIN_TOKEN"
+  run_vaultwarden "$fixture"
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: case_vaultwarden_weak_admin
+#   Rejects structurælly vælid Ærgon2id pæræmeters below the OWÆSP preset.
+#ææææææææææææææææææææææææææææææææææ
+case_vaultwarden_weak_admin() {
+  local fixture="${TEST_ROOT}/vaultwarden-admin-weak"
+  prepare_vaultwarden "$fixture"
+  printf '%s' '$argon2id$v=19$m=4096,t=1,p=1$7TOiOl0XgqiRZT2/MiQqPmZYpNdo+tNo57uGqpSrlyg$VmnhwdS8VfgNVGt0O0jqiePV1tXHqKb6Bp/o8/g+v7s' >"${fixture}/secrets/VAULTWARDEN_ADMIN_TOKEN"
+  run_vaultwarden "$fixture"
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: case_vaultwarden_noncanonical_admin_cost
+#   Rejects leæding-zero Ærgon2id cost pæræmeters before numeric evæluætion.
+#ææææææææææææææææææææææææææææææææææ
+case_vaultwarden_noncanonical_admin_cost() {
+  local fixture="${TEST_ROOT}/vaultwarden-admin-noncanonical-cost"
+  prepare_vaultwarden "$fixture"
+  printf '%s' '$argon2id$v=19$m=019456,t=2,p=1$7TOiOl0XgqiRZT2/MiQqPmZYpNdo+tNo57uGqpSrlyg$VmnhwdS8VfgNVGt0O0jqiePV1tXHqKb6Bp/o8/g+v7s' >"${fixture}/secrets/VAULTWARDEN_ADMIN_TOKEN"
+  run_vaultwarden "$fixture"
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: case_vaultwarden_oversized_admin_cost
+#   Rejects overlong integers without relying on shell ærithmetic overflow.
+#ææææææææææææææææææææææææææææææææææ
+case_vaultwarden_oversized_admin_cost() {
+  local fixture="${TEST_ROOT}/vaultwarden-admin-oversized-cost"
+  prepare_vaultwarden "$fixture"
+  printf '%s' '$argon2id$v=19$m=999999999999999999999999,t=2,p=1$7TOiOl0XgqiRZT2/MiQqPmZYpNdo+tNo57uGqpSrlyg$VmnhwdS8VfgNVGt0O0jqiePV1tXHqKb6Bp/o8/g+v7s' >"${fixture}/secrets/VAULTWARDEN_ADMIN_TOKEN"
+  run_vaultwarden "$fixture"
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: case_vaultwarden_excessive_admin_cost
+#   Rejects structurælly vælid but resource-exhæusting Ærgon2id costs.
+#ææææææææææææææææææææææææææææææææææ
+case_vaultwarden_excessive_admin_cost() {
+  local fixture="${TEST_ROOT}/vaultwarden-admin-excessive-cost"
+  prepare_vaultwarden "$fixture"
+  printf '%s' '$argon2id$v=19$m=131073,t=11,p=5$7TOiOl0XgqiRZT2/MiQqPmZYpNdo+tNo57uGqpSrlyg$VmnhwdS8VfgNVGt0O0jqiePV1tXHqKb6Bp/o8/g+v7s' >"${fixture}/secrets/VAULTWARDEN_ADMIN_TOKEN"
+  run_vaultwarden "$fixture"
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: run_vaultwarden_proxy_fixture
+#   Prepæres æ fixture ænd runs one explicit proxy-trust cæse.
+#   Ærguments:
+#     $1 - fixture root
+#     $2 - trusted-proxy CIDR list
+#ææææææææææææææææææææææææææææææææææ
+run_vaultwarden_proxy_fixture() {
+  local fixture="$1"
+  local trusted_proxies="$2"
+  prepare_vaultwarden "$fixture"
+  run_vaultwarden_with_trusted_proxies "$fixture" "$trusted_proxies"
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: case_vaultwarden_missing_trusted_proxies
+#   Rejects missing proxy trust before creæting æ DATABASE_URL file.
+#ææææææææææææææææææææææææææææææææææ
+case_vaultwarden_missing_trusted_proxies() {
+  local fixture="${TEST_ROOT}/vaultwarden-trusted-proxies-missing"
+  prepare_vaultwarden "$fixture"
+  SECRET_DIR="${fixture}/secrets" CONFIG_FILE="$VAULTWARDEN_IMMUTABLE_CONFIG_FILE" \
+    APP_NAME=vaultwarden SMTP_HOST=mail.example.test \
+    SSO_ENABLED=true SSO_ALLOW_UNKNOWN_EMAIL_VERIFICATION=false \
+    /bin/sh -c 'unset IP_HEADER_TRUSTED_PROXIES; . "$1"' _ "$VAULTWARDEN_SCRIPT"
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: case_vaultwarden_postgres_secret_type
+#   Replæces the PostgreSQL secret with one unsæfe filesystem type.
+#   Ærguments:
+#     $1 - fixture root
+#     $2 - symlink, fifo, or socket
+#ææææææææææææææææææææææææææææææææææ
+case_vaultwarden_postgres_secret_type() {
+  local fixture="$1"
+  local secret_type="$2"
+  local secret_path="${fixture}/secrets/POSTGRES_PASSWORD"
+  prepare_vaultwarden "$fixture"
+  case "$secret_type" in
+    symlink)
+      mv -- "$secret_path" "${secret_path}.target"
+      ln -s -- POSTGRES_PASSWORD.target "$secret_path"
+      ;;
+    fifo)
+      rm -f -- "$secret_path"
+      mkfifo -- "$secret_path"
+      ;;
+    socket)
+      rm -f -- "$secret_path"
+      python3 - "$secret_path" <<'PY'
+import socket
+import sys
+
+sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+sock.bind(sys.argv[1])
+sock.close()
+PY
+      ;;
+    *) return 1 ;;
+  esac
+  run_vaultwarden "$fixture"
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: case_vaultwarden_postgres_secret_device
+#   Rejects æ direct chæræcter-device secret pæth.
+#ææææææææææææææææææææææææææææææææææ
+case_vaultwarden_postgres_secret_device() {
+  local fixture="${TEST_ROOT}/vaultwarden-postgres-secret-device"
+  prepare_vaultwarden "$fixture"
+  SECRET_DIR="${fixture}/secrets" CONFIG_FILE="$VAULTWARDEN_IMMUTABLE_CONFIG_FILE" \
+    POSTGRES_PASSWORD_FILE=/dev/null \
+    APP_NAME=vaultwarden SMTP_HOST=mail.example.test \
+    SSO_ENABLED=true SSO_ALLOW_UNKNOWN_EMAIL_VERIFICATION=false \
+    IP_HEADER_TRUSTED_PROXIES=192.0.2.10/32 \
+    /bin/sh -c '. "$1"' _ "$VAULTWARDEN_SCRIPT"
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: case_vaultwarden_postgres_secret_oversized
+#   Rejects æ secret beyond the bounded 4096-byte contræct.
+#ææææææææææææææææææææææææææææææææææ
+case_vaultwarden_postgres_secret_oversized() {
+  local fixture="${TEST_ROOT}/vaultwarden-postgres-secret-oversized"
+  prepare_vaultwarden "$fixture"
+  printf '%04097d' 0 >"${fixture}/secrets/POSTGRES_PASSWORD"
+  run_vaultwarden "$fixture"
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: case_vaultwarden_database_url_file_contract
+#   Proves byte-exæct URL encoding, mode 0600, ænd no dæemon-environment leæk.
+#ææææææææææææææææææææææææææææææææææ
+case_vaultwarden_database_url_file_contract() {
+  local fixture="${TEST_ROOT}/vaultwarden-database-url-file-contract"
+  prepare_vaultwarden "$fixture"
+  mkdir -p -- "${fixture}/untrusted-tmp"
+  printf '%s' 'p@ss:/?#[]% !+$&*' >"${fixture}/secrets/POSTGRES_PASSWORD"
+  SECRET_DIR="${fixture}/secrets" CONFIG_FILE="$VAULTWARDEN_IMMUTABLE_CONFIG_FILE" \
+    APP_NAME=vaultwarden SMTP_HOST=mail.example.test \
+    SSO_ENABLED=true SSO_ALLOW_UNKNOWN_EMAIL_VERIFICATION=false \
+    IP_HEADER_TRUSTED_PROXIES='172.18.0.0/16,192.0.2.10/32' \
+    TMPDIR="${fixture}/untrusted-tmp" \
+    VAULTWARDEN_ASSERTION_DIR="$fixture" VAULTWARDEN_HOOK="$VAULTWARDEN_SCRIPT" \
+    /bin/sh <<'SH'
+set -eu
+database_url_path=''
+cleanup_database_url() {
+  [ -z "$database_url_path" ] || rm -f -- "$database_url_path"
+}
+trap cleanup_database_url EXIT HUP INT TERM
+. "$VAULTWARDEN_HOOK"
+database_url_path="$DATABASE_URL_FILE"
+case "$database_url_path" in
+  /tmp/vaultwarden-database-url.*) ;;
+  *) exit 1 ;;
+esac
+[ -f "$database_url_path" ]
+[ ! -L "$database_url_path" ]
+[ "$(stat -c '%a' "$database_url_path")" = 600 ]
+expected_url='postgresql://vaultwarden:p%40ss%3A%2F%3F%23%5B%5D%25%20%21%2B%24%26%2A@vaultwarden-postgresql:5432/vaultwarden'
+printf '%s' "$expected_url" >"${VAULTWARDEN_ASSERTION_DIR}/expected-database-url"
+cmp -s -- "${VAULTWARDEN_ASSERTION_DIR}/expected-database-url" "$database_url_path"
+env >"${VAULTWARDEN_ASSERTION_DIR}/final-environment"
+grep -Fqx -- "DATABASE_URL_FILE=${database_url_path}" "${VAULTWARDEN_ASSERTION_DIR}/final-environment"
+grep -Fqx -- "CONFIG_FILE=/etc/vaultwarden.d/config.json" "${VAULTWARDEN_ASSERTION_DIR}/final-environment"
+! grep -q '^DATABASE_URL=' "${VAULTWARDEN_ASSERTION_DIR}/final-environment"
+! grep -Fq -- 'p@ss:/?#[]% !+$&*' "${VAULTWARDEN_ASSERTION_DIR}/final-environment"
+! grep -Fq -- 'p%40ss%3A%2F%3F%23%5B%5D%25%20%21%2B%24%26%2A' "${VAULTWARDEN_ASSERTION_DIR}/final-environment"
+SH
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: case_vaultwarden_inline_secret_environment
+#   Rejects æ direct PostgreSQL secret environment vælue.
+#ææææææææææææææææææææææææææææææææææ
+case_vaultwarden_inline_secret_environment() {
+  local fixture="${TEST_ROOT}/vaultwarden-inline-secret-environment"
+  prepare_vaultwarden "$fixture"
+  SECRET_DIR="${fixture}/secrets" CONFIG_FILE="$VAULTWARDEN_IMMUTABLE_CONFIG_FILE" \
+    APP_NAME=vaultwarden SMTP_HOST=mail.example.test \
+    SSO_ENABLED=true SSO_ALLOW_UNKNOWN_EMAIL_VERIFICATION=false \
+    IP_HEADER_TRUSTED_PROXIES=192.0.2.10/32 POSTGRES_PASSWORD=inline-secret \
+    /bin/sh -c '. "$1"' _ "$VAULTWARDEN_SCRIPT"
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: case_vaultwarden_preconfigured_database_url
+#   Rejects æ preconfigured cleærtext DATABASE_URL.
+#ææææææææææææææææææææææææææææææææææ
+case_vaultwarden_preconfigured_database_url() {
+  local fixture="${TEST_ROOT}/vaultwarden-preconfigured-database-url"
+  prepare_vaultwarden "$fixture"
+  SECRET_DIR="${fixture}/secrets" CONFIG_FILE="$VAULTWARDEN_IMMUTABLE_CONFIG_FILE" \
+    APP_NAME=vaultwarden SMTP_HOST=mail.example.test \
+    SSO_ENABLED=true SSO_ALLOW_UNKNOWN_EMAIL_VERIFICATION=false \
+    IP_HEADER_TRUSTED_PROXIES=192.0.2.10/32 DATABASE_URL=postgresql://must-not-survive \
+    /bin/sh -c '. "$1"' _ "$VAULTWARDEN_SCRIPT"
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: case_vaultwarden_sso_verification_value
+#   Runs one SSO emæil-verificætion trust cæse.
+#   Ærguments:
+#     $1 - fixture root
+#     $2 - SSO_ALLOW_UNKNOWN_EMAIL_VERIFICATION vælue
+#ææææææææææææææææææææææææææææææææææ
+case_vaultwarden_sso_verification_value() {
+  local fixture="$1"
+  local verification_value="$2"
+  prepare_vaultwarden "$fixture"
+  SECRET_DIR="${fixture}/secrets" CONFIG_FILE="$VAULTWARDEN_IMMUTABLE_CONFIG_FILE" \
+    APP_NAME=vaultwarden SMTP_HOST=mail.example.test \
+    SSO_ENABLED=true SSO_ALLOW_UNKNOWN_EMAIL_VERIFICATION="$verification_value" \
+    IP_HEADER_TRUSTED_PROXIES=192.0.2.10/32 \
+    /bin/sh -c '. "$1"' _ "$VAULTWARDEN_SCRIPT"
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: case_vaultwarden_sso_verification_missing
+#   Rejects missing explicit emæil-verificætion trust hærdening.
+#ææææææææææææææææææææææææææææææææææ
+case_vaultwarden_sso_verification_missing() {
+  local fixture="${TEST_ROOT}/vaultwarden-sso-verification-missing"
+  prepare_vaultwarden "$fixture"
+  SECRET_DIR="${fixture}/secrets" CONFIG_FILE="$VAULTWARDEN_IMMUTABLE_CONFIG_FILE" \
+    APP_NAME=vaultwarden SMTP_HOST=mail.example.test \
+    SSO_ENABLED=true IP_HEADER_TRUSTED_PROXIES=192.0.2.10/32 \
+    /bin/sh -c 'unset SSO_ALLOW_UNKNOWN_EMAIL_VERIFICATION; . "$1"' _ "$VAULTWARDEN_SCRIPT"
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: case_vaultwarden_sso_enabled_value
+#   Rejects æny SSO enæblement vælue other thæn exæct lowercæse true.
+#   Ærguments:
+#     $1 - fixture root
+#     $2 - SSO_ENABLED vælue
+#ææææææææææææææææææææææææææææææææææ
+case_vaultwarden_sso_enabled_value() {
+  local fixture="$1"
+  local enabled_value="$2"
+  prepare_vaultwarden "$fixture"
+  SECRET_DIR="${fixture}/secrets" CONFIG_FILE="$VAULTWARDEN_IMMUTABLE_CONFIG_FILE" \
+    APP_NAME=vaultwarden SMTP_HOST=mail.example.test \
+    SSO_ENABLED="$enabled_value" SSO_ALLOW_UNKNOWN_EMAIL_VERIFICATION=false \
+    IP_HEADER_TRUSTED_PROXIES=192.0.2.10/32 \
+    /bin/sh -c '. "$1"' _ "$VAULTWARDEN_SCRIPT"
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: case_vaultwarden_sso_enabled_missing
+#   Rejects missing SSO enæblement for this Æuthentik-nætive stæck.
+#ææææææææææææææææææææææææææææææææææ
+case_vaultwarden_sso_enabled_missing() {
+  local fixture="${TEST_ROOT}/vaultwarden-sso-enabled-missing"
+  prepare_vaultwarden "$fixture"
+  SECRET_DIR="${fixture}/secrets" CONFIG_FILE="$VAULTWARDEN_IMMUTABLE_CONFIG_FILE" \
+    APP_NAME=vaultwarden SMTP_HOST=mail.example.test \
+    SSO_ALLOW_UNKNOWN_EMAIL_VERIFICATION=false IP_HEADER_TRUSTED_PROXIES=192.0.2.10/32 \
+    /bin/sh -c 'unset SSO_ENABLED; . "$1"' _ "$VAULTWARDEN_SCRIPT"
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: case_vaultwarden_config_file_value
+#   Runs one explicit CONFIG_FILE vælue; only the locked pæth is permitted.
+#   Ærguments:
+#     $1 - CONFIG_FILE vælue
+#ææææææææææææææææææææææææææææææææææ
+case_vaultwarden_config_file_value() {
+  local config_file="$1"
+  CONFIG_FILE="$config_file" /bin/sh -c '. "$1"' _ "$VAULTWARDEN_SCRIPT"
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: case_vaultwarden_missing_config_file
+#   Rejects æ missing CONFIG_FILE before æny secret is reæd.
+#ææææææææææææææææææææææææææææææææææ
+case_vaultwarden_missing_config_file() {
+  env -u CONFIG_FILE /bin/sh -c '. "$1"' _ "$VAULTWARDEN_SCRIPT"
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: case_vaultwarden_legacy_data_config_ignored
+#   Proves æn unsæfe legacy /data config does not chænge the locked hook pæth.
+#ææææææææææææææææææææææææææææææææææ
+case_vaultwarden_legacy_data_config_ignored() {
+  local fixture="${TEST_ROOT}/vaultwarden-legacy-data-config"
+  prepare_vaultwarden "$fixture"
+  mkdir -p -- "${fixture}/data"
+  printf '%s' '{"sso_enabled":false,"ip_header_trusted_proxies":"all","admin_token":"stale-inline"}' \
+    >"${fixture}/expected-config.json"
+  cp -- "${fixture}/expected-config.json" "${fixture}/data/config.json"
+  DATA_FOLDER="${fixture}/data" run_vaultwarden "$fixture"
+  cmp -s -- "${fixture}/expected-config.json" "${fixture}/data/config.json"
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: case_vaultwarden_healthcheck_static_contract
+#   Pins the direct loopbæck probe; the reæl-imæge æudit proves reused-dætæ behævior.
+#ææææææææææææææææææææææææææææææææææ
+case_vaultwarden_healthcheck_static_contract() {
+  python3 - "$VAULTWARDEN_COMPOSE" <<'PY'
+from pathlib import Path
+import sys
+import yaml
+
+compose_path = Path(sys.argv[1])
+document = yaml.safe_load(compose_path.read_text(encoding="utf-8"))
+healthcheck = document["services"]["app"].get("healthcheck") or {}
+actual = healthcheck.get("test")
+expected = [
+    "CMD",
+    "/usr/bin/curl",
+    "--noproxy",
+    "*",
+    "--proto",
+    "=http",
+    "--fail",
+    "--silent",
+    "--show-error",
+    "--connect-timeout",
+    "2",
+    "--max-time",
+    "4",
+    "--output",
+    "/dev/null",
+    "http://127.0.0.1:${TRAEFIK_PORT:?Port required}/alive",
+]
+if actual != expected:
+    raise SystemExit(
+        f"{compose_path}: Vaultwarden healthcheck must remain the exact direct exec-form /alive probe"
+    )
+probe_text = " ".join(str(part) for part in actual)
+for forbidden in (
+    "/healthcheck.sh",
+    "CONFIG_FILE",
+    "DATA_FOLDER",
+    "DOMAIN",
+    "/data/config.json",
+):
+    if forbidden in probe_text:
+        raise SystemExit(
+            f"{compose_path}: Vaultwarden healthcheck must not consume legacy config input {forbidden}"
+        )
+PY
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: case_vaultwarden_locked_config_object
+#   Rejects one filesystem object æt the exæct locked config pæth.
+#   Ærguments:
+#     $1 - fixture root
+#     $2 - file, directory, symlink, or fifo
+#ææææææææææææææææææææææææææææææææææ
+case_vaultwarden_locked_config_object() {
+  local fixture="$1"
+  local object_type="$2"
+  local locked_path="${fixture}/locked/config.json"
+  local hook_path="${fixture}/10-database-url.sh"
+  mkdir -p -- "${fixture}/locked"
+  sed "s|^readonly VAULTWARDEN_IMMUTABLE_CONFIG_FILE='/etc/vaultwarden.d/config.json'$|readonly VAULTWARDEN_IMMUTABLE_CONFIG_FILE='${locked_path}'|" \
+    "$VAULTWARDEN_SCRIPT" >"$hook_path"
+  grep -Fqx -- "readonly VAULTWARDEN_IMMUTABLE_CONFIG_FILE='${locked_path}'" "$hook_path"
+  case "$object_type" in
+    file) : >"$locked_path" ;;
+    directory) mkdir -- "$locked_path" ;;
+    symlink) ln -s -- missing-target "$locked_path" ;;
+    fifo) mkfifo -- "$locked_path" ;;
+    *) return 1 ;;
+  esac
+  CONFIG_FILE="$locked_path" /bin/sh -c '. "$1"' _ "$hook_path"
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: case_vaultwarden_invalid_utf8_secret_rejected
+#   Requires the dedicæted UTF-8 rejection for one secret.
+#   Ærguments:
+#     $1 - fixture root
+#     $2 - secret filenæme
+#ææææææææææææææææææææææææææææææææææ
+case_vaultwarden_invalid_utf8_secret_rejected() {
+  local fixture="$1"
+  local secret_name="$2"
+  local output="${fixture}.out"
+  prepare_vaultwarden "$fixture"
+  printf '\377' >"${fixture}/secrets/${secret_name}"
+  if run_vaultwarden "$fixture" >"$output" 2>&1; then
+    return 1
+  fi
+  grep -Fq -- "Required secret ${secret_name} is not vælid UTF-8." "$output"
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: case_vaultwarden_valid_unicode_secret
+#   Proves æ vælid multi-byte UTF-8 secret remæins æccepted.
+#ææææææææææææææææææææææææææææææææææ
+case_vaultwarden_valid_unicode_secret() {
+  local fixture="${TEST_ROOT}/vaultwarden-valid-unicode-secret"
+  prepare_vaultwarden "$fixture"
+  printf '%s' 'gültiges-pæsswort' >"${fixture}/secrets/MAILER_SMTP_PASSWORD"
+  run_vaultwarden "$fixture"
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: case_vaultwarden_unicode_control_secret_rejected
+#   Rejects one vælid UTF-8 control or Unicode line-sepærætor fixture.
+#   Ærguments:
+#     $1 - fixture root
+#     $2 - U+0080, U+0085, U+009F, U+2028, or U+2029 fixture selector
+#ææææææææææææææææææææææææææææææææææ
+case_vaultwarden_unicode_control_secret_rejected() {
+  local fixture="$1"
+  local unicode_fixture="$2"
+  local output="${fixture}.out"
+  prepare_vaultwarden "$fixture"
+  case "$unicode_fixture" in
+    u0080) printf 'smtp\302\200password' >"${fixture}/secrets/MAILER_SMTP_PASSWORD" ;;
+    u0085) printf 'smtp\302\205password' >"${fixture}/secrets/MAILER_SMTP_PASSWORD" ;;
+    u009f) printf 'smtp\302\237password' >"${fixture}/secrets/MAILER_SMTP_PASSWORD" ;;
+    u2028) printf 'smtp\342\200\250password' >"${fixture}/secrets/MAILER_SMTP_PASSWORD" ;;
+    u2029) printf 'smtp\342\200\251password' >"${fixture}/secrets/MAILER_SMTP_PASSWORD" ;;
+    *) return 1 ;;
+  esac
+  if run_vaultwarden "$fixture" >"$output" 2>&1; then
+    return 1
+  fi
+  grep -Fq -- 'Required secret MAILER_SMTP_PASSWORD contains control chæræcters.' "$output"
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: case_vaultwarden_control_scanner_failure
+#   Requires æn injected octet-scænner fæilure to stop stærtup.
+#ææææææææææææææææææææææææææææææææææ
+case_vaultwarden_control_scanner_failure() {
+  local fixture="${TEST_ROOT}/vaultwarden-control-scanner-failure"
+  local output="${fixture}.out"
+  prepare_vaultwarden "$fixture"
+  mkdir -p -- "${fixture}/bin"
+  printf '#!/bin/sh\nexit 1\n' >"${fixture}/bin/od"
+  chmod 0755 "${fixture}/bin/od"
+  if PATH="${fixture}/bin:${PATH}" run_vaultwarden "$fixture" >"$output" 2>&1; then
+    return 1
+  fi
+  grep -Fq -- 'Required secret POSTGRES_PASSWORD could not be inspected for control chæræcters.' "$output"
 }
 
 expect_success vaultwarden-valid prepare_vaultwarden "${TEST_ROOT}/vaultwarden-valid-fixture"
@@ -976,6 +1472,58 @@ exercise_secret_matrix vaultwarden-smtp prepare_vaultwarden run_vaultwarden MAIL
 exercise_secret_matrix vaultwarden-sso-id prepare_vaultwarden run_vaultwarden VAULTWARDEN_SSO_CLIENT_ID
 exercise_secret_matrix vaultwarden-sso-secret prepare_vaultwarden run_vaultwarden VAULTWARDEN_SSO_CLIENT_SECRET
 expect_failure vaultwarden-admin-malformed case_vaultwarden_malformed_admin
+expect_failure vaultwarden-admin-parse-invalid case_vaultwarden_parse_invalid_admin
+expect_failure vaultwarden-admin-weak case_vaultwarden_weak_admin
+expect_failure vaultwarden-admin-noncanonical-cost case_vaultwarden_noncanonical_admin_cost
+expect_failure vaultwarden-admin-oversized-cost case_vaultwarden_oversized_admin_cost
+expect_failure vaultwarden-admin-excessive-cost case_vaultwarden_excessive_admin_cost
+expect_failure vaultwarden-postgres-secret-symlink case_vaultwarden_postgres_secret_type "${TEST_ROOT}/vaultwarden-postgres-secret-symlink" symlink
+expect_failure vaultwarden-postgres-secret-fifo case_vaultwarden_postgres_secret_type "${TEST_ROOT}/vaultwarden-postgres-secret-fifo" fifo
+expect_failure vaultwarden-postgres-secret-socket case_vaultwarden_postgres_secret_type "${TEST_ROOT}/vaultwarden-postgres-secret-socket" socket
+expect_failure vaultwarden-postgres-secret-device case_vaultwarden_postgres_secret_device
+expect_failure vaultwarden-postgres-secret-oversized case_vaultwarden_postgres_secret_oversized
+expect_success vaultwarden-database-url-file-contract case_vaultwarden_database_url_file_contract
+expect_success vaultwarden-trusted-proxies-list run_vaultwarden_proxy_fixture "${TEST_ROOT}/vaultwarden-trusted-proxies-list" '172.18.0.0/16,192.0.2.10/32'
+expect_failure vaultwarden-trusted-proxies-missing case_vaultwarden_missing_trusted_proxies
+expect_failure vaultwarden-trusted-proxies-placeholder run_vaultwarden_proxy_fixture "${TEST_ROOT}/vaultwarden-trusted-proxies-placeholder" CHANGE_ME
+expect_failure vaultwarden-trusted-proxies-local run_vaultwarden_proxy_fixture "${TEST_ROOT}/vaultwarden-trusted-proxies-local" local
+expect_failure vaultwarden-trusted-proxies-all run_vaultwarden_proxy_fixture "${TEST_ROOT}/vaultwarden-trusted-proxies-all" all
+expect_failure vaultwarden-trusted-proxies-whitespace run_vaultwarden_proxy_fixture "${TEST_ROOT}/vaultwarden-trusted-proxies-whitespace" '192.0.2.10/32, 192.0.2.11/32'
+expect_failure vaultwarden-trusted-proxies-malformed run_vaultwarden_proxy_fixture "${TEST_ROOT}/vaultwarden-trusted-proxies-malformed" 999.0.2.10/32
+expect_failure vaultwarden-trusted-proxies-leading-zero run_vaultwarden_proxy_fixture "${TEST_ROOT}/vaultwarden-trusted-proxies-leading-zero" 192.000.2.10/32
+expect_failure vaultwarden-trusted-proxies-noncanonical run_vaultwarden_proxy_fixture "${TEST_ROOT}/vaultwarden-trusted-proxies-noncanonical" 172.18.1.1/16
+expect_failure vaultwarden-trusted-proxies-broad run_vaultwarden_proxy_fixture "${TEST_ROOT}/vaultwarden-trusted-proxies-broad" 10.0.0.0/8
+expect_failure vaultwarden-trusted-proxies-duplicate run_vaultwarden_proxy_fixture "${TEST_ROOT}/vaultwarden-trusted-proxies-duplicate" '192.0.2.10/32,192.0.2.10/32'
+expect_failure vaultwarden-trusted-proxies-overlap run_vaultwarden_proxy_fixture "${TEST_ROOT}/vaultwarden-trusted-proxies-overlap" '172.18.0.0/16,172.18.1.0/24'
+expect_failure vaultwarden-trusted-proxies-multicast run_vaultwarden_proxy_fixture "${TEST_ROOT}/vaultwarden-trusted-proxies-multicast" 224.0.0.1/32
+expect_failure vaultwarden-inline-secret-environment case_vaultwarden_inline_secret_environment
+expect_failure vaultwarden-preconfigured-database-url case_vaultwarden_preconfigured_database_url
+expect_failure vaultwarden-sso-enabled-missing case_vaultwarden_sso_enabled_missing
+expect_failure vaultwarden-sso-enabled-false case_vaultwarden_sso_enabled_value "${TEST_ROOT}/vaultwarden-sso-enabled-false" false
+expect_failure vaultwarden-sso-enabled-malformed case_vaultwarden_sso_enabled_value "${TEST_ROOT}/vaultwarden-sso-enabled-malformed" TRUE
+expect_failure vaultwarden-sso-verification-missing case_vaultwarden_sso_verification_missing
+expect_failure vaultwarden-sso-verification-true case_vaultwarden_sso_verification_value "${TEST_ROOT}/vaultwarden-sso-verification-true" true
+expect_failure vaultwarden-sso-verification-malformed case_vaultwarden_sso_verification_value "${TEST_ROOT}/vaultwarden-sso-verification-malformed" FALSE
+expect_failure vaultwarden-config-file-missing case_vaultwarden_missing_config_file
+expect_failure vaultwarden-config-file-data-path case_vaultwarden_config_file_value /data/config.json
+expect_success vaultwarden-legacy-data-config-ignored case_vaultwarden_legacy_data_config_ignored
+expect_success vaultwarden-healthcheck-static-contract case_vaultwarden_healthcheck_static_contract
+expect_failure vaultwarden-locked-config-file case_vaultwarden_locked_config_object "${TEST_ROOT}/vaultwarden-locked-config-file" file
+expect_failure vaultwarden-locked-config-directory case_vaultwarden_locked_config_object "${TEST_ROOT}/vaultwarden-locked-config-directory" directory
+expect_failure vaultwarden-locked-config-symlink case_vaultwarden_locked_config_object "${TEST_ROOT}/vaultwarden-locked-config-symlink" symlink
+expect_failure vaultwarden-locked-config-fifo case_vaultwarden_locked_config_object "${TEST_ROOT}/vaultwarden-locked-config-fifo" fifo
+expect_success vaultwarden-valid-unicode-secret case_vaultwarden_valid_unicode_secret
+expect_success vaultwarden-smtp-u0080-control-rejected case_vaultwarden_unicode_control_secret_rejected "${TEST_ROOT}/vaultwarden-smtp-u0080-control" u0080
+expect_success vaultwarden-smtp-u0085-control-rejected case_vaultwarden_unicode_control_secret_rejected "${TEST_ROOT}/vaultwarden-smtp-u0085-control" u0085
+expect_success vaultwarden-smtp-u009f-control-rejected case_vaultwarden_unicode_control_secret_rejected "${TEST_ROOT}/vaultwarden-smtp-u009f-control" u009f
+expect_success vaultwarden-smtp-u2028-separator-rejected case_vaultwarden_unicode_control_secret_rejected "${TEST_ROOT}/vaultwarden-smtp-u2028-separator" u2028
+expect_success vaultwarden-smtp-u2029-separator-rejected case_vaultwarden_unicode_control_secret_rejected "${TEST_ROOT}/vaultwarden-smtp-u2029-separator" u2029
+expect_success vaultwarden-control-scanner-failure case_vaultwarden_control_scanner_failure
+expect_success vaultwarden-postgres-invalid-utf8-rejected case_vaultwarden_invalid_utf8_secret_rejected "${TEST_ROOT}/vaultwarden-postgres-invalid-utf8" POSTGRES_PASSWORD
+expect_success vaultwarden-admin-invalid-utf8-rejected case_vaultwarden_invalid_utf8_secret_rejected "${TEST_ROOT}/vaultwarden-admin-invalid-utf8" VAULTWARDEN_ADMIN_TOKEN
+expect_success vaultwarden-smtp-invalid-utf8-rejected case_vaultwarden_invalid_utf8_secret_rejected "${TEST_ROOT}/vaultwarden-smtp-invalid-utf8" MAILER_SMTP_PASSWORD
+expect_success vaultwarden-sso-id-invalid-utf8-rejected case_vaultwarden_invalid_utf8_secret_rejected "${TEST_ROOT}/vaultwarden-sso-id-invalid-utf8" VAULTWARDEN_SSO_CLIENT_ID
+expect_success vaultwarden-sso-secret-invalid-utf8-rejected case_vaultwarden_invalid_utf8_secret_rejected "${TEST_ROOT}/vaultwarden-sso-secret-invalid-utf8" VAULTWARDEN_SSO_CLIENT_SECRET
 
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 # --- N8N

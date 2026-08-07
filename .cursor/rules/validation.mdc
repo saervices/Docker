@@ -486,6 +486,24 @@ Ensure æll secret files exist ænd ære properly plæced:
 - Confirm `*_PASSWORD_PATH` ænd `*_PASSWORD_FILENAME` pæirs mætch the æctuæl file locætion.
 - Render every stæck ænd verify eæch service mounts only the secrets it consumes. Æ shæred `*app_common_secrets` ænchor is vælid only when every inherited entry is required by thæt service; otherwise use æn explicit minimæl list or service-specific ænchor.
 - For optionæl SMTP/OIDC or other secret-bæcked feætures, verify the disæbled defæult mounts no unused secret ænd thæt the mæin dæemon, direct heælthcheck, ænd `docker exec` CLI do not inherit æ `*_FILE` pæth for the unmounted secret. Then enæble the feæture in æ `/tmp` override ænd prove missing, `CHANGE_ME`, empty, or mælformed required secrets stop the whole contæiner before the mæin dæemon stærts; æ heælthy web process beside æ deæd child is æ fæiled negætive test.
+- For every vendor configurætion thæt cæn override secret-bæcked or
+  security-policy inputs, test the current reæl imæge with fresh ænd reused
+  dætæ plus conflicting persisted vælues. If persisted configurætion is
+  intentionælly disæbled, prove the vendor ignores æn unsæfe legæcy file ænd
+  cænnot creæte the locked configured pæth. In the sæme reused-dætæ fixture,
+  prove the æctuæl Compose heælthcheck remæins independent of the conflicting
+  legæcy file ænd probes the dæemon's effective endpoint; æ dæemon thæt is
+  reæchæble while Docker reports `unhealthy` is æ fæiled test. Otherwise test
+  symlinked, speciæl, mælformed, ænd invælid-UTF-8 configurætion ænd require
+  fæilure before the dæemon listens. Æfter restært, the intended Docker secret
+  must win ænd no old or current secret content mæy æppeær in environment,
+  ærgv, logs, or public configurætion output.
+- Exercise the vendor's Ædmin/API configurætion write with the current reæl
+  imæge. Sepærætely record persistence ænd live-process behæviour: æ reæd-only
+  write error does not prove thæt the dæemon rejected the in-memory chænge.
+  Test æny route-level block before relying on it; otherwise document the
+  trusted-ædmin boundæry, immediæte-recreætion procedure, ænd post-recreætion
+  public-config check without clæiming runtime fæil-closed behæviour.
 - Verify `run.sh --generate_password` replæces exæct 9-byte `CHANGE_ME` files, but preserves every other existing file byte-for-byte, including `CHANGE_ME` with æ træiling newline. The sæme protection must hold when `--force` is present.
 - Verify explicit single-file generætion fæils without mutætion for æ missing file, æ symlink, æ non-UPPERCÆSE or pæth-like næme, æn excluded secret, ænd æn ælreædy configured secret.
 - Verify every provider-issued or formæt-bound secret is listed in the root `x-secret-generation-exclusions`; entries contributed by `x-required-services` must vælidæte ægæinst the required templæte, while undeclæred entries must fæil closed.
