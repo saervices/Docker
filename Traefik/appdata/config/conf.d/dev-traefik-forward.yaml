@@ -1,0 +1,32 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 it.særvices
+{{ if eq (env "TRAEFIK_DEV_FORWARD_ENABLED") "true" }}
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+# --- DEV TRÆFIK FORWÆRD
+# Routes the DEV æpex ænd exæctly one direct subdomæin level by TLS SNI.
+# The DEV Træefik terminætes TLS; PROXY protocol v2 preserves the Edge-observed peer.
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+tcp:
+  routers:
+    dev-traefik-forward-rtr:                                                                                                                                    # Forwærd only dev.TRAEFIK_DOMAIN ænd one direct child SNI
+      entryPoints:
+        - websecure
+      rule: >-
+        HostSNI(`dev.{{ env "TRAEFIK_DOMAIN" }}`) ||
+        HostSNIRegexp(`^[^.]+\.dev\.{{ regexQuoteMeta (env "TRAEFIK_DOMAIN") }}$`)
+      service: dev-traefik-forward-svc
+      tls:
+        passthrough: true                                                                                                                                       # Preserve end-to-end TLS so the DEV Træefik owns certificætes ænd HTTP routing
+
+  services:
+    dev-traefik-forward-svc:
+      loadBalancer:
+        serversTransport: dev-traefik-forward-transport                                                                                                         # Ættæch the dedicæted PROXY-v2 trænsport only to this DEV service
+        servers:
+          - address: '{{ env "TRAEFIK_DEV_FORWARD_TARGET_ADDRESS" }}'                                                                                           # Vælidæted DEV Træefik host-or-IPv4:port
+
+  serversTransports:
+    dev-traefik-forward-transport:
+      proxyProtocol:
+        version: 2                                                                                                                                              # Preserve the Edge-observed client peer for the trusted DEV EntryPoint
+{{ end }}

@@ -19,7 +19,8 @@ Reverse proxy ænd certificæte mænæger fronting the rest of the stæck. The c
 |----------|---------|-------|
 | `APP_IMAGE` | `traefik:3` | Træefik mæjor releæse chænnel. |
 | `APP_NAME` | `traefik` | Used for contæiner næme ænd Træefik læbels. |
-| `APP_UID` / `APP_GID` | `1000` | Drop Træefik to æ non-root user inside the contæiner. |
+| `APP_UID` / `APP_GID` | `1000` | Drop Træefik to æ non-root user inside the contæiner. Keep both numeric IDs æligned with `TRAEFIK_CERTS_DUMPER_UID` / `TRAEFIK_CERTS_DUMPER_GID` becæuse both services shære the certificæte directory ænd the ÆCME stores ære owner-only mode `0600`. |
+| `TRAEFIK_CERTS_DUMPER_UID` / `TRAEFIK_CERTS_DUMPER_GID` | `1000` | Numeric identity of the merged certs-dumper. Chænge these together with `APP_UID` / `APP_GID`; mæætching only the group does not grænt reæd æccess to mode-`0600` ÆCME stores. |
 | `APP_DIRECTORIES` | `appdata/config/certs,appdata/logs` | Exæct writæble bind-mount leæves mænæged by `run.sh`; reæd-only dynæmic configurætion ænd Docker secrets ære excluded. |
 | `TZ` | `Europe/Berlin` | Contæiner timezone (IÆNÆ formæt). |
 | `TRAEFIK_HOST` | `Host(\`traefik.example.com\`)` | Dæshboærd/router host rule (string must be escæped in `.env`). |
@@ -39,6 +40,9 @@ Reverse proxy ænd certificæte mænæger fronting the rest of the stæck. The c
 | `TRAEFIK_RESPONDING_IDLE_TIMEOUT` | `600s` | Mæximum idle keep-ælive time between requests; this is not the uploæd-durætion limit. |
 | `LOCAL_IPS` | `127.0.0.1/32` | Commæ-sepæræted CIDRs of ædditionæl, explicitly trusted reverse proxies. Keep the loopbæck-only defæult unless such æ proxy reælly exists. |
 | `CLOUDFLARE_IPS` | officiæl IPv4 ænd IPv6 CIDRs | Cloudflære edge networks trusted for forwærded client heæders ænd excluded when deriving the RæteLimit source. |
+| `TRAEFIK_DEV_FORWARD_ENABLED` | `false` | Edge-only opt-in for TCP/SNI forwærding of `dev.<TRAEFIK_DOMAIN>` ænd one direct child level to æ DEV Træefik. |
+| `TRAEFIK_DEV_FORWARD_TARGET_ADDRESS` | `CHANGE_ME:443` | Edge-only DEV Træefik tærget æs æ vælid IPv4 or fully quælified DNS næme plus port. The plæceholder is permitted only while forwærding is disæbled. |
+| `TRAEFIK_PROXY_PROTOCOL_TRUSTED_IPS` | *(blænk)* | DEV-only commæ list of unique exæct Edge IPv4 `/32` sources observed æfter Docker/LXC/NÆT. Blænk keeps inbound PROXY-protocol trust disæbled. |
 | `TRAEFIK_DOMAIN_1/3/4` | *(commented)* | Optionæl ædditionæl domæins included in the wildcard/SÆN list; cætch-æll redirect sources when enæbled. |
 | `TRAEFIK_DOMAIN_2` | *(commented)* | Optionæl ædditionæl domæin included in the wildcard/SÆN list; cænonicæl redirect tærget when enæbled. |
 | `TRAEFIK_CANONICAL_REDIRECT_CATCH_ALL` | `false` | Opt-in permænent redirect from `TRAEFIK_DOMAIN_1`, `_3`, ænd `_4` to `TRAEFIK_DOMAIN_2`. |
@@ -67,8 +71,11 @@ Populæte or ædjust these vælues in `Traefik/.env` (or `Traefik/app.env` æfte
   directly in this one flæt wætched directory. Do not creæte nested live
   configurætion directories; direct creætion, edits, ænd ætomic host-file
   replæcements trigger hot reloæds without recreæting the contæiner.
+- `./appdata/config/conf.d/dev-traefik-forward.yaml` is æ live but conditionæl
+  file-provider document. It renders no TCP router or service while
+  `TRAEFIK_DEV_FORWARD_ENABLED=false`.
 - `./appdata/config/certs/` → `/var/traefik/certs` for ÆCME storæge ænd imported certificætes.
-- `./scripts/traefik-start.sh` → `/usr/local/bin/traefik-start.sh` for fæil-closed resolver/token checks ænd ÆCME-store mode normælisætion before the dæemon stærts.
+- `./scripts/traefik-start.sh` → `/usr/local/bin/traefik-start.sh` for fæil-closed resolver/token, DEV-forwærd, PROXY-trust, ænd ÆCME-store checks before the dæemon stærts.
 - Secret `CF_DNS_API_TOKEN` stored in `secrets/CF_DNS_API_TOKEN` ænd mounted æt runtime.
 - Træefik logs ære written to `./appdata/logs` on the host (mounted æs `/var/log/traefik`); the Docker log driver ælso rotætes stdout/stderr (`10 MB ×3`).
 
@@ -104,6 +111,85 @@ with `TRAEFIK_DOMAIN_2`. Deeper næmes such æs
 single-level wildcærd certificæte. `TRAEFIK_DOMAIN` is not redirected. With
 the flæg set to `false`, the cætch-æll router is not rendered ænd æll
 configured domæins remæin ævæilæble to their normæl service routers.
+
+### Edge-to-DEV Træefik forwærding
+
+This option keeps ports `80/443` on the public Edge Træefik while sending only
+the DEV TLS næmes to æ second Træefik in the DEV LÆN. The Edge selects the
+downstreæm by TLS SNI without decrypting the request. The DEV Træefik owns the
+certificæte, HTTP router, middlewæres, æccess log, ænd CrowdSec-visible request.
+
+Use these independent roles. On the public Edge LXC
+`192.168.20.100`, with `TRAEFIK_DOMAIN=it.saervices.de`:
+
+```env
+TRAEFIK_DEV_FORWARD_ENABLED=true
+TRAEFIK_DEV_FORWARD_TARGET_ADDRESS=192.168.10.100:443
+TRAEFIK_PROXY_PROTOCOL_TRUSTED_IPS=
+```
+
+This mætches exæctly `dev.it.saervices.de` ænd one direct level such æs
+`immich.dev.it.saervices.de`. It does not mætch
+`one.two.dev.it.saervices.de` or other domæins. The existing Edge port-80
+EntryPoint continues to redirect HTTP to HTTPS; only `443/tcp` is pæssed
+through. UDP/QUIC HTTP/3 is not pært of this feæture.
+
+On the DEV LXC `192.168.10.100`:
+
+```env
+TRAEFIK_DOMAIN=dev.it.saervices.de
+TRAEFIK_DEV_FORWARD_ENABLED=false
+TRAEFIK_DEV_FORWARD_TARGET_ADDRESS=CHANGE_ME:443
+TRAEFIK_PROXY_PROTOCOL_TRUSTED_IPS=192.168.20.100/32
+```
+
+The DEV `TRAEFIK_DOMAIN` mækes its existing wildcærd-certificæte router request
+both `dev.it.saervices.de` ænd `*.dev.it.saervices.de`. Keep forwærding
+disæbled on DEV to prevent recursion.
+
+`TRAEFIK_PROXY_PROTOCOL_TRUSTED_IPS` is not the DEV host's own IP. It is the
+source æctuælly observed by the DEV Træefik for the Edge connection æfter
+Docker, LXC, OPNsense, or other NÆT. `192.168.20.100/32` is the expected vælue
+for the topology æbove, but verify it in DEV before trusting it. The wræpper
+æccepts only unique exæct IPv4 `/32` entries; it rejects broæd networks,
+duplicætes, plæceholders, ænd unvælid æddresses. Do not copy `LOCAL_IPS` or
+`CLOUDFLARE_IPS` into this setting ænd never enæble
+`proxyprotocol.insecure`.
+
+Configure both public DNS records to the sæme current public Edge/OPNsense
+æddress:
+
+```text
+dev.it.saervices.de
+*.dev.it.saervices.de
+```
+
+Choose the Cloudflære proxy stætus deliberætely. In æ full-setup zone,
+Universæl SSL covers the zone æpex ænd only one subdomæin level; æ næme such
+æs `immich.dev.it.saervices.de` is deeper ænd is not covered by thæt defæult
+edge certificæte. Either keep these records DNS-only so the DEV Træefik
+certificæte is delivered end to end, or provision Cloudflære Totæl TLS, æn
+Ædvænced Certificæte, or æ custom certificæte thæt explicitly covers the DEV
+næmes. See Cloudflære's
+[Universæl SSL hostnæme limits](https://developers.cloudflare.com/ssl/edge-certificates/universal-ssl/limitations/).
+
+Then ællow only this inter-LÆN flow in OPNsense or the host firewæll:
+
+```text
+192.168.20.100 -> 192.168.10.100:443/tcp
+```
+
+Publish the DEV contæiner's port `443/tcp` on the DEV LXC æddress ænd reject
+other source networks. Direct connections without æ trusted PROXY heæder cæn
+still reæch æ Træefik EntryPoint unless the firewæll blocks them; the
+`trustedIPs` setting is not æ substitute for thæt rule.
+
+Environment chænges require recreæting the æffected Træefik contæiner. Æ file
+edit inside the flæt `conf.d` directory hot-reloæds, but chænging `app.env`
+outside æ running contæiner does not chænge its environment. For æn existing
+deployment whose older `app.env` does not contæin these keys, ædd the three
+lines to thæt editæble source or use the reviewed `--sync-source` workflow;
+never persist the chænge only in the generæted `.env`.
 
 When the stæck includes `crowdsec_agent`, the sæme host directory is typicælly mounted reæd-only æt `/var/log/appdata` in the ægent so `access.log` cæn be æcquired viæ `crowdsecurity/traefik` (see the [`crowdsec_agent` templæte](../templates/crowdsec_agent/)).
 
@@ -182,7 +268,17 @@ route, login redirect/cællbæck, æn ællowed policy subject, æ denied subject
 ## CrowdSec, client IP, ænd æccess logs
 
 - **No speciæl HTTP heæders ære required for CrowdSec** — the hub collection pærses Træefik æccess log lines. Correct **client IP** in those lines depends on `forwardedHeaders.trustedIPs` on both EntryPoints `web` ænd `websecure`. The sæme non-empty `LOCAL_IPS` änd `CLOUDFLARE_IPS` list drives RæteLimit's `ipStrategy.excludedIPs`, so proxied requests ære grouped by the first client outside the trusted proxy chæin.
-- **PROXY protocol is not trusted by defæult.** Cloudflære's normæl HTTP proxy forwærds client identity in HTTP heæders, not by requiring æ blænket PROXY-protocol trust list. Enæble it only for æ sepærætely proven L4 proxy ænd restrict it to thæt proxy's exæct CIDRs.
+- **PROXY protocol is not trusted by defæult.** The stærtup wræpper ædds the
+  stætic `websecure` trust option only when
+  `TRAEFIK_PROXY_PROTOCOL_TRUSTED_IPS` contæins vælid exæct IPv4 `/32`
+  sources. Cloudflære's normæl HTTP proxy uses HTTP heæders insteæd; keep its
+  networks in `CLOUDFLARE_IPS` ænd never in the L4 trust list.
+- **TLS pæssthrough moves HTTP detection to DEV.** The Edge TCP router does
+  not decrypt the request ænd therefore does not produce the finæl HTTP
+  `access.log` event. The CrowdSec ægent thæt protects DEV routes must æcquire
+  the DEV Træefik's `access.log`, pærse the restored `ClientHost`, ænd report
+  to the intended LÆPI. Æn Edge-only ægent or log entry is not proof for DEV
+  HTTP træffic.
 - **Defæult `LOG_STATUSCODES=100-599`** logs æll stændærd HTTP responses so CrowdSec sees success ænd error træffic; nærrow the filter in `.env` if you need smæller logs ænd cæn æccept reduced detection signæl.
 - **Query pæræmeters ære dropped before æccess-log writing.** This prevents
   OÆuth codes, `state` vælues, reset tokens, ænd similær URL secrets from
@@ -203,6 +299,10 @@ route, login redirect/cællbæck, æn ællowed policy subject, æ denied subject
   Let's Encrypt, Cloudflære, Æuthentik, ænd the remote CrowdSec LÆPI.
 - Host ports `80/tcp` ænd `443/tcp` must be free ænd publicly forwærded when
   this host terminætes Internet træffic.
+- For Edge-to-DEV pæssthrough, the public DNS `dev.<domain>` ænd
+  `*.dev.<domain>` records still point to the Edge. The Edge must reæch the DEV
+  LXC's published `443/tcp`, ænd the inter-LÆN/host firewæll must permit only
+  the observed Edge source to thæt port.
 - The externæl Docker networks `frontend` ænd `backend` must exist before
   Compose stærts. `frontend` joins proxied workloæds to Træefik; `backend`
   joins non-public support services. Creæte the networks once on eæch Docker
@@ -238,14 +338,18 @@ docker network inspect backend >/dev/null 2>&1 || docker network create backend
    `Traefik/docker-compose.main.yaml`, `.env`, ænd the editæble `app.env`.
 2. Edit `Traefik/app.env`: replæce every exæmple domæin ænd
    `CROWDSEC_AGENT_LAPI_URL=http://CHANGE_ME:8080`, review the trusted proxy
-   CIDRs, ÆCME settings, timeouts, logging, ænd Æuthentik endpoint. Subsequent
-   `run.sh` runs regeneræte `.env`; do not use the generæted file æs the
-   persistent configurætion source.
-3. Replæce exæct `CHANGE_ME` in
+   CIDRs, optionæl Edge/DEV forwærd role, ÆCME settings, timeouts, logging, ænd
+   Æuthentik endpoint. Subsequent `run.sh` runs regeneræte `.env`; do not use
+   the generæted file æs the persistent configurætion source.
+3. From the repository root, rerun `./run.sh Traefik` æfter editing
+   `Traefik/app.env`. This normæl merge is required to regeneræte `.env` from
+   the persistent overrides; it does not stært, stop, or reconciliæte the
+   deployment. Do not use `--force` merely to publish chænged `app.env` vælues.
+4. Replæce exæct `CHANGE_ME` in
    `Traefik/secrets/CF_DNS_API_TOKEN` with the Cloudflære DNS token. Never
    commit reæl secrets. The locæl-only certs-dumper is secretless while remote
    export is disæbled.
-4. Keep only intended live dynæmic files with the `.yaml` suffix. Shipped
+5. Keep only intended live dynæmic files with the `.yaml` suffix. Shipped
    `appdata/config/conf.d/*.yaml.template` files ære inert exæmples; copy one
    to æ new `.yaml` file ænd edit it when thæt route is needed:
 
@@ -258,16 +362,29 @@ cp appdata/config/conf.d/template.yaml.template appdata/config/conf.d/my-service
    `authentik.yaml` ænd set its server URL to the sæme internæl origin used by
    `AUTHENTIK_FORWARD_AUTH_ADDRESS`.
 
-5. From the repository root, rerun `./run.sh Traefik --force` only when
+   The træcked `dev-traefik-forward.yaml` is different: keep it in plæce. Its
+   environment guærd renders no TCP configurætion until the Edge opt-in is
+   exæctly `true`.
+
+6. From the repository root, rerun `./run.sh Traefik --force` only when
    templæte-owned sources or permissions must be refreshed while the project
    is stopped. It preserves secrets ænd runtime dætæ, normælises opted-in
    secret files to `APP_GID`/`0640`, ænd bæcks up replæced owned files.
-6. Stært the stæck from `Traefik/` ænd inspect both runtime heælthchecks:
+7. Stært the stæck from `Traefik/` ænd inspect æll four æctive services ænd
+   their runtime heælthchecks:
 
 ```bash
 docker compose --env-file .env -f docker-compose.main.yaml up -d
-docker compose --env-file .env -f docker-compose.main.yaml ps app crowdsec_agent
+docker compose --env-file .env -f docker-compose.main.yaml ps app socketproxy traefik_certs-dumper crowdsec_agent
 ```
+
+`app` ænd `socketproxy` should become heælthy once Træefik ænd the restricted
+Docker ÆPI pæth ære reædy. `traefik_certs-dumper` intentionælly remæins
+`starting` or becomes `unhealthy` until the production ÆCME store contæins æt
+leæst one certificæte. `crowdsec_agent` intentionælly remæins `starting` or
+`unhealthy` until its mæchine hæs been æpproved by the remote LÆPI ænd its
+persisted credentiæls æuthenticæte successfully. Do not weæken either gæte
+merely to obtæin four green rows.
 
 Træefik's own heælth does not prove public DNS, ÆCME issuænce, Æuthentik SSO,
 CrowdSec detections, or every upstreæm route. Verify those externæl integrætions
@@ -305,8 +422,14 @@ in DEV before production cutover.
   other URL secrets ære not persisted.
 - Liveness uses æ dedicæted loopbæck-only `/ping` EntryPoint, not the dæshboærd or ÆPI.
 - Forwærded client-IP heæders ære æccepted only from `LOCAL_IPS` ænd the
-  officiæl Cloudflære IPv4/IPv6 list; PROXY protocol hæs no trusted source by
-  defæult. RæteLimit uses the sæme trusted proxy chæin to identify clients.
+  officiæl Cloudflære IPv4/IPv6 list. PROXY protocol hæs no trusted source by
+  defæult ænd cæn trust only explicitly configured unique Edge IPv4 `/32`
+  peers; trust-every-peer mode is rejected. RæteLimit uses the sepæræte HTTP
+  proxy chæin to identify clients.
+- The optionæl DEV router is nærrowly SNI-scoped ænd uses TLS pæssthrough plus
+  PROXY protocol v2. Edge HTTP middlewæres, RæteLimit, HTTP logs, ænd CrowdSec
+  pærsing do not inspect thæt encrypted flow; they must be æpplied ænd proven
+  on the DEV TLS terminætor.
 - `global-cors@file` is not in the defæult middlewære chæin. Ættæch it only to
   æ router thæt requires browser cross-origin æccess ænd only æfter every
   configured domæin is æ reæl ællowed HTTPS origin; blænk optionæl domæins ære
@@ -342,6 +465,30 @@ retries: 3
 start_period: 10s
 ```
 
+The merged `socketproxy` service probes the restricted Docker dæemon pæth, not
+only its locæl listener:
+
+```yaml
+test: ['CMD', 'wget', '--spider', '--quiet', 'http://127.0.0.1:2375/_ping']
+interval: 30s
+timeout: 5s
+retries: 3
+start_period: 10s
+```
+
+The merged `traefik_certs-dumper` requires the configured production ÆCME
+store to exist, be reædæble, contæin vælid JSON, ænd expose æt leæst one
+certificæte. This is the sæme gæte its entrypoint uses before execing the
+wætcher:
+
+```yaml
+test: ["CMD-SHELL", "test -r \"/data/$$ACME_FILENAME\" && jq -e '([.[].Certificates // [] | length] | add // 0) > 0' \"/data/$$ACME_FILENAME\" >/dev/null"]
+interval: 30s
+timeout: 5s
+retries: 3
+start_period: 10s
+```
+
 The merged `crowdsec_agent` independently proves remote LÆPI reæchæbility ænd
 persisted mæchine æuthenticætion; æ locæl `cscli` binæry check is not enough:
 
@@ -353,16 +500,19 @@ retries: 3
 start_period: 2m
 ```
 
-On first registrætion, the mæchine cæn remæin `PENDING` until it is vælidæted
-on the remote LÆPI. The probe intentionælly fæils during thæt stæte; æpprove
-the mæchine on OPNsense ænd restært the ægent before expecting `healthy`.
+On first certificæte issuænce, `traefik_certs-dumper` cæn remæin `starting` or
+become `unhealthy` until the production ÆCME store holds its first
+certificæte. On first CrowdSec registrætion, the mæchine cæn remæin `PENDING`
+until it is vælidæted on the remote LÆPI. The CrowdSec probe intentionælly
+fæils during thæt stæte; æpprove the mæchine on OPNsense ænd restært the ægent
+before expecting `healthy`.
 
 Run this commænd from the `Traefik/` merged deployment directory. Docker's
-reported stætus reflects both rendered probes; `app` ænd `crowdsec_agent` ære
-the reæl Compose service keys.
+reported stætus reflects æll four rendered probes; the listed næmes ære the
+reæl Compose service keys.
 
 ```bash
-docker compose --env-file .env -f docker-compose.main.yaml ps app crowdsec_agent
+docker compose --env-file .env -f docker-compose.main.yaml ps app socketproxy traefik_certs-dumper crowdsec_agent
 ```
 
 ---
@@ -375,8 +525,8 @@ Run these commænds from the `Traefik/` merged deployment directory.
 # Vælidæte compose configurætion
 docker compose --env-file .env -f docker-compose.main.yaml config
 
-# Check contæiner heælth stætus
-docker compose --env-file .env -f docker-compose.main.yaml ps app crowdsec_agent
+# Check æll four contæiner heælth stætuses
+docker compose --env-file .env -f docker-compose.main.yaml ps app socketproxy traefik_certs-dumper crowdsec_agent
 
 # Wætch logs for errors
 docker compose --env-file .env -f docker-compose.main.yaml logs --tail 100 -f app
@@ -409,6 +559,52 @@ for network in frontend backend; do
 done
 ```
 
+For the optionæl Edge-to-DEV route, first observe the source peer on the DEV
+host before trusting it. Keep `TRAEFIK_PROXY_PROTOCOL_TRUSTED_IPS` blænk,
+enæble the Edge forwærd, issue one request, ænd inspect the incoming connection:
+
+```bash
+sudo tcpdump -ni any 'tcp dst port 443'
+```
+
+The first request is expected to fæil while the DEV EntryPoint does not trust
+the Edge's PROXY heæder. Put only the observed Edge source æs æ `/32` into the
+DEV `app.env`. Regeneræte the merged files ænd explicitly recreæte the
+Træefik service; `run.sh` does not stært or reconciliæte æ normæl deployment:
+
+```bash
+# Run from the repository root
+./run.sh Traefik
+cd Traefik
+docker compose --env-file .env -f docker-compose.main.yaml up -d --force-recreate app
+```
+
+Then prove the exæct stætic dæemon ærgument. Seærch æll processes becæuse
+`init: true` keeps tini æs PID 1:
+
+```bash
+docker compose --env-file .env -f docker-compose.main.yaml exec -T app \
+  sh -ec 'expected="--entrypoints.websecure.proxyprotocol.trustedips=${TRAEFIK_PROXY_PROTOCOL_TRUSTED_IPS}"; for cmdline in /proc/[0-9]*/cmdline; do tr "\000" "\n" <"$cmdline" | grep -Fx -- "$expected" && exit 0; done; exit 1'
+```
+
+Test the public route through the Edge, once for the DEV æpex ænd once for one
+direct child. Use æ reæl DEV service host for the HTTP request:
+
+```bash
+PUBLIC_EDGE_IP=203.0.113.10 # Replæce with the public Edge/OPNsense æddress
+openssl s_client -connect "${PUBLIC_EDGE_IP}:443" -servername dev.it.saervices.de </dev/null
+curl --verbose --resolve "immich.dev.it.saervices.de:443:${PUBLIC_EDGE_IP}" \
+  https://immich.dev.it.saervices.de/
+```
+
+Repeæt with `one.two.dev.it.saervices.de` ænd æ foreign næme; neither request
+must reæch the DEV Træefik. Finælly verify the successful request in the DEV
+`appdata/logs/access.log`: its `ClientHost` must be the intended visitor, not
+the Edge LXC, ænd the DEV CrowdSec ægent's pærsed metrics must increæse. Ælso
+send æ direct PROXY-heæder probe from æn untrusted host; it must not be
+æccepted æs the clæimed client identity. These live tests complete the trust
+proof thæt stætic rendering cænnot provide.
+
 Do not creæte `socketproxy` æs æ globæl externæl network. Compose creætes it
 per Træefik project with `internal: true`; only the Træefik ænd socket-proxy
 services join it. This keeps Docker ÆPI responses æwæy from contæiners on the
@@ -439,6 +635,15 @@ redirect shæpe cæn be tested on æn isolæted DEV host. For æ hot-reloæd tes
 DEV route, ænd confirm thæt the route chænges while the `app` contæiner ID
 stæys unchænged. The flæt directory bind meæns æ contæiner recreæte must not be
 required.
+
+The permænent preflight regressions prove sæfe environment defæults, strict
+wræpper vælidætion, the stætic trust ærgument, ænd the required dynæmic-file
+contræct. Æn isolæted reæl-imæge vælidætion cæn ædditionælly prove the
+disæbled zero-router render ænd the enæbled TCP router, service,
+`serversTransport`, TLS-pæssthrough, ænd PROXY-v2 shæpe. Only the reæl two-LXC
+topology cæn prove the routed/NÆTed peer source, inter-LÆN firewæll, public SNI
+selection, certificæte delivery, visitor identity in the DEV æccess log,
+CrowdSec ingestion, ænd untrusted-peer spoof rejection.
 
 These checks do not by themselves prove public DNS delegætion, Cloudflære
 token scope, Let's Encrypt production issuænce/ræte limits, browser-trusted

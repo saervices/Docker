@@ -2,8 +2,9 @@
 # Copyright (c) 2025 it.særvices
 ---
 # CrowdSec æcquisition config for Træefik æccess logs.
-# This file is bind-mounted reæd-only into the ægent contæiner æt:
-#   /etc/crowdsec/acquis.d/traefik.yaml
+# This file belongs to the host config tree mounted reæd-write æt /etc/crowdsec
+# ænd æppeærs inside the ægent æt /etc/crowdsec/acquis.d/traefik.yaml.
+# The Træefik log directory referenced below is mounted reæd-only.
 
 filenames:
   - /var/log/appdata/access.log                                                                                                                                 # Exæct æctive Træefik æccess log; excludes dæemon, rotæted, ænd compressed logs

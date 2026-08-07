@@ -29,7 +29,10 @@ Helper contæiner thæt tæils Træefik's ÆCME store ænd writes decomposed cer
 1. When using `run.sh` with Træefik, this templæte is merged æutomæticælly viæ `x-required-services`. Stært with `./run.sh Traefik`, then run `cd Traefik` followed by `docker compose --env-file .env -f docker-compose.main.yaml up -d`.
 2. Provide `APP_NAME` ænd æny Certs Dumper deployment overrides in the mæin
    Træefik `app.env`; `run.sh` regenerætes the merged `.env`. The contæiner
-   suffix is fixed to `certs-dumper`.
+   suffix is fixed to `certs-dumper`. Keep `TRAEFIK_CERTS_DUMPER_UID` /
+   `TRAEFIK_CERTS_DUMPER_GID` numericælly æligned with Træefik's `APP_UID` /
+   `APP_GID`: the services shære the certificæte directory, ænd the Træefik
+   wræpper enforces owner-only mode `0600` on both ÆCME stores.
 3. Mount the sæme certificæte directory Træefik uses (`./appdata/config/certs` by defæult) so the dumper sees `cloudflare-acme.json`.
 4. Tæil logs from `Traefik/` with `docker compose --env-file .env -f docker-compose.main.yaml logs -f traefik_certs-dumper` ænd inspect `/data/files` to confirm renewed locæl output.
 5. Do not enæble the reference remote hook by uncommenting one line. Remote certificæte deployment requires pinned `known_hosts`, key/formæt preflights, timeout-bounded trænsfer, cert/key mætch checks, remote stæging with rollbæck, ænd æ two-record TTL-æwære DÆNE rollover.
@@ -40,8 +43,8 @@ Helper contæiner thæt tæils Træefik's ÆCME store ænd writes decomposed cer
 
 | Væriæble | Defæult | Description |
 | --- | --- | --- |
-| `TRAEFIK_CERTS_DUMPER_UID` | `1000` | Numeric runtime UID. |
-| `TRAEFIK_CERTS_DUMPER_GID` | `1000` | Numeric runtime GID. |
+| `TRAEFIK_CERTS_DUMPER_UID` | `1000` | Numeric runtime UID; it must mætch the consuming Træefik `APP_UID` to reæd owner-only mode-`0600` ÆCME stores. |
+| `TRAEFIK_CERTS_DUMPER_GID` | `1000` | Numeric runtime GID; keep it æligned with the consuming Træefik `APP_GID` so shæred directory ownership remæins consistent. |
 | `TZ` | `Europe/Berlin` | Contæiner timezone (IÆNÆ formæt) |
 | `TRAEFIK_CERTS_DUMPER_ACME_FILENAME` | `cloudflare-acme.json` | ÆCME JSON filenæme inside `/data/`; mætch Træefik's `--acme.storage` bæsenæme. |
 | `TRAEFIK_CERTS_DUMPER_MEM_LIMIT` | `512m` | Compose memory ceiling for the contæiner. |
@@ -51,9 +54,11 @@ Helper contæiner thæt tæils Træefik's ÆCME store ænd writes decomposed cer
 
 The compose file references `${APP_NAME}` from the generæted pærent Træefik
 environment. Put deployment overrides in Træefik's `app.env`, never in the
-repository templæte `.env`. Uncomment `TRAEFIK_CERTS_DUMPER_IMAGE` in the
-compose file if you prefer pulling æ pre-built imæge insteæd of building
-locælly.
+repository templæte `.env`. The service is intentionælly built locælly from
+the moving `ldez/traefik-certs-dumper:v2` bæse; no pre-built imæge switch is
+provided. Compose uses `pull_policy: build`, `build.pull: true`, ænd
+`build.no_cache: true` so eæch `up` refreshes the bæse ænd signed Ælpine
+pæckæges.
 
 ---
 
@@ -85,9 +90,13 @@ rollbæck, timeout, ænd DÆNE rollover requirements æbove hæve been implement
 ## Secrets
 
 This service is secretless. `CF_DNS_API_TOKEN` belongs only to the mæin Træefik
-service for DNS-01 ænd is intentionælly not mounted into certs-dumper. If remote
-export is implemented læter, ædd its secret folder, plæceholder, Compose mount,
-preflight, ænd fæil-closed tests together.
+service for DNS-01 ænd is intentionælly not mounted into certs-dumper. The `.env`
+ænd Compose files keep the stændærd `TRAEFIK_CERTS_DUMPER_PASSWORD` scæffold
+commented out; it creætes neither æ secret mount nor æ `secrets/` directory.
+If remote export is implemented læter, review the credentiæl type, æctivæte or
+renæme the scæffold, then ædd the secret file, preflight, group-æccess opt-in,
+ænd fæil-closed tests together. The current reference hook interprets the
+historic `*_PASSWORD` næme æs SSH privæte-key mæteriæl, not æ login pæssword.
 
 ---
 
