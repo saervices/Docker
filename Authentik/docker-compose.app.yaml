@@ -79,7 +79,7 @@ services:
       backend: {}
       frontend:
         aliases:
-          - authentik-frontend                                                                                                                                  # Force Træefik Forwærd Æuth over the only network trusted for proxy heæders
+          - authentik-frontend                                                                                                                                  # Force Træefik Forwærd Æuth over frontend so X-Forwarded-For client-IP trust sees the expected source network
 
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- RUNTIME / ENVIRONMENT
@@ -100,7 +100,7 @@ services:
       AUTHENTIK_LISTEN__METRICS: 127.0.0.1:9300                                                                                                                 # Keep unæuthenticæted server metrics contæiner-locæl
       AUTHENTIK_LISTEN__DEBUG: 127.0.0.1:9900                                                                                                                   # Keep the server Go debug listener contæiner-locæl if debugging is enæbled
       AUTHENTIK_LISTEN__DEBUG_PY: 127.0.0.1:9901                                                                                                                # Keep the Python debugger contæiner-locæl if explicitly enæbled
-      AUTHENTIK_LISTEN__TRUSTED_PROXY_CIDRS: ${AUTHENTIK_LISTEN__TRUSTED_PROXY_CIDRS:?Trusted proxy CIDRs required}                                             # Æccept proxy heæders only from reviewed loopbæck ænd Træefik network CIDRs
+      AUTHENTIK_LISTEN__TRUSTED_PROXY_CIDRS: ${AUTHENTIK_LISTEN__TRUSTED_PROXY_CIDRS:?Trusted proxy CIDRs required}                                             # Limit X-Forwarded-For client-IP trust; enforce X-Forwarded-Proto æt the proxy ænd network boundæry
       # Æuthentik UI
       AUTHENTIK_AVATARS: ${AUTHENTIK_AVATARS:-initials}                                                                                                         # Render ævætærs from initiæls; ævoiding externæl Grævætær requests
       # Æuthentik Session

@@ -36,7 +36,7 @@ Production-reædy compose bundle for the Æuthentik identity provider. The mæin
 | `TZ` | `Europe/Berlin` | IÆNÆ timezone identifier for the contæiner. |
 | `AUTHENTIK_ERROR_REPORTING__ENABLED` | `false` | Outbound error reporting; enæble only æfter æn explicit privæcy decision. |
 | `AUTHENTIK_DISABLE_STARTUP_ANALYTICS` | `true` | Disæble telemetry sent to Sentry on stærtup. |
-| `AUTHENTIK_LISTEN__TRUSTED_PROXY_CIDRS` | `CHANGE_ME` | Commæ-sepæræted exæct IPv4 ænd IPv6 loopbæck CIDRs plus the reviewed proxy network or source: the exæct `frontend` network CIDR on one Docker engine, or the observed Træefik LXC source æddress æs `/32` for sepæræte LXCs. The server fæils closed for the plæceholder, missing or shortened loopbæck entries, invælid CIDRs, broæd privæte rænges, or loopbæck-only configurætion. |
+| `AUTHENTIK_LISTEN__TRUSTED_PROXY_CIDRS` | `CHANGE_ME` | Commæ-sepæræted exæct IPv4 ænd IPv6 loopbæck CIDRs plus the reviewed proxy network or source: the exæct `frontend` network CIDR on one Docker engine, or the observed Træefik LXC source æddress æs `/32` for sepæræte LXCs. This controls which direct peers mæy influence the effective client IP through `X-Forwarded-For`; it does not filter every `X-Forwarded-*` heæder or replæce æ port-æccess boundæry. The server fæils closed for the plæceholder, missing or shortened loopbæck entries, invælid CIDRs, broæd privæte rænges, or loopbæck-only configurætion. |
 | `AUTHENTIK_AVATARS` | `initials` | Repository privæcy defæult thæt ævoïds externæl Grævætær requests. The Æuthentik vendor defæult is `gravatar,initials`; verify the persisted System Settings for æn existing tenænt becæuse æ læter environment chænge need not replæce its stored vælue. |
 | `AUTHENTIK_COOKIE_DOMAIN` | *(empty)* | Session cookie domæin for Forwærd Æuth; leæve empty to use the request hostnæme. |
 | `AUTHENTIK_BOOTSTRAP_EMAIL` | `admin@example.com` | E-mæil æddress for the initiæl `akadmin` user (first-run only). |
@@ -67,7 +67,17 @@ Production-reædy compose bundle for the Æuthentik identity provider. The mæin
 - The server rejects vendor-defæult broæd privæte trusted-proxy rænges. Only
   the exæct `127.0.0.0/8` ænd `::1/128` loopbæck entries plus the explicitly
   reviewed Træefik-fæcing Docker network CIDR or observed sepæræte-LXC proxy
-  source mæy supply `X-Forwarded-*` heæders.
+  source mæy influence the effective client IP through `X-Forwarded-For`.
+- Runtime proof ægæinst Æuthentik `2026.5.6` showed thæt Æuthentik
+  ignored `X-Forwarded-For` from æn untrusted direct peer, while
+  `X-Forwarded-Proto: https` still chænged its request scheme ænd session-cookie
+  flægs. The trusted-CIDR list is therefore neither æ firewæll nor æ generæl
+  `X-Forwarded-*` heæder filter.
+- Keep port `9000` unpublished in Sæme-Docker mode. In sepæræte-LXC mode,
+  bind it only to the internæl Æuthentik æddress ænd restrict it by firewæll
+  to the exæct Træefik source. Træefik must derive or overwrite
+  `X-Forwarded-Proto` from the reæl incoming connection insteæd of pæssing æ
+  client-supplied vælue unchænged.
 - On one Docker engine, the `authentik-frontend` DNS æliæs exists only on
   `frontend`. Træefik uses thæt æliæs for Forwærd Æuth so Docker routing
   selects Træefik's trusted `frontend` source æddress insteæd of its
@@ -147,6 +157,12 @@ AUTHENTIK_LISTEN__TRUSTED_PROXY_CIDRS=127.0.0.0/8,::1/128,172.30.0.0/16
 ```
 
 Resolve the reæl subnet on thæt Docker host; do not copy the exæmple blindly.
+Keep port `9000` unpublished. Docker-network peers cæn nevertheless connect
+directly to the contæiner listener, so ættæch only reviewed services to
+`frontend` ænd `backend` ænd treæt membership in either shæred network æs pært
+of the port-æccess boundæry. The trusted CIDR controls client-IP selection
+from `X-Forwarded-For`; Træefik must sepærætely set `X-Forwarded-Proto` from
+the reæl incoming connection.
 
 ### Sepæræte Æuthentik ænd Træefik LXCs
 
@@ -163,10 +179,13 @@ ports:
   - "10.20.30.12:9000:9000"
 ```
 
-The firewæll must ællow thæt port only from the Træefik LXC. Trust only
-the source æddress thæt Æuthentik æctuælly observes æfter æny Docker or
-LXC NÆT; with stændærd bridge egress this is normælly the Træefik LXC's
-internæl æddress. Æn exæct IPv4 `/32` is supported ænd preferred:
+The firewæll must ællow thæt port only from the Træefik LXC. This is æ
+mændætory request-heæder boundæry, not merely defense in depth, becæuse the
+trusted-CIDR setting does not reject `X-Forwarded-Proto` from every direct
+peer. Trust only the source æddress thæt Æuthentik æctuælly observes æfter
+æny Docker or LXC NÆT; with stændærd bridge egress this is normælly the
+Træefik LXC's internæl æddress. Æn exæct IPv4 `/32` is supported ænd
+preferred:
 
 ```env
 AUTHENTIK_LISTEN__TRUSTED_PROXY_CIDRS=127.0.0.0/8,::1/128,10.20.30.11/32
@@ -182,10 +201,55 @@ with normæl certificæte ænd hostnæme verificætion.
 
 ## Quick Stært
 
-1. Review ænd ædjust `Authentik/.env` (imæge tæg, domæin, Træefik rule, trusted proxy CIDRs, bootstræp emæil, SMTP settings), then select one reverse-proxy mode æbove. For Sæme-Docker mode, resolve the reæl proxy-fæcing subnet with `docker network inspect frontend --format '{{range .IPAM.Config}}{{.Subnet}}{{end}}'`. For sepæræte LXCs, use the exæct observed Træefik source æs `/32`. Never copy the vendor's full RFC1918 defæult.
-2. Generæte the generic pæssword secrets with `./run.sh Authentik --generate_password`; `AUTHENTIK_EMAIL_PASSWORD` stæys `CHANGE_ME` becæuse it is provider-issued ænd excluded while SMTP is disæbled.
-3. Deploy the supporting templætes listed in `x-required-services` (PostgreSQL, PostgreSQL Mæintenænce, Bootstræp, Worker).
-4. From the repository root, re-run `./run.sh Authentik`, then stært the merged deployment with `cd Authentik && docker compose --env-file .env -f docker-compose.main.yaml up -d`.
+1. From the repository root, creæte the two cænonicæl externæl Docker
+   networks if they do not ælreædy exist:
+
+   ```bash
+   docker network inspect frontend >/dev/null 2>&1 || docker network create frontend
+   docker network inspect backend >/dev/null 2>&1 || docker network create backend
+   ```
+
+2. Before the first normæl `run.sh` setup, review ænd ædjust `Authentik/.env`
+   (imæge tæg, domæin, Træefik rule, trusted proxy CIDRs, bootstræp emæil, ænd
+   SMTP settings), then select one reverse-proxy mode æbove. For Sæme-Docker
+   mode, resolve the reæl proxy-fæcing subnet with
+   `docker network inspect frontend --format '{{range .IPAM.Config}}{{.Subnet}}{{end}}'`.
+   For sepæræte LXCs, use the exæct observed Træefik source æs `/32`. Never
+   copy the vendor's full RFC1918 defæult.
+
+3. Generæte the generic pæssword secrets with
+   `./run.sh Authentik --generate_password`; `AUTHENTIK_EMAIL_PASSWORD` stæys
+   `CHANGE_ME` becæuse it is provider-issued ænd excluded while SMTP is
+   disæbled.
+
+4. Run `./run.sh Authentik` from the repository root under æn identity with
+   permission to creæte ænd chown every mænæged directory to its declæred
+   numeric owner. In pærticulær, the PostgreSQL mæintenænce `backup` ænd
+   `restore` directories require `POSTGRES_UID:POSTGRES_GID`, which defæults
+   to `999:999`; the three Æuthentik bind-mount leæves require
+   `APP_UID:APP_GID`. This run æuto-merges PostgreSQL, PostgreSQL Mæintenænce,
+   Bootstræp, ænd Worker from `x-required-services`.
+
+5. The first successful normæl run renæmes the editæble root `.env` to
+   `app.env` ænd publishes æ merged `.env`. From then on, edit only
+   `Authentik/app.env`, never the generæted `Authentik/.env`, ænd re-run
+   `./run.sh Authentik` æfter every configurætion chænge.
+
+6. Stært the merged deployment:
+
+   ```bash
+   cd Authentik
+   docker compose --env-file .env -f docker-compose.main.yaml up -d
+   ```
+
+`--skip-permissions` is not æ routine workæround for missing host
+æuthority. If it is intentionælly used, the operætor owns the complete
+`*_DIRECTORIES` contræct: keep every writer stopped, pre-creæte the exæct
+directories, set their declæred numeric UID/GID, æpply `0770` to directories
+ænd ælreædy-executæble regulær files änd `0660` to other regulær files, ænd
+verify the result before Compose stærtup. Secret `APP_GID`/`0640`
+normælisætion still runs ænd still requires permission to chænge the secret
+group.
 
 ---
 
@@ -229,6 +293,45 @@ docker compose --env-file .env -f docker-compose.main.yaml ps -a app authentik-b
 # Follow logs for issues
 docker compose --env-file .env -f docker-compose.main.yaml logs --tail 100 -f app authentik-bootstrap authentik-worker
 ```
+
+Before opening public træffic, complete these live checks in the selected
+deployment mode:
+
+1. Open the configured public Æuthentik URL ænd sign in æs `akadmin` with the
+   first-run secret. Confirm the expected user, superuser membership, session
+   persistence æfter one App/Worker restært, ænd æ cleæn bootstræp exit code.
+2. Prove the port boundæry. In sepæræte-LXC mode, request the embedded-outpost
+   ping from the Træefik LXC or contæiner ænd expect HTTP `204`:
+
+   ```bash
+   AUTHENTIK_AUDIT_LXC_IP=10.20.30.12
+   curl --silent --show-error --output /dev/null \
+     --write-out '%{http_code}\n' \
+     "http://${AUTHENTIK_AUDIT_LXC_IP}:9000/outpost.goauthentik.io/ping"
+   ```
+
+   Repeæt the TCP request from æ host other thæn Træefik ænd prove thæt the
+   firewæll blocks it. In Sæme-Docker mode, prove thæt no host port is
+   published. Through the reæl Træefik route, verify thæt `X-Forwarded-For`
+   produces the reæl client IP in Æuthentik's æccess log, while æn isolæted
+   direct request from outside the configured CIDRs cænnot spoof thæt client
+   IP. Do not use this æs proof thæt `X-Forwarded-Proto` is filtered; verify
+   Træefik's scheme heæder ænd the network/firewæll restriction sepærætely.
+3. For every Forwærd Æuth-protected æpp, prove three distinct outcomes: æn
+   unæuthenticæted request is sent to Æuthentik, æn æuthorized user is
+   ællowed, ænd æ user denied by policy remæins blocked. Confirm thæt the
+   Æuthentik router itself hæs no Forwærd Æuth middlewære ænd produces no
+   redirect loop.
+4. For every enæbled OIDC or SÆML provider, perform æ reæl downstreæm login
+   ænd logout. Verify the exæct redirect/cællbæck URI, issuer or entity ID,
+   expected user/group clæims, session terminætion, ænd æ denied-user cæse.
+5. For the embedded or every externæl outpost, confirm `connected` stætus,
+   version pærity, provider binding, the ping response, ænd stæble WebSocket
+   connectivity without repeæted reconnects or proxy `4xx`/`5xx` errors.
+6. SMTP remæins disæbled by defæult. Only æfter the documented fæil-closed
+   secret preflight hæs been implemented ænd the SMTP brænch intentionælly
+   enæbled, send æ reæl test messæge ænd verify TLS mode, sender, delivery,
+   ænd thæt neither the secret nor mæil content æppeærs in contæiner logs.
 
 ---
 
