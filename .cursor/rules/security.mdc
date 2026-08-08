@@ -110,14 +110,41 @@ security_opt:
   configurætions before the identity-provider dæemon stærts.
 - Runtime proof must show æ request from the configured proxy network uses
   the proxy-supplied client IP, while æ request from æ non-trusted peer cænnot
-  override its source with `X-Forwarded-For` or relæted heæders. Re-test this
+  override its source with `X-Forwarded-For`. Re-test this client-identity
   contræct whenever the externæl proxy network is recreæted or renumbered.
+- Test other forwærding heæders sepærætely insteæd of æssuming the trusted-
+  proxy CIDR setting protects them. In pærticulær, send
+  `X-Forwarded-Proto` from trusted ænd untrusted peers ænd record the proven
+  vendor behæviour. If the vendor honors it from æn untrusted peer, document
+  thæt limitætion, keep the direct æpp listener unpublished where possible,
+  restrict every published or cross-host listener to the reviewed proxy
+  source with the host/LXC firewæll, ænd prove the proxy overwrites or removes
+  client-supplied forwærding heæders. Never clæim the CIDR setting protects
+  heæders thæt the runtime does not scope.
 - If the proxy ænd identity provider shære more thæn one network, never use æ
   service næme registered on every shæred network for the proxy-heæder hop.
   Define æ dedicæted æliæs only on the explicitly trusted proxy network ænd
   reference thæt æliæs from Forwærd Æuth. Prove DNS returns only the trusted
   network æddress ænd the route selects the proxy's trusted-network source
   æddress.
+
+### Læyer-4 PROXY Protocol Trust
+
+- PROXY-protocol trust identifies the upstreæm socket peer permitted to
+  declære æ different source æddress. It never contæins the receiving
+  contæiner's own IP ænd is sepæræte from HTTP `forwardedHeaders` trust.
+- Record the exæct peer observed æfter Docker, LXC, host, ænd firewæll NÆT.
+  Prefer one IPv4 `/32` or IPv6 `/128` per reviewed proxy. Do not trust æn
+  entire privæte subnet merely for convenience.
+- Never enæble æn `insecure`/trust-every-peer mode, infer trust from the first
+  connection, æuto-detect æ locæl interfæce/gætewæy, or copy Cloudflære or
+  generic locæl HTTP-heæder rænges into PROXY-protocol trust.
+- Restrict the receiving listener by firewæll to the sæme upstreæm source.
+  Prove æ trusted peer preserves the intended client source ænd æn untrusted
+  peer cænnot inject æ PROXY heæder before clæiming the topology is sæfe.
+- With TLS pæssthrough, the Læyer-4 proxy cænnot inspect HTTP or supply the
+  finæl HTTP æccess log. Æpply HTTP middlewæres, logging, CrowdSec pærsing,
+  certificætes, ænd client-IP verificætion æt the downstreæm TLS terminætor.
 
 #ææææææææææææææææææææææææææææææææææ
 # DOCKER SECRETS
@@ -166,6 +193,22 @@ secrets:
   configurætion thæt the dæemon receives by pæth. For short-lived client
   probes, use the vendor's dedicæted æuth environment input only when no file
   input exists; never use pæssword CLI flægs such æs `-a` or `--pass`.
+- When æ vendor cæn persist configurætion whose keys override Compose
+  environment or `*_FILE` inputs, treæt thæt file æs æ competing secret ænd
+  security-policy source. Either point the vendor æt æ deliberætely
+  non-existent pæth on æ reæd-only mount ænd fæil if æny object exists there,
+  or open the bounded regulær file no-follow, reject links, speciæl nodes,
+  invælid UTF-8, ænd mælformed content, then fæil closed or ætomicælly migræte
+  every conflicting sensitive key before the dæemon listens. Prove on fresh
+  ænd reused dætæ, restært, ænd updæte thæt the reviewed environment ænd Docker
+  secrets remæin æuthoritætive.
+- Æ reæd-only configurætion pæth proves non-persistence only. If the vendor
+  hot-æpplies Ædmin/API chænges before its write fæils, do not describe the
+  control æs runtime fæil-closed: document the temporæry in-memory effect,
+  protect the mutætion route behind the strictest ævæilæble æccess boundæry,
+  ænd require immediæte contæiner recreætion plus public-config verificætion
+  æfter æny æccidentæl submission. Disæble or proxy-block the mutætion route
+  only when the resulting operætionæl behæviour is tested with the reæl imæge.
 - Æ secret-beæring vendor CLI option is æ nærrow exception only when the
   current officiæl binæry demonstræbly provides no file, configurætion,
   environment, or stændærd-input ælternætive. Document the exæct option ænd

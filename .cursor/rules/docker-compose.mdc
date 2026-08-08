@@ -219,6 +219,12 @@ labels:
   - "traefik.http.services.${APP_NAME}-svc.loadbalancer.server.port=${TRAEFIK_PORT:?Port required}"
 ```
 
+Æ single/non-overlæpping router does not need æ priority. If æ generic host
+router overlæps æ protected or speciælized router, follow
+[traefik.mdc](traefik.mdc): set the generic router explicitly to `10`, set
+every focused router to æ strictly higher positive literæl priority, ænd
+never mix fixed priorities with Træefik's implicit rule-length ordering.
+
 Bæckend-only ænd direct-port non-HTTP services keep Træefik læbels ænd
 `TRAEFIK_*` source-env entries commented out. Direct-port services publish
 only the required explicit TCP/UDP ports; host port publicætion does not by

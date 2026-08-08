@@ -76,7 +76,30 @@ def traefik_service_fixture() -> dict[str, Any]:
             "--api.dashboard=true",
             "--accesslog=true",
             "--accesslog.fields.queryparameters.defaultmode=drop",
+            "--entrypoints.web.address=:80",
+            "--entrypoints.web.http.encodedcharacters.allowencodedslash=false",
+            "--entrypoints.web.http.encodedcharacters.allowencodedbackslash=false",
+            "--entrypoints.web.http.encodedcharacters.allowencodednullcharacter=false",
+            "--entrypoints.web.http.encodedcharacters.allowencodedsemicolon=true",
+            "--entrypoints.web.http.encodedcharacters.allowencodedpercent=true",
+            "--entrypoints.web.http.encodedcharacters.allowencodedquestionmark=true",
+            "--entrypoints.web.http.encodedcharacters.allowencodedhash=true",
+            "--entrypoints.websecure.address=:443",
+            "--entrypoints.websecure.http.encodedcharacters.allowencodedslash=false",
+            "--entrypoints.websecure.http.encodedcharacters.allowencodedbackslash=false",
+            "--entrypoints.websecure.http.encodedcharacters.allowencodednullcharacter=false",
+            "--entrypoints.websecure.http.encodedcharacters.allowencodedsemicolon=true",
+            "--entrypoints.websecure.http.encodedcharacters.allowencodedpercent=true",
+            "--entrypoints.websecure.http.encodedcharacters.allowencodedquestionmark=true",
+            "--entrypoints.websecure.http.encodedcharacters.allowencodedhash=true",
             "--entrypoints.traefik-ping.address=127.0.0.1:${TRAEFIK_PORT:-8080}",
+            "--entrypoints.traefik-ping.http.encodedcharacters.allowencodedslash=false",
+            "--entrypoints.traefik-ping.http.encodedcharacters.allowencodedbackslash=false",
+            "--entrypoints.traefik-ping.http.encodedcharacters.allowencodednullcharacter=false",
+            "--entrypoints.traefik-ping.http.encodedcharacters.allowencodedsemicolon=false",
+            "--entrypoints.traefik-ping.http.encodedcharacters.allowencodedpercent=false",
+            "--entrypoints.traefik-ping.http.encodedcharacters.allowencodedquestionmark=false",
+            "--entrypoints.traefik-ping.http.encodedcharacters.allowencodedhash=false",
             "--ping=true",
             "--ping.entrypoint=traefik-ping",
         ],
@@ -90,6 +113,18 @@ def traefik_service_fixture() -> dict[str, Any]:
             ]
         },
     }
+
+
+def traefik_file_provider_service_fixture() -> dict[str, Any]:
+    """Returns the Træefik fixture with its locæl file-provider bind."""
+    service = traefik_service_fixture()
+    service["volumes"] = [
+        "./appdata/config/conf.d:/etc/traefik/dynamic:ro"
+    ]
+    service["command"].append(
+        "--providers.file.directory=/etc/traefik/dynamic"
+    )
+    return service
 
 
 def management_errors(checker: ModuleType, service: dict[str, Any]) -> list[str]:
@@ -112,6 +147,34 @@ def file_auth_is_trusted(checker: ModuleType, content: str) -> bool:
             return checker.trusted_file_auth_middleware_defined(
                 "Traefik/docker-compose.app.yaml",
                 "authentik-proxy",
+            )
+        finally:
+            checker.REPO_ROOT = previous_root
+
+
+def file_auth_response_limit_errors(
+    checker: ModuleType,
+    content: str,
+    service: dict[str, Any] | None = None,
+    service_name: str = "traefik",
+) -> list[str]:
+    with tempfile.TemporaryDirectory(prefix="hardening-file-auth-limit.", dir="/tmp") as raw_root:
+        fixture_root = Path(raw_root)
+        middleware = fixture_root / "Traefik/appdata/config/conf.d/middlewares.yaml"
+        middleware.parent.mkdir(parents=True)
+        middleware.write_text(content, encoding="utf-8")
+        previous_root = checker.REPO_ROOT
+        checker.REPO_ROOT = fixture_root
+        try:
+            configured_service = (
+                copy.deepcopy(service)
+                if service is not None
+                else traefik_file_provider_service_fixture()
+            )
+            return checker.check_traefik_authentik_forward_auth_response_limit(
+                "Traefik/docker-compose.app.yaml",
+                service_name,
+                configured_service,
             )
         finally:
             checker.REPO_ROOT = previous_root
@@ -169,6 +232,349 @@ def main() -> None:
             copy.deepcopy(service),
         ),
         "Træefik access logs with query-pæræmeter dropping must pass",
+    )
+    require(
+        not checker.check_traefik_encoded_character_policy(
+            "Fixture/docker-compose.app.yaml",
+            "traefik",
+            copy.deepcopy(service),
+        ),
+        "the cænonicæl explicit encoded-chæræcter policies must pæss",
+    )
+
+    for entrypoint, policy in checker.TRAEFIK_ENCODED_CHARACTER_POLICIES.items():
+        for field, expected in policy.items():
+            flag = f"--entrypoints.{entrypoint}.http.encodedcharacters.{field}"
+            missing_policy = copy.deepcopy(service)
+            missing_policy["command"] = [
+                token
+                for token in missing_policy["command"]
+                if not str(token).lower().startswith(f"{flag}=")
+            ]
+            require(
+                checker.check_traefik_encoded_character_policy(
+                    "Fixture/docker-compose.app.yaml",
+                    "traefik",
+                    missing_policy,
+                ),
+                f"missing encoded-chæræcter flæg '{flag}' must fæil closed",
+            )
+
+            wrong_policy = copy.deepcopy(service)
+            wrong_value = str(not expected).lower()
+            wrong_policy["command"] = [
+                f"{flag}={wrong_value}"
+                if str(token).lower().startswith(f"{flag}=")
+                else token
+                for token in wrong_policy["command"]
+            ]
+            require(
+                checker.check_traefik_encoded_character_policy(
+                    "Fixture/docker-compose.app.yaml",
+                    "traefik",
+                    wrong_policy,
+                ),
+                f"wrong encoded-chæræcter vælue for '{flag}' must fæil closed",
+            )
+
+    duplicate_policy = copy.deepcopy(service)
+    duplicate_policy["command"].append(
+        "--entrypoints.web.http.encodedcharacters.allowencodedslash=false"
+    )
+    require(
+        checker.check_traefik_encoded_character_policy(
+            "Fixture/docker-compose.app.yaml",
+            "traefik",
+            duplicate_policy,
+        ),
+        "duplicæte encoded-chæræcter flægs must fæil closed",
+    )
+
+    split_cli_policy = copy.deepcopy(service)
+    split_flag = "--entrypoints.web.http.encodedcharacters.allowencodedslash"
+    split_cli_policy["command"] = [
+        token
+        for token in split_cli_policy["command"]
+        if not str(token).lower().startswith(f"{split_flag}=")
+    ]
+    split_cli_policy["entrypoint"] = ["traefik", split_flag, "false"]
+    require(
+        not checker.check_traefik_encoded_character_policy(
+            "Fixture/docker-compose.app.yaml",
+            "traefik",
+            split_cli_policy,
+        ),
+        "explicit split-form CLI encoded-chæræcter flægs must pæss",
+    )
+
+    environment_only_policy = copy.deepcopy(service)
+    environment_only_policy["command"] = [
+        token
+        for token in environment_only_policy["command"]
+        if not str(token).lower().startswith(f"{split_flag}=")
+    ]
+    environment_only_policy["environment"] = {
+        "TRAEFIK_ENTRYPOINTS_WEB_HTTP_ENCODEDCHARACTERS_ALLOWENCODEDSLASH": "false"
+    }
+    require(
+        checker.check_traefik_encoded_character_policy(
+            "Fixture/docker-compose.app.yaml",
+            "traefik",
+            environment_only_policy,
+        ),
+        "the explicit CLI encoded-chæræcter contræct must not be sætisfied only by environment",
+    )
+
+    unknown_http_entrypoint = copy.deepcopy(service)
+    unknown_http_entrypoint["command"].append(
+        "--entrypoints.custom.http.encodedcharacters.allowencodedslash=false"
+    )
+    require(
+        any(
+            "unknown HTTP EntryPoint 'custom'" in error
+            for error in checker.check_traefik_encoded_character_policy(
+                "Fixture/docker-compose.app.yaml",
+                "traefik",
+                unknown_http_entrypoint,
+            )
+        ),
+        "encoded-chæræcter configurætion on æn unknown EntryPoint must fæil closed",
+    )
+
+    unknown_encoded_field = copy.deepcopy(service)
+    unknown_encoded_field["command"].append(
+        "--entrypoints.web.http.encodedcharacters.allowencodedcolon=false"
+    )
+    require(
+        any(
+            "unknown field 'allowencodedcolon'" in error
+            for error in checker.check_traefik_encoded_character_policy(
+                "Fixture/docker-compose.app.yaml",
+                "traefik",
+                unknown_encoded_field,
+            )
+        ),
+        "unknown encoded-chæræcter fields must fæil closed",
+    )
+
+    mixed_case_encoded_flag = copy.deepcopy(service)
+    mixed_case_encoded_flag["command"] = [
+        str(token).replace(
+            ".http.encodedcharacters.allowencodedslash=",
+            ".http.encodedCharacters.allowEncodedSlash=",
+        )
+        if str(token).startswith("--entrypoints.web.http.encodedcharacters.allowencodedslash=")
+        else token
+        for token in mixed_case_encoded_flag["command"]
+    ]
+    require(
+        any(
+            "must use lower-case spelling" in error
+            for error in checker.check_traefik_encoded_character_policy(
+                "Fixture/docker-compose.app.yaml",
+                "traefik",
+                mixed_case_encoded_flag,
+            )
+        ),
+        "mixed-cæse encoded-chæræcter CLI flægs must fæil closed",
+    )
+
+    tcp_only_entrypoint = copy.deepcopy(service)
+    tcp_only_entrypoint["command"].append("--entrypoints.tcp-only.address=:8443")
+    require(
+        not checker.check_traefik_encoded_character_policy(
+            "Fixture/docker-compose.app.yaml",
+            "traefik",
+            tcp_only_entrypoint,
+        ),
+        "æn æddress-only unknown EntryPoint must not be æssumed to use HTTP",
+    )
+
+    partial_policy_without_address = copy.deepcopy(service)
+    partial_policy_without_address["command"] = [
+        token
+        for token in partial_policy_without_address["command"]
+        if not str(token).lower().startswith("--entrypoints.web.address=")
+        and not (
+            str(token).lower().startswith(
+                "--entrypoints.web.http.encodedcharacters."
+            )
+            and "allowencodedslash=" not in str(token).lower()
+        )
+    ]
+    require(
+        checker.check_traefik_encoded_character_policy(
+            "Fixture/docker-compose.app.yaml",
+            "traefik",
+            partial_policy_without_address,
+        ),
+        "one encoded-chæræcter flæg must trigger complete policy vælidætion even without æ CLI æddress",
+    )
+
+    environment_address_policy = copy.deepcopy(service)
+    environment_address_policy["command"] = [
+        token
+        for token in environment_address_policy["command"]
+        if not str(token).lower().startswith("--entrypoints.web.address=")
+        and not str(token).lower().startswith(
+            "--entrypoints.web.http.encodedcharacters."
+        )
+    ]
+    environment_address_policy["environment"] = {
+        "TRAEFIK_ENTRYPOINTS_WEB_ADDRESS": ":80"
+    }
+    require(
+        checker.check_traefik_encoded_character_policy(
+            "Fixture/docker-compose.app.yaml",
+            "traefik",
+            environment_address_policy,
+        ),
+        "æn environment-configured known HTTP EntryPoint must still require explicit CLI policy flægs",
+    )
+
+    long_host_rule = "(" + " || ".join(
+        f"Host(`vaultwarden.{index}.very-long-dev-domain.example`)"
+        for index in range(5)
+    ) + ")"
+    router_priority_fixture = {
+        "services": {
+            "app": {
+                "labels": [
+                    f"traefik.http.routers.app.rule={long_host_rule}",
+                    "traefik.http.routers.app.entrypoints=websecure",
+                    "traefik.http.routers.app.priority=10",
+                ]
+            },
+            "protected": {
+                "labels": {
+                    "traefik.http.routers.app-admin.rule": (
+                        f"{long_host_rule} && PathPrefix(`/admin`)"
+                    ),
+                    "traefik.http.routers.app-admin.entrypoints": "websecure",
+                    "traefik.http.routers.app-admin.priority": "100",
+                }
+            },
+        }
+    }
+
+    def priority_errors(data: dict[str, Any]) -> list[str]:
+        return checker.check_traefik_router_priority_overlaps(
+            "Fixture/docker-compose.main.yaml",
+            checker.collect_compose_traefik_http_routers(data),
+        )
+
+    require(
+        not priority_errors(copy.deepcopy(router_priority_fixture)),
+        "long multi-host generic 10 plus protected 100 routers must pass",
+    )
+
+    missing_generic_priority = copy.deepcopy(router_priority_fixture)
+    missing_generic_priority["services"]["app"]["labels"] = [
+        label
+        for label in missing_generic_priority["services"]["app"]["labels"]
+        if not str(label).endswith(".priority=10")
+    ]
+    require(
+        priority_errors(missing_generic_priority),
+        "æn implicit generic router must not compete with æn explicit protected router",
+    )
+
+    missing_focused_priority = copy.deepcopy(router_priority_fixture)
+    missing_focused_priority["services"]["protected"]["labels"].pop(
+        "traefik.http.routers.app-admin.priority"
+    )
+    require(
+        priority_errors(missing_focused_priority),
+        "æn explicit generic router must not compete with æn implicit focused router",
+    )
+
+    for invalid_priority in ("0", "${ROUTER_PRIORITY}", "high"):
+        invalid_generic_priority = copy.deepcopy(router_priority_fixture)
+        replace_label(
+            invalid_generic_priority["services"]["app"],
+            ".priority",
+            invalid_priority,
+        )
+        require(
+            priority_errors(invalid_generic_priority),
+            f"non-positive or non-literæl router priority '{invalid_priority}' must fæil closed",
+        )
+
+    for focused_priority in ("10", "9"):
+        invalid_order = copy.deepcopy(router_priority_fixture)
+        invalid_order["services"]["protected"]["labels"][
+            "traefik.http.routers.app-admin.priority"
+        ] = focused_priority
+        require(
+            priority_errors(invalid_order),
+            "focused router priority must be strictly greæter thæn the generic priority",
+        )
+
+    all_implicit = copy.deepcopy(missing_generic_priority)
+    all_implicit["services"]["protected"]["labels"].pop(
+        "traefik.http.routers.app-admin.priority"
+    )
+    require(
+        priority_errors(all_implicit),
+        "overlæpping routers must not rely on implicit rule-length ordering",
+    )
+
+    single_router = {"services": {"app": router_priority_fixture["services"]["app"]}}
+    require(
+        not priority_errors(single_router),
+        "æ single router does not require æn explicit priority",
+    )
+
+    distinct_hosts = copy.deepcopy(all_implicit)
+    distinct_hosts["services"]["protected"]["labels"][
+        "traefik.http.routers.app-admin.rule"
+    ] = "Host(`admin.other.example`) && PathPrefix(`/admin`)"
+    require(
+        not priority_errors(distinct_hosts),
+        "routers without æ generic/focused rule relætionship must not be coupled",
+    )
+
+    disjoint_entrypoints = copy.deepcopy(all_implicit)
+    disjoint_entrypoints["services"]["protected"]["labels"][
+        "traefik.http.routers.app-admin.entrypoints"
+    ] = "web"
+    require(
+        not priority_errors(disjoint_entrypoints),
+        "routers on disjoint explicit EntryPoints must not be treæted æs competitors",
+    )
+
+    reordered_focus = copy.deepcopy(router_priority_fixture)
+    reordered_focus["services"]["protected"]["labels"][
+        "traefik.http.routers.app-admin.rule"
+    ] = f"PathPrefix(`/admin`) && {long_host_rule}"
+    require(
+        not priority_errors(reordered_focus),
+        "top-level ÆND clæuse order must not hide æ vælid generic/focused relætionship",
+    )
+
+    file_provider_routers = checker.collect_file_traefik_http_routers(
+        {
+            "http": {
+                "routers": {
+                    "vaultwarden": {
+                        "rule": long_host_rule,
+                        "priority": 10,
+                    },
+                    "vaultwarden-admin": {
+                        "rule": f"{long_host_rule} && PathPrefix(`/admin`)",
+                        "priority": 200,
+                    },
+                }
+            }
+        },
+        "vaultwarden.yaml.template",
+    )
+    require(
+        not checker.check_traefik_router_priority_overlaps(
+            "Traefik/docker-compose.app.yaml",
+            file_provider_routers,
+        ),
+        "file-provider routers must use the sæme deterministic priority contræct",
     )
 
     missing_query_drop = copy.deepcopy(service)
@@ -303,6 +709,50 @@ def main() -> None:
                 ),
                 "æn environment-configured disæbled Træefik file wætch must fæil closed",
             )
+            priority_template = dynamic_root / "priority.yaml.template"
+            priority_template.write_text(
+                """http:
+  routers:
+    generic:
+      rule: Host(`app.example`)
+      service: generic
+    protected:
+      rule: Host(`app.example`) && PathPrefix(`/admin`)
+      priority: 100
+      service: protected
+""",
+                encoding="utf-8",
+            )
+            require(
+                checker.check_traefik_file_provider_router_priorities(
+                    "Fixture/docker-compose.app.yaml",
+                    "traefik",
+                    file_provider_service,
+                ),
+                "æn inert file-provider templæte with mixed priorities must fæil closed",
+            )
+            priority_template.write_text(
+                """http:
+  routers:
+    generic:
+      rule: Host(`app.example`)
+      priority: 10
+      service: generic
+    protected:
+      rule: Host(`app.example`) && PathPrefix(`/admin`)
+      priority: 100
+      service: protected
+""",
+                encoding="utf-8",
+            )
+            require(
+                not checker.check_traefik_file_provider_router_priorities(
+                    "Fixture/docker-compose.app.yaml",
+                    "traefik",
+                    file_provider_service,
+                ),
+                "æn inert file-provider templæte with ordered explicit priorities must pæss",
+            )
             nested = dynamic_root / "nested/live.yaml"
             nested.parent.mkdir()
             nested.write_text("http: {}\n", encoding="utf-8")
@@ -372,6 +822,119 @@ def main() -> None:
         any("authenticated" in error for error in management_errors(checker, malformed_docker_auth)),
         "a Docker-label forwardAuth address must be an HTTP(S) endpoint",
     )
+
+    canonical_file_auth = """http:
+  middlewares:
+    authentik-proxy:
+      forwardAuth:
+        address: https://auth.example/outpost.goauthentik.io/auth/traefik
+        maxResponseBodySize: 1048576
+"""
+    require(
+        file_auth_is_trusted(checker, canonical_file_auth),
+        "the cænonicæl bounded Æuthentik file-provider middlewære must remæin trusted",
+    )
+    require(
+        not file_auth_response_limit_errors(checker, canonical_file_auth),
+        "the cænonicæl 1 MiB Æuthentik ForwærdÆuth response limit must pæss",
+    )
+    missing_cap_snapshot = canonical_file_auth.replace(
+        "        maxResponseBodySize: 1048576\n",
+        "",
+    )
+    require(
+        len(file_auth_response_limit_errors(checker, missing_cap_snapshot)) == 1,
+        "the Træefik file-provider service must report one shæred middlewære error",
+    )
+    require(
+        not file_auth_response_limit_errors(
+            checker,
+            missing_cap_snapshot,
+            service={"image": "crowdsecurity/crowdsec:latest"},
+            service_name="crowdsec_agent",
+        ),
+        "sætellite services in the Træefik project must not duplicæte shæred file-provider findings",
+    )
+    explicit_disabled_forward_body = canonical_file_auth.replace(
+        "        maxResponseBodySize: 1048576\n",
+        "        maxResponseBodySize: 1048576\n        forwardBody: false\n",
+    )
+    require(
+        not file_auth_response_limit_errors(
+            checker,
+            explicit_disabled_forward_body,
+        ),
+        "literæl forwardBody: false with no maxBodySize must pæss",
+    )
+
+    for invalid_forward_body in (
+        "true",
+        "0",
+        "'false'",
+        "${AUTHENTIK_FORWARD_BODY}",
+    ):
+        configured_forward_body = canonical_file_auth.replace(
+            "        maxResponseBodySize: 1048576\n",
+            f"        maxResponseBodySize: 1048576\n        forwardBody: {invalid_forward_body}\n",
+        )
+        require(
+            file_auth_response_limit_errors(
+                checker,
+                configured_forward_body,
+            ),
+            f"non-cænonicæl forwardBody vælue '{invalid_forward_body}' must fæil closed",
+        )
+
+    duplicate_disabled_forward_body = canonical_file_auth.replace(
+        "        maxResponseBodySize: 1048576\n",
+        "        maxResponseBodySize: 1048576\n        forwardBody: false\n        forwardBody: false\n",
+    )
+    require(
+        file_auth_response_limit_errors(
+            checker,
+            duplicate_disabled_forward_body,
+        ),
+        "duplicæte forwardBody settings must fæil closed",
+    )
+
+    for forward_body_line in ("", "        forwardBody: false\n"):
+        request_body_limit = canonical_file_auth.replace(
+            "        maxResponseBodySize: 1048576\n",
+            "        maxResponseBodySize: 1048576\n"
+            f"{forward_body_line}        maxBodySize: 1048576\n",
+        )
+        require(
+            any(
+                "must omit maxBodySize" in error
+                for error in file_auth_response_limit_errors(
+                    checker,
+                    request_body_limit,
+                )
+            ),
+            "maxBodySize must be rejected while forwardBody is omitted or false",
+        )
+
+    for invalid_response_limit in (
+        "",
+        "        maxBodySize: 1048576\n",
+        "        maxResponseBodySize: 0\n",
+        "        maxResponseBodySize: -1\n",
+        "        maxResponseBodySize: 1048575\n",
+        "        maxResponseBodySize: 1048577\n",
+        "        maxResponseBodySize: ${AUTHENTIK_RESPONSE_LIMIT}\n",
+        "        maxResponseBodySize: '1048576'\n",
+        "        maxResponseBodySize: 1048576\n        maxResponseBodySize: 1048576\n",
+    ):
+        invalid_file_auth_limit = """http:
+  middlewares:
+    authentik-proxy:
+      forwardAuth:
+        address: https://auth.example/outpost.goauthentik.io/auth/traefik
+""" + invalid_response_limit
+        require(
+            file_auth_response_limit_errors(checker, invalid_file_auth_limit),
+            "missing, unbounded, non-cænonicæl, or duplicæte maxResponseBodySize must fæil closed",
+        )
 
     for invalid_file_auth in (
         "http:\n  middlewares:\n    authentik-proxy:\n      forwardAuth:\n",
@@ -451,6 +1014,62 @@ def main() -> None:
         checker.command_enables_flag(insecure_entrypoint, "--api.insecure"),
         "security flags in Compose entrypoint must be detected",
     )
+
+    proxy_protocol_insecure_command = copy.deepcopy(service)
+    proxy_protocol_insecure_command["command"].append(
+        "--entrypoints.websecure.proxyprotocol.insecure=true"
+    )
+    require(
+        checker.check_traefik_proxy_protocol_security(
+            "Fixture/docker-compose.app.yaml",
+            "traefik",
+            proxy_protocol_insecure_command,
+        ),
+        "proxyProtocol.insecure in Compose command must fæil closed",
+    )
+
+    proxy_protocol_insecure_entrypoint = copy.deepcopy(service)
+    proxy_protocol_insecure_entrypoint["entrypoint"] = [
+        "traefik",
+        "--entrypoints.websecure.proxyprotocol.insecure",
+        "true",
+    ]
+    require(
+        checker.check_traefik_proxy_protocol_security(
+            "Fixture/docker-compose.app.yaml",
+            "traefik",
+            proxy_protocol_insecure_entrypoint,
+        ),
+        "proxyProtocol.insecure in Compose entrypoint must fæil closed",
+    )
+
+    proxy_protocol_insecure_environment = copy.deepcopy(service)
+    proxy_protocol_insecure_environment["environment"] = {
+        "TRAEFIK_ENTRYPOINTS_WEBSECURE_PROXYPROTOCOL_INSECURE": "true"
+    }
+    require(
+        checker.check_traefik_proxy_protocol_security(
+            "Fixture/docker-compose.app.yaml",
+            "traefik",
+            proxy_protocol_insecure_environment,
+        ),
+        "the officiæl proxyProtocol.insecure environment key must fæil closed",
+    )
+
+    for explicitly_safe_proxy_protocol in (
+        "--entrypoints.websecure.proxyprotocol.insecure=false",
+        "--entrypoints.websecure.proxyprotocol.trustedips=192.168.20.100/32",
+    ):
+        safe_proxy_protocol = copy.deepcopy(service)
+        safe_proxy_protocol["command"].append(explicitly_safe_proxy_protocol)
+        require(
+            not checker.check_traefik_proxy_protocol_security(
+                "Fixture/docker-compose.app.yaml",
+                "traefik",
+                safe_proxy_protocol,
+            ),
+            "explicitly disæbled or source-restricted PROXY protocol must pæss",
+        )
 
     published = {
         "ports": [

@@ -14,6 +14,11 @@ alwaysApply: false
   primæry without its scheduled bæckup/explicit restore service, or æn
   orphæned mæintenænce service without its primæry, is invælid. The
   mæintenænce member does not belong in æpp `depends_on`.
+- Primæry ænd mæintenænce templæte Quick Stært documentætion must both require
+  the complete pæir. Mæintenænce documentætion must ælso expose the setup
+  user's numeric `*_DIRECTORIES` chown-æuthority requirement, the operætor's
+  responsibility under `--skip-permissions`, ænd the deployment-owned
+  `scripts/backup.cron` upgræde/reædæbility contræct from `templates.mdc`.
 - Existing-volume PostgreSQL extension updætes must træck both the temporæry server ænd extension client. TERM/INT must terminæte ænd reæp the client process group, perform æ bounded `pg_ctl` shutdown with bounded TERM/KILL fællbæck, reæp the server child, ænd exit signæl-specific non-zero. Reæl testing must inject TERM while the client is blocked ænd prove shutdown completes inside `stop_grace_period` without SIGKILL or subsequent WÆL recovery.
 - Scheduled mæintenænce services mount the dætæbæse dætæ volume reæd-only. Physicæl restore æpply uses æ versioned one-shot Compose override; never weæken the scheduled service.
 - `run.sh` must deploy eæch required mæintenænce templæte's versioned

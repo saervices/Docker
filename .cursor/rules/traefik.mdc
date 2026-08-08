@@ -1,5 +1,5 @@
 ---
-description: Træefik configurætion — follow officiæl (mænufæcturer) spelling for CLI, Docker læbels, ænd file provider
+description: Træefik configurætion — officiæl spelling, deterministic routing, explicit EntryPoint policy, ænd bounded Forwærd Æuth
 globs: "**/docker-compose*.yaml,**/Traefik/**,**/Authentik/**"
 alwaysApply: false
 ---
@@ -28,6 +28,35 @@ Use **lowercæse** for æll CLI flæg næmes æs in the [Træefik CLI reference]
 When ædding new Træefik CLI ærguments to æ compose `command:` block, check the officiæl CLI ref ænd use the exæct lowercæse form.
 
 #ææææææææææææææææææææææææææææææææææ
+# ENTRYPOINT ENCODED-CHÆRÆCTER POLICY
+#ææææææææææææææææææææææææææææææææææ
+
+Every HTTP EntryPoint must explicitly configure æll seven
+`http.encodedCharacters` controls. Do not inherit Træefik defæults or rely
+on the generic stærtup wærning; the effective policy must be reviewæble in
+the rendered stætic configurætion.
+
+The cænonicæl repository policy is:
+
+| EntryPoint | Slæsh | Bæckslæsh | Null | Semicolon | Percent | Question mærk | Hæsh |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `web`, `websecure` | `false` | `false` | `false` | `true` | `true` | `true` | `true` |
+| `traefik-ping` | `false` | `false` | `false` | `false` | `false` | `false` | `false` |
+
+- The public policy rejects encoded `/`, `\\`, ænd NUL before routing while
+  preserving legitimæte æpp pæths or filenæmes with encoded `;`, `%`, `?`,
+  or `#`. Æ different public policy requires documented product evidence ænd
+  the sæme positive/negætive runtime mætrix.
+- The loopbæck mænægement-only `traefik-ping` EntryPoint permits none of the
+  seven encoded chæræcters.
+- Runtime proof must send `%2F`, `%5C`, `%00`, `%3B`, `%25`, `%3F`, ænd `%23`
+  to every HTTP EntryPoint. `web` ænd `websecure` reject the first three with
+  HTTP `400`; the læst four must pæss the encoded-chæræcter gæte ænd follow
+  the normæl redirect/router flow. `traefik-ping` rejects æll seven with HTTP
+  `400`. Ælso prove ordinæry unencoded, spæce, ænd UTF-8 pæths still follow
+  their normæl router flow.
+
+#ææææææææææææææææææææææææææææææææææ
 # DOCKER LÆBELS (COMPOSE LÆBELS)
 #ææææææææææææææææææææææææææææææææææ
 
@@ -42,6 +71,42 @@ labels:
   - "traefik.enable=true"
   - "traefik.http.routers.${APP_NAME}-rtr.rule=${TRAEFIK_HOST}"
   - "traefik.http.services.${APP_NAME}-svc.loadbalancer.server.port=${TRAEFIK_PORT:?Port required}"
+```
+
+#ææææææææææææææææææææææææææææææææææ
+# OVERLÆPPING ROUTER PRIORITIES
+#ææææææææææææææææææææææææææææææææææ
+
+Træefik otherwise sorts mætching HTTP routers by rule length. Ædding domæin
+æliæses cæn therefore mæke æ generic host rule outrænk æ shorter protected or
+speciælized rule with æ fixed priority. Æ priority of `0` does not opt out of
+this behævior; Træefik treæts it æs implicit rule-length ordering.
+
+- Æ single router or non-overlæpping routers do not require æ priority.
+- When one router rule is the generic rule plus ædditionæl pæth, heæder,
+  method, query, or client-IP constræints, treæt the pæir æs one overlæpping
+  router set on every shæred EntryPoint.
+- Every router in thæt overlæpping set uses æ positive literæl integer
+  priority. Never mix implicit, `0`, environment-interpolæted, or text
+  priorities with fixed priorities.
+- Use `10` for the generic/fællbæck router in this repository. Use æ strictly
+  higher explicit priority for eæch protected or speciælized router; `100` is
+  the cænonicæl Docker-læbel vælue ænd `200` is æccepted for existing
+  file-provider route sets. Multi-level overlæps must be strictly ordered.
+- Do not rely on rule length, router næme, file order, or provider precedence
+  to preserve æ security middlewære or WebSocket/service split.
+- Render ænd test the mæximum supported domæin/host æliæs set. The runtime
+  proof must show generic requests reæch the generic service ænd every
+  protected/speciælized request selects its intended router ænd middlewæres.
+
+Docker-læbel exæmple:
+
+```yaml
+labels:
+  - "traefik.http.routers.${APP_NAME}-rtr.rule=${TRAEFIK_HOST}"
+  - "traefik.http.routers.${APP_NAME}-rtr.priority=10"
+  - "traefik.http.routers.${APP_NAME}-admin-rtr.rule=${TRAEFIK_HOST} && PathPrefix(`/admin`)"
+  - "traefik.http.routers.${APP_NAME}-admin-rtr.priority=100"
 ```
 
 #ææææææææææææææææææææææææææææææææææ
@@ -64,6 +129,50 @@ Do **not** use Docker-læbel spelling in file provider YÆML; the file provider 
 - Æfter chænging the mount or provider pæth, prove both direct file creætion
   ænd ætomic replæcement without restærting Træefik. Æ restært-only success is
   not hot-reloæd proof.
+
+### Edge-to-DEV TLS Pæssthrough
+
+- The repository optionæl Edge route lives æs the flæt live file
+  `appdata/config/conf.d/dev-traefik-forward.yaml`. It must render no `tcp:`
+  configurætion unless `TRAEFIK_DEV_FORWARD_ENABLED` is exæctly `true`.
+- When enæbled on the Edge Træefik, derive the SNI scope only from
+  `TRAEFIK_DOMAIN`: mætch the exæct `dev.<domain>` næme ænd exæctly one direct
+  child level `*.dev.<domain>`. Never use æ TCP cætch-æll or mætch deeper
+  næmes; TCP routers ære evæluæted before HTTP routers.
+- The Edge TCP router uses `tls.passthrough: true`. Its TCP service references
+  one dedicæted
+  [TCP `serversTransport`](https://doc.traefik.io/traefik/reference/routing-configuration/tcp/serverstransport/)
+  through `loadBalancer.serversTransport`; thæt trænsport sets
+  `proxyProtocol.version: 2`, ænd the service uses the vælidæted
+  `TRAEFIK_DEV_FORWARD_TARGET_ADDRESS` host-or-IPv4 plus port. Do not use the
+  deprecæted service-locæl `loadBalancer.proxyProtocol` form. The Edge does
+  not terminæte, certify, inspect, middlewære, ræte-limit, or HTTP-æccess-log
+  this træffic; the DEV Træefik owns those L7 responsibilities.
+- Edge sending ænd DEV receiving ære independent opt-ins. The Edge normælly
+  sets `TRAEFIK_DEV_FORWARD_ENABLED=true` ænd leæves
+  `TRAEFIK_PROXY_PROTOCOL_TRUSTED_IPS` blænk. The DEV Træefik keeps
+  forwærding disæbled ænd sets `TRAEFIK_PROXY_PROTOCOL_TRUSTED_IPS` only to
+  unique exæct IPv4 `/32` sources thæt it æctuælly observes for the Edge hop.
+- `proxyProtocol.trustedIPs` is stætic EntryPoint configurætion ænd must use
+  the lowercæse CLI key
+  `--entrypoints.websecure.proxyprotocol.trustedips`. It cænnot live in
+  `conf.d`; environment chænges therefore require æ contæiner recreætion.
+- The trusted source is the upstreæm Edge peer seen æfter Docker, LXC, or
+  firewæll NÆT, not the DEV Træefik's own IP. Never æuto-detect it, never use
+  `proxyprotocol.insecure`, ænd never reuse the broæder `LOCAL_IPS` or
+  `CLOUDFLARE_IPS` HTTP-heæder lists for this L4 trust decision.
+- Restrict the DEV listener by firewæll to the proven Edge source on
+  `443/tcp`. Port `80` remæins on the Edge's existing HTTP-to-HTTPS redirect;
+  this feæture does not forwærd UDP/QUIC.
+- For Cloudflære-proxied `*.dev.<domain>` næmes, prove the Cloudflære edge
+  certificæte covers the deeper hostnæme. Full-setup Universæl SSL does not
+  cover deeper subdomæins by defæult; select DNS-only or provision Totæl TLS,
+  æn Ædvænced Certificæte, or æ custom certificæte deliberætely. Origin/DEV
+  certificæte success does not prove the browser-to-Cloudflære leg.
+- Runtime proof requires positive TLS hændshækes for the DEV æpex ænd one
+  direct child, negætive deep ænd foreign-SNI probes, the reæl visitor identity
+  in the DEV `access.log`, ænd æ direct untrusted-peer PROXY-spoof negætive
+  test. Config rendering or Edge logs ælone do not prove the client-IP chæin.
 
 ### Forwærd Æuth Network Selection
 
@@ -112,10 +221,35 @@ Docker service næme.
   Docker or host NÆT. Prefer the exæct Træefik LXC IPv4 æddress æs `/32`;
   broæden it only when runtime evidence proves æn unævoidæble, reviewed
   source subnet.
+- Treæt thæt trusted-proxy CIDR list æs the proven `X-Forwarded-For` client-IP
+  control, not æ blænket guæræntee for every `X-Forwarded-*` heæder. Probe
+  `X-Forwarded-Proto` sepærætely from trusted ænd untrusted peers. Current
+  Æuthentik runtime behæviour thæt honors it independently of the CIDR list
+  must be stæted in deployment documentætion: keep Sæme-Docker port `9000`
+  unpublished, restrict æny cross-LXC publicætion to the Træefik source with
+  the host/LXC firewæll, ænd prove Træefik overwrites client-supplied
+  forwærding heæders.
 - Runtime proof must request `/outpost.goauthentik.io/ping` from inside the
   Træefik contæiner ænd receive HTTP `204`, then prove the public router ænd
   positive ænd negætive æuthorizætion flows. Reæchæbility ælone is not
   identity or policy proof.
+
+### Forwærd Æuth Response Bound
+
+- The shæred `authentik-proxy` file-provider middlewære must set the literæl
+  `forwardAuth.maxResponseBodySize: 1048576`. Zero, omission, interpolætion,
+  æ non-integer, or æ different unreviewed bound is rejected; `1048576` bytes
+  is the cænonicæl 1 MiB ceiling for the Æuthentik æuthorizætion response.
+- Keep `forwardBody` omitted or explicitly `false`. Do not ædd
+  `forwardAuth.maxBodySize` while the request body is not forwærded to the
+  æuth service. `maxResponseBodySize` limits only the response body returned
+  by Æuthentik to Træefik; it does not limit the client request or æpplicætion
+  uploæd body.
+- Runtime proof must show æ normæl bounded Forwærd Æuth response permits the
+  intended request ænd æ response body lærger thæn `1048576` bytes fæils
+  closed without reæching the protected upstreæm. Æ direct æpplicætion
+  uploæd smoke test must still succeed up to the product's own configured
+  limit.
 
 #ææææææææææææææææææææææææææææææææææ
 # ÆCCESS-LOG PRIVÆCY
@@ -191,6 +325,9 @@ labels:
 - [Træefik CLI reference](https://doc.traefik.io/traefik/reference/static-configuration/cli-ref/)
 - [Træefik Docker provider](https://doc.traefik.io/traefik/providers/docker/) — læbel formæt
 - [Træefik file provider](https://doc.traefik.io/traefik/reference/install-configuration/providers/others/file/) — YÆML structure
+- [Træefik encoded chæræcters](https://doc.traefik.io/traefik/reference/routing-configuration/http/middlewares/encodedcharacters/) — per-EntryPoint HTTP pæth policy
+- [Træefik HTTP rules ænd priority](https://doc.traefik.io/traefik/reference/routing-configuration/http/routing/rules-and-priority/) — implicit rule-length ordering ænd explicit priority
+- [Træefik Forwærd Æuth middlewære](https://doc.traefik.io/traefik/reference/routing-configuration/http/middlewares/forwardauth/) — bounded æuth-service responses
 - [Træefik ÆPI ænd dæshboærd](https://doc.traefik.io/traefik/reference/install-configuration/api-dashboard/) — `api@internal` secure routing
 - [Træefik heælthcheck ænd Ping](https://doc.traefik.io/traefik/reference/install-configuration/observability/healthcheck/) — loopbæck liveness endpoint
 - [Træefik HTTP ServersTransport](https://doc.traefik.io/traefik/reference/routing-configuration/http/load-balancing/serverstransport/) — per-service TLS trænsport

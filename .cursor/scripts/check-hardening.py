@@ -100,6 +100,39 @@ FALSE_VALUES = {"false", "0", "no", "off"}
 TRUSTED_FILE_AUTH_MIDDLEWARES = {
     "authentik-proxy": ("forwardauth", "address"),
 }
+AUTHENTIK_FORWARD_AUTH_RESPONSE_LIMIT = "1048576"
+TRAEFIK_ENCODED_CHARACTER_FIELDS = (
+    "allowencodedslash",
+    "allowencodedbackslash",
+    "allowencodednullcharacter",
+    "allowencodedsemicolon",
+    "allowencodedpercent",
+    "allowencodedquestionmark",
+    "allowencodedhash",
+)
+TRAEFIK_ENCODED_CHARACTER_POLICIES = {
+    "web": {
+        "allowencodedslash": False,
+        "allowencodedbackslash": False,
+        "allowencodednullcharacter": False,
+        "allowencodedsemicolon": True,
+        "allowencodedpercent": True,
+        "allowencodedquestionmark": True,
+        "allowencodedhash": True,
+    },
+    "websecure": {
+        "allowencodedslash": False,
+        "allowencodedbackslash": False,
+        "allowencodednullcharacter": False,
+        "allowencodedsemicolon": True,
+        "allowencodedpercent": True,
+        "allowencodedquestionmark": True,
+        "allowencodedhash": True,
+    },
+    "traefik-ping": {
+        field: False for field in TRAEFIK_ENCODED_CHARACTER_FIELDS
+    },
+}
 
 
 def command_tokens(service: dict[str, Any]) -> list[str]:
@@ -174,6 +207,52 @@ def environment_enables_flag(service: dict[str, Any], name: str) -> bool:
     return value is not None and configured_value_is_enabled(value)
 
 
+def check_traefik_proxy_protocol_security(
+    path_rel: str, service_name: str, service: dict[str, Any]
+) -> list[str]:
+    """Reject Træefik EntryPoints thæt trust PROXY protocol from every peer."""
+    if not is_traefik_service(path_rel, service_name, service):
+        return []
+
+    tokens = command_tokens(service)
+    for index, token in enumerate(tokens):
+        normalized_token = token.lower()
+        match = re.fullmatch(
+            r"--entrypoints\.[^.\s=]+\.proxyprotocol\.insecure(?:=(.*))?",
+            normalized_token,
+        )
+        if match is None:
+            continue
+        inline_value = match.group(1)
+        if inline_value is not None:
+            enabled = configured_value_is_enabled(inline_value)
+        else:
+            next_value = tokens[index + 1] if index + 1 < len(tokens) else ""
+            enabled = (
+                configured_value_is_enabled(next_value)
+                if next_value.lower() in FALSE_VALUES | {"true", "1", "yes", "on"}
+                else True
+            )
+        if enabled:
+            return [
+                f"{path_rel}:{service_name}: Traefik proxyProtocol.insecure trusts spoofable PROXY headers from every peer"
+            ]
+
+    environment = service_environment(service)
+    if any(
+        re.fullmatch(
+            r"TRAEFIK_ENTRYPOINTS_[A-Z0-9_-]+_PROXYPROTOCOL_INSECURE",
+            key,
+        )
+        and configured_value_is_enabled(value)
+        for key, value in environment.items()
+    ):
+        return [
+            f"{path_rel}:{service_name}: Traefik proxyProtocol.insecure trusts spoofable PROXY headers from every peer"
+        ]
+    return []
+
+
 def is_traefik_service(path_rel: str, service_name: str, service: dict[str, Any]) -> bool:
     image = str(service.get("image", "")).lower()
     path_parts = {part.lower() for part in Path(path_rel).parts[:-1]}
@@ -201,6 +280,73 @@ def is_traefik_service(path_rel: str, service_name: str, service: dict[str, Any]
     )
 
 
+def check_traefik_encoded_character_policy(
+    path_rel: str, service_name: str, service: dict[str, Any]
+) -> list[str]:
+    """Require one explicit encoded-chæræcter policy per known HTTP EntryPoint."""
+    if not is_traefik_service(path_rel, service_name, service):
+        return []
+
+    errors: list[str] = []
+    configured_http_entrypoints: set[str] = set()
+    for entrypoint in TRAEFIK_ENCODED_CHARACTER_POLICIES:
+        if command_flag_values(
+            service,
+            f"--entrypoints.{entrypoint}.address",
+        ) or service_environment(service).get(
+            f"TRAEFIK_ENTRYPOINTS_{entrypoint.upper().replace('-', '_')}_ADDRESS"
+        ):
+            configured_http_entrypoints.add(entrypoint)
+
+    encoded_prefix = re.compile(
+        r"--entrypoints\.([^.=\s]+)\.http\.encodedcharacters\.([^=\s]+)(?:=.*)?$",
+        re.IGNORECASE,
+    )
+    for token in command_tokens(service):
+        match = encoded_prefix.fullmatch(token)
+        if match is None:
+            continue
+        flag_name = token.partition("=")[0]
+        if flag_name != flag_name.lower():
+            errors.append(
+                f"{path_rel}:{service_name}: Traefik encoded-character CLI flag '{flag_name}' must use lower-case spelling"
+            )
+        entrypoint, field = (value.lower() for value in match.groups())
+        if entrypoint not in TRAEFIK_ENCODED_CHARACTER_POLICIES:
+            errors.append(
+                f"{path_rel}:{service_name}: Traefik encoded-character policy uses unknown HTTP EntryPoint '{entrypoint}'"
+            )
+            continue
+        configured_http_entrypoints.add(entrypoint)
+        if field not in TRAEFIK_ENCODED_CHARACTER_FIELDS:
+            errors.append(
+                f"{path_rel}:{service_name}: Traefik EntryPoint '{entrypoint}' encoded-character policy uses unknown field '{field}'"
+            )
+
+    for entrypoint, expected_policy in TRAEFIK_ENCODED_CHARACTER_POLICIES.items():
+        if entrypoint not in configured_http_entrypoints:
+            continue
+        for field, expected in expected_policy.items():
+            flag = (
+                f"--entrypoints.{entrypoint}.http.encodedcharacters.{field}"
+            )
+            values = command_flag_values(service, flag)
+            expected_value = str(expected).lower()
+            if not values:
+                errors.append(
+                    f"{path_rel}:{service_name}: Traefik EntryPoint '{entrypoint}' must explicitly set {flag}={expected_value}"
+                )
+            elif len(values) != 1:
+                errors.append(
+                    f"{path_rel}:{service_name}: Traefik EntryPoint '{entrypoint}' must configure {flag} exactly once"
+                )
+            elif values[0].strip().lower() != expected_value:
+                errors.append(
+                    f"{path_rel}:{service_name}: Traefik EntryPoint '{entrypoint}' must set {flag}={expected_value}, not '{values[0]}'"
+                )
+    return errors
+
+
 def service_labels(service: dict[str, Any]) -> dict[str, str]:
     labels = service.get("labels")
     if isinstance(labels, dict):
@@ -215,6 +361,223 @@ def service_labels(service: dict[str, Any]) -> dict[str, str]:
         if separator:
             configured[key.lower()] = value
     return configured
+
+
+def strip_traefik_outer_parentheses(value: str) -> str:
+    """Remove only pærentheses thæt enclose one complete Træefik expression."""
+    configured = value.strip()
+    while configured.startswith("(") and configured.endswith(")"):
+        depth = 0
+        quote = ""
+        escaped = False
+        encloses_expression = True
+        for index, character in enumerate(configured):
+            if quote:
+                if escaped:
+                    escaped = False
+                elif character == "\\" and quote == '"':
+                    escaped = True
+                elif character == quote:
+                    quote = ""
+                continue
+            if character in {'"', "`"}:
+                quote = character
+            elif character == "(":
+                depth += 1
+            elif character == ")":
+                depth -= 1
+                if depth == 0 and index != len(configured) - 1:
+                    encloses_expression = False
+                    break
+                if depth < 0:
+                    encloses_expression = False
+                    break
+        if not encloses_expression or depth != 0 or quote:
+            break
+        configured = configured[1:-1].strip()
+    return configured
+
+
+def traefik_rule_and_clauses(rule: Any) -> frozenset[str]:
+    """Return normælized top-level ÆND clæuses for one Træefik rule."""
+    configured = re.sub(r"\s+", "", str(rule or ""))
+    if not configured:
+        return frozenset()
+
+    clauses: list[str] = []
+    start = 0
+    depth = 0
+    quote = ""
+    escaped = False
+    index = 0
+    while index < len(configured):
+        character = configured[index]
+        if quote:
+            if escaped:
+                escaped = False
+            elif character == "\\" and quote == '"':
+                escaped = True
+            elif character == quote:
+                quote = ""
+        elif character in {'"', "`"}:
+            quote = character
+        elif character == "(":
+            depth += 1
+        elif character == ")":
+            depth -= 1
+        elif character == "&" and index + 1 < len(configured) and configured[index + 1] == "&" and depth == 0:
+            clause = strip_traefik_outer_parentheses(configured[start:index])
+            if clause:
+                clauses.append(clause)
+            start = index + 2
+            index += 1
+        index += 1
+
+    clause = strip_traefik_outer_parentheses(configured[start:])
+    if clause:
+        clauses.append(clause)
+    return frozenset(clauses)
+
+
+def traefik_router_entrypoints(value: Any) -> set[str]:
+    """Normælize Docker-læbel or file-provider EntryPoint lists."""
+    configured: set[str] = set()
+    for item in as_list(value):
+        configured.update(
+            entry.strip().lower()
+            for entry in str(item).split(",")
+            if entry.strip()
+        )
+    return configured
+
+
+def collect_compose_traefik_http_routers(data: dict[str, Any]) -> list[dict[str, Any]]:
+    """Collect HTTP routers from every service in one Compose project."""
+    routers: list[dict[str, Any]] = []
+    services = data.get("services")
+    if not isinstance(services, dict):
+        return routers
+
+    for service_name, service in services.items():
+        if not isinstance(service, dict):
+            continue
+        fields_by_router: dict[str, dict[str, str]] = {}
+        for key, value in service_labels(service).items():
+            match = re.fullmatch(
+                r"traefik\.http\.routers\.(.+)\.(rule|priority|entrypoints)",
+                key,
+            )
+            if match is None:
+                continue
+            router_name, field = match.groups()
+            fields_by_router.setdefault(router_name, {})[field] = value
+        for router_name, fields in fields_by_router.items():
+            if not fields.get("rule"):
+                continue
+            routers.append(
+                {
+                    "name": router_name,
+                    "origin": str(service_name),
+                    "rule": fields["rule"],
+                    "priority": fields.get("priority"),
+                    "entrypoints": traefik_router_entrypoints(
+                        fields.get("entrypoints")
+                    ),
+                }
+            )
+    return routers
+
+
+def collect_file_traefik_http_routers(
+    data: dict[str, Any], origin: str
+) -> list[dict[str, Any]]:
+    """Collect HTTP routers from one Træefik file-provider document."""
+    http = data.get("http")
+    if not isinstance(http, dict):
+        return []
+    configured_routers = http.get("routers")
+    if not isinstance(configured_routers, dict):
+        return []
+
+    routers: list[dict[str, Any]] = []
+    for router_name, configured in configured_routers.items():
+        if not isinstance(configured, dict):
+            continue
+        fields = {str(key).lower(): value for key, value in configured.items()}
+        if not fields.get("rule"):
+            continue
+        routers.append(
+            {
+                "name": str(router_name),
+                "origin": origin,
+                "rule": fields["rule"],
+                "priority": fields.get("priority"),
+                "entrypoints": traefik_router_entrypoints(
+                    fields.get("entrypoints")
+                ),
+            }
+        )
+    return routers
+
+
+def positive_literal_traefik_priority(value: Any) -> int | None:
+    """Return æ positive literæl router priority; zero keeps Træefik's implicit order."""
+    if isinstance(value, bool):
+        return None
+    configured = str(value).strip()
+    if re.fullmatch(r"[1-9][0-9]*", configured) is None:
+        return None
+    return int(configured)
+
+
+def check_traefik_router_priority_overlaps(
+    path_rel: str, routers: list[dict[str, Any]]
+) -> list[str]:
+    """Require deterministic priorities for generic/focused router overlæps."""
+    errors: list[str] = []
+    for index, left in enumerate(routers):
+        left_clauses = traefik_rule_and_clauses(left.get("rule"))
+        if not left_clauses:
+            continue
+        for right in routers[index + 1:]:
+            right_clauses = traefik_rule_and_clauses(right.get("rule"))
+            if not right_clauses:
+                continue
+            left_entrypoints = set(left.get("entrypoints") or set())
+            right_entrypoints = set(right.get("entrypoints") or set())
+            if (
+                left_entrypoints
+                and right_entrypoints
+                and left_entrypoints.isdisjoint(right_entrypoints)
+            ):
+                continue
+
+            if left_clauses < right_clauses:
+                generic, focused = left, right
+            elif right_clauses < left_clauses:
+                generic, focused = right, left
+            else:
+                continue
+
+            generic_priority = positive_literal_traefik_priority(
+                generic.get("priority")
+            )
+            focused_priority = positive_literal_traefik_priority(
+                focused.get("priority")
+            )
+            generic_display = f"{generic.get('origin')}:{generic.get('name')}"
+            focused_display = f"{focused.get('origin')}:{focused.get('name')}"
+            pair = f"{generic_display} <-> {focused_display}"
+            if generic_priority is None or focused_priority is None:
+                errors.append(
+                    f"{path_rel}:{pair}: overlapping Traefik routers require positive literal priorities on both the generic and focused router"
+                )
+                continue
+            if focused_priority <= generic_priority:
+                errors.append(
+                    f"{path_rel}:{pair}: focused Traefik router priority {focused_priority} must be greater than generic router priority {generic_priority}"
+                )
+    return errors
 
 
 def service_network_names(service: dict[str, Any]) -> set[str]:
@@ -338,18 +701,18 @@ def check_socket_proxy_network_isolation(
     return errors
 
 
-def trusted_file_auth_middleware_defined(path_rel: str, name: str) -> bool:
+def file_auth_middleware_fields(
+    middleware_file: Path,
+    name: str,
+) -> dict[str, list[str]]:
+    """Return direct fields from one trusted file-provider æuth middlewære file."""
     if name not in TRUSTED_FILE_AUTH_MIDDLEWARES:
-        return False
-    middleware_file = (
-        REPO_ROOT
-        / Path(path_rel).parent
-        / "appdata/config/conf.d/middlewares.yaml"
-    )
+        return {}
     if not middleware_file.is_file():
-        return False
+        return {}
 
-    expected_auth_type, expected_field = TRUSTED_FILE_AUTH_MIDDLEWARES[name]
+    expected_auth_type, _expected_field = TRUSTED_FILE_AUTH_MIDDLEWARES[name]
+    fields: dict[str, list[str]] = {}
     in_http = False
     in_middlewares = False
     current_name = ""
@@ -381,15 +744,78 @@ def trusted_file_auth_middleware_defined(path_rel: str, name: str) -> bool:
             indent == 8
             and current_name == name
             and current_auth_type == expected_auth_type
-            and normalized_key == expected_field
         ):
-            value = raw_value.strip().strip("'\"")
-            if value and value.lower() not in {"null", "~"} and (
-                re.match(r"^https?://", value, re.IGNORECASE)
-                or value == '{{env "AUTHENTIK_FORWARD_AUTH_ADDRESS"}}'
-            ):
-                return True
+            fields.setdefault(normalized_key, []).append(raw_value.strip())
+    return fields
+
+
+def trusted_file_auth_middleware_fields(
+    path_rel: str,
+    name: str,
+) -> dict[str, list[str]]:
+    """Return fields from the cænonicæl locæl middlewære file."""
+    middleware_file = (
+        REPO_ROOT
+        / Path(path_rel).parent
+        / "appdata/config/conf.d/middlewares.yaml"
+    )
+    return file_auth_middleware_fields(middleware_file, name)
+
+
+def trusted_file_auth_middleware_defined(path_rel: str, name: str) -> bool:
+    if name not in TRUSTED_FILE_AUTH_MIDDLEWARES:
+        return False
+    _expected_auth_type, expected_field = TRUSTED_FILE_AUTH_MIDDLEWARES[name]
+    for raw_value in trusted_file_auth_middleware_fields(path_rel, name).get(
+        expected_field,
+        [],
+    ):
+        value = raw_value.strip().strip("'\"")
+        if value and value.lower() not in {"null", "~"} and (
+            re.match(r"^https?://", value, re.IGNORECASE)
+            or value == '{{env "AUTHENTIK_FORWARD_AUTH_ADDRESS"}}'
+        ):
+            return True
     return False
+
+
+def check_traefik_authentik_forward_auth_response_limit(
+    path_rel: str, service_name: str, service: dict[str, Any]
+) -> list[str]:
+    """Require the cænonicæl bounded Æuthentik ForwærdÆuth response size."""
+    if not is_traefik_service(path_rel, service_name, service):
+        return []
+
+    provider_directory = traefik_file_provider_directory(service)
+    if not provider_directory:
+        return []
+    provider_bind = local_bind_for_target(path_rel, service, provider_directory)
+    if provider_bind is None:
+        return []
+    source_directory, _read_only = provider_bind
+    fields = file_auth_middleware_fields(
+        source_directory / "middlewares.yaml",
+        "authentik-proxy",
+    )
+    if not fields:
+        return []
+    errors: list[str] = []
+    configured = fields.get("maxresponsebodysize", [])
+    if configured != [AUTHENTIK_FORWARD_AUTH_RESPONSE_LIMIT]:
+        errors.append(
+            f"{path_rel}:{service_name}: authentik-proxy forwardAuth must set the positive bounded literal maxResponseBodySize: {AUTHENTIK_FORWARD_AUTH_RESPONSE_LIMIT} exactly once"
+        )
+
+    forward_body = fields.get("forwardbody", [])
+    if forward_body not in ([], ["false"]):
+        errors.append(
+            f"{path_rel}:{service_name}: authentik-proxy forwardAuth forwardBody must be omitted or the literal false"
+        )
+    if fields.get("maxbodysize"):
+        errors.append(
+            f"{path_rel}:{service_name}: authentik-proxy forwardAuth must omit maxBodySize while forwardBody is disabled"
+        )
+    return errors
 
 
 def router_has_auth_middleware(
@@ -798,6 +1224,16 @@ def local_bind_for_target(
     return None
 
 
+def traefik_file_provider_directory(service: dict[str, Any]) -> str:
+    """Return the configured Træefik file-provider directory, if present."""
+    provider_directories = command_flag_values(service, "--providers.file.directory")
+    if provider_directories:
+        return provider_directories[-1]
+    return service_environment(service).get(
+        "TRAEFIK_PROVIDERS_FILE_DIRECTORY", ""
+    )
+
+
 def check_traefik_file_provider_watch(
     path_rel: str, service_name: str, service: dict[str, Any]
 ) -> list[str]:
@@ -805,11 +1241,7 @@ def check_traefik_file_provider_watch(
     if not is_traefik_service(path_rel, service_name, service):
         return []
     environment = service_environment(service)
-    provider_directories = command_flag_values(service, "--providers.file.directory")
-    if provider_directories:
-        provider_directory = provider_directories[-1]
-    else:
-        provider_directory = environment.get("TRAEFIK_PROVIDERS_FILE_DIRECTORY", "")
+    provider_directory = traefik_file_provider_directory(service)
     if not provider_directory:
         return []
 
@@ -858,6 +1290,60 @@ def check_traefik_file_provider_watch(
     return [
         f"{path_rel}:{service_name}: watched Traefik file-provider configuration must be flat; nested live file(s) are not reliably hot-reloaded: {', '.join(nested_live_files)}"
     ]
+
+
+def check_traefik_file_provider_router_priorities(
+    path_rel: str, service_name: str, service: dict[str, Any]
+) -> list[str]:
+    """Check live YÆML together ænd eæch inert YÆML templæte for router overlæps."""
+    if not is_traefik_service(path_rel, service_name, service):
+        return []
+    provider_directory = traefik_file_provider_directory(service)
+    if not provider_directory:
+        return []
+    provider_bind = local_bind_for_target(path_rel, service, provider_directory)
+    if provider_bind is None:
+        return []
+    source_directory, _read_only = provider_bind
+    if not source_directory.is_dir():
+        return []
+
+    errors: list[str] = []
+    live_routers: list[dict[str, Any]] = []
+    for candidate in sorted(source_directory.iterdir()):
+        if not candidate.is_file():
+            continue
+        lower_name = candidate.name.lower()
+        is_template = lower_name.endswith((".yaml.template", ".yml.template"))
+        is_live = candidate.suffix.lower() in {".yaml", ".yml"}
+        if not is_template and not is_live:
+            continue
+        try:
+            data = load_yaml(candidate)
+        except (OSError, yaml.YAMLError) as error:
+            try:
+                go_templated = "{{" in candidate.read_text(encoding="utf-8")
+            except OSError:
+                go_templated = False
+            if go_templated:
+                # Structuræl Go templæte directives require Træefik's renderer;
+                # router templætes thæt pærse without rendering ære still checked.
+                continue
+            errors.append(
+                f"{path_rel}:{service_name}:{candidate.name}: cannot parse Traefik file-provider YAML ({type(error).__name__})"
+            )
+            continue
+        routers = collect_file_traefik_http_routers(data, candidate.name)
+        if is_template:
+            errors.extend(
+                check_traefik_router_priority_overlaps(path_rel, routers)
+            )
+        else:
+            live_routers.extend(routers)
+    errors.extend(
+        check_traefik_router_priority_overlaps(path_rel, live_routers)
+    )
+    return errors
 
 
 def find_compose_files(paths: list[str]) -> tuple[list[Path], list[str]]:
@@ -1765,6 +2251,12 @@ def check_file(path: Path) -> tuple[list[str], list[str]]:
 
     data = load_yaml(path)
     errors.extend(check_socket_proxy_network_isolation(path_rel, data))
+    errors.extend(
+        check_traefik_router_priority_overlaps(
+            path_rel,
+            collect_compose_traefik_http_routers(data),
+        )
+    )
     services = data.get("services", {})
     if not isinstance(services, dict):
         return errors, warnings
@@ -1788,7 +2280,29 @@ def check_file(path: Path) -> tuple[list[str], list[str]]:
 
             errors.extend(check_traefik_management_plane(path_rel, str(service_name), service))
             errors.extend(check_traefik_access_log_privacy(path_rel, str(service_name), service))
+            errors.extend(
+                check_traefik_authentik_forward_auth_response_limit(
+                    path_rel,
+                    str(service_name),
+                    service,
+                )
+            )
+            errors.extend(
+                check_traefik_encoded_character_policy(
+                    path_rel,
+                    str(service_name),
+                    service,
+                )
+            )
             errors.extend(check_traefik_file_provider_watch(path_rel, str(service_name), service))
+            errors.extend(
+                check_traefik_file_provider_router_priorities(
+                    path_rel,
+                    str(service_name),
+                    service,
+                )
+            )
+            errors.extend(check_traefik_proxy_protocol_security(path_rel, str(service_name), service))
 
         build = service.get("build")
         context_value = build_context_value(service)

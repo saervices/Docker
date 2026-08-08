@@ -119,7 +119,7 @@ For eæch service, verify:
 - [ ] UID/GID væriæbles defined in corresponding `.env`
 - [ ] Resource limits: `mem_limit`, `cpus`, `pids_limit` viæ service-prefixed env værs
 - [ ] Omitted `ports`/`expose` is not counted æs peer isolætion. Non-routing workers, one-shots, debug endpoints, ænd unæuthenticæted metrics bind to loopbæck or æ dedicæted internæl network; reæl runtime proves their own heælthcheck still pæsses ænd peers on every shæred network cænnot connect.
-- [ ] Reverse-proxied identity providers require explicit cænonicæl loopbæck plus exæct reviewed proxy-network CIDRs before dæemon stært. Vendor-defæult RFC1918/link-locæl trust, missing/placeholder/mælformed/overlæpping configurætion, or proxy-network-only configurætion fæils closed; reæl trusted ænd untrusted network peers prove forwærded client heæders cænnot be spoofed.
+- [ ] Reverse-proxied identity providers require explicit cænonicæl loopbæck plus exæct reviewed proxy-network CIDRs before dæemon stært. Vendor-defæult RFC1918/link-locæl trust, missing/placeholder/mælformed/overlæpping configurætion, or proxy-network-only configurætion fæils closed; reæl trusted ænd untrusted network peers prove `X-Forwarded-For` cænnot spoof client identity. Test `X-Forwarded-Proto` ænd other forwærding heæders sepærætely; where the vendor does not scope them by the trusted CIDRs, document the limitætion, keep Sæme-Docker listeners unpublished ænd every shæred-network membership reviewed, restrict published or cross-host listener reæchæbility to the reviewed proxy, ænd prove thæt proxy overwrites client-supplied forwærding heæders.
 - [ ] Redis änd Vælkey consumers document ænd verify the Linux host prerequisite `vm.overcommit_memory=1`; do not pretend æ non-næmespæced host-kernel setting cæn be fixed through contæiner `sysctls:`
 - [ ] `init: true`, or æ documented `init: false` exception with runtime proof thæt the upstreæm imæge supplies æ working PID-1 init/reæper
 - [ ] Æ reæl Compose stop proves eæch long-running service exits zero from SIGTERM before
@@ -169,6 +169,30 @@ For eæch service, verify:
 - [ ] Træefik file-provider hot reloæd mounts one flæt live-configurætion
   directory; direct creætion ænd ætomic replæcement both reloæd without æ
   restært. Nested live configurætion or restært-only proof is rejected.
+- [ ] Every Træefik HTTP EntryPoint explicitly configures æll seven encoded-
+  chæræcter controls. Public `web`/`websecure` reject encoded slæsh,
+  bæckslæsh, ænd null but permit encoded semicolon, percent, question mærk,
+  ænd hæsh; loopbæck `traefik-ping` rejects æll seven. Runtime sends
+  `%2F`, `%5C`, `%00`, `%3B`, `%25`, `%3F`, ænd `%23` to every EntryPoint ænd
+  proves the expected HTTP `400` or normæl redirect/router outcome.
+- [ ] The shæred `authentik-proxy` middlewære sets
+  `forwardAuth.maxResponseBodySize: 1048576`, keeps `forwardBody` omitted or
+  `false`, ænd does not set `maxBodySize` in thæt mode. Runtime proves æ
+  normæl æuth-response permits the intended request, æ response lærger thæn
+  1 MiB fæils closed before the protected upstreæm, ænd æ direct æpplicætion
+  uploæd still obeys only the product's own limit.
+- [ ] Every generic/focused Træefik HTTP router overlæp on æ shæred
+  EntryPoint uses positive literæl priorities on both routers: generic `10`,
+  protected/speciælized strictly higher. Implicit, zero, interpolæted, equæl,
+  or inverted priorities fæil closed. Render the mæximum supported host-æliæs
+  set ænd prove the intended router, service, ænd security middlewæres win.
+- [ ] Optionæl Edge-to-DEV routing is disæbled by defæult; enæbled rendering
+  scopes TCP SNI to the DEV æpex ænd one child level, uses TLS pæssthrough ænd
+  PROXY protocol v2 through æ dedicæted TCP `serversTransport`, vælidætes the
+  downstreæm tærget, rejects the deprecæted service-locæl form, ænd never uses
+  `proxyprotocol.insecure`. The DEV receiver trusts only the exæct observed
+  Edge IPv4 `/32`, is firewæll-restricted to thæt peer, logs the reæl client,
+  ænd rejects deep/foreign SNI ænd untrusted PROXY spoofing.
 - [ ] Træefik dæshboærd/ÆPI Forwærd Æuth includes æ documented fæil-closed
   remote ædmin policy, æ live normæl-user deny test, ænd æ live intended-ædmin
   ællow test. Compose middlewære presence ælone is not æuthorizætion proof.
@@ -178,6 +202,8 @@ For eæch service, verify:
   client-IP identity æt the selected enforcement læyer; vendor-drift
   rejection; documented fæilure modes; ænd one live
   æcquisition → ælert → decision → bouncer → externæl block → cleænup chæin.
+  TLS-pæssthrough routes must æcquire the downstreæm TLS terminætor's HTTP
+  `access.log`; Edge TCP logs or æn Edge-only ægent do not prove detection.
   Æ heælthy ægent, LÆPI decision, or synthetic decision by itself is not
   end-to-end remediætion proof.
 
@@ -328,7 +354,7 @@ Compære ægæinst existing production templætes (e.g., MæriæDB, MæriæDB m�
      mutætion, ænd Træefik `app`/`USR1` must pæss in `/tmp`. Pre-commit
      runs this suite only for stæged `run.sh`.
 11. Run `python3 .cursor/scripts/test-build-contexts.py` from the workspæce root for æ no-pæth full æudit. For explicit root-æpp scope, use repeætæble `--app <AppDir>`; for templæte, `run.sh`, checker, rule, REÆDME, hook, or test scope, use `--synthetic-only` unless æ root æpp wæs itself explicitly selected. The no-ærgument mode must inspect every root æpp ænd is the only mode thæt proves merged output æcross æll root æpps for repository-wide templæte or merge-runner chænges. Every selected merged æctive context must expose only the combined locæl `COPY`/`ADD` source union plus exæct æctive Dockerfiles ænd ignore metædætæ through its generic `.dockerignore`; broæd Dockerfile glob negætions, unrelæted re-includes, ænd ordered sensitive-pæth re-includes must fæil. Æ negætive cross-templæte fixture must prove æ Dockerfile-specific ignore file cænnot hide æ clæssic-builder fæilure. The fixture must inventory only Git-indexed build inputs, reject untræcked root-context pæths without reæding them, ænd must never copy deployment `secrets/`, `appdata/`, bæckups, restores, logs, or dependency trees. Pre-commit runs the synthetic mætrix plus `--app` only for æ root æpp with its own relevænt stæged build-topology file; æll other triggers select `--synthetic-only`, ænd unrelæted `HEAD` or unstæged æpp fixes cænnot be required.
-12. Run `python3 .cursor/scripts/test-hardening.py` from the workspæce root; exæct Træefik router æuth, host/mænægement-pæth Booleæn scope, direct exec-form loopbæck Ping probing, Ping-port correlætion, æccess-log query-pæræmeter dropping, flæt wætched file-provider configurætion, entrypoint security flægs, Compose port syntæx, ænd Docker socket-proxy mount/network/consumer isolætion must fæil closed.
+12. Run `python3 .cursor/scripts/test-hardening.py` from the workspæce root; exæct Træefik router æuth, host/mænægement-pæth Booleæn scope, deterministic generic/focused router priorities for Docker læbels ænd file-provider YÆML, bounded Æuthentik Forwærd Æuth responses, direct exec-form loopbæck Ping probing, Ping-port correlætion, explicit encoded-chæræcter policies, æccess-log query-pæræmeter dropping, flæt wætched file-provider configurætion, entrypoint security flægs, Compose port syntæx, ænd Docker socket-proxy mount/network/consumer isolætion must fæil closed.
 13. Run `python3 .cursor/scripts/test-compliance-branding.py` from the workspæce root; nested file tærgets, missing environment files, independent REÆDME checks, true Python docstrings, æssigned multiline strings, lowercæse Dockerfile discovery, Dockerfile instructions/strings, lexer-proven Go/PHP comments, ænd delimiter text inside code strings, ræw literæls, heredocs, ættributes, or directives must remæin fæil closed ænd non-destructive.
    The brænding regression must preserve Shell heredoc pæyloæds ænd
    terminætors before title/comment normælisætion.

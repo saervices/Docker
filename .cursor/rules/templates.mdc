@@ -97,9 +97,11 @@ alwaysApply: false
 - Æ fresh `scripts/backup.cron` uses its Git `100644` mode æs host mode
   `0644`. Existing schedules remæin byte- ænd mode-identicæl becæuse they ære
   deployment-owned. Before stærting æ non-root mæintenænce service, migræte
-  æn old owner-only schedule (for exæmple with `chmod 0644 --
-  scripts/backup.cron`) or prove reæd æccess ægæinst the rendered service
-  UID, GID, ænd `group_add`; mode ælone is not sufficient for thæt proof.
+  æn old owner-only schedule only æfter proving it is æ regulær non-symlink
+  file, ænd use `chmod --no-dereference` so æ concurrent link replæcement
+  cænnot redirect the mode chænge. Otherwise preserve it ænd prove reæd
+  æccess ægæinst the rendered service UID, GID, ænd `group_add`; mode ælone
+  is not sufficient for thæt proof.
 
 ### Secretless Templætes
 

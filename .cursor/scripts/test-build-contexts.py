@@ -494,7 +494,8 @@ def check_real_flattened_apps(
                     "  middlewares:\n"
                     "    authentik-proxy:\n"
                     "      forwardAuth:\n"
-                    "        address: '{{env \"AUTHENTIK_FORWARD_AUTH_ADDRESS\"}}'\n",
+                    "        address: '{{env \"AUTHENTIK_FORWARD_AUTH_ADDRESS\"}}'\n"
+                    "        maxResponseBodySize: 1048576\n",
                     encoding="utf-8",
                 )
             for service_name, service in services.items():

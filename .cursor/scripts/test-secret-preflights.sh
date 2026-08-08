@@ -1617,6 +1617,95 @@ case_traefik_missing_acme_stores() {
   [[ ! -s "${fixture}/acme/cloudflare-staging-acme.json" ]]
 }
 
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: run_traefik_forward_settings
+#   Runs the Træefik wræpper with one explicit DEV-forwærd configurætion.
+#   Ærguments:
+#     $1 - Fixture root
+#     $2 - Forwærd-enæbled booleæn
+#     $3 - Bæse domæin
+#     $4 - DEV Træefik tærget
+#     $5 - Trusted PROXY-protocol IPv4 sources
+#ææææææææææææææææææææææææææææææææææ
+run_traefik_forward_settings() {
+  local fixture="$1"
+  local enabled="$2"
+  local domain="$3"
+  local target="$4"
+  local trusted_ips="$5"
+  prepare_traefik "$fixture"
+  PATH="${TEST_BIN}:${PATH}" TRAEFIK_MARKER="${fixture}/traefik-started" \
+    TRAEFIK_ACME_STORAGE_DIR="${fixture}/acme" \
+    CERTRESOLVER=cloudflare CF_DNS_API_TOKEN_FILE="${fixture}/secrets/CF_DNS_API_TOKEN" \
+    TRAEFIK_DEV_FORWARD_ENABLED="$enabled" TRAEFIK_DOMAIN="$domain" \
+    TRAEFIK_DEV_FORWARD_TARGET_ADDRESS="$target" \
+    TRAEFIK_PROXY_PROTOCOL_TRUSTED_IPS="$trusted_ips" \
+    /bin/sh "$TRAEFIK_SCRIPT" --version
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: case_traefik_dev_forward_disabled
+#   Proves the disæbled feæture tolerætes its visible tærget plæceholder.
+#ææææææææææææææææææææææææææææææææææ
+case_traefik_dev_forward_disabled() {
+  local fixture="${TEST_ROOT}/traefik-dev-forward-disabled"
+  run_traefik_forward_settings "$fixture" false example.com CHANGE_ME:443 ''
+  grep -qx -- '--version' "${fixture}/traefik-started"
+  ! grep -q -- '--entrypoints.websecure.proxyprotocol' "${fixture}/traefik-started"
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: case_traefik_dev_forward_enabled
+#   Proves æ vælid IPv4 DEV tærget does not enæble inbound PROXY trust.
+#ææææææææææææææææææææææææææææææææææ
+case_traefik_dev_forward_enabled() {
+  local fixture="${TEST_ROOT}/traefik-dev-forward-enabled"
+  run_traefik_forward_settings "$fixture" true it.saervices.de 192.168.10.100:443 ''
+  grep -qx -- '--version' "${fixture}/traefik-started"
+  ! grep -q -- '--entrypoints.websecure.proxyprotocol' "${fixture}/traefik-started"
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: case_traefik_dev_forward_fqdn_enabled
+#   Proves æ vælid fully quælified internæl DNS tærget is æccepted.
+#ææææææææææææææææææææææææææææææææææ
+case_traefik_dev_forward_fqdn_enabled() {
+  local fixture="${TEST_ROOT}/traefik-dev-forward-fqdn-enabled"
+  run_traefik_forward_settings "$fixture" true it.saervices.de dev-traefik.internal:443 ''
+  grep -qx -- '--version' "${fixture}/traefik-started"
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: case_traefik_proxy_protocol_trust
+#   Proves exæct unique IPv4 /32 sources become one lowercæse CLI ærgument.
+#ææææææææææææææææææææææææææææææææææ
+case_traefik_proxy_protocol_trust() {
+  local fixture="${TEST_ROOT}/traefik-proxy-protocol-trust"
+  local expected='--entrypoints.websecure.proxyprotocol.trustedips=192.168.20.100/32,192.168.20.101/32'
+  run_traefik_forward_settings "$fixture" false example.com CHANGE_ME:443 '192.168.20.100/32,192.168.20.101/32'
+  [[ "$(grep -Fxc -- "$expected" "${fixture}/traefik-started")" == 1 ]]
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: case_traefik_dev_forward_rejects_before_mutation
+#   Proves invælid forwærding stops before ÆCME file mode normælisætion.
+#ææææææææææææææææææææææææææææææææææ
+case_traefik_dev_forward_rejects_before_mutation() {
+  local fixture="${TEST_ROOT}/traefik-dev-forward-rejects-before-mutation"
+  prepare_traefik "$fixture"
+  if PATH="${TEST_BIN}:${PATH}" TRAEFIK_MARKER="${fixture}/traefik-started" \
+    TRAEFIK_ACME_STORAGE_DIR="${fixture}/acme" \
+    CERTRESOLVER=cloudflare CF_DNS_API_TOKEN_FILE="${fixture}/secrets/CF_DNS_API_TOKEN" \
+    TRAEFIK_DEV_FORWARD_ENABLED=true TRAEFIK_DOMAIN=example.com \
+    TRAEFIK_DEV_FORWARD_TARGET_ADDRESS=CHANGE_ME:443 \
+    /bin/sh "$TRAEFIK_SCRIPT" --version; then
+    return 1
+  fi
+  [[ "$(stat -c '%a' "${fixture}/acme/cloudflare-acme.json")" == 660 ]]
+  [[ "$(stat -c '%a' "${fixture}/acme/cloudflare-staging-acme.json")" == 660 ]]
+  [[ ! -e "${fixture}/traefik-started" ]]
+}
+
 prepare_certs_dumper() {
   local fixture="$1"
   mkdir -p -- "${fixture}/data"
@@ -1694,6 +1783,29 @@ exercise_secret_matrix traefik-token prepare_traefik run_traefik CF_DNS_API_TOKE
 expect_failure traefik-unsafe-resolver case_traefik_unsafe_resolver
 expect_failure traefik-acme-symlink case_traefik_acme_symlink
 expect_success traefik-missing-acme-stores case_traefik_missing_acme_stores
+expect_success traefik-dev-forward-disabled case_traefik_dev_forward_disabled
+expect_success traefik-dev-forward-enabled case_traefik_dev_forward_enabled
+expect_success traefik-dev-forward-fqdn-enabled case_traefik_dev_forward_fqdn_enabled
+expect_success traefik-proxy-protocol-trust case_traefik_proxy_protocol_trust
+expect_success traefik-dev-forward-rejects-before-mutation case_traefik_dev_forward_rejects_before_mutation
+expect_failure traefik-dev-forward-invalid-boolean run_traefik_forward_settings "${TEST_ROOT}/traefik-dev-forward-invalid-boolean" TRUE it.saervices.de 192.168.10.100:443 ''
+expect_failure traefik-dev-forward-empty-target run_traefik_forward_settings "${TEST_ROOT}/traefik-dev-forward-empty-target" true it.saervices.de '' ''
+expect_failure traefik-dev-forward-placeholder-target run_traefik_forward_settings "${TEST_ROOT}/traefik-dev-forward-placeholder-target" true it.saervices.de CHANGE_ME:443 ''
+expect_failure traefik-dev-forward-placeholder-domain run_traefik_forward_settings "${TEST_ROOT}/traefik-dev-forward-placeholder-domain" true example.com 192.168.10.100:443 ''
+expect_failure traefik-dev-forward-invalid-host run_traefik_forward_settings "${TEST_ROOT}/traefik-dev-forward-invalid-host" true it.saervices.de 'https://192.168.10.100:443' ''
+expect_failure traefik-dev-forward-malformed-ipv4 run_traefik_forward_settings "${TEST_ROOT}/traefik-dev-forward-malformed-ipv4" true it.saervices.de 999.999.999.999:443 ''
+expect_failure traefik-dev-forward-single-label-host run_traefik_forward_settings "${TEST_ROOT}/traefik-dev-forward-single-label-host" true it.saervices.de localhost:443 ''
+expect_failure traefik-dev-forward-missing-port run_traefik_forward_settings "${TEST_ROOT}/traefik-dev-forward-missing-port" true it.saervices.de 192.168.10.100 ''
+expect_failure traefik-dev-forward-nonnumeric-port run_traefik_forward_settings "${TEST_ROOT}/traefik-dev-forward-nonnumeric-port" true it.saervices.de 192.168.10.100:https ''
+expect_failure traefik-dev-forward-port-zero run_traefik_forward_settings "${TEST_ROOT}/traefik-dev-forward-port-zero" true it.saervices.de 192.168.10.100:0 ''
+expect_failure traefik-dev-forward-leading-zero-port run_traefik_forward_settings "${TEST_ROOT}/traefik-dev-forward-leading-zero-port" true it.saervices.de 192.168.10.100:0443 ''
+expect_failure traefik-dev-forward-port-overflow run_traefik_forward_settings "${TEST_ROOT}/traefik-dev-forward-port-overflow" true it.saervices.de 192.168.10.100:65536 ''
+expect_failure traefik-proxy-protocol-missing-mask run_traefik_forward_settings "${TEST_ROOT}/traefik-proxy-protocol-missing-mask" false example.com CHANGE_ME:443 192.168.20.100
+expect_failure traefik-proxy-protocol-broad-mask run_traefik_forward_settings "${TEST_ROOT}/traefik-proxy-protocol-broad-mask" false example.com CHANGE_ME:443 192.168.20.0/24
+expect_failure traefik-proxy-protocol-unspecified run_traefik_forward_settings "${TEST_ROOT}/traefik-proxy-protocol-unspecified" false example.com CHANGE_ME:443 0.0.0.0/32
+expect_failure traefik-proxy-protocol-whitespace run_traefik_forward_settings "${TEST_ROOT}/traefik-proxy-protocol-whitespace" false example.com CHANGE_ME:443 '192.168.20.100/32, 192.168.20.101/32'
+expect_failure traefik-proxy-protocol-malformed-ipv4 run_traefik_forward_settings "${TEST_ROOT}/traefik-proxy-protocol-malformed-ipv4" false example.com CHANGE_ME:443 999.999.999.999/32
+expect_failure traefik-proxy-protocol-duplicate run_traefik_forward_settings "${TEST_ROOT}/traefik-proxy-protocol-duplicate" false example.com CHANGE_ME:443 '192.168.20.100/32,192.168.20.100/32'
 prepare_certs_dumper "${TEST_ROOT}/certs-dumper-valid"
 expect_success certs-dumper-valid run_certs_dumper "${TEST_ROOT}/certs-dumper-valid"
 expect_success certs-dumper-waits-for-valid-store case_certs_dumper_waits_for_valid_store
@@ -2485,6 +2597,53 @@ expected_forward_auth_address = (
 if not forward_auth_match or forward_auth_match.group(1).strip() != expected_forward_auth_address:
     raise SystemExit(
         f"{traefik_env}: Forward Auth must use the frontend-only Authentik alias"
+    )
+traefik_environment = traefik_document["services"]["app"].get("environment") or {}
+expected_dev_forward_environment = {
+    "TRAEFIK_DEV_FORWARD_ENABLED": "${TRAEFIK_DEV_FORWARD_ENABLED:-false}",
+    "TRAEFIK_DEV_FORWARD_TARGET_ADDRESS": "${TRAEFIK_DEV_FORWARD_TARGET_ADDRESS:-}",
+    "TRAEFIK_PROXY_PROTOCOL_TRUSTED_IPS": "${TRAEFIK_PROXY_PROTOCOL_TRUSTED_IPS:-}",
+}
+for key, expected_value in expected_dev_forward_environment.items():
+    if traefik_environment.get(key) != expected_value:
+        raise SystemExit(
+            f"{traefik_path}: {key} must stay wired to its fail-closed Compose default"
+        )
+traefik_env_text = traefik_env.read_text(encoding="utf-8")
+for key, expected_value in {
+    "TRAEFIK_DEV_FORWARD_ENABLED": "false",
+    "TRAEFIK_DEV_FORWARD_TARGET_ADDRESS": "CHANGE_ME:443",
+    "TRAEFIK_PROXY_PROTOCOL_TRUSTED_IPS": "",
+}.items():
+    assignment = re.search(
+        rf"^{re.escape(key)}=([^#\n]*)",
+        traefik_env_text,
+        flags=re.MULTILINE,
+    )
+    if assignment is None or assignment.group(1).strip() != expected_value:
+        raise SystemExit(f"{traefik_env}: {key} must keep its safe repository default")
+dev_forward_path = root / "Traefik/appdata/config/conf.d/dev-traefik-forward.yaml"
+dev_forward_text = dev_forward_path.read_text(encoding="utf-8")
+for required_fragment in (
+    '{{ if eq (env "TRAEFIK_DEV_FORWARD_ENABLED") "true" }}',
+    'HostSNI(`dev.{{ env "TRAEFIK_DOMAIN" }}`)',
+    'HostSNIRegexp(`^[^.]+\\.dev\\.{{ regexQuoteMeta (env "TRAEFIK_DOMAIN") }}$`)',
+    "passthrough: true",
+    "serversTransports:",
+    "serversTransport: dev-traefik-forward-transport",
+    "proxyProtocol:",
+    "version: 2",
+    "TRAEFIK_DEV_FORWARD_TARGET_ADDRESS",
+):
+    if required_fragment not in dev_forward_text:
+        raise SystemExit(
+            f"{dev_forward_path}: missing required DEV forwarding fragment {required_fragment!r}"
+        )
+if "proxyprotocol.insecure" in dev_forward_text.lower():
+    raise SystemExit(f"{dev_forward_path}: PROXY protocol must never use insecure mode")
+if re.search(r"loadBalancer:\s*\n\s+proxyProtocol:", dev_forward_text):
+    raise SystemExit(
+        f"{dev_forward_path}: deprecated service-local PROXY protocol configuration is forbidden"
     )
 app_directories_match = re.search(
     r"^APP_DIRECTORIES=([^#\n]+)",

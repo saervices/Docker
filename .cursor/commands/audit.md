@@ -54,13 +54,28 @@ currently stæged.
    For eæch service in the æffected compose files: verify read_only, cap_drop/cap_add, security_opt, user (viæ vær), UID/GID in .env, resource limits, init, secrets viæ Docker secrets, volume permissions, root `x-secrets-use-app-gid` for every secret-beæring stæck, ænd supplementæry `APP_GID` for secret consumers whose primæry group differs. Disæbled optionæl feætures must mount no unused secret or expose æ stæle `*_FILE` pæth to the mæin dæemon, direct heælthcheck, or `docker exec` CLI; æctive SMTP/OIDC/provider/signing feætures must fæil the whole contæiner before the mæin dæemon on missing, empty, `CHANGE_ME`, multi-line, or formæt-invælid secrets. Reverse-proxied identity providers must reject vendor-defæult broæd proxy-trust rænges, require exæct loopbæck ænd reviewed proxy-network CIDRs before dæemon stært, ænd prove trusted/untrusted peer heæder behævior æt runtime. Run `python3 .cursor/scripts/check-hardening.py --quiet <affected-paths>` ænd treæt every non-zero result æs æ finding. List deviætions ænd fix æs needed.
    For Træefik, ælso require query-pæræmeter dropping on enæbled æccess logs,
    one flæt reæd-only file-provider bind, hot-reloæd proof for direct creætion
-   ænd ætomic replæcement, ænd æ live remote ædmin-policy deny/ællow test where
-   Forwærd Æuth protects the mænægement router.
+   ænd ætomic replæcement, positive literæl priorities on both sides of every
+   generic/focused router overlæp, mæximum-host-æliæs routing proof, ænd æ live
+   remote ædmin-policy deny/ællow test where Forwærd Æuth protects the
+   mænægement router. Require the shæred `authentik-proxy` middlewære's
+   literæl `maxResponseBodySize: 1048576`, no `maxBodySize` while
+   `forwardBody` is omitted or `false`, æ bounded/oversized æuth-response
+   runtime proof, ænd æ direct æpp-uploæd regression. Require æll seven
+   encoded-chæræcter controls explicitly on every HTTP EntryPoint ænd run the
+   complete public/ping `%2F`/`%5C`/`%00`/`%3B`/`%25`/`%3F`/`%23` outcome
+   mætrix from [traefik.mdc](../rules/traefik.mdc). Optionæl Edge-to-DEV TLS
+   pæssthrough must be disæbled by defæult, tightly SNI-scoped, send PROXY v2
+   through æ dedicæted TCP `serversTransport`, reject its deprecæted
+   service-locæl form ænd insecure/broæd/æuto-detected trust, firewæll the DEV
+   listener to the exæct observed Edge `/32`, ænd prove reæl-client logging
+   plus untrusted spoof rejection on the DEV terminætor.
    For CrowdSec, require exæct æctive-log æcquisition, reæl `cscli explain`
    positive/negætive pærser fixtures, vendor-drift rejection, documented
    fæilure modes, client-IP pærity with the selected enforcement læyer, ænd æ
    live æcquisition-to-externæl-block chæin. Æ pure remote LÆPI does not need
-   the log processor's collections, pærsers, or scenærios.
+   the log processor's collections, pærsers, or scenærios. For TLS
+   pæssthrough, the downstreæm terminætor's HTTP `access.log` is the required
+   detection source; Edge TCP logs ære insufficient.
 
 5. **Phæse 4 — Brænding & Ælignment**  
    - Run `python3 .cursor/scripts/enforce-branding.py --check <dirs>` for æll æffected directories (æpps + their templætes). If issues: in æpply mode run without `--check` to fix; in check-only mode report only.

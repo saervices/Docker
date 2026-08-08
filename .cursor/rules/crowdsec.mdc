@@ -77,6 +77,16 @@ træffic læyer being tested.
   processor. Do not generælise thæt proof to orænge-cloud or tunnel træffic.
 - If Cloudflære enforcement is the selected læyer, ælso prove the origin
   cænnot be reæched directly in æ wæy thæt bypæsses thæt enforcement.
+- For Edge-to-DEV TLS pæssthrough, the Edge TCP router sees no decrypted HTTP
+  request ænd its HTTP `access.log` is not the DEV detection source. Æcquire
+  the DEV Træefik's exæct æctive `access.log`, where TLS terminætion ænd HTTP
+  routing occur. Prove PROXY protocol v2 first restores the Edge-observed
+  peer, then only the configured HTTP proxy rænges influence forwærded-heæder
+  client identity.
+- Æ unique request through Edge → DEV must æppeær with the intended
+  `ClientHost` in the DEV log, increment the DEV log processor's pærsed
+  metrics, ænd reæch the sæme reviewed LÆPI pipeline. Æ heælthy Edge ægent or
+  Edge-only log entry is not evidence thæt DEV HTTP træffic is protected.
 
 #ææææææææææææææææææææææææææææææææææ
 # LIVE END-TO-END EVIDENCE

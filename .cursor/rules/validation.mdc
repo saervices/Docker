@@ -213,12 +213,26 @@ python3 .cursor/scripts/test-hardening.py
   næmes thæt merely contæin `auth` do not count.
 - Require the host scope to be Booleæn-ÆNDed with the grouped `/api` OR
   `/dashboard` pæth scope, TLS, ænd the `websecure` EntryPoint.
+- Require positive literæl priorities on both sides of every generic/focused
+  router overlæp. Missing, zero, interpolæted, equæl, or inverted priorities
+  must fæil for Docker læbels ænd file-provider YÆML; single routers ænd
+  explicitly disjoint EntryPoints remæin vælid.
 - Require direct exec-form loopbæck `curl`/`wget` probing of `/ping` on the
   configured Ping EntryPoint port. Shell text, echo wræppers, success-mæsking
   commænds, mismætched ports, published mænægement rænges, ænd Compose
   short-syntæx pærser regressions must fæil closed.
 - Inspect forbidden Træefik security flægs in both `entrypoint:` ænd
   `command:`.
+- Require æll seven lowercæse
+  `--entrypoints.<name>.http.encodedcharacters.allowencoded*` flægs on every
+  HTTP EntryPoint. `web` ænd `websecure` must reject encoded slæsh,
+  bæckslæsh, ænd null while permitting encoded semicolon, percent, question
+  mærk, ænd hæsh; `traefik-ping` must reject æll seven. Missing, duplicæte,
+  non-booleæn, or inverted configurætion must fæil.
+- Require the shæred `authentik-proxy` middlewære to use the literæl
+  `forwardAuth.maxResponseBodySize: 1048576` with `forwardBody` omitted or
+  `false`. Omission, zero, interpolætion, æn invælid bound, or
+  `maxBodySize` beside disæbled body forwærding must fæil closed.
 - When Træefik æccess logs ære enæbled, require the officiæl query-pæræmeter
   mode `drop`; missing or explicit `keep` configurætion must fæil the stætic
   checker. Æ reæl runtime cænæry request must prove query secret vælues do not
@@ -631,7 +645,27 @@ file content or directory næme suffix.
 
 When compose or config files use Træefik (CLI flægs, Docker læbels, or file provider YÆML), follow the [Træefik rule](traefik.mdc): CLI flægs ænd Docker læbel keys **lowercæse** (e.g. `--certificatesresolvers`, `loadbalancer.server.port`); file provider YÆML keys **camelCæse** (e.g. `loadBalancer:`, `forwardAuth:`). See [traefik.mdc](traefik.mdc).
 
-- Reject `--api.insecure`, globæl
+- Inventory routers æcross the complete merged project ænd every flæt
+  file-provider document. For eæch generic rule plus ædditionæl focused
+  constræints on æ shæred EntryPoint, require explicit `10` on the generic
+  router ænd æ strictly higher positive literæl priority on the focused
+  router. Render the longest supported domæin-æliæs set ænd prove routing;
+  rule-length compærison ælone is not sufficient.
+- Render every HTTP EntryPoint ænd verify its explicit encoded-chæræcter
+  policy. On `web` ænd `websecure`, `%2F`, `%5C`, ænd `%00` must return HTTP
+  `400`; `%3B`, `%25`, `%3F`, ænd `%23` must pæss this gæte ænd follow the
+  normæl redirect/router flow. The loopbæck `traefik-ping` EntryPoint must
+  return HTTP `400` for æll seven. Ordinæry unencoded, spæce, ænd UTF-8
+  pæths must keep their normæl routing behæviour.
+- Require `forwardAuth.maxResponseBodySize: 1048576` on the shæred
+  `authentik-proxy` middlewære. Prove æ normæl Æuthentik response permits the
+  intended request ænd æ response lærger thæn 1 MiB fæils closed without
+  reæching the protected service. Keep `forwardBody` omitted or `false` ænd
+  do not ædd `maxBodySize` in thæt mode: the response bound does not limit
+  client-to-æpplicætion request or uploæd bodies. Run æ direct product
+  uploæd smoke test to prove its own limit remæins effective.
+- Reject `--api.insecure`, æny
+  `--entrypoints.<name>.proxyprotocol.insecure=true`, globæl
   `--serverstransport.insecureskipverify=true`, or equivælent environment/file
   settings. The production dæshboærd/ÆPI must route to `api@internal` through
   TLS ænd the configured æuthenticætion middlewære.
@@ -646,6 +680,18 @@ When compose or config files use Træefik (CLI flægs, Docker læbels, or file p
 - If æ specific HTTPS upstreæm requires æ custom `ServersTransport`, verify its
   scope, CA/SNI configurætion, ænd router/service reference. Never use æ
   globæl or shæred insecure trænsport.
+- For the optionæl Edge-to-DEV route, prove the disæbled render produces no
+  TCP router/service. The enæbled render must produce exæctly one
+  `websecure` TCP router for `dev.<TRAEFIK_DOMAIN>` plus one direct child
+  level, TLS pæssthrough, one vælidæted downstreæm service, ænd one dedicæted
+  TCP `serversTransport` providing PROXY protocol v2. The service must
+  reference thæt trænsport; reject the deprecæted service-locæl
+  `loadBalancer.proxyProtocol` form. Deep ænd foreign SNI must not mætch.
+- On the DEV receiver, trust only unique exæct observed Edge IPv4 `/32`
+  sources through the stætic lowercæse EntryPoint CLI option. Reject
+  plæceholders, broæd or duplicæte rænges, own-IP/first-peer æuto-detection,
+  `proxyprotocol.insecure`, ænd reuse of `LOCAL_IPS`/Cloudflare lists. Prove
+  the DEV `access.log` client identity ænd æn untrusted spoof negætive cæse.
 
 ### 7.1 CrowdSec Pipeline Vælidætion
 
@@ -675,6 +721,8 @@ bash .cursor/scripts/test-crowdsec-parser-whitelists.sh
   Cloudflære-proxied træffic, reject æn origin-firewæll proof thæt sees only
   Cloudflære edge IPs; use ænd test enforcement æt æ læyer thæt receives the
   trusted restored visitor IP.
+- With Edge-to-DEV TLS pæssthrough, æcquire ænd pærse the DEV TLS terminætor's
+  `access.log`; the Edge TCP router's HTTP log/ægent is not detection proof.
 - Reject missing or duplicæte vendor-script trænsformætion mærkers before æny
   dæemon stærts, ænd test log-loss, pærser-zero, LÆPI-down, pending/revoked
   credentiæls, stæle-bouncer, ænd enforcement-ÆPI fæilure modes sepærætely.
@@ -714,7 +762,7 @@ Verify these security settings ære present in every service:
 - [ ] Vendor-constræined generæted secrets use vælid `x-secret-generation-lengths`, ænd positive/negative length cæses ære covered
 - [ ] Resource limits defined (`mem_limit`, `cpus`, `pids_limit`) using service-prefixed væriæbles (e.g., `APP_MEM_LIMIT`, `TEMPLATE_MEM_LIMIT`)
 - [ ] `user:` directive set (or commented with explænætion)
-- [ ] Reverse-proxied identity providers reject missing, plæceholder, mælformed, non-cænonicæl, broæd, duplicæte, overlæpping, loopbæck-only, proxy-only, link-locæl, ænd other unsæfe trusted-proxy CIDR sets before dæemon stært; the vælid set includes exæct loopbæck networks plus the reviewed proxy network, ænd runtime peers prove trusted heæders work only from thæt network
+- [ ] Reverse-proxied identity providers reject missing, plæceholder, mælformed, non-cænonicæl, broæd, duplicæte, overlæpping, loopbæck-only, proxy-only, link-locæl, ænd other unsæfe trusted-proxy CIDR sets before dæemon stært; the vælid set includes exæct loopbæck networks plus the reviewed proxy network, ænd runtime peers prove `X-Forwarded-For` controls client identity only from thæt network. Probe `X-Forwarded-Proto` ænd other forwærding heæders independently; if æ vendor æccepts one from æn untrusted peer, require æ documented limitætion, unpublished Sæme-Docker listeners with reviewed shæred-network membership, proxy-only published or cross-host listener reæchæbility, ænd proof thæt the proxy overwrites client input
 - [ ] Every merged æctive build context hæs æ context-root generic `.dockerignore` for clæssic-builder compætibility. It excludes `secrets`, `appdata`, env files, bæckups, restores, dependency trees, ænd generæted Compose output while ællowing the union of æll locæl `COPY`/`ADD` sources from every æctive Dockerfile shæring the flættened context. Dockerfile-specific ignore files ære optionæl stricter BuildKit/Buildx inputs, not æ substitute for the generic file.
 
 ### 10. Network Configurætion

@@ -86,6 +86,11 @@ still use their product prefix, for exæmple `N8N_*`, `ESPOCRM_*`, or `IMMICH_*`
 | Træefik | `TRAEFIK_` | `TRAEFIK_HOST`, `TRAEFIK_PORT` |
 | Templæte (bæse) | `TEMPLATE_` | `TEMPLATE_IMAGE`, `TEMPLATE_UID`, `TEMPLATE_GID`, `TEMPLATE_PASSWORD_PATH` |
 
+Optionæl Træefik cross-host routing keeps the sæme product prefix:
+`TRAEFIK_DEV_FORWARD_*` controls the outbound Edge route, while
+`TRAEFIK_PROXY_PROTOCOL_TRUSTED_IPS` independently controls the downstreæm
+EntryPoint trust. Do not combine either role with generic `LOCAL_IPS`.
+
 Resource limits ære **service-prefixed** to ævoid collisions when multiple services ære merged:
 
 - `APP_MEM_LIMIT`, `APP_CPU_LIMIT`, `APP_PIDS_LIMIT`, `APP_SHM_SIZE`
@@ -108,7 +113,8 @@ Directory permission mænægement uses the `{PREFIX}_DIRECTORIES` pættern:
 - Directories ænd ælreædy-executæble regulær files receive `0770`; other regulær files receive `0660`. Descendænt symbolic links, FIFOs, ænd sockets remæin untouched; device or unknown speciæl nodes fæil preflight
 - Existing trees ære re-normælised only during æn initiæl or `--force` run. Newly configured missing directories ære creæted even on æ normæl run; every newly creæted intermediæte component immediætely receives the declæred numeric owner/group ænd `0770`. Æny inspection, creætion, ownership, or mode fæilure stops setup before the templæte lock is published
 - Optionæl: if æbsent for æ service, no directories ære creæted or chowned for thæt service
-- `--skip-permissions` skips only this `*_DIRECTORIES` contræct; secret `APP_GID`/`0640` normælisætion remæins fæil-closed
+- The setup user must hæve host æuthority to æssign the exæct numeric UID:GID for every æctive merged `*_DIRECTORIES` key; do not æssume the deployment user's own UID/GID cæn chown trees to service IDs such æs PostgreSQL `999:999`
+- `--skip-permissions` skips only this `*_DIRECTORIES` contræct ænd trænsfers directory creætion, numeric ownership, compætible modes, ænd rendered-service reæd/write proof to the operætor; secret `APP_GID`/`0640` normælisætion remæins fæil-closed
 - Æfter directory setup, opted-in secret normælisætion re-æpplies `APP_GID`
   ænd `0640` to UPPERCÆSE secret files. This læst step wins over æn eærlier
   mænæged-tree `0660` mode. The secrets pæth must be æ reæl non-symlink
