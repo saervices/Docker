@@ -391,6 +391,34 @@ prepare_transaction() {
 # --- REGRESSION CÆSES
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: test_nested_local_script_directory_modes
+#   Proves locæl nested shebæng helpers stæge ænd publish with the
+#   complete scripts/** directory-mode contræct under the privæte umæsk.
+#ææææææææææææææææææææææææææææææææææ
+test_nested_local_script_directory_modes() {
+  local root="${TEST_ROOT}/nested-local-script"
+  local project="${root}/Project"
+  local nested_dir="${project}/scripts/vaultwarden.d"
+  local staged_dir=""
+
+  create_fixture "$root" valid
+  mkdir -p -- "$nested_dir"
+  chmod 0755 -- "$nested_dir"
+  printf '%s\n' '#!/bin/sh' 'printf nested-helper' >"${nested_dir}/10-database-url.sh"
+  chmod 0644 -- "${nested_dir}/10-database-url.sh"
+
+  prepare_transaction "$root"
+  staged_dir="${DEPLOYMENT_TRANSACTION_STAGE}/scripts/vaultwarden.d"
+  [[ "$(stat -Lc '%a' -- "$staged_dir")" == 755 ]]
+  [[ "$(stat -Lc '%a' -- "${staged_dir}/10-database-url.sh")" == 755 ]]
+
+  publish_deployment_transaction
+  finish_deployment_transaction
+  [[ "$(stat -Lc '%a' -- "$nested_dir")" == 755 ]]
+  [[ "$(stat -Lc '%a' -- "${nested_dir}/10-database-url.sh")" == 755 ]]
+}
+
 test_force_drops_stale_keys() {
   local root="${TEST_ROOT}/stale"
   local project="${root}/Project"
@@ -735,6 +763,7 @@ test_full_initial_entrypoint() {
   [[ -z "$(find "${project}/.run.conf" -mindepth 1 -maxdepth 1 -type d -name '.transaction.*' -print -quit)" ]]
 }
 
+expect_success nested-local-script-directory-modes test_nested_local_script_directory_modes
 expect_success force-drops-stale-keys test_force_drops_stale_keys
 expect_success initial-legacy-env-secret-transaction test_initial_legacy_env_and_secret_transaction
 expect_success invalid-yaml-nonzero-atomic test_invalid_yaml_is_nonzero_and_atomic

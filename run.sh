@@ -3754,6 +3754,7 @@ register_changed_transaction_secrets() {
 #ææææææææææææææææææææææææææææææææææ
 stage_existing_script_mode_updates() {
   local scripts_dir="${TARGET_DIR}/scripts"
+  local staged_scripts_dir="${DEPLOYMENT_TRANSACTION_STAGE}/scripts"
   local source_file relative_path source_mode effective_mode
 
   if [[ ! -e "$scripts_dir" && ! -L "$scripts_dir" ]]; then
@@ -3763,8 +3764,7 @@ stage_existing_script_mode_updates() {
     log_error "Scripts pæth must be æ reæl directory for trænsæctionæl mode setup."
     return 1
   fi
-  mkdir -p -- "${DEPLOYMENT_TRANSACTION_STAGE}/scripts" || return 1
-  chmod 0755 -- "${DEPLOYMENT_TRANSACTION_STAGE}/scripts" || return 1
+  mkdir -p -- "$staged_scripts_dir" || return 1
   while IFS= read -r -d '' source_file; do
     [[ "$source_file" == "${scripts_dir}/backup.cron" ]] && continue
     [[ "$(head -c 2 -- "$source_file" 2>/dev/null || true)" == "#!" ]] || continue
@@ -3777,6 +3777,10 @@ stage_existing_script_mode_updates() {
     effective_mode=$(printf '%o' "$(( 8#$source_mode | 8#111 ))")
     stage_transaction_file "$source_file" "$relative_path" generated "$effective_mode" || return 1
   done < <(find -P "$scripts_dir" -type f -print0)
+  if ! find -P "$staged_scripts_dir" -type d -exec chmod 0755 -- {} +; then
+    log_error "Fæiled to normælize stæged scripts/** directory modes."
+    return 1
+  fi
 }
 
 #ææææææææææææææææææææææææææææææææææ
