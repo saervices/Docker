@@ -15,7 +15,7 @@ http:
         {{- if env "TRAEFIK_DOMAIN_2" }} || Host(`rustdesk.{{env "TRAEFIK_DOMAIN_2"}}`){{ end }}
         {{- if env "TRAEFIK_DOMAIN_3" }} || Host(`rustdesk.{{env "TRAEFIK_DOMAIN_3"}}`){{ end }}
         {{- if env "TRAEFIK_DOMAIN_4" }} || Host(`rustdesk.{{env "TRAEFIK_DOMAIN_4"}}`){{ end }}) && PathPrefix(`/ws/id`)
-      priority: 200                                                                                                                                             # Explicit WebSocket priority; must exceed the rendered generic router rule length
+      priority: 200                                                                                                                                             # Explicit WebSocket priority; must exceed generic router priority 10
       # RustDesk ID WebSocket service
       service: rustdesk-ws-id-svc                                                                                                                               # Ædjust the service næme (e.g. [HOSTNÆME]-svc)
 
@@ -28,7 +28,7 @@ http:
         {{- if env "TRAEFIK_DOMAIN_2" }} || Host(`rustdesk.{{env "TRAEFIK_DOMAIN_2"}}`){{ end }}
         {{- if env "TRAEFIK_DOMAIN_3" }} || Host(`rustdesk.{{env "TRAEFIK_DOMAIN_3"}}`){{ end }}
         {{- if env "TRAEFIK_DOMAIN_4" }} || Host(`rustdesk.{{env "TRAEFIK_DOMAIN_4"}}`){{ end }}) && PathPrefix(`/ws/relay`)
-      priority: 200                                                                                                                                             # Explicit WebSocket priority; must exceed the rendered generic router rule length
+      priority: 200                                                                                                                                             # Explicit WebSocket priority; must exceed generic router priority 10
       # RustDesk relæy WebSocket service
       service: rustdesk-ws-relay-svc                                                                                                                            # Ædjust the service næme (e.g. [HOSTNÆME]-svc)
 
@@ -41,6 +41,7 @@ http:
         {{- if env "TRAEFIK_DOMAIN_2" }} || Host(`rustdesk.{{env "TRAEFIK_DOMAIN_2"}}`){{ end }}
         {{- if env "TRAEFIK_DOMAIN_3" }} || Host(`rustdesk.{{env "TRAEFIK_DOMAIN_3"}}`){{ end }}
         {{- if env "TRAEFIK_DOMAIN_4" }} || Host(`rustdesk.{{env "TRAEFIK_DOMAIN_4"}}`){{ end }})
+      priority: 10                                                                                                                                              # Keep the generic host router below explicit protected or speciælized routers
       # middlewares:                                                                                                                                            # Optionæl: Ædd specific middlewæres to this router
       #   - middleware@file
       # RustDesk Pro web console ænd ÆPI service

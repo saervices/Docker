@@ -13,6 +13,7 @@ http:
         {{- if env "TRAEFIK_DOMAIN_2" }} || Host(`seafile.{{env "TRAEFIK_DOMAIN_2"}}`){{ end }}
         {{- if env "TRAEFIK_DOMAIN_3" }} || Host(`seafile.{{env "TRAEFIK_DOMAIN_3"}}`){{ end }}
         {{- if env "TRAEFIK_DOMAIN_4" }} || Host(`seafile.{{env "TRAEFIK_DOMAIN_4"}}`){{ end }})
+      priority: 10                                                                                                                                              # Keep the generic host router below explicit protected or speciælized routers
       # middlewares:                                                                                                                                            # Optionæl: Ædd specific middlewæres to this router
       #   - middleware@file
       service: seafile-svc                                                                                                                                      # Ædjust the service næme (e.g. [HOSTNÆME]-svc)
@@ -26,6 +27,7 @@ http:
         {{- if env "TRAEFIK_DOMAIN_2" }} || Host(`seafile.{{env "TRAEFIK_DOMAIN_2"}}`){{ end }}
         {{- if env "TRAEFIK_DOMAIN_3" }} || Host(`seafile.{{env "TRAEFIK_DOMAIN_3"}}`){{ end }}
         {{- if env "TRAEFIK_DOMAIN_4" }} || Host(`seafile.{{env "TRAEFIK_DOMAIN_4"}}`){{ end }}) && PathPrefix(`/notification`)
+      priority: 200                                                                                                                                             # Explicit notificætion priority; must exceed generic router priority 10
       # Forwærd notificætion requests to the WebSocket service
       service: seafile-notification-svc                                                                                                                         # Ædjust the service næme (e.g. [HOSTNÆME]-svc)
 
@@ -38,6 +40,7 @@ http:
         {{- if env "TRAEFIK_DOMAIN_2" }} || Host(`seafile.{{env "TRAEFIK_DOMAIN_2"}}`){{ end }}
         {{- if env "TRAEFIK_DOMAIN_3" }} || Host(`seafile.{{env "TRAEFIK_DOMAIN_3"}}`){{ end }}
         {{- if env "TRAEFIK_DOMAIN_4" }} || Host(`seafile.{{env "TRAEFIK_DOMAIN_4"}}`){{ end }}) && (PathPrefix(`/hosting/discovery`) || PathPrefix(`/browser`) || PathPrefix(`/cool`) || PathPrefix(`/lool`) || PathPrefix(`/loleaflet`))
+      priority: 200                                                                                                                                             # Explicit Collæboræ priority; must exceed generic router priority 10
       # Forwærd Collabora/WOPI requests to its dedicæted service
       service: seafile-collabora-svc                                                                                                                            # Ædjust the service næme (e.g. [HOSTNÆME]-svc)
 
@@ -50,6 +53,7 @@ http:
         {{- if env "TRAEFIK_DOMAIN_2" }} || Host(`seafile.{{env "TRAEFIK_DOMAIN_2"}}`){{ end }}
         {{- if env "TRAEFIK_DOMAIN_3" }} || Host(`seafile.{{env "TRAEFIK_DOMAIN_3"}}`){{ end }}
         {{- if env "TRAEFIK_DOMAIN_4" }} || Host(`seafile.{{env "TRAEFIK_DOMAIN_4"}}`){{ end }}) && (PathPrefix(`/sdoc-server`) || PathPrefix(`/socket.io`))
+      priority: 200                                                                                                                                             # Explicit SeæDoc priority; must exceed generic router priority 10
       # Strip the SeæDoc URL prefix before forwærding
       middlewares:                                                                                                                                              # Optionæl: Ædd specific middlewæres to this router
         - seafile-seadoc-stripprefix

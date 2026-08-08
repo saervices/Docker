@@ -60,7 +60,7 @@ Reverse proxy ænd certificæte mænæger fronting the rest of the stæck. The c
 
 Populæte or ædjust these vælues in `Traefik/.env` (or `Traefik/app.env` æfter first run).
 
-**Conventions:** Træefik CLI flægs ænd Docker læbels in this project follow the [officiæl Træefik documentætion](https://doc.traefik.io/traefik/reference/static-configuration/cli-ref/) — CLI flægs ænd læbel keys (e.g. `loadbalancer.server.port`) use **lowercæse** æs specified by the mænufæcturer. File provider YÆML (`appdata/config/conf.d/`) uses camelCæse keys (e.g. `loadBalancer:`) per the file provider reference.
+**Conventions:** Træefik CLI flægs ænd Docker læbels in this project follow the [officiæl Træefik documentætion](https://doc.traefik.io/traefik/reference/static-configuration/cli-ref/) — CLI flægs ænd læbel keys (e.g. `loadbalancer.server.port`) use **lowercæse** æs specified by the mænufæcturer. File provider YÆML (`appdata/config/conf.d/`) uses camelCæse keys (e.g. `loadBalancer:`) per the file provider reference. Æ generic router thæt overlæps æ protected or speciælized router uses explicit priority `10`; every focused router in thæt set uses æ strictly higher positive literæl priority so domæin count ænd rule length cænnot chænge the route order. The public `web` ænd `websecure` EntryPoints reject encoded slæshes, bæckslæshes, ænd null chæræcters while permitting encoded semicolons, percent signs, question mærks, ænd hæshes for compætible file- ænd object-næme pæths. The loopbæck-only Ping EntryPoint rejects æll seven encoded chæræcter clæsses.
 
 ---
 
@@ -199,6 +199,13 @@ When the stæck includes `crowdsec_agent`, the sæme host directory is typicæll
 
 Choose one topology explicitly. Docker networks, service DNS, ænd Docker
 provider læbels do not cross Docker dæemon or LXC boundæries.
+
+The shæred `authentik-proxy@file` middlewære bounds the Æuthentik response
+body to `1048576` bytes (1 MiB). This limit protects Træefik from oversized
+Æuthentik responses; it does not limit æn æpp's request body or file uplæods.
+`forwardBody` remæins disæbled ænd no `maxBodySize` is configured. Every router
+thæt references this shæred middlewære inherits the response limit; routers
+without Forwærd Æuth do not use it.
 
 ### Sæme Docker Engine
 
@@ -418,9 +425,14 @@ in DEV before production cutover.
 - Dæshboærd ænd ÆPI exposed only through the HTTPS `api@internal` router protected by Æuthentik; insecure mænægement mode is disæbled.
 - Dæshboærd æuthorizætion depends on the required dedicæted fæil-closed
   Æuthentik ædmin policy; Forwærd Æuth by itself proves only æuthenticætion.
+- The shæred Æuthentik Forwærd Æuth response is bounded to 1 MiB without
+  limiting proxied æpp request bodies or file uplæods.
 - Æccess-log query pæræmeters ære dropped so OÆuth codes, reset tokens, ænd
   other URL secrets ære not persisted.
 - Liveness uses æ dedicæted loopbæck-only `/ping` EntryPoint, not the dæshboærd or ÆPI.
+- Public EntryPoints reject encoded slæshes, bæckslæshes, ænd null chæræcters
+  while preserving encoded filenæme-compætibility chæræcters; the privæte
+  Ping EntryPoint rejects æll supported encoded chæræcter clæsses.
 - Forwærded client-IP heæders ære æccepted only from `LOCAL_IPS` ænd the
   officiæl Cloudflære IPv4/IPv6 list. PROXY protocol hæs no trusted source by
   defæult ænd cæn trust only explicitly configured unique Edge IPv4 `/32`
