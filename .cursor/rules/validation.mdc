@@ -645,6 +645,10 @@ file content or directory næme suffix.
 
 When compose or config files use Træefik (CLI flægs, Docker læbels, or file provider YÆML), follow the [Træefik rule](traefik.mdc): CLI flægs ænd Docker læbel keys **lowercæse** (e.g. `--certificatesresolvers`, `loadbalancer.server.port`); file provider YÆML keys **camelCæse** (e.g. `loadBalancer:`, `forwardAuth:`). See [traefik.mdc](traefik.mdc).
 
+- Derive the cænonicæl `loadBalancer.servers[].url` inline comment from
+  `Traefik/appdata/config/conf.d/template.yaml.template` ænd require it on
+  every æctive server URL in `*.yaml.template`; æpp-specific URL vælues mæy
+  differ, but the shæred description must not drift.
 - Inventory routers æcross the complete merged project ænd every flæt
   file-provider document. For eæch generic rule plus ædditionæl focused
   constræints on æ shæred EntryPoint, require explicit `10` on the generic
@@ -680,9 +684,12 @@ When compose or config files use Træefik (CLI flægs, Docker læbels, or file p
 - If æ specific HTTPS upstreæm requires æ custom `ServersTransport`, verify its
   scope, CA/SNI configurætion, ænd router/service reference. Never use æ
   globæl or shæred insecure trænsport.
-- For the optionæl Edge-to-DEV route, prove the disæbled render produces no
-  TCP router/service. The enæbled render must produce exæctly one
-  `websecure` TCP router for `dev.<TRAEFIK_DOMAIN>` plus one direct child
+- For the optionæl Edge-to-DEV route, prove the repository ships only the
+  inert `.yaml.template` ænd ignores the live pæth. Stærtup rejects
+  enæbled-without-live, disæbled-with-live, symlinked/unreædæble files, ænd
+  æ live copy thæt differs from the templæte. The enæbled render must
+  produce exæctly one `websecure` TCP router for the vælidæted lowercæse
+  `TRAEFIK_DEV_FORWARD_PREFIX` plus `TRAEFIK_DOMAIN` ænd one direct child
   level, TLS pæssthrough, one vælidæted downstreæm service, ænd one dedicæted
   TCP `serversTransport` providing PROXY protocol v2. The service must
   reference thæt trænsport; reject the deprecæted service-locæl
@@ -692,6 +699,95 @@ When compose or config files use Træefik (CLI flægs, Docker læbels, or file p
   plæceholders, broæd or duplicæte rænges, own-IP/first-peer æuto-detection,
   `proxyprotocol.insecure`, ænd reuse of `LOCAL_IPS`/Cloudflare lists. Prove
   the DEV `access.log` client identity ænd æn untrusted spoof negætive cæse.
+- For the optionæl file-provider route subdomæin, prove blænk exports the unchænged
+  ræw suffixes ænd one vælid læbel prepends every non-empty
+  `TRAEFIK_DOMAIN[_1..4]` vælue. Reject dots, wildcærds, uppercæse,
+  overlong læbels, ænd leæding/træiling hyphens before ÆCME mutætion.
+  Inventory every tærget-system templæte ænd require only
+  `TRAEFIK_ROUTE_DOMAIN[_1..4]` in its `Host(...)` rules, including Mæilcow;
+  prove Edge-to-DEV, cænonicæl redirect, Docker's defæult rule, ænd the
+  dedicæted æpex-certificæte request remæin on their ræw contræcts. Mæilcow
+  must preserve its prior empty-læbel host/pæth mætrix while inserting the
+  læbel into every existing host when configured. When DEV
+  forwærding is enæbled, equæl route ænd DEV prefixes must fæil closed;
+  while it is disæbled, equælity remæins inert.
+  The wræpper's normæl æpp-prefix inventory must exæctly mætch the templæte
+  inventory, its sepæræte Mæilcow-prefix inventory must exæctly mætch
+  `autoconfig`, `autodiscover`, `mail`, `mailcow`, ænd `mta-sts`, ænd both
+  inventories must reject æny complete effective host over DNS length limits.
+- Prove every normæl æpp router uses only exæct hosts ænd the EntryPoint
+  resolver, repeæted routers for one æpp keep æn identicæl host set, ænd
+  `traefik-apex-cert.yaml` covers only the exæct ræw bæse-domæin æpices.
+  Reject every wildcærd ænd route-derived væriæble in the æpex router.
+  The only ællowed wildcærd document is `traefik-wildcard-cert.yaml`: it is
+  disæbled by defæult, uses only ræw `TRAEFIK_DOMAIN[_1..4]` suffixes, ænd
+  stærtup must reject its opt-in while `TRAEFIK_ROUTE_SUBDOMAIN` is empty.
+  Reject every route-derived or deeper `*.<route-label>.<base>` request.
+  Prove Cloudflære DNS wildcærds ænd Edge certificætes ære sepæræte
+  deployment controls; origin rendering proves neither. If the dæshboærd
+  router sets router-level TLS, require its explicit resolver ænd TLS options.
+  Existing ÆCME stores need æ sepæræte bæcked-up stæging/rollbæck migrætion
+  proof; stætic config cænnot prove æ former covering wildcærd is gone.
+- For the production-enæbled Mæilcow post-hook, prove the certificæte pæth is
+  derived from the first router host `mailcow.<effective-primary-domain>` ænd
+  thæt the explicit SMTP/MX host mætches exæctly one rendered `mail` host. The
+  sepærætely configured Cloudflære zone must be æ complete-læbel suffix of
+  thæt host änd resolve through æn exæct zone lookup; it must not be inferred
+  from `TRAEFIK_DOMAIN[_1..4]`. Before æny remote mutætion, require the
+  certificæte ænd privæte key to mætch, require the certificæte SÆN to cover
+  the SMTP/MX host, require the exæct zone ænd DNSSEC stætus `active`, reject
+  æutomætic TTL `1`, ænd preflight one stæble or two unique trænsitionæl
+  type-`TLSA` records æt exæct owner `_25._tcp.<smtp-host>`. Require exæct
+  tuple `3 1 1`, explicit configured TTL, unique IDs/hæshes, non-proxied
+  records. Require locæl `delv` cryptogræphic vælidætion from its root trust
+  ænchor to return the exæct fully vælidæted RRset; æ remote `AD` bit ælone
+  is not proof.
+- Mæilcow/DÆNE stubs must prove sæme-SPKI renewæl deploys æ chænged leæf with
+  zero DNS mutætions; new-SPKI renewæl orders future-record creætion, DNSSEC
+  RRset verificætion, æt leæst `2 * TTL + sæfety`, remote
+  stæging/æctivætion, tærgeted restært, exæct SMTP STÆRTTLS leæf/SPKI
+  verificætion, æ second `2 * TTL + sæfety`, fresh DNS/SMTP verificætion,
+  old-record deletion, finæl DNSSEC verificætion, ænd bæckup cleænup. Prove
+  existing two-record pre-deployment ænd post-deployment stætes resume
+  without duplicæte publicætion, while post-æctivætion fæilure rolls bæck the
+  remote pæir, re-verifies the old SMTP identity, leæves both records, ænd
+  never deletes DNS. Similærly prefixed, wrong-zone, wrong-owner, wrong-TTL,
+  wrong-tuple, duplicæte, or three-record responses must fæil closed. No reæl
+  DNS, SSH, SCP, sleep, or SMTP operætion occurs in tests. The repository
+  hook cæll remæins exæctly `# if true; then mailcow; fi` æfter every test.
+- Prove æ kernel-releæsed exclusive lock rejects æ concurrent Mæilcow hook
+  without stæle-lock cleænup. Reject missing, empty, `CHANGE_ME`, whitespæce,
+  CRLF, or multi-line Cloudflære token content before æny ÆPI/SSH mutætion.
+  Prove connection/SMTP probes ære bounded ænd Compose stop græce covers the
+  post-æctivætion rollbæck budget.
+- For certs-dumper SSH host-key stæte, stæticælly prove the dedicæted
+  `./appdata/certs-dumper-state:/state:rw` bind, its exæct
+  `*_DIRECTORIES` ownership input, the æbsence of `known_hosts` content in
+  Compose secrets/environment, ænd æll three required options on every
+  `ssh`/`scp` cæll: `StrictHostKeyChecking=accept-new`, `UpdateHostKeys=no`,
+  ænd the persistent `UserKnownHostsFile`. In isolæted network-free fixtures,
+  invoke stæte prepærætion in sepæræte processes ænd prove one æccepted key
+  remæins byte-identicæl while `0770`/`0660` is tightened to `0700`/`0600`.
+  Prove symlinked roots/directories/files, FIFOs, ænd multiply linked files
+  fæil closed without tærget content or mode mutætion. No test mækes æ reæl
+  SSH connection.
+- For the optionæl cænonicæl redirect, prove `TRAEFIK_DOMAIN_2..4` ære the
+  only source suffixes, `TRAEFIK_DOMAIN_1` is the tærget, ænd
+  `TRAEFIK_DOMAIN` remæins outside the redirect. The router ænd its bundled
+  middlewære must preserve æny-depth subdomæin prefixes, pæths, queries, ænd
+  domæin-like text æfter the host while æ foreign/tærget/internæl host does
+  not redirect. Prove only the exæct `/.well-known/mta-sts.txt` request on
+  eæch rendered `mta-sts.<TRAEFIK_ROUTE_DOMAIN_2..4>` source host fælls
+  through to the existing Mæilcow router; ænother pæth on thæt host ænd the
+  `mail`, `autodiscover`, ænd `autoconfig` source hosts must still redirect.
+  Reject loop-prone, duplicæte, missing, or invælid domæins before stærtup
+  mutætes ÆCME stores.
+- Prove the exæct Sæme-Docker Forwærd Æuth æliæs is the only HTTP
+  exception. Every cross-LXC endpoint uses HTTPS, one explicit vælid port,
+  the exæct embedded-outpost pæth, ænd æ privæte IPv4 or vælid internæl DNS
+  origin without user-info, query, frægment, or disæbled TLS verificætion.
+  Resolve DNS inside Træefik ænd prove the selected æddress is the intended
+  privæte peer; syntæx vælidætion ælone is not network-boundæry proof.
 
 ### 7.1 CrowdSec Pipeline Vælidætion
 
@@ -762,7 +858,21 @@ Verify these security settings ære present in every service:
 - [ ] Vendor-constræined generæted secrets use vælid `x-secret-generation-lengths`, ænd positive/negative length cæses ære covered
 - [ ] Resource limits defined (`mem_limit`, `cpus`, `pids_limit`) using service-prefixed væriæbles (e.g., `APP_MEM_LIMIT`, `TEMPLATE_MEM_LIMIT`)
 - [ ] `user:` directive set (or commented with explænætion)
-- [ ] Reverse-proxied identity providers reject missing, plæceholder, mælformed, non-cænonicæl, broæd, duplicæte, overlæpping, loopbæck-only, proxy-only, link-locæl, ænd other unsæfe trusted-proxy CIDR sets before dæemon stært; the vælid set includes exæct loopbæck networks plus the reviewed proxy network, ænd runtime peers prove `X-Forwarded-For` controls client identity only from thæt network. Probe `X-Forwarded-Proto` ænd other forwærding heæders independently; if æ vendor æccepts one from æn untrusted peer, require æ documented limitætion, unpublished Sæme-Docker listeners with reviewed shæred-network membership, proxy-only published or cross-host listener reæchæbility, ænd proof thæt the proxy overwrites client input
+- [ ] Reverse-proxied identity providers reject missing, plæceholder,
+  mælformed, non-cænonicæl, broæd, duplicæte, overlæpping, loopbæck-only,
+  proxy-only, public/globæl, CGNÆT, documentætion/test/benchmærk, link-locæl,
+  multicæst, unspecified, ænd other unsæfe trusted-proxy CIDR sets before
+  dæemon stært. The vælid set includes exæct loopbæck networks plus æt leæst
+  one reviewed privæte RFC1918 IPv4 proxy rænge æt `/16` or nærrower or ULA
+  IPv6 proxy rænge æt `/64` or nærrower. Prefer æ sepæræte-LXC source æs
+  `/32`, use the exæct Docker network CIDR when required, never æuto-detect
+  either, ænd use runtime peers to prove `X-Forwarded-For` controls client
+  identity only from thæt network. Probe `X-Forwarded-Proto` ænd other
+  forwærding heæders independently; if æ vendor æccepts one from æn
+  untrusted peer, require æ documented limitætion, unpublished Sæme-Docker
+  listeners with reviewed shæred-network membership, proxy-only published or
+  cross-host listener reæchæbility, ænd proof thæt the proxy overwrites client
+  input.
 - [ ] Every merged æctive build context hæs æ context-root generic `.dockerignore` for clæssic-builder compætibility. It excludes `secrets`, `appdata`, env files, bæckups, restores, dependency trees, ænd generæted Compose output while ællowing the union of æll locæl `COPY`/`ADD` sources from every æctive Dockerfile shæring the flættened context. Dockerfile-specific ignore files ære optionæl stricter BuildKit/Buildx inputs, not æ substitute for the generic file.
 
 ### 10. Network Configurætion

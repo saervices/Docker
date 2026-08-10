@@ -28,6 +28,7 @@ readonly VAULTWARDEN_COMPOSE="${TEST_REPO_ROOT}/Vaultwarden/docker-compose.app.y
 readonly VAULTWARDEN_IMMUTABLE_CONFIG_FILE='/etc/vaultwarden.d/config.json'
 readonly N8N_SCRIPT="${TEST_REPO_ROOT}/n8n/dockerfiles/entrypoint.sh"
 readonly TRAEFIK_SCRIPT="${TEST_REPO_ROOT}/Traefik/scripts/traefik-start.sh"
+readonly TRAEFIK_DEV_FORWARD_TEMPLATE="${TEST_REPO_ROOT}/Traefik/appdata/config/conf.d/dev-traefik-forward.yaml.template"
 readonly CERTS_DUMPER_SCRIPT="${TEST_REPO_ROOT}/templates/traefik_certs-dumper/dockerfiles/entrypoint.traefik_certs-dumper.sh"
 readonly VIKUNJA_SCRIPT="${TEST_REPO_ROOT}/Vikunja/dockerfiles/entrypoint.sh"
 readonly KIMAI_SCRIPT="${TEST_REPO_ROOT}/Kimai/scripts/kimai-start.sh"
@@ -148,6 +149,16 @@ printf '%s\n' '#!/bin/sh' 'exit 0' >"${TEST_BIN}/n8n"
 printf '%s\n' \
   '#!/bin/sh' \
   '[ -z "${TRAEFIK_MARKER:-}" ] || printf "%s\n" "$@" >"$TRAEFIK_MARKER"' \
+  'if [ -n "${TRAEFIK_ROUTE_MARKER:-}" ]; then' \
+  '  {' \
+  '    printf "TRAEFIK_ROUTE_SUBDOMAIN=%s\n" "${TRAEFIK_ROUTE_SUBDOMAIN:-}"' \
+  '    printf "TRAEFIK_ROUTE_DOMAIN=%s\n" "${TRAEFIK_ROUTE_DOMAIN:-}"' \
+  '    printf "TRAEFIK_ROUTE_DOMAIN_1=%s\n" "${TRAEFIK_ROUTE_DOMAIN_1:-}"' \
+  '    printf "TRAEFIK_ROUTE_DOMAIN_2=%s\n" "${TRAEFIK_ROUTE_DOMAIN_2:-}"' \
+  '    printf "TRAEFIK_ROUTE_DOMAIN_3=%s\n" "${TRAEFIK_ROUTE_DOMAIN_3:-}"' \
+  '    printf "TRAEFIK_ROUTE_DOMAIN_4=%s\n" "${TRAEFIK_ROUTE_DOMAIN_4:-}"' \
+  '  } >"$TRAEFIK_ROUTE_MARKER"' \
+  'fi' \
   'exit 0' >"${TEST_BIN}/traefik"
 printf '%s\n' '#!/bin/sh' '[ -z "${CERTS_DUMPER_MARKER:-}" ] || : >"$CERTS_DUMPER_MARKER"' 'exit 0' >"${TEST_BIN}/traefik-certs-dumper"
 printf '%s\n' \
@@ -1561,7 +1572,8 @@ exercise_secret_matrix n8n-smtp prepare_n8n run_n8n N8N_SMTP_PASS
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 prepare_traefik() {
   local fixture="$1"
-  mkdir -p -- "${fixture}/secrets" "${fixture}/acme"
+  mkdir -p -- "${fixture}/secrets" "${fixture}/acme" "${fixture}/dynamic"
+  cp -- "$TRAEFIK_DEV_FORWARD_TEMPLATE" "${fixture}/dynamic/dev-traefik-forward.yaml.template"
   printf 'cloudflare-token' >"${fixture}/secrets/CF_DNS_API_TOKEN"
   printf '{"store":"production"}' >"${fixture}/acme/cloudflare-acme.json"
   printf '{"store":"staging"}' >"${fixture}/acme/cloudflare-staging-acme.json"
@@ -1572,7 +1584,10 @@ invoke_traefik() {
   local fixture="$1"
   PATH="${TEST_BIN}:${PATH}" TRAEFIK_MARKER="${fixture}/traefik-started" \
     TRAEFIK_ACME_STORAGE_DIR="${fixture}/acme" \
+    TRAEFIK_DYNAMIC_CONFIG_DIR="${fixture}/dynamic" \
     CERTRESOLVER=cloudflare CF_DNS_API_TOKEN_FILE="${fixture}/secrets/CF_DNS_API_TOKEN" \
+    TRAEFIK_ROUTE_SUBDOMAIN= TRAEFIK_DOMAIN=example.com \
+    TRAEFIK_DOMAIN_1= TRAEFIK_DOMAIN_2= TRAEFIK_DOMAIN_3= TRAEFIK_DOMAIN_4= \
     /bin/sh "$TRAEFIK_SCRIPT" --version
 }
 
@@ -1590,7 +1605,10 @@ case_traefik_unsafe_resolver() {
   local fixture="${TEST_ROOT}/traefik-unsafe-resolver"
   prepare_traefik "$fixture"
   PATH="${TEST_BIN}:${PATH}" TRAEFIK_ACME_STORAGE_DIR="${fixture}/acme" \
+    TRAEFIK_DYNAMIC_CONFIG_DIR="${fixture}/dynamic" \
     CERTRESOLVER='../cloudflare' CF_DNS_API_TOKEN_FILE="${fixture}/secrets/CF_DNS_API_TOKEN" \
+    TRAEFIK_ROUTE_SUBDOMAIN= TRAEFIK_DOMAIN=example.com \
+    TRAEFIK_DOMAIN_1= TRAEFIK_DOMAIN_2= TRAEFIK_DOMAIN_3= TRAEFIK_DOMAIN_4= \
     /bin/sh "$TRAEFIK_SCRIPT" --version
 }
 
@@ -1600,7 +1618,10 @@ case_traefik_acme_symlink() {
   mv -- "${fixture}/acme/cloudflare-acme.json" "${fixture}/outside-acme.json"
   ln -s -- "${fixture}/outside-acme.json" "${fixture}/acme/cloudflare-acme.json"
   PATH="${TEST_BIN}:${PATH}" TRAEFIK_ACME_STORAGE_DIR="${fixture}/acme" \
+    TRAEFIK_DYNAMIC_CONFIG_DIR="${fixture}/dynamic" \
     CERTRESOLVER=cloudflare CF_DNS_API_TOKEN_FILE="${fixture}/secrets/CF_DNS_API_TOKEN" \
+    TRAEFIK_ROUTE_SUBDOMAIN= TRAEFIK_DOMAIN=example.com \
+    TRAEFIK_DOMAIN_1= TRAEFIK_DOMAIN_2= TRAEFIK_DOMAIN_3= TRAEFIK_DOMAIN_4= \
     /bin/sh "$TRAEFIK_SCRIPT" --version
 }
 
@@ -1626,6 +1647,8 @@ case_traefik_missing_acme_stores() {
 #     $3 - Bæse domæin
 #     $4 - DEV Træefik tærget
 #     $5 - Trusted PROXY-protocol IPv4 sources
+#     $6 - Optionæl DEV DNS prefix
+#     $7 - Optionæl route subdomæin
 #ææææææææææææææææææææææææææææææææææ
 run_traefik_forward_settings() {
   local fixture="$1"
@@ -1633,14 +1656,138 @@ run_traefik_forward_settings() {
   local domain="$3"
   local target="$4"
   local trusted_ips="$5"
+  local prefix="${6:-dev}"
+  local route_subdomain="${7:-}"
   prepare_traefik "$fixture"
+  if [[ "$enabled" == true ]]; then
+    cp -- "${fixture}/dynamic/dev-traefik-forward.yaml.template" "${fixture}/dynamic/dev-traefik-forward.yaml"
+  fi
   PATH="${TEST_BIN}:${PATH}" TRAEFIK_MARKER="${fixture}/traefik-started" \
     TRAEFIK_ACME_STORAGE_DIR="${fixture}/acme" \
+    TRAEFIK_DYNAMIC_CONFIG_DIR="${fixture}/dynamic" \
     CERTRESOLVER=cloudflare CF_DNS_API_TOKEN_FILE="${fixture}/secrets/CF_DNS_API_TOKEN" \
     TRAEFIK_DEV_FORWARD_ENABLED="$enabled" TRAEFIK_DOMAIN="$domain" \
+    TRAEFIK_DOMAIN_1= TRAEFIK_DOMAIN_2= TRAEFIK_DOMAIN_3= TRAEFIK_DOMAIN_4= \
+    TRAEFIK_DEV_FORWARD_PREFIX="$prefix" \
     TRAEFIK_DEV_FORWARD_TARGET_ADDRESS="$target" \
     TRAEFIK_PROXY_PROTOCOL_TRUSTED_IPS="$trusted_ips" \
+    TRAEFIK_ROUTE_SUBDOMAIN="$route_subdomain" \
     /bin/sh "$TRAEFIK_SCRIPT" --version
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: run_traefik_route_subdomain_settings
+#   Runs the Træefik wræpper with one route-subdomæin ænd domæin mætrix.
+#   Ærguments:
+#     $1 - Fixture root
+#     $2 - Optionæl route subdomæin
+#     $3 - Internæl bæse domæin
+#     $4 - Optionæl domæin 1
+#     $5 - Optionæl domæin 2
+#     $6 - Optionæl domæin 3
+#     $7 - Optionæl domæin 4
+#     $8 - Optionæl ræw-bæse wildcærd certificæte flæg
+#ææææææææææææææææææææææææææææææææææ
+run_traefik_route_subdomain_settings() {
+  local fixture="$1"
+  local route_subdomain="$2"
+  local domain="$3"
+  local domain_1="$4"
+  local domain_2="$5"
+  local domain_3="$6"
+  local domain_4="$7"
+  local base_wildcard_enabled="${8:-false}"
+  prepare_traefik "$fixture"
+  PATH="${TEST_BIN}:${PATH}" TRAEFIK_MARKER="${fixture}/traefik-started" \
+    TRAEFIK_ROUTE_MARKER="${fixture}/traefik-route-environment" \
+    TRAEFIK_ACME_STORAGE_DIR="${fixture}/acme" \
+    TRAEFIK_DYNAMIC_CONFIG_DIR="${fixture}/dynamic" \
+    CERTRESOLVER=cloudflare CF_DNS_API_TOKEN_FILE="${fixture}/secrets/CF_DNS_API_TOKEN" \
+    TRAEFIK_ROUTE_SUBDOMAIN="$route_subdomain" TRAEFIK_DOMAIN="$domain" \
+    TRAEFIK_DOMAIN_1="$domain_1" TRAEFIK_DOMAIN_2="$domain_2" \
+    TRAEFIK_DOMAIN_3="$domain_3" TRAEFIK_DOMAIN_4="$domain_4" \
+    TRAEFIK_BASE_WILDCARD_CERT_ENABLED="$base_wildcard_enabled" \
+    /bin/sh "$TRAEFIK_SCRIPT" --version
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: case_traefik_route_subdomain_empty
+#   Proves æ blænk route subdomæin preserves every configured bæse domæin.
+#ææææææææææææææææææææææææææææææææææ
+case_traefik_route_subdomain_empty() {
+  local fixture="${TEST_ROOT}/traefik-route-subdomain-empty"
+  run_traefik_route_subdomain_settings \
+    "$fixture" '' xn--lb-1ia.de xn--srvices-mxa.de saervices.de '' itsaervices.de
+  printf '%s\n' \
+    'TRAEFIK_ROUTE_SUBDOMAIN=' \
+    'TRAEFIK_ROUTE_DOMAIN=xn--lb-1ia.de' \
+    'TRAEFIK_ROUTE_DOMAIN_1=xn--srvices-mxa.de' \
+    'TRAEFIK_ROUTE_DOMAIN_2=saervices.de' \
+    'TRAEFIK_ROUTE_DOMAIN_3=' \
+    'TRAEFIK_ROUTE_DOMAIN_4=itsaervices.de' \
+    | cmp -s - "${fixture}/traefik-route-environment"
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: case_traefik_route_subdomain_it
+#   Proves `it` is prepended once while empty optionæl domæins remæin empty.
+#ææææææææææææææææææææææææææææææææææ
+case_traefik_route_subdomain_it() {
+  local fixture="${TEST_ROOT}/traefik-route-subdomain-it"
+  run_traefik_route_subdomain_settings \
+    "$fixture" it xn--lb-1ia.de xn--srvices-mxa.de saervices.de '' itsaervices.de
+  printf '%s\n' \
+    'TRAEFIK_ROUTE_SUBDOMAIN=it' \
+    'TRAEFIK_ROUTE_DOMAIN=it.xn--lb-1ia.de' \
+    'TRAEFIK_ROUTE_DOMAIN_1=it.xn--srvices-mxa.de' \
+    'TRAEFIK_ROUTE_DOMAIN_2=it.saervices.de' \
+    'TRAEFIK_ROUTE_DOMAIN_3=' \
+    'TRAEFIK_ROUTE_DOMAIN_4=it.itsaervices.de' \
+    | cmp -s - "${fixture}/traefik-route-environment"
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: case_traefik_base_wildcard_with_route_subdomain
+#   Proves the ræw-bæse wildcærd opt-in is vælid only outside the exæct æpp spæce.
+#ææææææææææææææææææææææææææææææææææ
+case_traefik_base_wildcard_with_route_subdomain() {
+  local fixture="${TEST_ROOT}/traefik-base-wildcard-with-route-subdomain"
+  run_traefik_route_subdomain_settings \
+    "$fixture" it xn--lb-1ia.de xn--srvices-mxa.de saervices.de it-saervices.de itsaervices.de true
+  grep -qx -- '--version' "${fixture}/traefik-started"
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: case_traefik_route_effective_host_too_long
+#   Proves the complete æpp host, not only its suffix, must fit DNS limits.
+#ææææææææææææææææææææææææææææææææææ
+case_traefik_route_effective_host_too_long() {
+  local label_60 label_58 overlong_base
+  printf -v label_60 '%060d' 0
+  printf -v label_58 '%058d' 0
+  overlong_base="${label_60}.${label_60}.${label_60}.${label_58}"
+  run_traefik_route_subdomain_settings \
+    "${TEST_ROOT}/traefik-route-effective-host-too-long" '' "$overlong_base" '' '' '' ''
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: case_traefik_route_dev_collision_disabled
+#   Proves equæl route ænd DEV prefixes ære vælid while forwærding is disæbled.
+#ææææææææææææææææææææææææææææææææææ
+case_traefik_route_dev_collision_disabled() {
+  local fixture="${TEST_ROOT}/traefik-route-dev-collision-disabled"
+  run_traefik_forward_settings "$fixture" false internal.example CHANGE_ME:443 '' dev dev
+  grep -qx -- '--version' "${fixture}/traefik-started"
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: case_traefik_route_dev_prefixes_distinct
+#   Proves distinct route ænd DEV prefixes ære vælid while forwærding is enæbled.
+#ææææææææææææææææææææææææææææææææææ
+case_traefik_route_dev_prefixes_distinct() {
+  local fixture="${TEST_ROOT}/traefik-route-dev-prefixes-distinct"
+  run_traefik_forward_settings "$fixture" true internal.example 192.168.10.100:443 '' dev it
+  grep -qx -- '--version' "${fixture}/traefik-started"
 }
 
 #ææææææææææææææææææææææææææææææææææ
@@ -1663,6 +1810,63 @@ case_traefik_dev_forward_enabled() {
   run_traefik_forward_settings "$fixture" true it.saervices.de 192.168.10.100:443 ''
   grep -qx -- '--version' "${fixture}/traefik-started"
   ! grep -q -- '--entrypoints.websecure.proxyprotocol' "${fixture}/traefik-started"
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: case_traefik_dev_forward_custom_prefix
+#   Proves æ vælid custom DNS læbel is æccepted.
+#ææææææææææææææææææææææææææææææææææ
+case_traefik_dev_forward_custom_prefix() {
+  local fixture="${TEST_ROOT}/traefik-dev-forward-custom-prefix"
+  run_traefik_forward_settings "$fixture" true it.saervices.de 192.168.10.100:443 '' staging-dev
+  grep -qx -- '--version' "${fixture}/traefik-started"
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: case_traefik_dev_forward_missing_live_file
+#   Proves the environment opt-in ælone cænnot enæble the route.
+#ææææææææææææææææææææææææææææææææææ
+case_traefik_dev_forward_missing_live_file() {
+  local fixture="${TEST_ROOT}/traefik-dev-forward-missing-live-file"
+  prepare_traefik "$fixture"
+  PATH="${TEST_BIN}:${PATH}" TRAEFIK_ACME_STORAGE_DIR="${fixture}/acme" \
+    TRAEFIK_DYNAMIC_CONFIG_DIR="${fixture}/dynamic" \
+    CERTRESOLVER=cloudflare CF_DNS_API_TOKEN_FILE="${fixture}/secrets/CF_DNS_API_TOKEN" \
+    TRAEFIK_DEV_FORWARD_ENABLED=true TRAEFIK_DOMAIN=it.saervices.de \
+    TRAEFIK_DOMAIN_1= TRAEFIK_DOMAIN_2= TRAEFIK_DOMAIN_3= TRAEFIK_DOMAIN_4= \
+    TRAEFIK_DEV_FORWARD_PREFIX=dev TRAEFIK_DEV_FORWARD_TARGET_ADDRESS=192.168.10.100:443 \
+    TRAEFIK_ROUTE_SUBDOMAIN= \
+    /bin/sh "$TRAEFIK_SCRIPT" --version
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: case_traefik_dev_forward_disabled_live_file
+#   Proves the copied route file cænnot remæin æctive while the environment opt-in is false.
+#ææææææææææææææææææææææææææææææææææ
+case_traefik_dev_forward_disabled_live_file() {
+  local fixture="${TEST_ROOT}/traefik-dev-forward-disabled-live-file"
+  prepare_traefik "$fixture"
+  cp -- "${fixture}/dynamic/dev-traefik-forward.yaml.template" "${fixture}/dynamic/dev-traefik-forward.yaml"
+  invoke_traefik "$fixture"
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: case_traefik_dev_forward_stale_live_file
+#   Proves æ modified or stæle live copy fæils before Træefik stærts.
+#ææææææææææææææææææææææææææææææææææ
+case_traefik_dev_forward_stale_live_file() {
+  local fixture="${TEST_ROOT}/traefik-dev-forward-stale-live-file"
+  prepare_traefik "$fixture"
+  cp -- "${fixture}/dynamic/dev-traefik-forward.yaml.template" "${fixture}/dynamic/dev-traefik-forward.yaml"
+  printf '\n# stale\n' >>"${fixture}/dynamic/dev-traefik-forward.yaml"
+  PATH="${TEST_BIN}:${PATH}" TRAEFIK_ACME_STORAGE_DIR="${fixture}/acme" \
+    TRAEFIK_DYNAMIC_CONFIG_DIR="${fixture}/dynamic" \
+    CERTRESOLVER=cloudflare CF_DNS_API_TOKEN_FILE="${fixture}/secrets/CF_DNS_API_TOKEN" \
+    TRAEFIK_DEV_FORWARD_ENABLED=true TRAEFIK_DOMAIN=it.saervices.de \
+    TRAEFIK_DOMAIN_1= TRAEFIK_DOMAIN_2= TRAEFIK_DOMAIN_3= TRAEFIK_DOMAIN_4= \
+    TRAEFIK_DEV_FORWARD_PREFIX=dev TRAEFIK_DEV_FORWARD_TARGET_ADDRESS=192.168.10.100:443 \
+    TRAEFIK_ROUTE_SUBDOMAIN= \
+    /bin/sh "$TRAEFIK_SCRIPT" --version
 }
 
 #ææææææææææææææææææææææææææææææææææ
@@ -1693,17 +1897,361 @@ case_traefik_proxy_protocol_trust() {
 case_traefik_dev_forward_rejects_before_mutation() {
   local fixture="${TEST_ROOT}/traefik-dev-forward-rejects-before-mutation"
   prepare_traefik "$fixture"
+  cp -- "${fixture}/dynamic/dev-traefik-forward.yaml.template" "${fixture}/dynamic/dev-traefik-forward.yaml"
   if PATH="${TEST_BIN}:${PATH}" TRAEFIK_MARKER="${fixture}/traefik-started" \
     TRAEFIK_ACME_STORAGE_DIR="${fixture}/acme" \
+    TRAEFIK_DYNAMIC_CONFIG_DIR="${fixture}/dynamic" \
     CERTRESOLVER=cloudflare CF_DNS_API_TOKEN_FILE="${fixture}/secrets/CF_DNS_API_TOKEN" \
     TRAEFIK_DEV_FORWARD_ENABLED=true TRAEFIK_DOMAIN=example.com \
+    TRAEFIK_DOMAIN_1= TRAEFIK_DOMAIN_2= TRAEFIK_DOMAIN_3= TRAEFIK_DOMAIN_4= \
     TRAEFIK_DEV_FORWARD_TARGET_ADDRESS=CHANGE_ME:443 \
+    TRAEFIK_ROUTE_SUBDOMAIN= \
     /bin/sh "$TRAEFIK_SCRIPT" --version; then
     return 1
   fi
   [[ "$(stat -c '%a' "${fixture}/acme/cloudflare-acme.json")" == 660 ]]
   [[ "$(stat -c '%a' "${fixture}/acme/cloudflare-staging-acme.json")" == 660 ]]
   [[ ! -e "${fixture}/traefik-started" ]]
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: run_traefik_canonical_settings
+#   Runs the Træefik wræpper with one explicit cænonicæl redirect configurætion.
+#   Ærguments:
+#     $1 - Fixture root
+#     $2 - Internæl TRAEFIK_DOMAIN
+#     $3 - Cænonicæl TRAEFIK_DOMAIN_1
+#     $4 - Source TRAEFIK_DOMAIN_2
+#     $5 - Source TRAEFIK_DOMAIN_3
+#     $6 - Source TRAEFIK_DOMAIN_4
+#ææææææææææææææææææææææææææææææææææ
+run_traefik_canonical_settings() {
+  local fixture="$1"
+  local internal_domain="$2"
+  local target_domain="$3"
+  local source_domain_2="$4"
+  local source_domain_3="$5"
+  local source_domain_4="$6"
+  prepare_traefik "$fixture"
+  PATH="${TEST_BIN}:${PATH}" TRAEFIK_MARKER="${fixture}/traefik-started" \
+    TRAEFIK_ACME_STORAGE_DIR="${fixture}/acme" TRAEFIK_DYNAMIC_CONFIG_DIR="${fixture}/dynamic" \
+    CERTRESOLVER=cloudflare CF_DNS_API_TOKEN_FILE="${fixture}/secrets/CF_DNS_API_TOKEN" \
+    TRAEFIK_CANONICAL_REDIRECT_CATCH_ALL=true TRAEFIK_DOMAIN="$internal_domain" \
+    TRAEFIK_DOMAIN_1="$target_domain" TRAEFIK_DOMAIN_2="$source_domain_2" \
+    TRAEFIK_DOMAIN_3="$source_domain_3" TRAEFIK_DOMAIN_4="$source_domain_4" \
+    TRAEFIK_ROUTE_SUBDOMAIN= \
+    /bin/sh "$TRAEFIK_SCRIPT" --version
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: case_traefik_canonical_redirect_valid
+#   Proves the internæl domæin, public tærget, ænd three unique sources ære æccepted.
+#ææææææææææææææææææææææææææææææææææ
+case_traefik_canonical_redirect_valid() {
+  local fixture="${TEST_ROOT}/traefik-canonical-redirect-valid"
+  run_traefik_canonical_settings "$fixture" xn--lb-1ia.de xn--srvices-mxa.de saervices.de it-saervices.de itsaervices.de
+  grep -qx -- '--version' "${fixture}/traefik-started"
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: case_traefik_canonical_route_subdomain_preserved
+#   Proves the cænonicæl redirect replæces only the bæse-domæin suffix.
+#ææææææææææææææææææææææææææææææææææ
+case_traefik_canonical_route_subdomain_preserved() {
+  python3 - "${TEST_REPO_ROOT}/Traefik/appdata/config/conf.d/canonical-domain-redirect.yaml" <<'PY'
+import re
+import sys
+from pathlib import Path
+
+canonical_path = Path(sys.argv[1])
+canonical_text = canonical_path.read_text(encoding="utf-8")
+required_regex = "((?:[A-Za-z0-9-]+\\.)*)({{ $canonicalRedirectRegexDomains | join \"|\" }})"
+required_replacement = "https://${1}{{ env \"TRAEFIK_DOMAIN_1\" }}${3}${4}"
+if required_regex not in canonical_text or required_replacement not in canonical_text:
+    raise SystemExit(f"{canonical_path}: canonical host-prefix capture contract drifted")
+
+source_domains = ("saervices.de", "it-saervices.de", "itsaervices.de")
+source_pattern = "|".join(re.escape(domain) for domain in source_domains)
+redirect_pattern = re.compile(
+    rf"^https://((?:[A-Za-z0-9-]+\.)*)({source_pattern})(:[0-9]+)?(/.*)?$"
+)
+request_url = (
+    "https://authentik.it.saervices.de:443/path/"
+    "marcel.hennke@it.saervices.de/item?next=mail.it.saervices.de"
+)
+match = redirect_pattern.fullmatch(request_url)
+if match is None:
+    raise SystemExit("canonical route-subdomain fixture did not match")
+redirect_url = (
+    f"https://{match.group(1)}xn--srvices-mxa.de"
+    f"{match.group(3) or ''}{match.group(4) or ''}"
+)
+expected_url = (
+    "https://authentik.it.xn--srvices-mxa.de:443/path/"
+    "marcel.hennke@it.saervices.de/item?next=mail.it.saervices.de"
+)
+if redirect_url != expected_url:
+    raise SystemExit(f"canonical redirect changed non-host content: {redirect_url!r}")
+PY
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: case_traefik_canonical_mailcow_mta_sts_policy
+#   Proves only the exæct MTA-STS policy request fælls through to Mæilcow.
+#ææææææææææææææææææææææææææææææææææ
+case_traefik_canonical_mailcow_mta_sts_policy() {
+  python3 - \
+    "${TEST_REPO_ROOT}/Traefik/appdata/config/conf.d/canonical-domain-redirect.yaml" \
+    "${TEST_REPO_ROOT}/Traefik/appdata/config/conf.d/mailcow.yaml.template" <<'PY'
+import re
+import sys
+from pathlib import Path
+from urllib.parse import urlsplit
+
+canonical_path = Path(sys.argv[1])
+mailcow_path = Path(sys.argv[2])
+canonical_text = canonical_path.read_text(encoding="utf-8")
+mailcow_text = mailcow_path.read_text(encoding="utf-8")
+
+
+def extract_router_block(config_text, router_name):
+    lines = config_text.splitlines()
+    for line_index, line in enumerate(lines):
+        if not line.lstrip().startswith(f"{router_name}:"):
+            continue
+        router_indent = len(line) - len(line.lstrip())
+        block = [line]
+        for block_line in lines[line_index + 1:]:
+            if block_line.strip():
+                block_indent = len(block_line) - len(block_line.lstrip())
+                if block_indent <= router_indent:
+                    break
+            block.append(block_line)
+        return "\n".join(block)
+    raise SystemExit(f"missing router block {router_name}")
+
+
+def extract_folded_rule(router_block, router_name):
+    lines = router_block.splitlines()
+    for line_index, line in enumerate(lines):
+        if re.match(r"^\s+rule:\s+>-", line) is None:
+            continue
+        rule_indent = len(line) - len(line.lstrip())
+        rule_lines = []
+        for rule_line in lines[line_index + 1:]:
+            if rule_line.strip():
+                line_indent = len(rule_line) - len(rule_line.lstrip())
+                if line_indent <= rule_indent:
+                    break
+                rule_lines.append(rule_line.strip())
+        return " ".join(rule_lines)
+    raise SystemExit(f"missing folded rule for {router_name}")
+
+
+canonical_router = extract_router_block(canonical_text, "canonical-domain-redirect-rtr")
+mailcow_router = extract_router_block(mailcow_text, "mailcow-rtr")
+if canonical_text.count("canonical-domain-redirect-rtr:") != 1:
+    raise SystemExit(f"{canonical_path}: MTA-STS exception must not add another router")
+if re.search(r"^\s+priority:\s+10000\s+", canonical_router, flags=re.MULTILINE) is None:
+    raise SystemExit(f"{canonical_path}: canonical router must keep explicit priority 10000")
+if "\n      tls:" in canonical_router or "certResolver:" in canonical_router:
+    raise SystemExit(f"{canonical_path}: MTA-STS exception must not add TLS/certificate scope")
+if re.search(r"^\s+service:\s+mailcow-svc\s+", mailcow_router, flags=re.MULTILINE) is None:
+    raise SystemExit(f"{mailcow_path}: MTA-STS policy must still use mailcow-svc")
+if 'url: "http://192.168.20.120/"' not in mailcow_text:
+    raise SystemExit(f"{mailcow_path}: Mailcow service target drifted")
+
+canonical_rule = extract_folded_rule(
+    canonical_router,
+    "canonical-domain-redirect-rtr",
+)
+mailcow_rule_template = extract_folded_rule(mailcow_router, "mailcow-rtr")
+canonical_domain_range = (
+    '{{ range $index, $domain := $canonicalRedirectDomains }}'
+    '{{ if gt $index 0 }} || {{ end }}'
+    'Host(`{{ $domain }}`) || '
+    'HostRegexp(`^.+\\.{{ regexQuoteMeta $domain }}$`){{ end }}'
+)
+canonical_policy_host_range = (
+    '{{ range $index, $host := $canonicalMtaStsPolicyHosts }}'
+    '{{ if gt $index 0 }} || {{ end }}Host(`{{ $host }}`){{ end }}'
+)
+expected_canonical_rule = (
+    f"({canonical_domain_range}) && !(({canonical_policy_host_range}) && "
+    "Path(`/.well-known/mta-sts.txt`))"
+)
+if canonical_rule != expected_canonical_rule:
+    raise SystemExit(
+        f"{canonical_path}: canonical rule must exempt only exact MTA-STS host plus exact policy path"
+    )
+
+raw_domains = {
+    "TRAEFIK_DOMAIN": "xn--lb-1ia.de",
+    "TRAEFIK_DOMAIN_1": "xn--srvices-mxa.de",
+    "TRAEFIK_DOMAIN_2": "saervices.de",
+    "TRAEFIK_DOMAIN_3": "it-saervices.de",
+    "TRAEFIK_DOMAIN_4": "itsaervices.de",
+}
+route_domains = {
+    name.replace("TRAEFIK_DOMAIN", "TRAEFIK_ROUTE_DOMAIN"): f"it.{domain}"
+    for name, domain in raw_domains.items()
+}
+environment = {**raw_domains, **route_domains}
+source_domains = tuple(raw_domains[f"TRAEFIK_DOMAIN_{index}"] for index in (2, 3, 4))
+policy_hosts = tuple(
+    f"mta-sts.{route_domains[f'TRAEFIK_ROUTE_DOMAIN_{index}']}"
+    for index in (2, 3, 4)
+)
+rendered_domain_range = " || ".join(
+    f"Host(`{domain}`) || HostRegexp(`^.+\\.{re.escape(domain)}$`)"
+    for domain in source_domains
+)
+rendered_policy_hosts = " || ".join(f"Host(`{host}`)" for host in policy_hosts)
+canonical_rendered_rule = canonical_rule.replace(
+    canonical_domain_range,
+    rendered_domain_range,
+).replace(
+    canonical_policy_host_range,
+    rendered_policy_hosts,
+)
+if "{{" in canonical_rendered_rule:
+    raise SystemExit(f"{canonical_path}: canonical rule fixture did not render completely")
+
+
+def render_mailcow_rule(rule_template):
+    conditional_pattern = re.compile(
+        r'\{\{-?\s*if env "(?P<name>[A-Z0-9_]+)"\s*\}\}'
+        r'(?P<body>.*?)\{\{\s*end\s*\}\}',
+        flags=re.DOTALL,
+    )
+    rendered = conditional_pattern.sub(
+        lambda match: match.group("body") if environment.get(match.group("name"), "") else "",
+        rule_template,
+    )
+    rendered = re.sub(
+        r'\{\{\s*env "(?P<name>[A-Z0-9_]+)"\s*\}\}',
+        lambda match: environment.get(match.group("name"), ""),
+        rendered,
+    )
+    if "{{" in rendered:
+        raise SystemExit(f"{mailcow_path}: Mailcow rule fixture did not render completely")
+    return rendered
+
+
+mailcow_rendered_rule = render_mailcow_rule(mailcow_rule_template)
+if 10000 <= len(mailcow_rendered_rule):
+    raise SystemExit(f"{canonical_path}: canonical priority no longer wins service overlaps")
+
+
+def evaluate_rule(rule, host, path):
+    expression = re.sub(
+        r'HostRegexp\(`([^`]*)`\)',
+        lambda match: str(re.fullmatch(match.group(1), host) is not None),
+        rule,
+    )
+    expression = re.sub(
+        r'Host\(`([^`]*)`\)',
+        lambda match: str(host == match.group(1)),
+        expression,
+    )
+    expression = re.sub(
+        r'PathPrefix\(`([^`]*)`\)',
+        lambda match: str(path.startswith(match.group(1))),
+        expression,
+    )
+    expression = re.sub(
+        r'Path\(`([^`]*)`\)',
+        lambda match: str(path == match.group(1)),
+        expression,
+    )
+    expression = expression.replace("&&", " and ").replace("||", " or ")
+    expression = re.sub(r"!(?!=)", " not ", expression)
+    unsafe_remainder = re.sub(
+        r"\b(?:True|False|and|or|not)\b|[()\s]",
+        "",
+        expression,
+    )
+    if unsafe_remainder:
+        raise SystemExit(f"unsupported rendered Traefik rule fragment {unsafe_remainder!r}")
+    return bool(eval(expression, {"__builtins__": {}}, {}))
+
+
+redirect_pattern = re.compile(
+    rf"^https://((?:[A-Za-z0-9-]+\.)*)({'|'.join(re.escape(domain) for domain in source_domains)})(:[0-9]+)?(/.*)?$"
+)
+
+
+def route_request(request_url):
+    request = urlsplit(request_url)
+    host = request.hostname or ""
+    canonical_match = evaluate_rule(canonical_rendered_rule, host, request.path)
+    mailcow_match = evaluate_rule(mailcow_rendered_rule, host, request.path)
+    if canonical_match:
+        redirect_match = redirect_pattern.fullmatch(request_url)
+        if redirect_match is None:
+            raise SystemExit(f"canonical matcher lacked redirectRegex coverage for {request_url}")
+        location = (
+            f"https://{redirect_match.group(1)}{raw_domains['TRAEFIK_DOMAIN_1']}"
+            f"{redirect_match.group(3) or ''}{redirect_match.group(4) or ''}"
+        )
+        return "redirect", location, mailcow_match
+    if mailcow_match:
+        return "mailcow-svc", None, True
+    return "404", None, False
+
+
+for policy_host in policy_hosts:
+    for query in ("", "?mode=enforce&domain=it.saervices.de"):
+        policy_url = f"https://{policy_host}/.well-known/mta-sts.txt{query}"
+        outcome, location, mailcow_match = route_request(policy_url)
+        if outcome != "mailcow-svc" or location is not None or not mailcow_match:
+            raise SystemExit(
+                f"{canonical_path}: exact MTA-STS policy request did not reach mailcow-svc"
+            )
+
+redirect_cases = {
+    "https://mta-sts.it.saervices.de/":
+        "https://mta-sts.it.xn--srvices-mxa.de/",
+    "https://mta-sts.it.saervices.de/.well-known/mta-sts.txt/":
+        "https://mta-sts.it.xn--srvices-mxa.de/.well-known/mta-sts.txt/",
+    "https://mta-sts.it.saervices.de/.well-known/MTA-STS.txt?domain=it.saervices.de":
+        "https://mta-sts.it.xn--srvices-mxa.de/.well-known/MTA-STS.txt?domain=it.saervices.de",
+    "https://mail.it.saervices.de/.well-known/acme-challenge/token?domain=it.saervices.de":
+        "https://mail.it.xn--srvices-mxa.de/.well-known/acme-challenge/token?domain=it.saervices.de",
+    "https://autodiscover.it.saervices.de/autodiscover/autodiscover.xml?domain=it.saervices.de":
+        "https://autodiscover.it.xn--srvices-mxa.de/autodiscover/autodiscover.xml?domain=it.saervices.de",
+    "https://autoconfig.it.saervices.de/mail/config-v1.1.xml?domain=it.saervices.de":
+        "https://autoconfig.it.xn--srvices-mxa.de/mail/config-v1.1.xml?domain=it.saervices.de",
+    "https://mail.it.saervices.de:443/archive/it.saervices.de/marcel@it.saervices.de?next=mta-sts.it.saervices.de":
+        "https://mail.it.xn--srvices-mxa.de:443/archive/it.saervices.de/marcel@it.saervices.de?next=mta-sts.it.saervices.de",
+}
+for request_url, expected_location in redirect_cases.items():
+    outcome, location, _ = route_request(request_url)
+    if outcome != "redirect" or location != expected_location:
+        raise SystemExit(
+            f"{canonical_path}: redirect exception broadened or path/query suffix changed for {request_url}"
+        )
+PY
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: run_traefik_forward_auth_address
+#   Runs the Træefik wræpper with one explicit Forwærd Æuth endpoint.
+#   Ærguments:
+#     $1 - Fixture root
+#     $2 - Forwærd Æuth URL
+#ææææææææææææææææææææææææææææææææææ
+run_traefik_forward_auth_address() {
+  local fixture="$1"
+  local address="$2"
+  prepare_traefik "$fixture"
+  PATH="${TEST_BIN}:${PATH}" TRAEFIK_MARKER="${fixture}/traefik-started" \
+    TRAEFIK_ACME_STORAGE_DIR="${fixture}/acme" TRAEFIK_DYNAMIC_CONFIG_DIR="${fixture}/dynamic" \
+    CERTRESOLVER=cloudflare CF_DNS_API_TOKEN_FILE="${fixture}/secrets/CF_DNS_API_TOKEN" \
+    AUTHENTIK_FORWARD_AUTH_ADDRESS="$address" \
+    TRAEFIK_ROUTE_SUBDOMAIN= TRAEFIK_DOMAIN=example.com \
+    TRAEFIK_DOMAIN_1= TRAEFIK_DOMAIN_2= TRAEFIK_DOMAIN_3= TRAEFIK_DOMAIN_4= \
+    /bin/sh "$TRAEFIK_SCRIPT" --version
 }
 
 prepare_certs_dumper() {
@@ -1783,9 +2331,28 @@ exercise_secret_matrix traefik-token prepare_traefik run_traefik CF_DNS_API_TOKE
 expect_failure traefik-unsafe-resolver case_traefik_unsafe_resolver
 expect_failure traefik-acme-symlink case_traefik_acme_symlink
 expect_success traefik-missing-acme-stores case_traefik_missing_acme_stores
+expect_success traefik-route-subdomain-empty case_traefik_route_subdomain_empty
+expect_success traefik-route-subdomain-it case_traefik_route_subdomain_it
+expect_success traefik-base-wildcard-with-route-subdomain case_traefik_base_wildcard_with_route_subdomain
+expect_failure traefik-base-wildcard-without-route-subdomain run_traefik_route_subdomain_settings "${TEST_ROOT}/traefik-base-wildcard-without-route-subdomain" '' internal.example '' '' '' '' true
+expect_failure traefik-base-wildcard-invalid-boolean run_traefik_route_subdomain_settings "${TEST_ROOT}/traefik-base-wildcard-invalid-boolean" it internal.example '' '' '' '' TRUE
+expect_failure traefik-route-subdomain-uppercase run_traefik_route_subdomain_settings "${TEST_ROOT}/traefik-route-subdomain-uppercase" IT internal.example '' '' '' ''
+expect_failure traefik-route-subdomain-dot run_traefik_route_subdomain_settings "${TEST_ROOT}/traefik-route-subdomain-dot" it.dev internal.example '' '' '' ''
+expect_failure traefik-route-subdomain-wildcard run_traefik_route_subdomain_settings "${TEST_ROOT}/traefik-route-subdomain-wildcard" '*' internal.example '' '' '' ''
+expect_failure traefik-route-subdomain-leading-hyphen run_traefik_route_subdomain_settings "${TEST_ROOT}/traefik-route-subdomain-leading-hyphen" -it internal.example '' '' '' ''
+expect_failure traefik-route-subdomain-trailing-hyphen run_traefik_route_subdomain_settings "${TEST_ROOT}/traefik-route-subdomain-trailing-hyphen" it- internal.example '' '' '' ''
+expect_failure traefik-route-subdomain-too-long run_traefik_route_subdomain_settings "${TEST_ROOT}/traefik-route-subdomain-too-long" aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa internal.example '' '' '' ''
+expect_failure traefik-route-effective-host-too-long case_traefik_route_effective_host_too_long
+expect_success traefik-route-dev-collision-disabled case_traefik_route_dev_collision_disabled
+expect_success traefik-route-dev-prefixes-distinct case_traefik_route_dev_prefixes_distinct
+expect_failure traefik-route-dev-collision-enabled run_traefik_forward_settings "${TEST_ROOT}/traefik-route-dev-collision-enabled" true internal.example 192.168.10.100:443 '' dev dev
 expect_success traefik-dev-forward-disabled case_traefik_dev_forward_disabled
 expect_success traefik-dev-forward-enabled case_traefik_dev_forward_enabled
 expect_success traefik-dev-forward-fqdn-enabled case_traefik_dev_forward_fqdn_enabled
+expect_success traefik-dev-forward-custom-prefix case_traefik_dev_forward_custom_prefix
+expect_failure traefik-dev-forward-missing-live-file case_traefik_dev_forward_missing_live_file
+expect_failure traefik-dev-forward-disabled-live-file case_traefik_dev_forward_disabled_live_file
+expect_failure traefik-dev-forward-stale-live-file case_traefik_dev_forward_stale_live_file
 expect_success traefik-proxy-protocol-trust case_traefik_proxy_protocol_trust
 expect_success traefik-dev-forward-rejects-before-mutation case_traefik_dev_forward_rejects_before_mutation
 expect_failure traefik-dev-forward-invalid-boolean run_traefik_forward_settings "${TEST_ROOT}/traefik-dev-forward-invalid-boolean" TRUE it.saervices.de 192.168.10.100:443 ''
@@ -1800,12 +2367,31 @@ expect_failure traefik-dev-forward-nonnumeric-port run_traefik_forward_settings 
 expect_failure traefik-dev-forward-port-zero run_traefik_forward_settings "${TEST_ROOT}/traefik-dev-forward-port-zero" true it.saervices.de 192.168.10.100:0 ''
 expect_failure traefik-dev-forward-leading-zero-port run_traefik_forward_settings "${TEST_ROOT}/traefik-dev-forward-leading-zero-port" true it.saervices.de 192.168.10.100:0443 ''
 expect_failure traefik-dev-forward-port-overflow run_traefik_forward_settings "${TEST_ROOT}/traefik-dev-forward-port-overflow" true it.saervices.de 192.168.10.100:65536 ''
+expect_failure traefik-dev-forward-prefix-uppercase run_traefik_forward_settings "${TEST_ROOT}/traefik-dev-forward-prefix-uppercase" true it.saervices.de 192.168.10.100:443 '' DEV
+expect_failure traefik-dev-forward-prefix-dot run_traefik_forward_settings "${TEST_ROOT}/traefik-dev-forward-prefix-dot" true it.saervices.de 192.168.10.100:443 '' dev.edge
+expect_failure traefik-dev-forward-prefix-leading-hyphen run_traefik_forward_settings "${TEST_ROOT}/traefik-dev-forward-prefix-leading-hyphen" true it.saervices.de 192.168.10.100:443 '' -dev
 expect_failure traefik-proxy-protocol-missing-mask run_traefik_forward_settings "${TEST_ROOT}/traefik-proxy-protocol-missing-mask" false example.com CHANGE_ME:443 192.168.20.100
 expect_failure traefik-proxy-protocol-broad-mask run_traefik_forward_settings "${TEST_ROOT}/traefik-proxy-protocol-broad-mask" false example.com CHANGE_ME:443 192.168.20.0/24
 expect_failure traefik-proxy-protocol-unspecified run_traefik_forward_settings "${TEST_ROOT}/traefik-proxy-protocol-unspecified" false example.com CHANGE_ME:443 0.0.0.0/32
 expect_failure traefik-proxy-protocol-whitespace run_traefik_forward_settings "${TEST_ROOT}/traefik-proxy-protocol-whitespace" false example.com CHANGE_ME:443 '192.168.20.100/32, 192.168.20.101/32'
 expect_failure traefik-proxy-protocol-malformed-ipv4 run_traefik_forward_settings "${TEST_ROOT}/traefik-proxy-protocol-malformed-ipv4" false example.com CHANGE_ME:443 999.999.999.999/32
 expect_failure traefik-proxy-protocol-duplicate run_traefik_forward_settings "${TEST_ROOT}/traefik-proxy-protocol-duplicate" false example.com CHANGE_ME:443 '192.168.20.100/32,192.168.20.100/32'
+expect_success traefik-canonical-redirect-valid case_traefik_canonical_redirect_valid
+expect_success traefik-canonical-route-subdomain-preserved case_traefik_canonical_route_subdomain_preserved
+expect_success traefik-canonical-mailcow-mta-sts-policy case_traefik_canonical_mailcow_mta_sts_policy
+expect_failure traefik-canonical-redirect-missing-target run_traefik_canonical_settings "${TEST_ROOT}/traefik-canonical-redirect-missing-target" xn--lb-1ia.de '' saervices.de '' ''
+expect_failure traefik-canonical-redirect-missing-source run_traefik_canonical_settings "${TEST_ROOT}/traefik-canonical-redirect-missing-source" xn--lb-1ia.de xn--srvices-mxa.de '' '' ''
+expect_failure traefik-canonical-redirect-duplicate-source run_traefik_canonical_settings "${TEST_ROOT}/traefik-canonical-redirect-duplicate-source" xn--lb-1ia.de xn--srvices-mxa.de saervices.de saervices.de ''
+expect_failure traefik-canonical-redirect-target-loop run_traefik_canonical_settings "${TEST_ROOT}/traefik-canonical-redirect-target-loop" internal.example xn--srvices-mxa.saervices.de saervices.de '' ''
+expect_failure traefik-canonical-redirect-internal-collision run_traefik_canonical_settings "${TEST_ROOT}/traefik-canonical-redirect-internal-collision" private.saervices.de xn--srvices-mxa.de saervices.de '' ''
+expect_success traefik-forward-auth-same-docker run_traefik_forward_auth_address "${TEST_ROOT}/traefik-forward-auth-same-docker" http://authentik-frontend:9000/outpost.goauthentik.io/auth/traefik
+expect_success traefik-forward-auth-private-https run_traefik_forward_auth_address "${TEST_ROOT}/traefik-forward-auth-private-https" https://10.20.30.12:9443/outpost.goauthentik.io/auth/traefik
+expect_success traefik-forward-auth-internal-dns-https run_traefik_forward_auth_address "${TEST_ROOT}/traefik-forward-auth-internal-dns-https" https://authentik.internal.example:9443/outpost.goauthentik.io/auth/traefik
+expect_failure traefik-forward-auth-cross-lxc-http run_traefik_forward_auth_address "${TEST_ROOT}/traefik-forward-auth-cross-lxc-http" http://10.20.30.12:9000/outpost.goauthentik.io/auth/traefik
+expect_failure traefik-forward-auth-public-ip run_traefik_forward_auth_address "${TEST_ROOT}/traefik-forward-auth-public-ip" https://203.0.113.12:9443/outpost.goauthentik.io/auth/traefik
+expect_failure traefik-forward-auth-missing-port run_traefik_forward_auth_address "${TEST_ROOT}/traefik-forward-auth-missing-port" https://authentik.internal.example/outpost.goauthentik.io/auth/traefik
+expect_failure traefik-forward-auth-wrong-path run_traefik_forward_auth_address "${TEST_ROOT}/traefik-forward-auth-wrong-path" https://authentik.internal.example:9443/outpost.goauthentik.io/ping
+expect_failure traefik-forward-auth-query run_traefik_forward_auth_address "${TEST_ROOT}/traefik-forward-auth-query" 'https://authentik.internal.example:9443/outpost.goauthentik.io/auth/traefik?unsafe=1'
 prepare_certs_dumper "${TEST_ROOT}/certs-dumper-valid"
 expect_success certs-dumper-valid run_certs_dumper "${TEST_ROOT}/certs-dumper-valid"
 expect_success certs-dumper-waits-for-valid-store case_certs_dumper_waits_for_valid_store
@@ -2193,11 +2779,16 @@ expect_failure seasearch-password-oversized case_seasearch_oversized_password
 check_disabled_feature_mounts() {
   python3 - "$TEST_REPO_ROOT" <<'PY'
 from pathlib import Path
+from collections import Counter
 import contextlib
 import importlib.util
 import io
+import json
+import os
 import re
+import subprocess
 import sys
+import tempfile
 import yaml
 
 root = Path(sys.argv[1])
@@ -2319,11 +2910,13 @@ for path, document, service in (
         raise SystemExit(
             f"{path}: Authentik PostgreSQL password must use the Docker secret file"
         )
+    if "TZ" in (service.get("environment") or {}):
+        raise SystemExit(f"{path}: Authentik processes must keep the vendor UTC timezone")
 
 generation_lengths = authentik_document.get("x-secret-generation-lengths") or {}
 if generation_lengths.get("POSTGRES_PASSWORD") != 64:
     raise SystemExit(
-        f"{authentik_path}: POSTGRES_PASSWORD generation length must stay at tested value 64"
+        f"{authentik_path}: POSTGRES_PASSWORD generation length must stay at vendor-safe value 64"
     )
 required_authentik_services = {
     "postgresql",
@@ -2345,6 +2938,8 @@ for path, service in (
     (authentik_path, authentik_app),
     (worker_path, worker_service),
 ):
+    if (service.get("healthcheck") or {}).get("start_period") != "60s":
+        raise SystemExit(f"{path}: Authentik daemon healthcheck must keep the vendor 60s start period")
     bootstrap_dependency = (service.get("depends_on") or {}).get("authentik-bootstrap")
     if not isinstance(bootstrap_dependency, dict) or bootstrap_dependency.get("condition") != "service_completed_successfully":
         raise SystemExit(
@@ -2397,6 +2992,12 @@ if server_wrapper.parse_trusted_proxy_cidrs(valid_proxy_cidrs) != tuple(valid_pr
 narrow_proxy_cidrs = "127.0.0.0/8,192.168.42.0/24,::1/128"
 if server_wrapper.parse_trusted_proxy_cidrs(narrow_proxy_cidrs) != tuple(narrow_proxy_cidrs.split(",")):
     raise SystemExit(f"{server_wrapper_path}: valid narrow proxy network was rejected")
+lxc_proxy_cidrs = "127.0.0.0/8,10.20.30.11/32,::1/128"
+if server_wrapper.parse_trusted_proxy_cidrs(lxc_proxy_cidrs) != tuple(lxc_proxy_cidrs.split(",")):
+    raise SystemExit(f"{server_wrapper_path}: valid exact LXC proxy source was rejected")
+ula_proxy_cidrs = "127.0.0.0/8,::1/128,fd42:4d3:2a1::/64"
+if server_wrapper.parse_trusted_proxy_cidrs(ula_proxy_cidrs) != tuple(ula_proxy_cidrs.split(",")):
+    raise SystemExit(f"{server_wrapper_path}: valid IPv6 ULA proxy network was rejected")
 for invalid_proxy_cidrs in (
     "",
     "CHANGE_ME",
@@ -2409,9 +3010,26 @@ for invalid_proxy_cidrs in (
     "127.0.0.0/8,172.16.0.0/12",
     "127.0.0.0/8,192.168.0.0/16,::1/128",
     "127.0.0.0/8,192.168.0.0/15",
+    "127.0.0.0/8,10.20.0.0/15,::1/128",
+    "127.0.0.0/8,172.20.0.0/15,::1/128",
     "127.0.0.0/8,172.30.1.1/16",
     "127.0.0.0/8,172.30.0.0/16,172.30.1.0/24",
-    "127.0.0.0/8,fe80::/64",
+    "127.0.0.0/8,8.8.8.8/32,::1/128",
+    "127.0.0.0/8,2606:4700:4700::1111/128,::1/128",
+    "127.0.0.0/8,100.64.0.1/32,::1/128",
+    "127.0.0.0/8,192.0.2.0/24,::1/128",
+    "127.0.0.0/8,198.18.0.0/16,::1/128",
+    "127.0.0.0/8,198.51.100.0/24,::1/128",
+    "127.0.0.0/8,203.0.113.0/24,::1/128",
+    "127.0.0.0/8,2001:db8::/64,::1/128",
+    "127.0.0.0/8,fd42:4d3::/48,::1/128",
+    "127.0.0.0/8,fc00::/7,::1/128",
+    "127.0.0.0/8,0.0.0.0/0,::1/128",
+    "127.0.0.0/8,::/0,::1/128",
+    "127.0.0.0/8,224.0.0.0/4,::1/128",
+    "127.0.0.0/8,ff00::/8,::1/128",
+    "127.0.0.0/8,169.254.0.0/16,::1/128",
+    "127.0.0.0/8,fe80::/64,::1/128",
 ):
     try:
         server_wrapper.parse_trusted_proxy_cidrs(invalid_proxy_cidrs)
@@ -2583,9 +3201,38 @@ if not trusted_proxy_match or trusted_proxy_match.group(1).strip() != "CHANGE_ME
 traefik_env = root / "Traefik/.env"
 traefik_path = root / "Traefik/docker-compose.app.yaml"
 traefik_document = yaml.safe_load(traefik_path.read_text(encoding="utf-8"))
-traefik_command = traefik_document["services"]["app"].get("command") or []
+traefik_service = traefik_document["services"]["app"]
+traefik_command = traefik_service.get("command") or []
 if "--providers.docker.network=frontend" not in traefik_command:
     raise SystemExit(f"{traefik_path}: Docker-provider routing must stay pinned to frontend")
+for required_tls_argument in (
+    "--entrypoints.websecure.http.tls=true",
+    "--entrypoints.websecure.http.tls.certresolver=${CERTRESOLVER}",
+    "--entrypoints.websecure.http.tls.options=${TLSOPTIONS}",
+):
+    if required_tls_argument not in traefik_command:
+        raise SystemExit(
+            f"{traefik_path}: app routers require the websecure TLS default "
+            f"{required_tls_argument!r}"
+        )
+traefik_labels = set(traefik_service.get("labels") or [])
+for required_dashboard_label in (
+    "traefik.http.routers.${APP_NAME}-rtr.tls=true",
+    "traefik.http.routers.${APP_NAME}-rtr.tls.certresolver=${CERTRESOLVER}",
+    "traefik.http.routers.${APP_NAME}-rtr.tls.options=${TLSOPTIONS}",
+):
+    if required_dashboard_label not in traefik_labels:
+        raise SystemExit(
+            f"{traefik_path}: dashboard router must keep {required_dashboard_label!r}"
+        )
+for entrypoint in ("web", "websecure"):
+    required_underscore_strategy = (
+        f"--entrypoints.{entrypoint}.http.underscoreheadersstrategy=delete"
+    )
+    if required_underscore_strategy not in traefik_command:
+        raise SystemExit(
+            f"{traefik_path}: public EntryPoint {entrypoint} must delete underscore request headers"
+        )
 forward_auth_match = re.search(
     r"^AUTHENTIK_FORWARD_AUTH_ADDRESS=([^#\n]+)",
     traefik_env.read_text(encoding="utf-8"),
@@ -2599,8 +3246,17 @@ if not forward_auth_match or forward_auth_match.group(1).strip() != expected_for
         f"{traefik_env}: Forward Auth must use the frontend-only Authentik alias"
     )
 traefik_environment = traefik_document["services"]["app"].get("environment") or {}
+if traefik_environment.get("TRAEFIK_ROUTE_SUBDOMAIN") != "${TRAEFIK_ROUTE_SUBDOMAIN:-}":
+    raise SystemExit(
+        f"{traefik_path}: optional TRAEFIK_ROUTE_SUBDOMAIN must default to blank"
+    )
+if traefik_environment.get("TRAEFIK_BASE_WILDCARD_CERT_ENABLED") != "${TRAEFIK_BASE_WILDCARD_CERT_ENABLED:-false}":
+    raise SystemExit(
+        f"{traefik_path}: raw-base wildcard certificate opt-in must default to false"
+    )
 expected_dev_forward_environment = {
     "TRAEFIK_DEV_FORWARD_ENABLED": "${TRAEFIK_DEV_FORWARD_ENABLED:-false}",
+    "TRAEFIK_DEV_FORWARD_PREFIX": "${TRAEFIK_DEV_FORWARD_PREFIX:-dev}",
     "TRAEFIK_DEV_FORWARD_TARGET_ADDRESS": "${TRAEFIK_DEV_FORWARD_TARGET_ADDRESS:-}",
     "TRAEFIK_PROXY_PROTOCOL_TRUSTED_IPS": "${TRAEFIK_PROXY_PROTOCOL_TRUSTED_IPS:-}",
 }
@@ -2611,7 +3267,10 @@ for key, expected_value in expected_dev_forward_environment.items():
         )
 traefik_env_text = traefik_env.read_text(encoding="utf-8")
 for key, expected_value in {
+    "TRAEFIK_ROUTE_SUBDOMAIN": "",
+    "TRAEFIK_BASE_WILDCARD_CERT_ENABLED": "false",
     "TRAEFIK_DEV_FORWARD_ENABLED": "false",
+    "TRAEFIK_DEV_FORWARD_PREFIX": "dev",
     "TRAEFIK_DEV_FORWARD_TARGET_ADDRESS": "CHANGE_ME:443",
     "TRAEFIK_PROXY_PROTOCOL_TRUSTED_IPS": "",
 }.items():
@@ -2622,12 +3281,12 @@ for key, expected_value in {
     )
     if assignment is None or assignment.group(1).strip() != expected_value:
         raise SystemExit(f"{traefik_env}: {key} must keep its safe repository default")
-dev_forward_path = root / "Traefik/appdata/config/conf.d/dev-traefik-forward.yaml"
+dev_forward_path = root / "Traefik/appdata/config/conf.d/dev-traefik-forward.yaml.template"
 dev_forward_text = dev_forward_path.read_text(encoding="utf-8")
 for required_fragment in (
     '{{ if eq (env "TRAEFIK_DEV_FORWARD_ENABLED") "true" }}',
-    'HostSNI(`dev.{{ env "TRAEFIK_DOMAIN" }}`)',
-    'HostSNIRegexp(`^[^.]+\\.dev\\.{{ regexQuoteMeta (env "TRAEFIK_DOMAIN") }}$`)',
+    'HostSNI(`{{ env "TRAEFIK_DEV_FORWARD_PREFIX" }}.{{ env "TRAEFIK_DOMAIN" }}`)',
+    'HostSNIRegexp(`^[^.]+\\.{{ regexQuoteMeta (env "TRAEFIK_DEV_FORWARD_PREFIX") }}\\.{{ regexQuoteMeta (env "TRAEFIK_DOMAIN") }}$`)',
     "passthrough: true",
     "serversTransports:",
     "serversTransport: dev-traefik-forward-transport",
@@ -2645,6 +3304,446 @@ if re.search(r"loadBalancer:\s*\n\s+proxyProtocol:", dev_forward_text):
     raise SystemExit(
         f"{dev_forward_path}: deprecated service-local PROXY protocol configuration is forbidden"
     )
+dev_forward_live_path = root / "Traefik/appdata/config/conf.d/dev-traefik-forward.yaml"
+if dev_forward_live_path.exists() or dev_forward_live_path.is_symlink():
+    raise SystemExit(f"{dev_forward_live_path}: DEV forwarding must ship inert by default")
+gitignore_text = (root / ".gitignore").read_text(encoding="utf-8")
+if "/Traefik/appdata/config/conf.d/dev-traefik-forward.yaml" not in gitignore_text:
+    raise SystemExit(f"{root / '.gitignore'}: generated DEV forwarding activation must stay ignored")
+
+canonical_path = root / "Traefik/appdata/config/conf.d/canonical-domain-redirect.yaml"
+canonical_text = canonical_path.read_text(encoding="utf-8")
+for required_fragment in (
+    '{{ with env "TRAEFIK_DOMAIN_2" }}',
+    '{{ with env "TRAEFIK_DOMAIN_3" }}',
+    '{{ with env "TRAEFIK_DOMAIN_4" }}',
+    'HostRegexp(`^.+\\.{{ regexQuoteMeta $domain }}$`)',
+    'regex: \'^https://((?:[A-Za-z0-9-]+\\.)*)({{ $canonicalRedirectRegexDomains | join "|" }})(:[0-9]+)?(/.*)?$\'',
+    'replacement: \'https://${1}{{ env "TRAEFIK_DOMAIN_1" }}${3}${4}\'',
+    "canonical-domain-redirect:",
+):
+    if required_fragment not in canonical_text:
+        raise SystemExit(
+            f"{canonical_path}: missing required canonical redirect fragment {required_fragment!r}"
+        )
+route_template_directory = root / "Traefik/appdata/config/conf.d"
+route_template_reference = route_template_directory / "template.yaml.template"
+reference_url_lines = [
+    line
+    for line in route_template_reference.read_text(encoding="utf-8").splitlines()
+    if re.match(r"^\s*-\s+url:\s+", line)
+]
+if len(reference_url_lines) != 1 or "#" not in reference_url_lines[0]:
+    raise SystemExit(
+        f"{route_template_reference}: canonical route template must have exactly one commented server URL"
+    )
+expected_url_comment = reference_url_lines[0].rpartition("#")[2].strip()
+for route_template_path in sorted(route_template_directory.glob("*.yaml.template")):
+    for line_number, line in enumerate(
+        route_template_path.read_text(encoding="utf-8").splitlines(),
+        start=1,
+    ):
+        if not re.match(r"^\s*-\s+url:\s+", line):
+            continue
+        actual_url_comment = line.rpartition("#")[2].strip() if "#" in line else ""
+        if actual_url_comment != expected_url_comment:
+            raise SystemExit(
+                f"{route_template_path}:{line_number}: server URL comment must match "
+                f"{route_template_reference.name}: {expected_url_comment!r}"
+            )
+
+excluded_route_templates = {
+    "dev-traefik-forward.yaml.template",
+    "mailcow.yaml.template",
+}
+app_route_templates = [
+    path
+    for path in sorted(route_template_directory.glob("*.yaml.template"))
+    if path.name not in excluded_route_templates
+]
+expected_route_domains = {
+    "TRAEFIK_ROUTE_DOMAIN",
+    "TRAEFIK_ROUTE_DOMAIN_1",
+    "TRAEFIK_ROUTE_DOMAIN_2",
+    "TRAEFIK_ROUTE_DOMAIN_3",
+    "TRAEFIK_ROUTE_DOMAIN_4",
+}
+route_host_pattern = re.compile(
+    r'^(?P<application>[a-z0-9-]+)\.\{\{\s*env "'
+    r'(?P<domain>TRAEFIK_ROUTE_DOMAIN(?:_[1-4])?)"\s*\}\}$'
+)
+route_application_names = set()
+for route_template_path in app_route_templates:
+    route_template_text = route_template_path.read_text(encoding="utf-8")
+    if "TRAEFIK_ROUTE_SUBDOMAIN" in route_template_text:
+        raise SystemExit(
+            f"{route_template_path}: route subdomain must be derived once by the startup wrapper"
+        )
+    legacy_domain_references = re.findall(
+        r'env "TRAEFIK_DOMAIN(?:_[1-4])?"',
+        route_template_text,
+    )
+    if legacy_domain_references:
+        raise SystemExit(
+            f"{route_template_path}: app routes must use only derived route domains"
+        )
+    route_domain_references = set(
+        re.findall(
+            r'(?<=env ")TRAEFIK_ROUTE_DOMAIN(?:_[1-4])?(?=")',
+            route_template_text,
+        )
+    )
+    if route_domain_references != expected_route_domains:
+        raise SystemExit(
+            f"{route_template_path}: incomplete route-domain matrix "
+            f"{sorted(route_domain_references)!r}"
+        )
+    application_names = set()
+    host_rules = re.findall(r'Host\(`([^`]+)`\)', route_template_text)
+    if not host_rules:
+        raise SystemExit(f"{route_template_path}: missing exact per-app Host rules")
+    for host_rule in host_rules:
+        host_match = route_host_pattern.fullmatch(host_rule)
+        if host_match is None:
+            raise SystemExit(
+                f"{route_template_path}: non-exact per-app Host rule {host_rule!r}"
+            )
+        application_names.add(host_match.group("application"))
+    if len(application_names) != 1:
+        raise SystemExit(
+            f"{route_template_path}: one app template must use one hostname prefix"
+        )
+    application_name = next(iter(application_names))
+    route_application_names.add(application_name)
+    route_lines = route_template_text.splitlines()
+    router_host_sets = []
+    for route_line_index, route_line in enumerate(route_lines):
+        if re.match(r"^\s+rule:\s+>-", route_line) is None:
+            continue
+        rule_indent = len(route_line) - len(route_line.lstrip())
+        rule_body = []
+        for rule_body_line in route_lines[route_line_index + 1:]:
+            if rule_body_line.strip():
+                body_indent = len(rule_body_line) - len(rule_body_line.lstrip())
+                if body_indent <= rule_indent:
+                    break
+            rule_body.append(rule_body_line)
+        rule_hosts = re.findall(r'Host\(`([^`]+)`\)', "\n".join(rule_body))
+        if rule_hosts:
+            router_host_sets.append(set(rule_hosts))
+    expected_router_host_set = {
+        f'{application_name}.{{{{env "{route_domain}"}}}}'
+        for route_domain in expected_route_domains
+    }
+    if not router_host_sets or any(
+        router_host_set != expected_router_host_set
+        for router_host_set in router_host_sets
+    ):
+        raise SystemExit(
+            f"{route_template_path}: every app router must repeat the complete exact host set"
+        )
+    for optional_route_domain in sorted(expected_route_domains - {"TRAEFIK_ROUTE_DOMAIN"}):
+        optional_guard = re.compile(
+            rf'\{{\{{-?\s*if\s+env\s+"{optional_route_domain}"\s*\}}\}}'
+        )
+        if optional_guard.search(route_template_text) is None:
+            raise SystemExit(
+                f"{route_template_path}: {optional_route_domain} must stay optional"
+            )
+
+traefik_start_path = root / "Traefik/scripts/traefik-start.sh"
+traefik_start_text = traefik_start_path.read_text(encoding="utf-8")
+route_prefixes_match = re.search(
+    r"^readonly TRAEFIK_ROUTE_APPLICATION_PREFIXES='([^']+)'$",
+    traefik_start_text,
+    flags=re.MULTILINE,
+)
+if route_prefixes_match is None:
+    raise SystemExit(f"{traefik_start_path}: missing route application prefix inventory")
+wrapper_route_prefixes = route_prefixes_match.group(1).split()
+if (
+    len(wrapper_route_prefixes) != len(set(wrapper_route_prefixes))
+    or set(wrapper_route_prefixes) != route_application_names
+):
+    raise SystemExit(
+        f"{traefik_start_path}: route prefix inventory must match all normal app templates"
+    )
+
+mailcow_route_path = route_template_directory / "mailcow.yaml.template"
+mailcow_route_text = mailcow_route_path.read_text(encoding="utf-8")
+legacy_mailcow_domains = set(
+    re.findall(
+        r'(?<=env ")TRAEFIK_DOMAIN(?:_[1-4])?(?=")',
+        mailcow_route_text,
+    )
+)
+if legacy_mailcow_domains:
+    raise SystemExit(
+        f"{mailcow_route_path}: Mailcow routes must use only wrapper-derived route domains"
+    )
+mailcow_route_domains = set(
+    re.findall(
+        r'(?<=env ")TRAEFIK_ROUTE_DOMAIN(?:_[1-4])?(?=")',
+        mailcow_route_text,
+    )
+)
+if mailcow_route_domains != expected_route_domains:
+    raise SystemExit(
+        f"{mailcow_route_path}: Mailcow must consume the complete derived domain matrix"
+    )
+if "HostRegexp(" in mailcow_route_text:
+    raise SystemExit(f"{mailcow_route_path}: Mailcow aliases must remain exact Host rules")
+
+def mailcow_host(label, route_domain):
+    return f'{label}.{{{{env "{route_domain}"}}}}'
+
+expected_mailcow_host_patterns = [
+    mailcow_host(label, "TRAEFIK_ROUTE_DOMAIN")
+    for label in ("mailcow", "mail", "mta-sts", "autodiscover", "autoconfig")
+]
+for optional_route_domain in (
+    "TRAEFIK_ROUTE_DOMAIN_1",
+    "TRAEFIK_ROUTE_DOMAIN_2",
+    "TRAEFIK_ROUTE_DOMAIN_3",
+    "TRAEFIK_ROUTE_DOMAIN_4",
+):
+    expected_mailcow_host_patterns.extend(
+        mailcow_host(label, optional_route_domain)
+        for label in ("mail", "mta-sts", "autodiscover", "autoconfig")
+    )
+    optional_guard = re.compile(
+        rf'\{{\{{-?\s*if\s+env\s+"{optional_route_domain}"\s*\}}\}}'
+    )
+    if optional_guard.search(mailcow_route_text) is None:
+        raise SystemExit(
+            f"{mailcow_route_path}: {optional_route_domain} aliases must stay optional"
+        )
+mailcow_host_patterns = re.findall(r'Host\(`([^`]+)`\)', mailcow_route_text)
+if Counter(mailcow_host_patterns) != Counter(expected_mailcow_host_patterns):
+    raise SystemExit(
+        f"{mailcow_route_path}: Mailcow must preserve its exact primary/optional alias matrix"
+    )
+primary_acme_host = mailcow_host("mail", "TRAEFIK_ROUTE_DOMAIN")
+primary_acme_fragment = (
+    f"(Host(`{primary_acme_host}`) && "
+    "PathPrefix(`/.well-known/acme-challenge/`))"
+)
+if primary_acme_fragment not in mailcow_route_text:
+    raise SystemExit(
+        f"{mailcow_route_path}: the primary mail alias must stay ACME-path-only"
+    )
+
+raw_mailcow_domains = {
+    "TRAEFIK_ROUTE_DOMAIN": "xn--lb-1ia.de",
+    "TRAEFIK_ROUTE_DOMAIN_1": "xn--srvices-mxa.de",
+    "TRAEFIK_ROUTE_DOMAIN_2": "saervices.de",
+    "TRAEFIK_ROUTE_DOMAIN_3": "it-saervices.de",
+    "TRAEFIK_ROUTE_DOMAIN_4": "itsaervices.de",
+}
+
+def render_mailcow_hosts(route_subdomain):
+    route_prefix = f"{route_subdomain}." if route_subdomain else ""
+    rendered_domains = {
+        name: f"{route_prefix}{domain}"
+        for name, domain in raw_mailcow_domains.items()
+    }
+    rendered_hosts = set()
+    for host_pattern in mailcow_host_patterns:
+        host_match = route_host_pattern.fullmatch(host_pattern)
+        if host_match is None:
+            raise SystemExit(
+                f"{mailcow_route_path}: invalid exact host pattern {host_pattern!r}"
+            )
+        rendered_hosts.add(
+            f"{host_match.group('application')}."
+            f"{rendered_domains[host_match.group('domain')]}"
+        )
+    return rendered_hosts
+
+expected_mailcow_hosts_without_prefix = {
+    f"{label}.xn--lb-1ia.de"
+    for label in ("mailcow", "mail", "mta-sts", "autodiscover", "autoconfig")
+}
+for optional_domain in (
+    "xn--srvices-mxa.de",
+    "saervices.de",
+    "it-saervices.de",
+    "itsaervices.de",
+):
+    expected_mailcow_hosts_without_prefix.update(
+        f"{label}.{optional_domain}"
+        for label in ("mail", "mta-sts", "autodiscover", "autoconfig")
+    )
+rendered_mailcow_hosts_without_prefix = render_mailcow_hosts("")
+if rendered_mailcow_hosts_without_prefix != expected_mailcow_hosts_without_prefix:
+    raise SystemExit(
+        f"{mailcow_route_path}: blank route subdomain must preserve every previous Mailcow host"
+    )
+rendered_mailcow_hosts_with_prefix = render_mailcow_hosts("it")
+expected_mailcow_hosts_with_prefix = {
+    f"{label}.it.{host_suffix}"
+    for host in expected_mailcow_hosts_without_prefix
+    for label, host_suffix in [host.split(".", maxsplit=1)]
+}
+if rendered_mailcow_hosts_with_prefix != expected_mailcow_hosts_with_prefix:
+    raise SystemExit(
+        f"{mailcow_route_path}: route subdomain must be inserted after every Mailcow label"
+    )
+if rendered_mailcow_hosts_with_prefix & expected_mailcow_hosts_without_prefix:
+    raise SystemExit(
+        f"{mailcow_route_path}: prefixed mode still routes legacy unprefixed hosts instead of 404"
+    )
+
+mailcow_prefixes_match = re.search(
+    r"^readonly TRAEFIK_ROUTE_MAILCOW_PREFIXES='([^']+)'$",
+    traefik_start_text,
+    flags=re.MULTILINE,
+)
+expected_mailcow_prefixes = {"autoconfig", "autodiscover", "mail", "mailcow", "mta-sts"}
+if mailcow_prefixes_match is None:
+    raise SystemExit(f"{traefik_start_path}: missing separate Mailcow prefix inventory")
+wrapper_mailcow_prefixes = mailcow_prefixes_match.group(1).split()
+if (
+    len(wrapper_mailcow_prefixes) != len(set(wrapper_mailcow_prefixes))
+    or set(wrapper_mailcow_prefixes) != expected_mailcow_prefixes
+):
+    raise SystemExit(
+        f"{traefik_start_path}: Mailcow prefix inventory must match every fixed alias"
+    )
+if "TRAEFIK_ROUTE_" in dev_forward_text:
+    raise SystemExit(f"{dev_forward_path}: DEV forwarding must stay independent of app routes")
+
+apex_cert_path = route_template_directory / "traefik-apex-cert.yaml"
+apex_cert_text = apex_cert_path.read_text(encoding="utf-8")
+if "TRAEFIK_ROUTE_" in apex_cert_text or "*." in apex_cert_text:
+    raise SystemExit(
+        f"{apex_cert_path}: apex certificate router must stay exact and route-independent"
+    )
+wildcard_cert_path = route_template_directory / "traefik-wildcard-cert.yaml"
+wildcard_cert_text = wildcard_cert_path.read_text(encoding="utf-8")
+wildcard_condition = '{{ if eq (env "TRAEFIK_BASE_WILDCARD_CERT_ENABLED") "true" }}'
+if wildcard_cert_text.count(wildcard_condition) != 1:
+    raise SystemExit(
+        f"{wildcard_cert_path}: raw-base wildcard router must use one exact opt-in condition"
+    )
+if "TRAEFIK_ROUTE_" in wildcard_cert_text:
+    raise SystemExit(
+        f"{wildcard_cert_path}: route-derived or deeper wildcards are forbidden"
+    )
+expected_raw_wildcard_domains = Counter(
+    [f"TRAEFIK_DOMAIN{suffix}" for suffix in ("", "_1", "_2", "_3", "_4")]
+)
+actual_raw_wildcard_domains = Counter(
+    re.findall(
+        r'"\*\.\{\{env "(TRAEFIK_DOMAIN(?:_[1-4])?)"\}\}"',
+        wildcard_cert_text,
+    )
+)
+if actual_raw_wildcard_domains != expected_raw_wildcard_domains:
+    raise SystemExit(
+        f"{wildcard_cert_path}: only one wildcard per raw TRAEFIK_DOMAIN[_1..4] is allowed"
+    )
+for optional_domain in ("TRAEFIK_DOMAIN_1", "TRAEFIK_DOMAIN_2", "TRAEFIK_DOMAIN_3", "TRAEFIK_DOMAIN_4"):
+    if f'{{{{ if env "{optional_domain}" }}}}' not in wildcard_cert_text:
+        raise SystemExit(f"{wildcard_cert_path}: {optional_domain} wildcard must stay optional")
+for dynamic_config_path in route_template_directory.glob("*.yaml*"):
+    if dynamic_config_path == wildcard_cert_path:
+        continue
+    dynamic_config_text = dynamic_config_path.read_text(encoding="utf-8")
+    if re.search(r'^[ \t]*(?:main:|-)[ \t]+["\']\*\.', dynamic_config_text, flags=re.MULTILINE):
+        raise SystemExit(
+            f"{dynamic_config_path}: origin wildcard certificates belong only in {wildcard_cert_path.name}"
+        )
+
+def render_wildcard_template(environment):
+    rendered = wildcard_cert_text
+    conditional_pattern = re.compile(
+        r'\{\{ if (?P<expression>eq \(env "[A-Z0-9_]+"\) "[^"]*"|env "[A-Z0-9_]+") \}\}'
+        r'(?P<body>(?:(?!\{\{ if |\{\{ end \}\}).)*)\{\{ end \}\}',
+        flags=re.DOTALL,
+    )
+    while conditional_pattern.search(rendered):
+        def replace_condition(match):
+            expression = match.group("expression")
+            equal_match = re.fullmatch(
+                r'eq \(env "(?P<name>[A-Z0-9_]+)"\) "(?P<value>[^"]*)"',
+                expression,
+            )
+            if equal_match:
+                enabled = environment.get(equal_match.group("name"), "") == equal_match.group("value")
+            else:
+                name_match = re.fullmatch(r'env "(?P<name>[A-Z0-9_]+)"', expression)
+                if name_match is None:
+                    raise SystemExit(f"{wildcard_cert_path}: unsupported conditional expression")
+                enabled = bool(environment.get(name_match.group("name"), ""))
+            return match.group("body") if enabled else ""
+        rendered = conditional_pattern.sub(replace_condition, rendered)
+    if "{{ if " in rendered or "{{ end }}" in rendered:
+        raise SystemExit(f"{wildcard_cert_path}: wildcard fixture left an unrendered condition")
+    return re.sub(
+        r'\{\{env "(?P<name>[A-Z0-9_]+)"\}\}',
+        lambda match: environment.get(match.group("name"), ""),
+        rendered,
+    )
+
+wildcard_render_environment = {
+    "TRAEFIK_BASE_WILDCARD_CERT_ENABLED": "false",
+    "TRAEFIK_DOMAIN": "xn--lb-1ia.de",
+    "TRAEFIK_DOMAIN_1": "xn--srvices-mxa.de",
+    "TRAEFIK_DOMAIN_2": "saervices.de",
+    "TRAEFIK_DOMAIN_3": "it-saervices.de",
+    "TRAEFIK_DOMAIN_4": "itsaervices.de",
+    "TRAEFIK_ROUTE_DOMAIN": "it.xn--lb-1ia.de",
+    "CERTRESOLVER": "cloudflare",
+    "TLSOPTIONS": "tls-options@file",
+}
+disabled_wildcard_render = render_wildcard_template(wildcard_render_environment)
+if re.search(r"^http:\s*$", disabled_wildcard_render, flags=re.MULTILINE):
+    raise SystemExit(f"{wildcard_cert_path}: false opt-in must render no wildcard router")
+enabled_wildcard_render = render_wildcard_template(
+    {**wildcard_render_environment, "TRAEFIK_BASE_WILDCARD_CERT_ENABLED": "true"}
+)
+if enabled_wildcard_render.count("traefik-base-wildcard-cert-rtr:") != 1:
+    raise SystemExit(f"{wildcard_cert_path}: true opt-in must render exactly one wildcard router")
+rendered_wildcards = Counter(re.findall(r'["\'](\*\.[^"\']+)["\']', enabled_wildcard_render))
+expected_rendered_wildcards = Counter(
+    {
+        "*.xn--lb-1ia.de": 1,
+        "*.xn--srvices-mxa.de": 1,
+        "*.saervices.de": 1,
+        "*.it-saervices.de": 1,
+        "*.itsaervices.de": 1,
+    }
+)
+if rendered_wildcards != expected_rendered_wildcards or "*.it." in enabled_wildcard_render:
+    raise SystemExit(
+        f"{wildcard_cert_path}: enabled render must contain raw-base wildcards, never route wildcards"
+    )
+middlewares_path = root / "Traefik/appdata/config/conf.d/middlewares.yaml"
+middlewares_text = middlewares_path.read_text(encoding="utf-8")
+for forbidden_fragment in (
+    "canonical-domain-redirect:",
+    "global-cors:",
+    "websocket-security-headers:",
+    'X-Forwarded-Proto: "https"',
+    "X-Download-Options:",
+    "permissionsPolicy:",
+    "interest-cohort=()",
+    "vr=()",
+):
+    if forbidden_fragment in middlewares_text:
+        raise SystemExit(
+            f"{middlewares_path}: obsolete or relocated middleware fragment remains {forbidden_fragment!r}"
+        )
+for required_fragment in (
+    'X-Powered-By: ""',
+    'X-Permitted-Cross-Domain-Policies: "none"',
+    'customBrowserXSSValue: "0"',
+):
+    if required_fragment not in middlewares_text:
+        raise SystemExit(
+            f"{middlewares_path}: missing hardened middleware fragment {required_fragment!r}"
+        )
 app_directories_match = re.search(
     r"^APP_DIRECTORIES=([^#\n]+)",
     authentik_env.read_text(encoding="utf-8"),
@@ -2669,32 +3768,838 @@ certs_path = root / "templates/traefik_certs-dumper/docker-compose.traefik_certs
 certs_text = certs_path.read_text(encoding="utf-8")
 certs_document = yaml.safe_load(certs_text)
 certs_service = certs_document["services"]["traefik_certs-dumper"]
-if certs_document.get("secrets"):
-    raise SystemExit(f"{certs_path}: secretless certs-dumper must declare no active top-level secret")
-if certs_service.get("secrets"):
-    raise SystemExit(f"{certs_path}: local-only certs-dumper must mount no Docker secret")
-if any("CF_DNS_API_TOKEN" in str(key) for key in certs_service.get("environment", {})):
-    raise SystemExit(f"{certs_path}: local-only certs-dumper must receive no DNS-provider token")
-if "CF_DNS_API_TOKEN" in certs_text:
-    raise SystemExit(f"{certs_path}: stale secret remnant CF_DNS_API_TOKEN must be removed")
-service_secret_scaffold = re.compile(
-    r"^    # secrets:[ \t]*(?:#.*)?$\n"
-    r"^    #   - TRAEFIK_CERTS_DUMPER_PASSWORD[ \t]*(?:#.*)?$",
+if set(certs_document.get("secrets") or {}) != {"TRAEFIK_CERTS_DUMPER_PASSWORD"}:
+    raise SystemExit(f"{certs_path}: certs-dumper must declare only its existing SSH-key secret")
+expected_certs_secrets = {"TRAEFIK_CERTS_DUMPER_PASSWORD", "CF_DNS_API_TOKEN"}
+if set(certs_service.get("secrets") or []) != expected_certs_secrets:
+    raise SystemExit(f"{certs_path}: integrated post-hook must mount SSH key plus existing Cloudflare token")
+certs_volumes = set(certs_service.get("volumes") or [])
+if "./scripts/post-hook.sh:/config/post-hook.sh:ro" not in certs_volumes:
+    raise SystemExit(f"{certs_path}: existing certs-dumper post-hook mount is missing")
+if "./appdata/certs-dumper-state:/state:rw" not in certs_volumes:
+    raise SystemExit(f"{certs_path}: persistent SSH host-key state bind is missing")
+certs_env_path = certs_path.parent / ".env"
+certs_env_text = certs_env_path.read_text(encoding="utf-8")
+certs_directories_match = re.search(
+    r"^TRAEFIK_CERTS_DUMPER_DIRECTORIES=([^#\n]+)",
+    certs_env_text,
     flags=re.MULTILINE,
 )
-top_level_secret_scaffold = re.compile(
-    r"^# secrets:[ \t]*(?:#.*)?$\n"
-    r"^#   TRAEFIK_CERTS_DUMPER_PASSWORD:[ \t]*(?:#.*)?$\n"
-    r"^#     file: \$\{TRAEFIK_CERTS_DUMPER_PASSWORD_PATH:\?Secret path required\}/"
-    r"\$\{TRAEFIK_CERTS_DUMPER_PASSWORD_FILENAME:\?Secret filename required\}[ \t]*(?:#.*)?$",
-    flags=re.MULTILINE,
+certs_directories = (
+    certs_directories_match.group(1).strip() if certs_directories_match else ""
 )
-if not service_secret_scaffold.search(certs_text):
-    raise SystemExit(f"{certs_path}: secretless service must retain its commented least-privilege secret scaffold")
-if not top_level_secret_scaffold.search(certs_text):
-    raise SystemExit(f"{certs_path}: secretless template must retain its commented top-level secret scaffold")
-if (certs_path.parent / "secrets").exists():
-    raise SystemExit(f"{certs_path.parent}: secretless template must not ship a secrets directory")
+if certs_directories != "appdata/certs-dumper-state":
+    raise SystemExit(
+        f"{certs_env_path}: run.sh must create only the dedicated certs-dumper state directory"
+    )
+certs_environment = certs_service.get("environment") or {}
+if certs_service.get("stop_grace_period") != "180s":
+    raise SystemExit(
+        f"{certs_path}: certs-dumper needs 180s for bounded Mailcow rollback before SIGKILL"
+    )
+if certs_environment.get("CF_DNS_API_TOKEN_FILE") != "/run/secrets/CF_DNS_API_TOKEN":
+    raise SystemExit(f"{certs_path}: certs-dumper must reuse the existing Cloudflare token secret")
+expected_mailcow_environment = {
+    "TRAEFIK_DOMAIN": "${TRAEFIK_DOMAIN:?Traefik domæin required}",
+    "TRAEFIK_DOMAIN_1": "${TRAEFIK_DOMAIN_1:-}",
+    "TRAEFIK_DOMAIN_2": "${TRAEFIK_DOMAIN_2:-}",
+    "TRAEFIK_DOMAIN_3": "${TRAEFIK_DOMAIN_3:-}",
+    "TRAEFIK_DOMAIN_4": "${TRAEFIK_DOMAIN_4:-}",
+    "TRAEFIK_ROUTE_SUBDOMAIN": "${TRAEFIK_ROUTE_SUBDOMAIN:-}",
+    "MAILCOW_SMTP_HOSTNAME": "${TRAEFIK_CERTS_DUMPER_MAILCOW_SMTP_HOSTNAME:-CHANGE_ME}",
+    "MAILCOW_CLOUDFLARE_ZONE": "${TRAEFIK_CERTS_DUMPER_MAILCOW_CLOUDFLARE_ZONE:-CHANGE_ME}",
+    "MAILCOW_DANE_TTL_SECONDS": "${TRAEFIK_CERTS_DUMPER_MAILCOW_DANE_TTL_SECONDS:-300}",
+    "MAILCOW_DANE_TTL_SAFETY_SECONDS": "${TRAEFIK_CERTS_DUMPER_MAILCOW_DANE_TTL_SAFETY_SECONDS:-60}",
+    "MAILCOW_DANE_VALIDATING_RESOLVER": "${TRAEFIK_CERTS_DUMPER_MAILCOW_DANE_VALIDATING_RESOLVER:-1.1.1.1}",
+}
+for environment_name, expected_value in expected_mailcow_environment.items():
+    if certs_environment.get(environment_name) != expected_value:
+        raise SystemExit(
+            f"{certs_path}: invalid Mailcow environment wiring for {environment_name}"
+        )
+if re.search(r"(?:SSH_)?KNOWN_HOSTS", certs_text, flags=re.IGNORECASE):
+    raise SystemExit(
+        f"{certs_path}: known_hosts content must stay file-backed, not become a Compose secret or environment value"
+    )
+
+exporter_spellings = (
+    "TRAEFIK_CERTS_" + "EXPORTER",
+    "traefik-certs-" + "exporter",
+    "traefik_certs-" + "exporter",
+    "traefik_certs_" + "exporter",
+)
+for production_directory in (root / "Traefik", certs_path.parent):
+    for production_file in production_directory.rglob("*"):
+        if not production_file.is_file():
+            continue
+        if (
+            production_file.name != ".env"
+            and production_file.suffix.lower()
+            not in {".md", ".sh", ".template", ".yaml", ".yml"}
+            and not production_file.name.lower().startswith("dockerfile")
+        ):
+            continue
+        production_text = production_file.read_text(encoding="utf-8", errors="ignore")
+        if any(spelling in production_text for spelling in exporter_spellings):
+            raise SystemExit(
+                f"{production_file}: separate certs-exporter references are forbidden"
+            )
+
+certs_entrypoint_path = root / "templates/traefik_certs-dumper/dockerfiles/entrypoint.traefik_certs-dumper.sh"
+certs_entrypoint = certs_entrypoint_path.read_text(encoding="utf-8")
+if '--post-hook "sh /config/post-hook.sh"' not in certs_entrypoint:
+    raise SystemExit(f"{certs_entrypoint_path}: existing post-hook must be enabled on the dumper watcher")
+
+certs_hook_path = root / "templates/traefik_certs-dumper/scripts/post-hook.sh"
+certs_hook = certs_hook_path.read_text(encoding="utf-8")
+for required_fragment in (
+    'CERTS_DUMPER_SSH_SECRET="/run/secrets/TRAEFIK_CERTS_DUMPER_PASSWORD"',
+    'CERTS_DUMPER_SSH_STATE_ROOT="/state"',
+    'CERTS_DUMPER_SSH_STATE_DIR="${CERTS_DUMPER_SSH_STATE_ROOT}/.ssh"',
+    'CERTS_DUMPER_SSH_KNOWN_HOSTS_FILE="${CERTS_DUMPER_SSH_STATE_DIR}/known_hosts"',
+    'CERTS_DUMPER_CF_TOKEN_FILE="${CF_DNS_API_TOKEN_FILE:-/run/secrets/CF_DNS_API_TOKEN}"',
+    'MAILCOW_SMTP_HOSTNAME_INPUT="${MAILCOW_SMTP_HOSTNAME:-}"',
+    'MAILCOW_CLOUDFLARE_ZONE_INPUT="${MAILCOW_CLOUDFLARE_ZONE:-}"',
+    'MAILCOW_DANE_TTL_SECONDS_INPUT="${MAILCOW_DANE_TTL_SECONDS:-300}"',
+    'MAILCOW_DANE_TTL_SAFETY_SECONDS_INPUT="${MAILCOW_DANE_TTL_SAFETY_SECONDS:-60}"',
+    'MAILCOW_DANE_VALIDATING_RESOLVER_INPUT="${MAILCOW_DANE_VALIDATING_RESOLVER:-1.1.1.1}"',
+    'MAILCOW_TLSA_RECORD_NAME="_25._tcp.${MAILCOW_SMTP_HOSTNAME}"',
+    'CERTS_DUMPER_MAILCOW_LOCK_FILE="${CERTS_DUMPER_SSH_STATE_ROOT}/mailcow-rollover.lock"',
+    'flock -n 7 || log_error "Another Mailcow/DANE certificate roll-over is already active"',
+    'read_cloudflare_token >/dev/null',
+    'timeout 20 delv \\',
+    '+noall +comments +trust +ttl +class "$record_name" TLSA',
+    'CERTS_DUMPER_SMTP_ATTEMPT_SECONDS=5',
+    '--data-urlencode "type=TLSA"',
+    '--data-urlencode "name=${record_name}"',
+    '(.type | ascii_upcase) == "TLSA"',
+    'select_mailcow_tlsa_records() {',
+    'require_cloudflare_dnssec_active "$zone_id"',
+    'require_certificate_key_pair "$local_cert" "$local_key"',
+    'require_certificate_hostname "$local_cert" "$MAILCOW_SMTP_HOSTNAME"',
+    'create_cloudflare_tlsa_record \\',
+    'deploy_mailcow_certificate_pair \\',
+    'wait_for_dane_window "post-deployment overlap" "$overlap_wait"',
+    'delete_cloudflare_tlsa_record "$zone_id" "$old_record_id"',
+    'verify_remote_smtp_identity "$dest_host" "$MAILCOW_SMTP_HOSTNAME" "$local_spki" "$local_leaf"',
+    "StrictHostKeyChecking=accept-new",
+    "UpdateHostKeys=no",
+    'UserKnownHostsFile=${CERTS_DUMPER_SSH_KNOWN_HOSTS_FILE}',
+    "stat -Lc '%d:%i' -- /proc/self/fd/9",
+    "stat -Lc '%d:%i' -- /proc/self/fd/8",
+    'local_cert="/data/files/${MAILCOW_CERT_MAIN_DOMAIN}/certificate.pem"',
+    'rollback_remote_mailcow_certificate \\',
+    "postfix-mailcow dovecot-mailcow nginx-mailcow",
+    "# if true; then mailcow; fi",
+):
+    if required_fragment not in certs_hook:
+        raise SystemExit(f"{certs_hook_path}: missing integrated Mailcow/TLSA fragment {required_fragment!r}")
+if "/tmp/.ssh/known_hosts" in certs_hook:
+    raise SystemExit(f"{certs_hook_path}: known_hosts must persist under /state, never tmpfs")
+ssh_transfer_count = len(
+    re.findall(r"^[ \t]*(?:if ! )?(?:scp|ssh) -i ", certs_hook, flags=re.MULTILINE)
+)
+for ssh_option in (
+    "ConnectTimeout=10",
+    "ConnectionAttempts=1",
+    "StrictHostKeyChecking=accept-new",
+    "UpdateHostKeys=no",
+    'UserKnownHostsFile=${CERTS_DUMPER_SSH_KNOWN_HOSTS_FILE}',
+):
+    if ssh_transfer_count == 0 or certs_hook.count(ssh_option) != ssh_transfer_count:
+        raise SystemExit(
+            f"{certs_hook_path}: every SSH/SCP transfer must use the persistent fail-closed host-key options"
+        )
+if len(re.findall(r"^# if true; then mailcow; fi$", certs_hook, flags=re.MULTILINE)) != 1:
+    raise SystemExit(f"{certs_hook_path}: Mailcow must have exactly one commented upstream call")
+if re.search(r"^[ \t]*(?!#)(?:if[ ;].*[ ;]then[ ;]+)?mailcow(?:[ ;]|$)", certs_hook, flags=re.MULTILINE):
+    raise SystemExit(f"{certs_hook_path}: Mailcow must not be active upstream")
+mailcow_body_match = re.search(r"^mailcow\(\) \{\n(?P<body>.*?)^\}$", certs_hook, flags=re.MULTILINE | re.DOTALL)
+if not mailcow_body_match:
+    raise SystemExit(f"{certs_hook_path}: integrated mailcow function is missing")
+mailcow_body = mailcow_body_match.group("body")
+ordered_mailcow_steps = (
+    "acquire_mailcow_lock",
+    "resolve_mailcow_configuration",
+    "wait_for_certificate_files",
+    "require_certificate_key_pair",
+    "require_certificate_hostname",
+    "calculate_tlsa_spki_sha256",
+    "calculate_certificate_sha256",
+    "read_cloudflare_token",
+    "cloudflare_find_zone_id",
+    "require_cloudflare_dnssec_active",
+    "cloudflare_get_tlsa_records",
+    "get_remote_smtp_identity",
+)
+positions = [mailcow_body.find(step) for step in ordered_mailcow_steps]
+if any(position < 0 for position in positions) or positions != sorted(positions):
+    raise SystemExit(
+        f"{certs_hook_path}: Mailcow must preflight certificate, zone, DNSSEC, exact TLSA RRset, then SMTP identity"
+    )
+if "COPY_ONLY" in certs_hook or "TLSA_ENABLED" in certs_hook or "DANE_ENABLED" in certs_hook:
+    raise SystemExit(f"{certs_hook_path}: integrated Mailcow hook must not expose a copy-only switch")
+if "--request PATCH" in certs_hook:
+    raise SystemExit(f"{certs_hook_path}: Mailcow DANE rollover must add/delete exact records, never PATCH in place")
+
+hook_main_matches = list(
+    re.finditer(r"^check_dependencies [^\n]+$", certs_hook, flags=re.MULTILINE)
+)
+if len(hook_main_matches) != 1:
+    raise SystemExit(f"{certs_hook_path}: unable to isolate the post-hook function library")
+hook_library = certs_hook[:hook_main_matches[0].start()]
+
+def run_ssh_state_hook_fixture(state_root, body="prepare_ssh_directory"):
+    state_library = hook_library.replace(
+        'readonly CERTS_DUMPER_SSH_STATE_ROOT="/state"',
+        f'readonly CERTS_DUMPER_SSH_STATE_ROOT="{state_root}"',
+        1,
+    )
+    state_library = state_library.replace(
+        "  harden_directory_no_follow /tmp/.ssh",
+        '  harden_directory_no_follow "${CERTS_DUMPER_SSH_STATE_ROOT}/identity-tmp"',
+        1,
+    )
+    if (
+        'readonly CERTS_DUMPER_SSH_STATE_ROOT="/state"' in state_library
+        or "  harden_directory_no_follow /tmp/.ssh" in state_library
+    ):
+        raise SystemExit(f"{certs_hook_path}: unable to replace the isolated SSH state root")
+    with tempfile.TemporaryDirectory(prefix="certs-dumper-ssh-state-script.") as fixture_name:
+        fixture = Path(fixture_name)
+        fixture_script = fixture / "post-hook-fixture.sh"
+        fixture_script.write_text(f"{state_library}\n{body}\n", encoding="utf-8")
+        return subprocess.run(
+            ["/bin/bash", str(fixture_script)],
+            cwd=fixture,
+            env={"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "LC_ALL": "C"},
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+
+with tempfile.TemporaryDirectory(prefix="certs-dumper-ssh-state.") as state_fixture_name:
+    state_root = Path(state_fixture_name) / "state"
+    state_root.mkdir(mode=0o770)
+    first_state_prepare = run_ssh_state_hook_fixture(state_root)
+    state_directory = state_root / ".ssh"
+    known_hosts_file = state_directory / "known_hosts"
+    if first_state_prepare.returncode != 0:
+        raise SystemExit(f"{certs_hook_path}: first persistent SSH state preparation failed")
+    if (
+        state_directory.is_symlink()
+        or not state_directory.is_dir()
+        or (state_directory.stat().st_mode & 0o777) != 0o700
+    ):
+        raise SystemExit(f"{certs_hook_path}: persistent SSH state directory must be real mode 0700")
+    if (
+        known_hosts_file.is_symlink()
+        or not known_hosts_file.is_file()
+        or (known_hosts_file.stat().st_mode & 0o777) != 0o600
+    ):
+        raise SystemExit(f"{certs_hook_path}: persistent known_hosts must be regular mode 0600")
+    persisted_host_key = b"mail.example ssh-ed25519 AAAATESTHOSTKEY\n"
+    known_hosts_file.write_bytes(persisted_host_key)
+    state_directory.chmod(0o770)
+    known_hosts_file.chmod(0o660)
+    second_state_prepare = run_ssh_state_hook_fixture(state_root)
+    if second_state_prepare.returncode != 0:
+        raise SystemExit(f"{certs_hook_path}: restart-style SSH state preparation failed")
+    if known_hosts_file.read_bytes() != persisted_host_key:
+        raise SystemExit(f"{certs_hook_path}: restart-style preparation replaced the accepted host key")
+    if (state_directory.stat().st_mode & 0o777) != 0o700:
+        raise SystemExit(f"{certs_hook_path}: restart-style preparation did not restore mode 0700")
+    if (known_hosts_file.stat().st_mode & 0o777) != 0o600:
+        raise SystemExit(f"{certs_hook_path}: restart-style preparation did not restore mode 0600")
+
+with tempfile.TemporaryDirectory(prefix="certs-dumper-ssh-state-root-link.") as state_fixture_name:
+    fixture = Path(state_fixture_name)
+    outside_directory = fixture / "outside"
+    outside_directory.mkdir()
+    outside_sentinel = outside_directory / "sentinel"
+    outside_sentinel.write_bytes(b"unchanged")
+    state_root = fixture / "state"
+    state_root.symlink_to(outside_directory, target_is_directory=True)
+    linked_root_case = run_ssh_state_hook_fixture(state_root)
+    if linked_root_case.returncode == 0 or outside_sentinel.read_bytes() != b"unchanged":
+        raise SystemExit(f"{certs_hook_path}: symlinked SSH state root must fail closed")
+
+with tempfile.TemporaryDirectory(prefix="certs-dumper-ssh-state-dir-link.") as state_fixture_name:
+    fixture = Path(state_fixture_name)
+    state_root = fixture / "state"
+    outside_directory = fixture / "outside"
+    state_root.mkdir()
+    outside_directory.mkdir()
+    outside_sentinel = outside_directory / "sentinel"
+    outside_sentinel.write_bytes(b"unchanged")
+    (state_root / ".ssh").symlink_to(outside_directory, target_is_directory=True)
+    linked_directory_case = run_ssh_state_hook_fixture(state_root)
+    if linked_directory_case.returncode == 0 or outside_sentinel.read_bytes() != b"unchanged":
+        raise SystemExit(f"{certs_hook_path}: symlinked SSH state directory must fail closed")
+
+with tempfile.TemporaryDirectory(prefix="certs-dumper-ssh-state-file-link.") as state_fixture_name:
+    fixture = Path(state_fixture_name)
+    state_root = fixture / "state"
+    state_directory = state_root / ".ssh"
+    outside_file = fixture / "outside-known-hosts"
+    state_directory.mkdir(parents=True, mode=0o700)
+    outside_file.write_bytes(b"outside")
+    outside_file.chmod(0o644)
+    (state_directory / "known_hosts").symlink_to(outside_file)
+    linked_file_case = run_ssh_state_hook_fixture(state_root)
+    if (
+        linked_file_case.returncode == 0
+        or outside_file.read_bytes() != b"outside"
+        or (outside_file.stat().st_mode & 0o777) != 0o644
+    ):
+        raise SystemExit(f"{certs_hook_path}: symlinked known_hosts must fail without target mutation")
+
+with tempfile.TemporaryDirectory(prefix="certs-dumper-ssh-state-fifo.") as state_fixture_name:
+    state_root = Path(state_fixture_name) / "state"
+    state_directory = state_root / ".ssh"
+    state_directory.mkdir(parents=True, mode=0o700)
+    os.mkfifo(state_directory / "known_hosts", mode=0o600)
+    fifo_case = run_ssh_state_hook_fixture(state_root)
+    if fifo_case.returncode == 0:
+        raise SystemExit(f"{certs_hook_path}: FIFO known_hosts must fail closed")
+
+with tempfile.TemporaryDirectory(prefix="certs-dumper-ssh-state-hardlink.") as state_fixture_name:
+    fixture = Path(state_fixture_name)
+    state_root = fixture / "state"
+    state_directory = state_root / ".ssh"
+    outside_file = fixture / "outside-known-hosts"
+    state_directory.mkdir(parents=True, mode=0o700)
+    outside_file.write_bytes(b"outside")
+    outside_file.chmod(0o644)
+    os.link(outside_file, state_directory / "known_hosts")
+    hardlink_case = run_ssh_state_hook_fixture(state_root)
+    if (
+        hardlink_case.returncode == 0
+        or outside_file.read_bytes() != b"outside"
+        or (outside_file.stat().st_mode & 0o777) != 0o644
+    ):
+        raise SystemExit(f"{certs_hook_path}: multiply linked known_hosts must fail without mutation")
+
+with tempfile.TemporaryDirectory(prefix="certs-dumper-mailcow-lock.") as state_fixture_name:
+    state_root = Path(state_fixture_name) / "state"
+    state_root.mkdir(mode=0o700)
+    lock_case = run_ssh_state_hook_fixture(
+        state_root,
+        r'''prepare_ssh_directory
+acquire_mailcow_lock
+if flock -n "$CERTS_DUMPER_MAILCOW_LOCK_FILE" -c true; then
+  exit 1
+fi''',
+    )
+    if lock_case.returncode != 0:
+        raise SystemExit(
+            f"{certs_hook_path}: Mailcow kernel lock must reject a concurrent holder without stale-lock files"
+        )
+
+def run_mailcow_hook_fixture(body, environment):
+    with tempfile.TemporaryDirectory(prefix="mailcow-post-hook.") as fixture_name:
+        fixture = Path(fixture_name)
+        fixture_script = fixture / "post-hook-fixture.sh"
+        fixture_script.write_text(f"{hook_library}\n{body}\n", encoding="utf-8")
+        fixture_environment = {
+            "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
+            "LC_ALL": "C",
+            **environment,
+        }
+        return subprocess.run(
+            ["/bin/bash", str(fixture_script)],
+            cwd=fixture,
+            env=fixture_environment,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+
+mailcow_route_environment = {
+    "TRAEFIK_DOMAIN": "xn--lb-1ia.de",
+    "TRAEFIK_DOMAIN_1": "xn--srvices-mxa.de",
+    "TRAEFIK_DOMAIN_2": "saervices.de",
+    "TRAEFIK_DOMAIN_3": "it-saervices.de",
+    "TRAEFIK_DOMAIN_4": "itsaervices.de",
+    "TRAEFIK_ROUTE_SUBDOMAIN": "it",
+    "MAILCOW_SMTP_HOSTNAME": "mail.it.saervices.de",
+    "MAILCOW_CLOUDFLARE_ZONE": "saervices.de",
+    "MAILCOW_DANE_TTL_SECONDS": "300",
+    "MAILCOW_DANE_TTL_SAFETY_SECONDS": "60",
+    "MAILCOW_DANE_VALIDATING_RESOLVER": "1.1.1.1",
+}
+mailcow_resolver_case = run_mailcow_hook_fixture(
+    r'''resolve_mailcow_configuration
+printf '%s\n' \
+  "$MAILCOW_CERT_MAIN_DOMAIN" \
+  "$MAILCOW_SMTP_HOSTNAME" \
+  "$MAILCOW_CLOUDFLARE_ZONE_NAME" \
+  "$MAILCOW_TLSA_RECORD_NAME"''',
+    mailcow_route_environment,
+)
+expected_mailcow_resolution = "\n".join(
+    (
+        "mailcow.it.xn--lb-1ia.de",
+        "mail.it.saervices.de",
+        "saervices.de",
+        "_25._tcp.mail.it.saervices.de",
+        "",
+    )
+)
+if (
+    mailcow_resolver_case.returncode != 0
+    or mailcow_resolver_case.stdout != expected_mailcow_resolution
+):
+    raise SystemExit(
+        f"{certs_hook_path}: SMTP, explicit Cloudflare zone, TLSA owner, or certificate main resolved incorrectly"
+    )
+
+unprefixed_smtp_environment = {
+    **mailcow_route_environment,
+    "MAILCOW_SMTP_HOSTNAME": "mail.saervices.de",
+}
+unprefixed_smtp_case = run_mailcow_hook_fixture(
+    "resolve_mailcow_configuration",
+    unprefixed_smtp_environment,
+)
+if unprefixed_smtp_case.returncode == 0:
+    raise SystemExit(
+        f"{certs_hook_path}: prefixed mode must reject the legacy unprefixed SMTP host"
+    )
+
+placeholder_zone_case = run_mailcow_hook_fixture(
+    "resolve_mailcow_configuration",
+    {**mailcow_route_environment, "MAILCOW_CLOUDFLARE_ZONE": "CHANGE_ME"},
+)
+if placeholder_zone_case.returncode == 0:
+    raise SystemExit(
+        f"{certs_hook_path}: active Mailcow hook must reject an unconfigured Cloudflare zone"
+    )
+
+if True:
+  tlsa_owner = "_25._tcp.mail.it.saervices.de"
+  old_spki = "a" * 64
+  new_spki = "b" * 64
+  old_leaf = "c" * 64
+  new_leaf = "d" * 64
+  old_record_id = "1" * 32
+  new_record_id = "2" * 32
+
+  def tlsa_record(record_id, certificate_hash, *, owner=tlsa_owner, ttl=300, usage=3):
+    return {
+        "id": record_id,
+        "type": "TLSA",
+        "name": owner,
+        "ttl": ttl,
+        "proxied": False,
+        "data": {
+            "usage": usage,
+            "selector": 1,
+            "matching_type": 1,
+            "certificate": certificate_hash,
+        },
+    }
+
+  stable_rrset = {"success": True, "result": [tlsa_record(old_record_id, old_spki)]}
+  transitional_rrset = {
+    "success": True,
+    "result": [
+        tlsa_record(old_record_id, old_spki),
+        tlsa_record(new_record_id, new_spki),
+    ],
+  }
+  content_rrset = {
+    "success": True,
+    "result": [{
+        "id": new_record_id,
+        "type": "TLSA",
+        "name": tlsa_owner,
+        "ttl": 300,
+        "proxied": False,
+        "content": f"3 1 1 {new_spki}",
+    }],
+  }
+  for rrset_name, rrset, expected_count in (
+    ("stable", stable_rrset, 1),
+    ("transitional", transitional_rrset, 2),
+    ("content", content_rrset, 1),
+  ):
+    selector_case = run_mailcow_hook_fixture(
+        'select_mailcow_tlsa_records "$TLSA_RECORDS" "$TLSA_OWNER" 300 | jq -er "length"',
+        {
+            "TLSA_RECORDS": json.dumps(rrset, separators=(",", ":")),
+            "TLSA_OWNER": tlsa_owner,
+        },
+    )
+    if selector_case.returncode != 0 or selector_case.stdout != f"{expected_count}\n":
+      raise SystemExit(
+          f"{certs_hook_path}: valid {rrset_name} Mailcow TLSA RRset was rejected"
+      )
+
+  invalid_rrsets = {
+    "automatic TTL": {"success": True, "result": [tlsa_record(old_record_id, old_spki, ttl=1)]},
+    "wrong tuple": {"success": True, "result": [tlsa_record(old_record_id, old_spki, usage=2)]},
+    "wrong owner": {
+        "success": True,
+        "result": [tlsa_record(old_record_id, old_spki, owner=f"{tlsa_owner}.evil")],
+    },
+    "duplicate hash": {
+        "success": True,
+        "result": [
+            tlsa_record(old_record_id, old_spki),
+            tlsa_record(new_record_id, old_spki),
+        ],
+    },
+    "three records": {
+        "success": True,
+        "result": [
+            tlsa_record(old_record_id, old_spki),
+            tlsa_record(new_record_id, new_spki),
+            tlsa_record("3" * 32, "e" * 64),
+        ],
+    },
+  }
+  for rrset_name, rrset in invalid_rrsets.items():
+    selector_case = run_mailcow_hook_fixture(
+        'select_mailcow_tlsa_records "$TLSA_RECORDS" "$TLSA_OWNER" 300 >/dev/null',
+        {
+            "TLSA_RECORDS": json.dumps(rrset, separators=(",", ":")),
+            "TLSA_OWNER": tlsa_owner,
+        },
+    )
+    if selector_case.returncode == 0:
+      raise SystemExit(
+          f"{certs_hook_path}: invalid {rrset_name} Mailcow TLSA RRset must fail closed"
+      )
+
+  cloudflare_zone_case = run_mailcow_hook_fixture(
+    r'''cloudflare_get_zones_by_name() {
+  printf '%s' '{"result":[{"id":"99999999999999999999999999999999","name":"internal.example","status":"active"},{"id":"11111111111111111111111111111111","name":"SAERVICES.DE.","status":"active"}]}'
+}
+cloudflare_find_zone_id 'saervices.de' ''',
+    {},
+  )
+  if cloudflare_zone_case.returncode != 0 or cloudflare_zone_case.stdout != f"{'1' * 32}\n":
+    raise SystemExit(
+        f"{certs_hook_path}: explicit active Cloudflare zone lookup trusted a non-exact API result"
+    )
+
+  dnssec_active_case = run_mailcow_hook_fixture(
+    "cloudflare_get_dnssec() { printf '%s' '{\"result\":{\"status\":\"active\"}}'; }\n"
+    "require_cloudflare_dnssec_active 11111111111111111111111111111111",
+    {},
+  )
+  dnssec_inactive_case = run_mailcow_hook_fixture(
+    "cloudflare_get_dnssec() { printf '%s' '{\"result\":{\"status\":\"pending\"}}'; }\n"
+    "require_cloudflare_dnssec_active 11111111111111111111111111111111",
+    {},
+  )
+  if dnssec_active_case.returncode != 0 or dnssec_inactive_case.returncode == 0:
+    raise SystemExit(f"{certs_hook_path}: Cloudflare DNSSEC active gate is not fail closed")
+
+  locally_validated_rrset_case = run_mailcow_hook_fixture(
+    r'''MAILCOW_DANE_VALIDATING_RESOLVER=1.1.1.1
+timeout() { shift; "$@"; }
+delv() {
+  printf '%s\n' '; fully validated' \
+    "_25._tcp.mail.it.saervices.de. 300 IN TLSA 3 1 1 ${TLSA_HASH}"
+}
+dnssec_tlsa_rrset_matches _25._tcp.mail.it.saervices.de 300 "$TLSA_HASH"''',
+    {"TLSA_HASH": old_spki},
+  )
+  forged_ad_rrset_case = run_mailcow_hook_fixture(
+    r'''MAILCOW_DANE_VALIDATING_RESOLVER=1.1.1.1
+timeout() { shift; "$@"; }
+delv() {
+  printf '%s\n' ';; flags: qr rd ra ad;' \
+    "_25._tcp.mail.it.saervices.de. 300 IN TLSA 3 1 1 ${TLSA_HASH}"
+}
+dnssec_tlsa_rrset_matches _25._tcp.mail.it.saervices.de 300 "$TLSA_HASH"''',
+    {"TLSA_HASH": old_spki},
+  )
+  if locally_validated_rrset_case.returncode != 0 or forged_ad_rrset_case.returncode == 0:
+    raise SystemExit(
+        f"{certs_hook_path}: local delv validation must accept fully validated DNSSEC and reject a forged AD bit"
+    )
+
+  automatic_ttl_case = run_mailcow_hook_fixture(
+    "resolve_mailcow_configuration",
+    {**mailcow_route_environment, "MAILCOW_DANE_TTL_SECONDS": "1"},
+  )
+  if automatic_ttl_case.returncode == 0:
+    raise SystemExit(f"{certs_hook_path}: Cloudflare automatic TLSA TTL=1 must fail closed")
+
+  with tempfile.TemporaryDirectory(prefix="mailcow-cf-token.") as token_fixture_name:
+    token_fixture = Path(token_fixture_name)
+    token_path = token_fixture / "token"
+    for token_name, token_bytes, expected_success in (
+        ("valid", b"valid_token-123\n", True),
+        ("empty", b"", False),
+        ("placeholder", b"CHANGE_ME", False),
+        ("multiline", b"first\nsecond\n", False),
+        ("CRLF multiline", b"first\r\nsecond\r\n", False),
+        ("whitespace", b"token value\n", False),
+    ):
+      token_path.write_bytes(token_bytes)
+      token_case = run_mailcow_hook_fixture(
+          "read_cloudflare_token",
+          {"CF_DNS_API_TOKEN_FILE": str(token_path)},
+      )
+      if (token_case.returncode == 0) != expected_success:
+        raise SystemExit(
+            f"{certs_hook_path}: Cloudflare token {token_name} line contract is incorrect"
+        )
+
+with tempfile.TemporaryDirectory(prefix="mailcow-key-pair.") as key_pair_fixture_name:
+    key_pair_fixture = Path(key_pair_fixture_name)
+    matching_key = key_pair_fixture / "matching.key"
+    matching_cert = key_pair_fixture / "matching.crt"
+    other_key = key_pair_fixture / "other.key"
+    other_cert = key_pair_fixture / "other.crt"
+    for key_path, cert_path, common_name in (
+        (matching_key, matching_cert, "mail.it.saervices.de"),
+        (other_key, other_cert, "unrelated.example"),
+    ):
+        generated = subprocess.run(
+            [
+                "openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes",
+                "-subj", f"/CN={common_name}", "-days", "1",
+                "-keyout", str(key_path), "-out", str(cert_path),
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        if generated.returncode != 0:
+            raise SystemExit(f"{certs_hook_path}: could not create local key-pair fixture")
+    matching_key_pair_case = run_mailcow_hook_fixture(
+        'require_certificate_key_pair "$CERT_PATH" "$KEY_PATH"',
+        {"CERT_PATH": str(matching_cert), "KEY_PATH": str(matching_key)},
+    )
+    if matching_key_pair_case.returncode != 0:
+        raise SystemExit(f"{certs_hook_path}: matching certificate/private-key pair was rejected")
+    mismatched_key_pair_case = run_mailcow_hook_fixture(
+        'require_certificate_key_pair "$CERT_PATH" "$KEY_PATH"',
+        {"CERT_PATH": str(matching_cert), "KEY_PATH": str(other_key)},
+    )
+    if mismatched_key_pair_case.returncode == 0:
+        raise SystemExit(f"{certs_hook_path}: mismatched certificate/private-key pair was accepted")
+
+if True:
+  mailcow_flow_body = r'''trace_event() { printf '%s\n' "$1" >>"$MAILCOW_TEST_TRACE"; }
+acquire_mailcow_lock() { trace_event "lock"; }
+read_cloudflare_token() { trace_event "token"; printf 'test-token'; }
+wait_for_certificate_files() { trace_event "cert-files|$1|$2"; }
+require_certificate_key_pair() { trace_event "cert-key|$1|$2"; }
+require_certificate_hostname() { trace_event "cert-host|$1|$2"; }
+calculate_tlsa_spki_sha256() { printf '%s' "$MAILCOW_TEST_NEW_SPKI"; }
+calculate_certificate_sha256() { printf '%s' "$MAILCOW_TEST_NEW_LEAF"; }
+cloudflare_find_zone_id() { trace_event "zone|$1"; printf '11111111111111111111111111111111'; }
+require_cloudflare_dnssec_active() { trace_event "dnssec|$1"; }
+cloudflare_get_tlsa_records() {
+  trace_event "get-rrset|$(cat "$MAILCOW_TEST_STATE")"
+  case "$(cat "$MAILCOW_TEST_STATE")" in
+    stable-old)
+      jq -nc --arg owner "$MAILCOW_TLSA_RECORD_NAME" --arg hash "$MAILCOW_TEST_OLD_SPKI" '{success:true,result:[{id:("1"*32),type:"TLSA",name:$owner,ttl:300,proxied:false,data:{usage:3,selector:1,matching_type:1,certificate:$hash}}]}'
+      ;;
+    stable-new|final-new)
+      jq -nc --arg owner "$MAILCOW_TLSA_RECORD_NAME" --arg hash "$MAILCOW_TEST_NEW_SPKI" '{success:true,result:[{id:("2"*32),type:"TLSA",name:$owner,ttl:300,proxied:false,data:{usage:3,selector:1,matching_type:1,certificate:$hash}}]}'
+      ;;
+    transitional)
+      jq -nc --arg owner "$MAILCOW_TLSA_RECORD_NAME" --arg old "$MAILCOW_TEST_OLD_SPKI" --arg new "$MAILCOW_TEST_NEW_SPKI" '{success:true,result:[{id:("1"*32),type:"TLSA",name:$owner,ttl:300,proxied:false,data:{usage:3,selector:1,matching_type:1,certificate:$old}},{id:("2"*32),type:"TLSA",name:$owner,ttl:300,proxied:false,data:{usage:3,selector:1,matching_type:1,certificate:$new}}]}'
+      ;;
+    *) return 71 ;;
+  esac
+}
+wait_for_dnssec_tlsa_rrset() { trace_event "dns-view|$*"; }
+create_cloudflare_tlsa_record() {
+  trace_event "create|$1|$2|$3|$4"
+  printf 'transitional' >"$MAILCOW_TEST_STATE"
+}
+delete_cloudflare_tlsa_record() {
+  trace_event "delete|$1|$2"
+  printf 'final-new' >"$MAILCOW_TEST_STATE"
+}
+wait_for_dane_window() { trace_event "window|$1|$2"; }
+get_remote_smtp_identity() { trace_event "smtp-get|$1|$2"; cat "$MAILCOW_TEST_IDENTITY"; }
+deploy_mailcow_certificate_pair() {
+  trace_event "deploy|$7|$8|$9|${10}"
+  printf '%s\n%s\n' "$7" "$8" >"$MAILCOW_TEST_IDENTITY"
+}
+verify_remote_smtp_identity() {
+  trace_event "smtp-verify|$3|$4"
+  actual_spki="$(sed -n '1p' "$MAILCOW_TEST_IDENTITY")"
+  actual_leaf="$(sed -n '2p' "$MAILCOW_TEST_IDENTITY")"
+  [ "$actual_spki" = "$3" ] && [ "$actual_leaf" = "$4" ]
+}
+cleanup_remote_mailcow_transaction() { trace_event "cleanup|$5"; }
+mailcow'''
+
+  def assert_trace_order(trace, required_steps, scenario):
+    position = -1
+    for required_step in required_steps:
+      try:
+        position = next(
+            index for index in range(position + 1, len(trace))
+            if trace[index].startswith(required_step)
+        )
+      except StopIteration as error:
+        raise SystemExit(
+            f"{certs_hook_path}: {scenario} flow missed or misordered {required_step!r}: {trace}"
+        ) from error
+
+  def run_mailcow_flow(fixture, scenario, initial_state, remote_spki, remote_leaf):
+    trace_path = fixture / f"{scenario}.trace"
+    state_path = fixture / f"{scenario}.state"
+    identity_path = fixture / f"{scenario}.identity"
+    state_path.write_text(initial_state, encoding="utf-8")
+    identity_path.write_text(f"{remote_spki}\n{remote_leaf}\n", encoding="utf-8")
+    result = run_mailcow_hook_fixture(
+        mailcow_flow_body,
+        {
+            **mailcow_route_environment,
+            "MAILCOW_TEST_TRACE": str(trace_path),
+            "MAILCOW_TEST_STATE": str(state_path),
+            "MAILCOW_TEST_IDENTITY": str(identity_path),
+            "MAILCOW_TEST_OLD_SPKI": old_spki,
+            "MAILCOW_TEST_NEW_SPKI": new_spki,
+            "MAILCOW_TEST_NEW_LEAF": new_leaf,
+        },
+    )
+    trace = trace_path.read_text(encoding="utf-8").splitlines() if trace_path.is_file() else []
+    if result.returncode != 0:
+      raise SystemExit(
+          f"{certs_hook_path}: {scenario} Mailcow flow failed: {result.stderr.strip()} trace={trace}"
+      )
+    return trace, state_path.read_text(encoding="utf-8")
+
+  with tempfile.TemporaryDirectory(prefix="mailcow-dane-flow.") as flow_fixture_name:
+    flow_fixture = Path(flow_fixture_name)
+    same_spki_trace, same_spki_state = run_mailcow_flow(
+        flow_fixture, "same-spki", "stable-new", new_spki, old_leaf
+    )
+    assert_trace_order(
+        same_spki_trace,
+        ("lock", "token", "dnssec|", "dns-view|", "deploy|", "cleanup|"),
+        "same-SPKI renewal",
+    )
+    if (
+        same_spki_state != "stable-new"
+        or any(event.startswith(("create|", "delete|", "window|")) for event in same_spki_trace)
+    ):
+      raise SystemExit(
+          f"{certs_hook_path}: same-SPKI renewal must deploy the leaf with zero DNS mutation/wait"
+      )
+
+    new_key_trace, new_key_state = run_mailcow_flow(
+        flow_fixture, "new-key", "stable-old", old_spki, old_leaf
+    )
+    assert_trace_order(
+        new_key_trace,
+        (
+            "dns-view|", "create|", "dns-view|", "window|pre-deployment overlap|660",
+            "deploy|", "window|post-deployment overlap|660", "smtp-verify|", "delete|",
+            "dns-view|", "cleanup|",
+        ),
+        "new-SPKI renewal",
+    )
+    if new_key_state != "final-new" or sum(event.startswith("delete|") for event in new_key_trace) != 1:
+      raise SystemExit(f"{certs_hook_path}: new-SPKI renewal did not retire exactly one old record")
+
+    resume_pre_trace, resume_pre_state = run_mailcow_flow(
+        flow_fixture, "resume-pre", "transitional", old_spki, old_leaf
+    )
+    assert_trace_order(
+        resume_pre_trace,
+        (
+            "dns-view|", "window|resumed pre-deployment overlap|660", "deploy|",
+            "window|post-deployment overlap|660", "delete|", "cleanup|",
+        ),
+        "resumed pre-deployment transition",
+    )
+    if resume_pre_state != "final-new" or any(event.startswith("create|") for event in resume_pre_trace):
+      raise SystemExit(f"{certs_hook_path}: pre-deployment resume duplicated TLSA publication")
+
+    resume_post_trace, resume_post_state = run_mailcow_flow(
+        flow_fixture, "resume-post", "transitional", new_spki, new_leaf
+    )
+    assert_trace_order(
+        resume_post_trace,
+        ("dns-view|", "window|post-deployment overlap|660", "delete|", "cleanup|"),
+        "resumed post-deployment transition",
+    )
+    if (
+        resume_post_state != "final-new"
+        or any(event.startswith(("create|", "deploy|", "window|resumed pre")) for event in resume_post_trace)
+    ):
+      raise SystemExit(f"{certs_hook_path}: post-deployment resume repeated publication or deployment")
+
+  with tempfile.TemporaryDirectory(prefix="mailcow-dane-rollback.") as rollback_fixture_name:
+    rollback_fixture = Path(rollback_fixture_name)
+    rollback_trace_path = rollback_fixture / "trace"
+    rollback_identity_path = rollback_fixture / "identity"
+    rollback_counter_path = rollback_fixture / "counter"
+    rollback_identity_path.write_text(f"{old_spki}\n{old_leaf}\n", encoding="utf-8")
+    rollback_case = run_mailcow_hook_fixture(
+        r'''trace_event() { printf '%s\n' "$1" >>"$MAILCOW_TEST_TRACE"; }
+stage_remote_mailcow_certificate() { trace_event "stage"; }
+activate_remote_mailcow_certificate() {
+  trace_event "activate"
+  printf '%s\n%s\n' "$6" "$5" >"$MAILCOW_TEST_IDENTITY"
+}
+restart_remote_mailcow_services() { trace_event "restart"; }
+rollback_remote_mailcow_certificate() {
+  trace_event "rollback"
+  printf '%s\n%s\n' "$6" "$7" >"$MAILCOW_TEST_IDENTITY"
+}
+verify_remote_smtp_identity() {
+  trace_event "verify|$3|$4"
+  if [ ! -e "$MAILCOW_TEST_COUNTER" ]; then
+    : >"$MAILCOW_TEST_COUNTER"
+    return 1
+  fi
+  [ "$(sed -n '1p' "$MAILCOW_TEST_IDENTITY")" = "$3" ] &&
+    [ "$(sed -n '2p' "$MAILCOW_TEST_IDENTITY")" = "$4" ]
+}
+MAILCOW_SMTP_HOSTNAME=mail.it.saervices.de
+deploy_mailcow_certificate_pair cert key 192.168.20.120 root /opt/mailcow-dockerized key \
+  "$MAILCOW_TEST_NEW_SPKI" "$MAILCOW_TEST_NEW_LEAF" \
+  "$MAILCOW_TEST_OLD_SPKI" "$MAILCOW_TEST_OLD_LEAF"''',
+        {
+            "MAILCOW_TEST_TRACE": str(rollback_trace_path),
+            "MAILCOW_TEST_IDENTITY": str(rollback_identity_path),
+            "MAILCOW_TEST_COUNTER": str(rollback_counter_path),
+            "MAILCOW_TEST_OLD_SPKI": old_spki,
+            "MAILCOW_TEST_OLD_LEAF": old_leaf,
+            "MAILCOW_TEST_NEW_SPKI": new_spki,
+            "MAILCOW_TEST_NEW_LEAF": new_leaf,
+        },
+    )
+    rollback_trace = rollback_trace_path.read_text(encoding="utf-8").splitlines()
+    assert_trace_order(
+        rollback_trace,
+        ("stage", "activate", "restart", f"verify|{new_spki}|{new_leaf}", "rollback", "restart", f"verify|{old_spki}|{old_leaf}"),
+        "post-activation rollback",
+    )
+    if rollback_case.returncode == 0:
+      raise SystemExit(f"{certs_hook_path}: failed new SMTP verification must remain a failed hook after rollback")
+
+certs_dockerfile_path = root / "templates/traefik_certs-dumper/dockerfiles/dockerfile.traefik-certs-dumper.scp"
+certs_dockerfile = certs_dockerfile_path.read_text(encoding="utf-8")
+for required_package in ("openssh-client", "jq", "curl", "openssl", "bind-tools", "util-linux", "tzdata"):
+    if required_package not in certs_dockerfile:
+        raise SystemExit(f"{certs_dockerfile_path}: missing post-hook package {required_package}")
+
+certs_key_path = certs_path.parent / "secrets/TRAEFIK_CERTS_DUMPER_PASSWORD"
+if certs_key_path.read_bytes() != b"CHANGE_ME":
+    raise SystemExit(f"{certs_key_path}: SSH-key placeholder must be exact 9-byte CHANGE_ME")
+traefik_path = root / "Traefik/docker-compose.app.yaml"
+traefik_document = yaml.safe_load(traefik_path.read_text(encoding="utf-8"))
+if "traefik_certs-dumper" not in set(traefik_document.get("x-required-services") or []):
+    raise SystemExit(f"{traefik_path}: existing certs-dumper must remain required")
+if "TRAEFIK_CERTS_DUMPER_PASSWORD" not in set(traefik_document.get("x-secret-generation-exclusions") or []):
+    raise SystemExit(f"{traefik_path}: form-bound SSH key must remain generation-excluded")
 PY
 }
 
