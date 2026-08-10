@@ -76,6 +76,7 @@ readonly -a REQUIRED_REPOSITORY_CHECKERS=(
   ".cursor/scripts/enforce-branding.py"
   ".cursor/scripts/check-hardening.py"
   ".cursor/scripts/test-build-contexts.py"
+  ".cursor/scripts/test-erpnext-stack.py"
   ".cursor/scripts/test-crowdsec-agent-wrapper.sh"
   ".cursor/scripts/test-crowdsec-parser-whitelists.sh"
   ".cursor/scripts/test-collabora-wrapper.sh"
@@ -141,6 +142,7 @@ run_update_regressions_required=false
 run_logrotate_regressions_required=false
 run_permissions_regressions_required=false
 volume_deletion_regressions_required=false
+erpnext_regressions_required=false
 mariadb_maintenance_regressions_required=false
 postgresql_maintenance_regressions_required=false
 staged_secret_regressions_required=false
@@ -197,6 +199,11 @@ for file in "${staged_files[@]}"; do
       ;;
   esac
   case "$file" in
+    ERPNext/.env|ERPNext/docker-compose*.yaml|ERPNext/config/*|ERPNext/scripts/*|ERPNext/secrets/*|templates/erpnext-*/.env|templates/erpnext-*/docker-compose*.yaml|templates/erpnext-*/dockerfiles/*|templates/erpnext-*/scripts/*|templates/erpnext-*/secrets/*|templates/mariadb/.env|templates/mariadb/docker-compose*.yaml|templates/mariadb/dockerfiles/*|templates/mariadb/scripts/*|templates/mariadb_maintenance/.env|templates/mariadb_maintenance/docker-compose*.yaml|templates/mariadb_maintenance/dockerfiles/*|templates/mariadb_maintenance/scripts/*)
+      erpnext_regressions_required=true
+      ;;
+  esac
+  case "$file" in
     templates/mariadb/.env|templates/mariadb/docker-compose*.yaml|templates/mariadb/dockerfiles/*|templates/mariadb/scripts/*|templates/mariadb_maintenance/.env|templates/mariadb_maintenance/docker-compose*.yaml|templates/mariadb_maintenance/dockerfiles/*|templates/mariadb_maintenance/scripts/*)
       mariadb_maintenance_regressions_required=true
       ;;
@@ -207,7 +214,7 @@ for file in "${staged_files[@]}"; do
       ;;
   esac
   case "$file" in
-    .githooks/pre-commit|.cursor/scripts/check-staged-secret-placeholders.sh|.cursor/scripts/test-staged-secret-placeholders.sh|.cursor/rules/git.mdc|.cursor/rules/validation.mdc|.cursor/rules/project-audit.mdc|.cursor/rules/host-logrotate.mdc|.cursor/README.md|.cursor/commands/audit.md)
+    .githooks/pre-commit|.cursor/scripts/check-staged-secret-placeholders.sh|.cursor/scripts/test-staged-secret-placeholders.sh|.cursor/scripts/test-erpnext-stack.py|.cursor/rules/git.mdc|.cursor/rules/validation.mdc|.cursor/rules/project-audit.mdc|.cursor/rules/application-maintenance.mdc|.cursor/rules/database-maintenance.mdc|.cursor/rules/host-logrotate.mdc|.cursor/README.md|.cursor/commands/audit.md)
       staged_secret_regressions_required=true
       ;;
   esac
@@ -413,6 +420,14 @@ VOLUME_DELETION_REGRESSIONS=".cursor/scripts/test-volume-deletion.py"
 if [[ "$volume_deletion_regressions_required" == true ]]; then
   if ! PYTHONDONTWRITEBYTECODE=1 python3 "$VOLUME_DELETION_REGRESSIONS"; then
     echo "[pre-commit] Volume-deletion regression tests failed. Fix them before committing." >&2
+    exit 1
+  fi
+fi
+
+ERPNEXT_STACK_REGRESSIONS=".cursor/scripts/test-erpnext-stack.py"
+if [[ "$erpnext_regressions_required" == true ]]; then
+  if ! PYTHONDONTWRITEBYTECODE=1 python3 "$ERPNEXT_STACK_REGRESSIONS"; then
+    echo "[pre-commit] ERPNext stack regression tests failed. Fix them before committing." >&2
     exit 1
   fi
 fi

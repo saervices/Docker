@@ -17,6 +17,7 @@ readonly TEST_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/staged-secret-placeholders.XXXX
 readonly -a REQUIRED_PYTHON_STUBS=(
   ".cursor/scripts/check-hardening.py"
   ".cursor/scripts/test-build-contexts.py"
+  ".cursor/scripts/test-erpnext-stack.py"
   ".cursor/scripts/test-volume-deletion.py"
   ".cursor/scripts/test-hardening.py"
   ".cursor/scripts/test-compliance-branding.py"
@@ -119,6 +120,30 @@ write_build_context_trace_stub() {
     '' \
     'if __name__ == "__main__":' \
     '    main()' >"$target"
+  chmod 0755 -- "$target"
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: write_erpnext_trace_stub
+#   Writes æn ERPNext checker stub thæt records exæct hook invocætion.
+#   Ærguments:
+#     $1 - fixture repository root
+#     $2 - checker exit stætus
+#ææææææææææææææææææææææææææææææææææ
+write_erpnext_trace_stub() {
+  local root="$1"
+  local exit_status="$2"
+  local target="${root}/.cursor/scripts/test-erpnext-stack.py"
+
+  printf '%s\n' \
+    '#!/usr/bin/env python3' \
+    'import os' \
+    'from pathlib import Path' \
+    '' \
+    'trace = os.environ.get("ERPNEXT_REGRESSION_TRACE")' \
+    'if trace:' \
+    '    Path(trace).write_text("called\n", encoding="utf-8")' \
+    "raise SystemExit(${exit_status})" >"$target"
   chmod 0755 -- "$target"
 }
 
@@ -310,6 +335,23 @@ prepare_pre_commit_repo() {
   local omitted_path="${2:-}"
 
   install_pre_commit_tools "$root" "$omitted_path"
+  commit_fixture_baseline "$root"
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: prepare_erpnext_hook_repo
+#   Creætes æ committed hook fixture with æ traceæble ERPNext checker.
+#   Ærguments:
+#     $1 - fixture repository root
+#     $2 - checker exit stætus
+#ææææææææææææææææææææææææææææææææææ
+prepare_erpnext_hook_repo() {
+  local root="$1"
+  local exit_status="$2"
+
+  install_pre_commit_tools "$root"
+  write_erpnext_trace_stub "$root" "$exit_status"
+  git -C "$root" add -- .cursor/scripts/test-erpnext-stack.py
   commit_fixture_baseline "$root"
 }
 
@@ -518,6 +560,97 @@ case_pre_commit_rejects_missing_staged_checker() {
   prepare_pre_commit_repo "$root"
   git -C "$root" rm --quiet --cached -- "$checker_path"
   (cd -- "$root" && bash .githooks/pre-commit)
+}
+
+case_pre_commit_rejects_missing_erpnext_checker() {
+  local checker_path=".cursor/scripts/test-erpnext-stack.py"
+  local root=""
+  root="$(create_case_repo pre-commit-rejects-missing-erpnext-checker)"
+  prepare_pre_commit_repo "$root" "$checker_path"
+  printf '# Æctuæl ERPNext fixture\n' >"$root/README.md"
+  git -C "$root" add -- README.md
+  (cd -- "$root" && bash .githooks/pre-commit)
+}
+
+case_pre_commit_uses_staged_new_erpnext_checker() {
+  local checker_path=".cursor/scripts/test-erpnext-stack.py"
+  local root=""
+  local trace=""
+  root="$(create_case_repo pre-commit-uses-staged-new-erpnext-checker)"
+  prepare_pre_commit_repo "$root" "$checker_path"
+  write_erpnext_trace_stub "$root" 0
+  mkdir -p -- "$root/ERPNext/config"
+  printf 'server { listen 8080; }\n' >"$root/ERPNext/config/nginx-frappe.conf.template"
+  git -C "$root" add -- "$checker_path" ERPNext/config/nginx-frappe.conf.template
+  rm -f -- "$root/$checker_path"
+  trace="$root/erpnext.trace"
+  (cd -- "$root" && ERPNEXT_REGRESSION_TRACE="$trace" bash .githooks/pre-commit)
+  [[ "$(<"$trace")" == called ]]
+}
+
+case_pre_commit_uses_staged_changed_erpnext_checker() {
+  local checker_path=".cursor/scripts/test-erpnext-stack.py"
+  local root=""
+  root="$(create_case_repo pre-commit-uses-staged-changed-erpnext-checker)"
+  prepare_pre_commit_repo "$root"
+  write_erpnext_trace_stub "$root" 23
+  mkdir -p -- "$root/ERPNext/config"
+  printf 'server { listen 8080; }\n' >"$root/ERPNext/config/nginx-frappe.conf.template"
+  git -C "$root" add -- "$checker_path" ERPNext/config/nginx-frappe.conf.template
+  write_erpnext_trace_stub "$root" 0
+  (cd -- "$root" && bash .githooks/pre-commit)
+}
+
+case_pre_commit_erpnext_production_paths_trigger() {
+  local index=0
+  local path=""
+  local root=""
+  local trace=""
+  local -a paths=(
+    "ERPNext/config/nginx-frappe.conf.template"
+    "templates/erpnext-backend/.env"
+    "templates/mariadb/.env"
+    "templates/mariadb_maintenance/.env"
+  )
+  local -a payloads=(
+    "server { listen 8080; }"
+    "ERPNEXT_BACKEND_MEM_LIMIT=1g"
+    "MARIADB_IMAGE=mariadb:12"
+    "MARIADB_MEM_LIMIT=1g"
+  )
+
+  for index in "${!paths[@]}"; do
+    path="${paths[index]}"
+    root="$(create_case_repo "pre-commit-erpnext-path-${index}")"
+    prepare_erpnext_hook_repo "$root" 0
+    mkdir -p -- "$(dirname -- "$root/$path")"
+    printf '%s\n' "${payloads[index]}" >"$root/$path"
+    git -C "$root" add -- "$path"
+    trace="$root/erpnext.trace"
+    (cd -- "$root" && ERPNEXT_REGRESSION_TRACE="$trace" bash .githooks/pre-commit)
+    [[ "$(<"$trace")" == called ]]
+  done
+}
+
+case_pre_commit_erpnext_metadata_does_not_self_trigger() {
+  local checker_path=".cursor/scripts/test-erpnext-stack.py"
+  local root=""
+  local trace=""
+  root="$(create_case_repo pre-commit-erpnext-metadata-does-not-self-trigger)"
+  prepare_pre_commit_repo "$root"
+  write_erpnext_trace_stub "$root" 71
+  mkdir -p -- "$root/.cursor/rules"
+  printf '# ERPNext æpplicætion mæintenænce fixture\n' >"$root/.cursor/rules/application-maintenance.mdc"
+  printf '# ERPNext dætæbæse fixture\n' >"$root/.cursor/rules/database-maintenance.mdc"
+  printf '# ERPNext æudit fixture\n' >"$root/.cursor/rules/project-audit.mdc"
+  git -C "$root" add -- \
+    "$checker_path" \
+    .cursor/rules/application-maintenance.mdc \
+    .cursor/rules/database-maintenance.mdc \
+    .cursor/rules/project-audit.mdc
+  trace="$root/erpnext.trace"
+  (cd -- "$root" && ERPNEXT_REGRESSION_TRACE="$trace" bash .githooks/pre-commit)
+  [[ ! -e "$trace" ]]
 }
 
 case_pre_commit_cleans_success_snapshot() {
@@ -849,6 +982,11 @@ expect_success pre-commit-accepts-good-staged-bad-worktree case_pre_commit_accep
 expect_success pre-commit-uses-staged-new-checker case_pre_commit_uses_staged_new_checker
 expect_failure pre-commit-uses-staged-changed-checker case_pre_commit_uses_staged_changed_checker
 expect_failure pre-commit-rejects-missing-staged-checker case_pre_commit_rejects_missing_staged_checker
+expect_failure pre-commit-rejects-missing-erpnext-checker case_pre_commit_rejects_missing_erpnext_checker
+expect_success pre-commit-uses-staged-new-erpnext-checker case_pre_commit_uses_staged_new_erpnext_checker
+expect_failure pre-commit-uses-staged-changed-erpnext-checker case_pre_commit_uses_staged_changed_erpnext_checker
+expect_success pre-commit-erpnext-production-paths-trigger case_pre_commit_erpnext_production_paths_trigger
+expect_success pre-commit-erpnext-metadata-does-not-self-trigger case_pre_commit_erpnext_metadata_does_not_self_trigger
 expect_success pre-commit-cleans-success-snapshot case_pre_commit_cleans_success_snapshot
 expect_success pre-commit-cleans-failed-snapshot case_pre_commit_cleans_failed_snapshot
 expect_failure pre-commit-rejects-staged-alternate-hook case_pre_commit_rejects_staged_alternate_hook

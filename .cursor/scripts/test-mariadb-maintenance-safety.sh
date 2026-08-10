@@ -104,6 +104,216 @@ configure_backup_fixture() {
   }
 }
 
+configure_client_option_fixture() {
+  local root="$1"
+  local secret="$2"
+  mkdir -p -- "$root/client-tmp"
+  printf '%s' "$secret" >"$root/root-secret"
+  chmod 0640 -- "$root/root-secret"
+  MARIADB_ROOT_PASSWORD_FILE="$root/root-secret"
+  MARIADB_CLIENT_OPTION_ROOT="$root/client-tmp"
+}
+
+write_fake_mariadb_client() {
+  local destination="$1"
+  cat >"$destination" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+: "${FAKE_MARIADB_ARGV_FILE:?}"
+printf '%s\0' "$@" >"$FAKE_MARIADB_ARGV_FILE"
+[[ "${1:-}" == --defaults-extra-file=* ]]
+option_file="${1#--defaults-extra-file=}"
+[[ -f "$option_file" && ! -L "$option_file" ]]
+[[ "$(stat -c '%a' -- "$option_file")" == "600" ]]
+exit "${FAKE_MARIADB_EXIT_STATUS:-0}"
+EOF
+  chmod 0755 -- "$destination"
+}
+
+case_client_option_success_cleanup() {
+  local kind="$1"
+  local root="$TEST_ROOT/client-option-${kind}"
+  local secret='p a#;=ss\word"quote'
+  local option_dir=""
+  local option_file=""
+  local expected=""
+  local argument=""
+  local arguments=()
+  mkdir -p -- "$root/bin"
+  case "$kind" in
+    backup) load_backup_script ;;
+    restore) load_restore_script ;;
+    *) return 2 ;;
+  esac
+  configure_client_option_fixture "$root" "$secret"
+  write_fake_mariadb_client "$root/bin/fake-mariadb"
+  create_mariadb_client_option_file
+  option_dir="$MARIADB_CLIENT_OPTION_DIR"
+  option_file="$MARIADB_CLIENT_OPTION_FILE"
+  argument="$MARIADB_CLIENT_OPTION_ARGUMENT"
+  [[ "$(stat -c '%a' -- "$option_dir")" == "700" ]]
+  [[ "$(stat -c '%a' -- "$option_file")" == "600" ]]
+  [[ "$argument" == "--defaults-extra-file=$option_file" ]]
+  expected="$root/expected.cnf"
+  printf '[client]\npassword="p a#;=ss\\\\word\\"quote"\n' >"$expected"
+  cmp -s -- "$expected" "$option_file"
+  if [[ "$kind" == "backup" ]]; then
+    FAKE_MARIADB_ARGV_FILE="$root/argv" run_backup_child \
+      "$root/bin/fake-mariadb" "$argument" --host=database --user=root
+  else
+    FAKE_MARIADB_ARGV_FILE="$root/argv" run_restore_child \
+      "$root/bin/fake-mariadb" "$argument" --host=database --user=root
+  fi
+  mapfile -d '' -t arguments <"$root/argv"
+  [[ "${arguments[0]}" == "$argument" ]]
+  [[ "${#arguments[@]}" == "3" ]]
+  ! grep -F -- "$secret" "$root/argv" >/dev/null
+  ! grep -F -- '--password' "$root/argv" >/dev/null
+  remove_mariadb_client_option_file
+  [[ "$MARIADB_CLIENT_OPTION_ACTIVE" == "false" ]]
+  [[ ! -e "$option_file" && ! -L "$option_file" && ! -e "$option_dir" && ! -L "$option_dir" ]]
+}
+
+case_client_option_child_failure_cleanup() {
+  local root="$TEST_ROOT/client-option-child-failure"
+  local secret='failure-secret\with"quote'
+  local status=0
+  local option_dir=""
+  mkdir -p -- "$root/bin"
+  write_fake_mariadb_client "$root/bin/fake-mariadb"
+  set +e
+  (
+    load_backup_script
+    configure_client_option_fixture "$root" "$secret"
+    trap cleanup EXIT
+    create_mariadb_client_option_file
+    printf '%s' "$MARIADB_CLIENT_OPTION_DIR" >"$root/option-dir"
+    FAKE_MARIADB_ARGV_FILE="$root/argv" FAKE_MARIADB_EXIT_STATUS=42 run_backup_child \
+      "$root/bin/fake-mariadb" "$MARIADB_CLIENT_OPTION_ARGUMENT" --host=database --user=root
+  )
+  status=$?
+  set -e
+  (( status == 42 ))
+  option_dir="$(<"$root/option-dir")"
+  [[ ! -e "$option_dir" && ! -L "$option_dir" ]]
+  ! grep -F -- "$secret" "$root/argv" >/dev/null
+}
+
+case_client_option_digest_drift_preserved() {
+  local root="$TEST_ROOT/client-option-digest-drift"
+  local option_dir=""
+  local option_file=""
+  load_backup_script
+  configure_client_option_fixture "$root" 'digest-drift-secret'
+  create_mariadb_client_option_file
+  option_dir="$MARIADB_CLIENT_OPTION_DIR"
+  option_file="$MARIADB_CLIENT_OPTION_FILE"
+  printf 'drift' >>"$option_file"
+  if remove_mariadb_client_option_file; then
+    return 1
+  fi
+  [[ -d "$option_dir" && -f "$option_file" ]]
+}
+
+case_client_option_rejects_line_break() {
+  local root="$TEST_ROOT/client-option-line-break"
+  load_backup_script
+  mkdir -p -- "$root/client-tmp"
+  printf 'line-one\nline-two' >"$root/root-secret"
+  MARIADB_ROOT_PASSWORD_FILE="$root/root-secret"
+  MARIADB_CLIENT_OPTION_ROOT="$root/client-tmp"
+  create_mariadb_client_option_file
+}
+
+case_client_option_rejects_control_byte() {
+  local root="$TEST_ROOT/client-option-control-byte"
+  load_restore_script
+  mkdir -p -- "$root/client-tmp"
+  printf 'tab\tsecret' >"$root/root-secret"
+  MARIADB_ROOT_PASSWORD_FILE="$root/root-secret"
+  MARIADB_CLIENT_OPTION_ROOT="$root/client-tmp"
+  create_mariadb_client_option_file
+}
+
+case_client_option_mode_drift_preserved() {
+  local root="$TEST_ROOT/client-option-mode-drift"
+  local option_dir=""
+  local option_file=""
+  load_restore_script
+  configure_client_option_fixture "$root" 'mode-drift-secret'
+  create_mariadb_client_option_file
+  option_dir="$MARIADB_CLIENT_OPTION_DIR"
+  option_file="$MARIADB_CLIENT_OPTION_FILE"
+  chmod 0644 -- "$option_file"
+  if remove_mariadb_client_option_file; then
+    return 1
+  fi
+  [[ -d "$option_dir" && -f "$option_file" ]]
+}
+
+case_client_option_symlink_swap_preserved() {
+  local root="$TEST_ROOT/client-option-symlink-swap"
+  local option_dir=""
+  local option_file=""
+  load_backup_script
+  configure_client_option_fixture "$root" 'symlink-swap-secret'
+  create_mariadb_client_option_file
+  option_dir="$MARIADB_CLIENT_OPTION_DIR"
+  option_file="$MARIADB_CLIENT_OPTION_FILE"
+  mv -- "$option_file" "${option_file}.original"
+  ln -s -- "${option_file##*/}.original" "$option_file"
+  if remove_mariadb_client_option_file; then
+    return 1
+  fi
+  [[ -d "$option_dir" && -L "$option_file" && -f "${option_file}.original" ]]
+}
+
+assert_mariadb_client_argv_contract() {
+  local backup_source="$1"
+  local restore_source="$2"
+  if rg -n -- '--password(?:=|[[:space:]])|MYSQL_PWD' "$backup_source" "$restore_source" >/dev/null; then
+    return 1
+  fi
+  if rg -n 'backup-dump.*MARIADB_ROOT_PASSWORD_FILE|restore-dump.*MARIADB_ROOT_PASSWORD_FILE|run_(backup|restore)_child.*MARIADB_ROOT_PASSWORD_FILE' "$backup_source" "$restore_source" >/dev/null; then
+    return 1
+  fi
+  if rg -n 'run_backup_child mariadb-backup[[:space:]]+--backup' "$backup_source" >/dev/null; then
+    return 1
+  fi
+  rg -U 'run_backup_child mariadb-backup \\\n    "\$MARIADB_CLIENT_OPTION_ARGUMENT" \\\n    --backup' "$backup_source" >/dev/null || return 1
+  rg -U 'mariadb-dump \\\n      "\$1" \\' "$backup_source" >/dev/null || return 1
+  rg -U 'mariadb \\\n    "\$MARIADB_CLIENT_OPTION_ARGUMENT" \\\n    --batch' "$restore_source" >/dev/null || return 1
+  rg -U 'mariadb-admin \\\n      "\$MARIADB_CLIENT_OPTION_ARGUMENT" \\\n      --connect-timeout' "$restore_source" >/dev/null || return 1
+  rg -U 'zstd -d -q --stdout "\$2" \| mariadb \\\n        "\$1" \\' "$restore_source" >/dev/null || return 1
+  rg -F 'mariadb-admin --no-defaults ping \' "$restore_source" >/dev/null || return 1
+  rg -F -- "--user='__mariadb_maintenance_liveness_probe__' \\" "$restore_source" >/dev/null || return 1
+}
+
+case_client_argv_negative_mutations() {
+  local root="$TEST_ROOT/client-argv-mutations"
+  local backup_copy="$root/backup.sh"
+  local restore_copy="$root/restore.sh"
+  mkdir -p -- "$root"
+  cp -- "$BACKUP_SCRIPT" "$backup_copy"
+  cp -- "$RESTORE_SCRIPT" "$restore_copy"
+  assert_mariadb_client_argv_contract "$backup_copy" "$restore_copy"
+
+  printf '\nmariadb --password=leak\n' >>"$backup_copy"
+  ! assert_mariadb_client_argv_contract "$backup_copy" "$restore_copy"
+  cp -- "$BACKUP_SCRIPT" "$backup_copy"
+
+  printf '\nMYSQL_PWD=leak mariadb\n' >>"$restore_copy"
+  ! assert_mariadb_client_argv_contract "$backup_copy" "$restore_copy"
+  cp -- "$RESTORE_SCRIPT" "$restore_copy"
+
+  printf '\nrun_backup_child mariadb-backup "$(<"$MARIADB_ROOT_PASSWORD_FILE")"\n' >>"$backup_copy"
+  ! assert_mariadb_client_argv_contract "$backup_copy" "$restore_copy"
+  cp -- "$BACKUP_SCRIPT" "$backup_copy"
+
+  printf '\nrun_backup_child mariadb-backup --backup "$MARIADB_CLIENT_OPTION_ARGUMENT"\n' >>"$backup_copy"
+  ! assert_mariadb_client_argv_contract "$backup_copy" "$restore_copy"
+}
+
 publish_physical_bundle() {
   local archive="$1"
   local stem="${archive##*/}"
@@ -294,10 +504,13 @@ EOF
   (
     load_backup_script
     configure_backup_fixture "$root"
+    configure_client_option_fixture "$root" 'term-signal-secret'
     trap cleanup EXIT
     trap 'handle_signal 130' INT
     trap 'handle_signal 143' TERM
-    run_backup_child "$root/bin/backup-child"
+    create_mariadb_client_option_file
+    printf '%s' "$MARIADB_CLIENT_OPTION_DIR" >"$root/option-dir"
+    run_backup_child "$root/bin/backup-child" "$MARIADB_CLIENT_OPTION_ARGUMENT"
   ) &
   worker_pid=$!
   for _ in {1..100}; do [[ -s "$root/child.pid" ]] && break; sleep 0.05; done
@@ -310,6 +523,7 @@ EOF
   set -e
   (( status == 143 ))
   ! kill -0 "$child_pid" 2>/dev/null
+  [[ ! -e "$(<"$root/option-dir")" && ! -L "$(<"$root/option-dir")" ]]
 }
 
 case_retention_no_physical_full() {
@@ -758,6 +972,44 @@ EOF
   [[ ! -e "$root/vendor-called" ]]
 }
 
+case_guard_rejects_invalid_binlog_retention() {
+  local root="$TEST_ROOT/guard-binlog-retention"
+  local value=""
+  local status=0
+  mkdir -p -- "$root"
+  prepare_guard_copy "$root"
+  for value in 0 3599 31536001 invalid; do
+    rm -f -- "$root/vendor-called"
+    set +e
+    MARIADB_BINLOG_EXPIRE_LOGS_SECONDS="$value" "$root/guard" mariadbd
+    status=$?
+    set -e
+    (( status == 78 ))
+    [[ ! -e "$root/vendor-called" ]]
+  done
+  MARIADB_BINLOG_EXPIRE_LOGS_SECONDS=604800 "$root/guard" mariadbd
+  [[ "$(<"$root/vendor-called")" == mariadbd ]]
+}
+
+case_guard_rejects_invalid_purge_replica_threshold() {
+  local root="$TEST_ROOT/guard-purge-replica-threshold"
+  local value=""
+  local status=0
+  mkdir -p -- "$root"
+  prepare_guard_copy "$root"
+  for value in invalid -1 4294967296; do
+    rm -f -- "$root/vendor-called"
+    set +e
+    MARIADB_SLAVE_CONNECTIONS_NEEDED_FOR_PURGE="$value" "$root/guard" mariadbd
+    status=$?
+    set -e
+    (( status == 78 ))
+    [[ ! -e "$root/vendor-called" ]]
+  done
+  MARIADB_SLAVE_CONNECTIONS_NEEDED_FOR_PURGE=0 "$root/guard" mariadbd
+  [[ "$(<"$root/vendor-called")" == mariadbd ]]
+}
+
 case_static_destructive_bounds() {
   ! rg -n 'find "\$MARIADB_DIR".*rm -rf|rm -rf -- "\$MARIADB_DIR"' "$RESTORE_SCRIPT"
   rg -F 'find "$path" -xdev -depth -mindepth 1 -delete' "$RESTORE_SCRIPT" >/dev/null
@@ -775,6 +1027,15 @@ expect_failure restore-sort-failure case_restore_sort_failure
 expect_success sequence-highest-all-outputs case_sequence_highest_all_outputs
 expect_failure sequence-find-failure case_sequence_find_failure
 expect_failure chain-sort-failure case_chain_sort_failure
+expect_success client-option-backup-success-cleanup case_client_option_success_cleanup backup
+expect_success client-option-restore-success-cleanup case_client_option_success_cleanup restore
+expect_success client-option-child-failure-cleanup case_client_option_child_failure_cleanup
+expect_success client-option-digest-drift-preserved case_client_option_digest_drift_preserved
+expect_failure client-option-rejects-line-break case_client_option_rejects_line_break
+expect_failure client-option-rejects-control-byte case_client_option_rejects_control_byte
+expect_success client-option-mode-drift-preserved case_client_option_mode_drift_preserved
+expect_success client-option-symlink-swap-preserved case_client_option_symlink_swap_preserved
+expect_success client-argv-negative-mutations case_client_argv_negative_mutations
 expect_success publication-rename-then-error case_publication_rename_then_error
 expect_failure publication-no-clobber case_publication_no_clobber
 expect_success consume-rename-then-error-rollback case_consume_rename_then_error_rollback
@@ -804,6 +1065,8 @@ expect_success guard-vendor-handoff case_guard_handoff
 expect_success guard-blocks-marker case_guard_blocks_marker
 expect_success guard-rejects-unsafe-root case_guard_rejects_unsafe_root
 expect_success guard-find-error-blocks case_guard_find_error_blocks
+expect_success guard-rejects-invalid-binlog-retention case_guard_rejects_invalid_binlog_retention
+expect_success guard-rejects-invalid-purge-replica-threshold case_guard_rejects_invalid_purge_replica_threshold
 expect_success static-destructive-bounds case_static_destructive_bounds
 
 printf '\nMariaDB maintenance safety: %d passed, %d failed\n' "$PASS" "$FAIL"

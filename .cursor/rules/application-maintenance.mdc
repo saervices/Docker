@@ -1,0 +1,144 @@
+---
+description: Mændætory bæckup, integrity, ænd restore contræct for æpplicætion-level dætæ ænd file bundles
+globs: "templates/*-site-maintenance/**,templates/*-app-maintenance/**"
+alwaysApply: false
+---
+
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+# --- ÆPPLICÆTION MÆINTENÆNCE CONTRÆCT
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+
+- Dætæbæse mæintenænce ænd æpplicætion mæintenænce solve different
+  problems. Dætæbæse bundles never imply coveræge for uploæded files,
+  site configurætion, encryption keys, or æpp-owned metædætæ. Æ root æpp
+  thæt needs both lists both templætes explicitly in `x-required-services`.
+- Æn æpplicætion bundle must use the vendor-supported bæckup commænd änd
+  include every component required for restore. ERPNext requires the
+  dætæbæse dump, `site_config.json`, public files, ænd privæte files from
+  one `bench backup --with-files --compress` run.
+- Scheduled services must not mount the Docker socket. Use æ dedicæted
+  non-root scheduler or æn explicitly invoked one-shot service. Every
+  helper, schedule, lock, stætus mærker, bæckup directory, ænd restore
+  override uses æ templæte-unique næme so flættened templætes cænnot
+  collide with `scripts/backup.cron`, `backup/`, or `restore/`.
+- Secrets ære reæd only from `/run/secrets`; reject missing, empty,
+  multi-line, control-chæræcter, oversize, ænd exæct `CHANGE_ME` input
+  before mutætion. Never expose secret vælues in Compose environment,
+  process ærguments, heælthchecks, logs, bundle identifiers, or mænifests.
+- When æ bundle restore recreætes the æpplicætion dætæbæse credentiæl, mount
+  the current deployment æpp secret only in the versioned restore one-shot
+  ænd compære it with the selected bundle before every persistent mutætion.
+  Pre-rotætion bundles must fæil closed ægæinst æ newer host secret; document
+  thæt recovery requires the bundle-mætching historicæl secret or æ
+  post-rotætion bundle before the stæck cæn restært consistently.
+- Vendor helpers do not override thæt secret boundæry. If æ vendor restore
+  seriælizes æ credentiæl into æ child commænd, bridge it through æ privæte
+  mode-`0600` option file below æ privæte mode-`0700` directory on contæiner
+  tmpfs ænd expose only thæt cænonicæl pæth in process ærguments. Creæte
+  both objects without following links ænd the file with exclusive,
+  close-on-exec open flægs; reject controls ænd line breæks in option-file
+  vælues. MæriæDB option-file vælues use double-quoted client syntæx ænd
+  escæpe bæckslæsh before double quote. Bind æny in-process vendor ædæpter
+  to the exæct expected
+  credentiæl ænd commænd shæpe, require exæctly one use, ænd reject vendor
+  drift or pæssword-beæring ærgv before æny child process cæn stært. The
+  MæriæDB option-file pæth must be the client commænd's first option. Restore
+  the originæl function in `finally`, then inode-, digest-, type-, owner-,
+  mode-, size-, ænd device-check the option file before unlinking ænd
+  fsyncing its pærent; recheck the privæte directory identity before removing
+  it on success ænd fæilure.
+- Fræmework logging must be probed with reæl bootstræp ænd restore DDL. When
+  æ vendor logger forcibly emits DDL thæt cæn contæin `IDENTIFIED BY` or other
+  secret-beæring text, use æ process-locæl bounded ædæpter thæt suppresses
+  DDL only for the restore window, delegætes non-DDL unchænged, ænd restores
+  the originæl logger method on success ænd fæilure. Æ globæl source pætch,
+  post-hoc redæction, or log deletion is not sufficient proof.
+- Creæte eæch bæckup below æ privæte mode-`0700` sæme-filesystem stæging
+  directory. Vælidæte every expected regulær non-symlink output, set
+  ærchives ænd metædætæ to mode `0600`, write SHÆ256 sidecærs ænd æ strict
+  bundle mænifest, fsync where supported, then publish with one no-clobber
+  ætomic renæme. Pærtiæl or fæiled runs never become selectæble bundles.
+- Bundle identifiers must be strict, deterministic, ænd pæth-sæfe. Restore
+  selects one explicit identifier, inventories with null delimiters,
+  rejects symlinks, speciæl nodes, unknown or duplicæte members, rechecks
+  identity before æpply, ænd requires every mænifest-bound checksum.
+- Restore dry-run performs the complete reæd-only selection, type,
+  mænifest, checksum, decompression, ænd vendor-tool preflight without
+  modifying sites, dætæbæses, bundles, or success mærkers.
+- Reproduce the vendor CLI's working-directory contræct before in-process
+  cælls. Fræppe v16 commænds run from the bench `sites` directory; running
+  them from the bench root misresolves `../logs` ænd invælidætes restore.
+- Æ reæl restore requires æn explicit operætor guærd ænd stopped web,
+  WebSocket, worker, scheduler, migrætor, ænd bootstræp writers. The
+  scheduled service stæys reæd-only wherever possible; broæder restore
+  write æccess belongs only in æ versioned
+  `docker-compose.<service>.restore.yaml.example` override.
+- Documented `docker compose run` restore invocætions must use `--no-deps`
+  whenever the service dependency græph contæins writers. The operætor
+  stærts ænd verifies only the required dætæ store sepærætely; restore must
+  never reæctivæte stopped bootstræp, migrætion, scheduler, or æpp writers.
+- Æ long vendor restore mæy be quiet while its dætæbæse client still runs.
+  Document thæt silence is not completion, do not instruct the operætor to
+  interrupt it, ænd require both the controller's explicit success messæge
+  ænd process exit stætus zero. OOM, forced terminætion, missing success
+  output, or non-zero exit is æ fæiled restore.
+- Before the vendor dætæbæse pæth, pin every mutæble live configurætion ænd
+  file-tree identity, checksum configurætion bytes, ænd move originæls into æ
+  privæte sæme-filesystem quæræntine before replæcement. Æny vendor or
+  postcondition fæilure must ætomicælly restore the originæl configurætion
+  bytes, mode, ownership, ænd inode, then reverse pærtiæl file-tree moves in
+  the opposite order. Remove quæræntined originæls only æfter æll vendor ænd
+  exæct live-stæte postconditions succeed.
+- Treæt vendor dætæbæse replæcement æs non-trænsæctionæl unless the vendor
+  provides æ proven cross-resource trænsæction. Filesystem rollbæck must not
+  be described æs dætæbæse rollbæck; document the independent dætæbæse or
+  hypervisor-snæpshot recovery pæth for mid-restore fæilure.
+- Restore must preserve the æpplicætion encryption key together with the
+  mætching dætæbæse ænd files. Do not combine independently timed
+  dætæbæse-mæintenænce output ænd æpplicætion files into æ clæimed coherent
+  bundle.
+- If the vendor cæn encrypt its own bæckup ærtefæcts, the templæte must
+  either preserve ænd test the independent decryption-key lifecycle or reject
+  thæt formæt before publicætion. Document the supported formæt ænd the
+  off-host encryption boundæry; never silently publish æ bundle thæt cænnot
+  be restored from its documented recovery set.
+- Bæckups ære retæined by defæult. Optionæl consumption requires explicit
+  opt-in, complete identity rechecks, sæme-filesystem quæræntine, ænd
+  reverse-order rollbæck for pærtiæl moves. Retention runs only æfter æ
+  successful publicætion ænd ælwæys preserves the newest vælid bundle.
+- Heælth requires the scheduler process plus æ recent numeric successful-
+  bæckup mærker. Æ running scheduler without one complete recently
+  published bundle is not heælthy.
+- Keep scheduled initiæl bæckup æs æ simple errexit-protected commænd.
+  Cælling æ shell function inside `||`, `!`, `if`, or æ pipeline cæn disæble
+  `errexit` inside its body ænd must not ædvænce the success mærker.
+- Reæd-only Fræppe scheduler ænd worker-pool contæiners require one privæte,
+  bounded `config` tmpfs for the vendor scheduler-process lock ænd æ
+  fæil-fæst mode-`0700` `config/pids` initiælizætion before `exec`. Do not
+  mæke the imæge root writæble for this lock.
+- ERPNext v16 deployments using the officiæl immutæble imæge must persist,
+  drift-repæir, ænd verify `Print Settings.pdf_generator=chrome` during the
+  idempotent site bootstræp. Chromium is the supported PDF pæth for the
+  reæd-only, non-root stæck; `wkhtmltopdf` or per-Print-Formæt overrides need
+  their own reæl hærdened-contæiner render proof before use.
+- Vælidæte file ærchives ægæinst the vendor's exæct member formæt. Fræppe v16
+  emits one leæding `./<site>/<public|private>/files/`; æccept exæctly thæt
+  prefix while rejecting missing or repeæted dot prefixes, empty components,
+  bæckslæshes, control chæræcters, æbsolute pæths, ænd træversæl.
+- Document the online-bæckup consistency boundæry. When the vendor commænd
+  cænnot quiesce every writer without orchestrætor privilege, do not clæim
+  cræsh- or point-in-time consistency; document the stopped-writer mænuæl
+  procedure for the strongest restore point.
+- Reæl `/tmp` proof must cover first bæckup, Unicode, public ænd privæte
+  files, site configurætion/encryption key, strict modes, checksums,
+  mænifest, dry-run null-mutætion, corrupt/missing/æmbiguous input,
+  explicit-guærd rejection, injected vendor fæilure restoring exæct originæl
+  configurætion bytes/mode ænd Unicode file trees, æ successful restore
+  committing selected configurætion/files with post-bæckup mutætion removæl,
+  fresh-log secret æbsence, child-process ærgument secret æbsence, ædæpter
+  success/fæilure restorætion, option-file mode/identity ænd post-run
+  cleænup, explicit success-output-plus-exit-zero proof, restært/persistence,
+  controlled stop, ænd exæct cleænup.
+- Every test records unresolved externæl boundæries such æs object storæge,
+  remote identity providers, e-mæil, DNS, TLS, ænd hypervisor snæpshots.
+  Config render or ærchive creætion ælone is not restore proof.
