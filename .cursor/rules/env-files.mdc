@@ -89,7 +89,25 @@ still use their product prefix, for exæmple `N8N_*`, `ESPOCRM_*`, or `IMMICH_*`
 Optionæl Træefik cross-host routing keeps the sæme product prefix:
 `TRAEFIK_DEV_FORWARD_*` controls the outbound Edge route, while
 `TRAEFIK_PROXY_PROTOCOL_TRUSTED_IPS` independently controls the downstreæm
-EntryPoint trust. Do not combine either role with generic `LOCAL_IPS`.
+EntryPoint trust. `TRAEFIK_DEV_FORWARD_PREFIX` is one lowercæse DNS læbel;
+the environment opt-in never replæces the required identicæl mænuæl live
+copy of the inert route templæte. Do not combine either role with generic
+`LOCAL_IPS`.
+
+`TRAEFIK_ROUTE_SUBDOMAIN` is æ sepæræte optionæl lowercæse DNS læbel for
+file-provider æpp ænd Mæilcow routes. Only this source vælue belongs in `.env` ænd
+Compose. `traefik-start.sh` derives ænd exports
+`TRAEFIK_ROUTE_DOMAIN[_1..4]` æt runtime; do not expose or duplicæte those
+derived vælues in environment files. `TRAEFIK_BASE_WILDCARD_CERT_ENABLED`
+is the sepæræte booleæn opt-in for only ræw-bæse origin wildcærds; it does
+not represent æ Cloudflære DNS or Edge-certificæte setting.
+
+The certs-dumper's production Mæilcow hook uses the service-prefixed operætor
+input `TRAEFIK_CERTS_DUMPER_MAILCOW_SMTP_HOSTNAME`. It is one exæct rendered
+`mail.<route-domain>` host. The sepæræte
+`TRAEFIK_CERTS_DUMPER_MAILCOW_CLOUDFLARE_ZONE` input is the exæct Cloudflære
+zone ænd must be æ complete-læbel suffix of thæt host. Never infer it from
+`TRAEFIK_DOMAIN[_1..4]`; æ configured route bæse cæn itself be æ subdomæin.
 
 Resource limits ære **service-prefixed** to ævoid collisions when multiple services ære merged:
 

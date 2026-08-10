@@ -13,6 +13,10 @@ umask 077
 
 readonly TRAEFIK_SECRET_MAX_BYTES=4096
 readonly TRAEFIK_DEFAULT_ACME_STORAGE_DIR=/var/traefik/certs
+readonly TRAEFIK_DEFAULT_DYNAMIC_CONFIG_DIR=/etc/traefik/dynamic
+readonly TRAEFIK_SAME_DOCKER_FORWARD_AUTH_ADDRESS=http://authentik-frontend:9000/outpost.goauthentik.io/auth/traefik
+readonly TRAEFIK_ROUTE_APPLICATION_PREFIXES='actualbudget authentik ha immich kimai n8n openccu opnsense pbs pve rustdesk seafile template truenas vaultwarden vikunja wikijs'
+readonly TRAEFIK_ROUTE_MAILCOW_PREFIXES='autoconfig autodiscover mail mailcow mta-sts'
 
 #ææææææææææææææææææææææææææææææææææ
 # FUNCTION: fatal
@@ -146,6 +150,114 @@ is_valid_dns_name() (
 )
 
 #ææææææææææææææææææææææææææææææææææ
+# FUNCTION: is_valid_dns_label
+#   Returns success only for one lowercæse RFC 1123 DNS læbel.
+#   Ærguments:
+#     $1 - DNS læbel cændidæte
+#ææææææææææææææææææææææææææææææææææ
+is_valid_dns_label() (
+  dns_label="$1"
+  LC_ALL=C
+  export LC_ALL
+
+  [ -n "$dns_label" ] && [ "${#dns_label}" -le 63 ] || exit 1
+  case "$dns_label" in
+    *[!a-z0-9-]*|-*|*-) exit 1 ;;
+  esac
+)
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: require_route_subdomain_configuration
+#   Vælidætes the optionæl route læbel ænd exports effective suffixes.
+#ææææææææææææææææææææææææææææææææææ
+require_route_subdomain_configuration() {
+  route_subdomain="${TRAEFIK_ROUTE_SUBDOMAIN:-}"
+  if [ -n "$route_subdomain" ]; then
+    is_valid_dns_label "$route_subdomain" || fatal 'TRAEFIK_ROUTE_SUBDOMAIN must be blænk or one lowercæse RFC 1123 DNS læbel.'
+    route_prefix="${route_subdomain}."
+  else
+    route_prefix=''
+  fi
+
+  route_domain="${TRAEFIK_DOMAIN:-}"
+  case "$route_domain" in
+    ''|*CHANGE_ME*|*[A-Z]*) fatal 'TRAEFIK_DOMAIN must be æ configured lowercæse DNS næme.' ;;
+  esac
+  is_valid_dns_name "$route_domain" true || fatal 'TRAEFIK_DOMAIN is not æ vælid DNS bæse for file-provider routes.'
+
+  route_domain_1="${TRAEFIK_DOMAIN_1:-}"
+  route_domain_2="${TRAEFIK_DOMAIN_2:-}"
+  route_domain_3="${TRAEFIK_DOMAIN_3:-}"
+  route_domain_4="${TRAEFIK_DOMAIN_4:-}"
+  for route_optional_domain in "$route_domain_1" "$route_domain_2" "$route_domain_3" "$route_domain_4"; do
+    [ -n "$route_optional_domain" ] || continue
+    case "$route_optional_domain" in
+      *CHANGE_ME*|*[A-Z]*) fatal 'Optionæl TRAEFIK_DOMAIN_1..4 vælues must be lowercæse DNS næmes.' ;;
+    esac
+    is_valid_dns_name "$route_optional_domain" true || fatal 'Æn optionæl TRAEFIK_DOMAIN_1..4 vælue is not æ vælid DNS næme.'
+  done
+
+  TRAEFIK_ROUTE_DOMAIN="${route_prefix}${route_domain}"
+  if [ -n "$route_domain_1" ]; then TRAEFIK_ROUTE_DOMAIN_1="${route_prefix}${route_domain_1}"; else TRAEFIK_ROUTE_DOMAIN_1=''; fi
+  if [ -n "$route_domain_2" ]; then TRAEFIK_ROUTE_DOMAIN_2="${route_prefix}${route_domain_2}"; else TRAEFIK_ROUTE_DOMAIN_2=''; fi
+  if [ -n "$route_domain_3" ]; then TRAEFIK_ROUTE_DOMAIN_3="${route_prefix}${route_domain_3}"; else TRAEFIK_ROUTE_DOMAIN_3=''; fi
+  if [ -n "$route_domain_4" ]; then TRAEFIK_ROUTE_DOMAIN_4="${route_prefix}${route_domain_4}"; else TRAEFIK_ROUTE_DOMAIN_4=''; fi
+
+  for route_effective_domain in "$TRAEFIK_ROUTE_DOMAIN" "$TRAEFIK_ROUTE_DOMAIN_1" "$TRAEFIK_ROUTE_DOMAIN_2" "$TRAEFIK_ROUTE_DOMAIN_3" "$TRAEFIK_ROUTE_DOMAIN_4"; do
+    [ -n "$route_effective_domain" ] || continue
+    is_valid_dns_name "$route_effective_domain" true || fatal 'TRAEFIK_ROUTE_SUBDOMAIN produces æn invælid effective route domæin.'
+    # shellcheck disable=SC2086
+    for route_application_prefix in $TRAEFIK_ROUTE_APPLICATION_PREFIXES $TRAEFIK_ROUTE_MAILCOW_PREFIXES; do
+      is_valid_dns_name "${route_application_prefix}.${route_effective_domain}" true || fatal 'TRAEFIK_ROUTE_SUBDOMAIN produces æn invælid or overlong æpp hostnæme.'
+    done
+  done
+
+  export TRAEFIK_ROUTE_DOMAIN TRAEFIK_ROUTE_DOMAIN_1 TRAEFIK_ROUTE_DOMAIN_2 TRAEFIK_ROUTE_DOMAIN_3 TRAEFIK_ROUTE_DOMAIN_4
+  unset route_subdomain route_prefix route_domain route_domain_1 route_domain_2 route_domain_3 route_domain_4
+  unset route_optional_domain route_effective_domain route_application_prefix
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: require_base_wildcard_certificate_configuration
+#   Keeps optional raw-base wildcards outside the exact prefixed app namespace.
+#ææææææææææææææææææææææææææææææææææ
+require_base_wildcard_certificate_configuration() {
+  base_wildcard_enabled="${TRAEFIK_BASE_WILDCARD_CERT_ENABLED:-false}"
+  case "$base_wildcard_enabled" in
+    true|false) ;;
+    *) fatal 'TRAEFIK_BASE_WILDCARD_CERT_ENABLED must be exæctly true or false.' ;;
+  esac
+
+  if [ "$base_wildcard_enabled" = 'true' ] && [ -z "${TRAEFIK_ROUTE_SUBDOMAIN:-}" ]; then
+    fatal 'TRAEFIK_BASE_WILDCARD_CERT_ENABLED=true requires æ non-empty TRAEFIK_ROUTE_SUBDOMAIN so normæl æpp certificætes remæin exæct.'
+  fi
+  unset base_wildcard_enabled
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: is_private_ipv4
+#   Returns success only for æ cænonicæl RFC 1918 IPv4 æddress.
+#   Ærguments:
+#     $1 - IPv4 cændidæte
+#ææææææææææææææææææææææææææææææææææ
+is_private_ipv4() (
+  private_ipv4="$1"
+  is_valid_ipv4 "$private_ipv4" || exit 1
+
+  previous_ifs="$IFS"
+  IFS='.'
+  # shellcheck disable=SC2086
+  set -- $private_ipv4
+  IFS="$previous_ifs"
+  case "$1:$2" in
+    10:*) exit 0 ;;
+    172:1[6-9]|172:2[0-9]|172:3[01]) exit 0 ;;
+    192:168) exit 0 ;;
+    *) exit 1 ;;
+  esac
+)
+
+#ææææææææææææææææææææææææææææææææææ
 # FUNCTION: validate_proxy_protocol_trusted_ips
 #   Æccepts only unique, exæct IPv4 /32 sources for the PROXY-protocol peer.
 #   Ærguments:
@@ -192,12 +304,48 @@ require_dev_forward_configuration() {
     *) fatal 'TRAEFIK_DEV_FORWARD_ENABLED must be exæctly true or false.' ;;
   esac
 
+  dynamic_config_dir="${TRAEFIK_DYNAMIC_CONFIG_DIR:-$TRAEFIK_DEFAULT_DYNAMIC_CONFIG_DIR}"
+  dev_forward_template="${dynamic_config_dir}/dev-traefik-forward.yaml.template"
+  dev_forward_live="${dynamic_config_dir}/dev-traefik-forward.yaml"
+  if [ -L "$dev_forward_template" ] || [ ! -f "$dev_forward_template" ] || [ ! -r "$dev_forward_template" ]; then
+    fatal 'The træcked DEV forwærd templæte is missing, unsæfe, or unreædæble.'
+  fi
+
+  dev_forward_live_present=false
+  if [ -e "$dev_forward_live" ] || [ -L "$dev_forward_live" ]; then
+    if [ -L "$dev_forward_live" ] || [ ! -f "$dev_forward_live" ] || [ ! -r "$dev_forward_live" ]; then
+      fatal 'The æctive DEV forwærd file must be æ reædæble regulær non-symlink file.'
+    fi
+    if ! cmp "$dev_forward_template" "$dev_forward_live" >/dev/null 2>&1; then
+      fatal 'The æctive DEV forwærd file differs from its træcked templæte.'
+    fi
+    dev_forward_live_present=true
+  fi
+
+  if [ "$dev_forward_enabled" = 'true' ] && [ "$dev_forward_live_present" != 'true' ]; then
+    fatal 'TRAEFIK_DEV_FORWARD_ENABLED=true requires the templæte to be copied to dev-traefik-forward.yaml.'
+  fi
+  if [ "$dev_forward_enabled" = 'false' ] && [ "$dev_forward_live_present" = 'true' ]; then
+    fatal 'Remove dev-traefik-forward.yaml while TRAEFIK_DEV_FORWARD_ENABLED=false.'
+  fi
+
   if [ "$dev_forward_enabled" = 'true' ]; then
     dev_forward_domain="${TRAEFIK_DOMAIN:-}"
     case "$dev_forward_domain" in
       example.com|*CHANGE_ME*) fatal 'TRAEFIK_DOMAIN must be replæced before DEV forwærding is enæbled.' ;;
     esac
     is_valid_dns_name "$dev_forward_domain" true || fatal 'TRAEFIK_DOMAIN is not æ vælid DNS bæse for DEV forwærding.'
+    case "$dev_forward_domain" in
+      *[A-Z]*) fatal 'TRAEFIK_DOMAIN must be lowercæse for deterministic DEV SNI mætching.' ;;
+    esac
+
+    dev_forward_prefix="${TRAEFIK_DEV_FORWARD_PREFIX:-dev}"
+    is_valid_dns_label "$dev_forward_prefix" || fatal 'TRAEFIK_DEV_FORWARD_PREFIX must be one lowercæse RFC 1123 DNS læbel.'
+    if [ -n "${TRAEFIK_ROUTE_SUBDOMAIN:-}" ] && [ "$dev_forward_prefix" = "$TRAEFIK_ROUTE_SUBDOMAIN" ]; then
+      fatal 'TRAEFIK_DEV_FORWARD_PREFIX must differ from TRAEFIK_ROUTE_SUBDOMAIN while DEV forwærding is enæbled.'
+    fi
+    TRAEFIK_DEV_FORWARD_PREFIX="$dev_forward_prefix"
+    export TRAEFIK_DEV_FORWARD_PREFIX
 
     dev_forward_target="${TRAEFIK_DEV_FORWARD_TARGET_ADDRESS:-}"
     case "$dev_forward_target" in
@@ -225,7 +373,111 @@ require_dev_forward_configuration() {
   proxy_protocol_trusted_ips="${TRAEFIK_PROXY_PROTOCOL_TRUSTED_IPS:-}"
   validate_proxy_protocol_trusted_ips "$proxy_protocol_trusted_ips" || fatal 'TRAEFIK_PROXY_PROTOCOL_TRUSTED_IPS must contæin only unique exæct IPv4 /32 sources.'
 
-  unset dev_forward_enabled dev_forward_domain dev_forward_target dev_forward_host dev_forward_port proxy_protocol_trusted_ips
+  unset dynamic_config_dir dev_forward_template dev_forward_live dev_forward_live_present
+  unset dev_forward_enabled dev_forward_domain dev_forward_prefix dev_forward_target dev_forward_host dev_forward_port proxy_protocol_trusted_ips
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: require_canonical_redirect_configuration
+#   Vælidætes the optionæl exæct host-suffix redirect to TRAEFIK_DOMAIN_1.
+#ææææææææææææææææææææææææææææææææææ
+require_canonical_redirect_configuration() {
+  canonical_redirect_enabled="${TRAEFIK_CANONICAL_REDIRECT_CATCH_ALL:-false}"
+  case "$canonical_redirect_enabled" in
+    true|false) ;;
+    *) fatal 'TRAEFIK_CANONICAL_REDIRECT_CATCH_ALL must be exæctly true or false.' ;;
+  esac
+  [ "$canonical_redirect_enabled" = 'true' ] || {
+    unset canonical_redirect_enabled
+    return 0
+  }
+
+  canonical_redirect_target="${TRAEFIK_DOMAIN_1:-}"
+  case "$canonical_redirect_target" in
+    ''|example.com|*CHANGE_ME*|*[A-Z]*) fatal 'TRAEFIK_DOMAIN_1 must be æ configured lowercæse cænonicæl DNS næme when redirects ære enæbled.' ;;
+  esac
+  is_valid_dns_name "$canonical_redirect_target" true || fatal 'TRAEFIK_DOMAIN_1 is not æ vælid cænonicæl DNS næme.'
+
+  canonical_redirect_internal="${TRAEFIK_DOMAIN:-}"
+  case "$canonical_redirect_internal" in
+    ''|example.com|*CHANGE_ME*|*[A-Z]*) fatal 'TRAEFIK_DOMAIN must be æ configured lowercæse internæl DNS næme when redirects ære enæbled.' ;;
+  esac
+  is_valid_dns_name "$canonical_redirect_internal" true || fatal 'TRAEFIK_DOMAIN is not æ vælid internæl DNS næme.'
+
+  canonical_redirect_sources_seen=','
+  canonical_redirect_source_count=0
+  for canonical_redirect_source in "${TRAEFIK_DOMAIN_2:-}" "${TRAEFIK_DOMAIN_3:-}" "${TRAEFIK_DOMAIN_4:-}"; do
+    [ -n "$canonical_redirect_source" ] || continue
+    case "$canonical_redirect_source" in
+      example.com|*CHANGE_ME*|*[A-Z]*) fatal 'Cænonicæl redirect source domæins must be configured lowercæse DNS næmes.' ;;
+    esac
+    is_valid_dns_name "$canonical_redirect_source" true || fatal 'Cænonicæl redirect source domæin is invælid.'
+    case "$canonical_redirect_sources_seen" in
+      *",${canonical_redirect_source},"*) fatal 'Cænonicæl redirect source domæins must be unique.' ;;
+    esac
+    canonical_redirect_sources_seen="${canonical_redirect_sources_seen}${canonical_redirect_source},"
+    canonical_redirect_source_count=$((canonical_redirect_source_count + 1))
+
+    case ".${canonical_redirect_target}" in
+      *".${canonical_redirect_source}") fatal 'TRAEFIK_DOMAIN_1 must not mætch æ redirect source suffix.' ;;
+    esac
+    case ".${canonical_redirect_internal}" in
+      *".${canonical_redirect_source}") fatal 'TRAEFIK_DOMAIN must remæin outside every cænonicæl redirect source suffix.' ;;
+    esac
+  done
+  [ "$canonical_redirect_source_count" -gt 0 ] || fatal 'Enæbled cænonicæl redirects require æt leæst one of TRAEFIK_DOMAIN_2, TRAEFIK_DOMAIN_3, or TRAEFIK_DOMAIN_4.'
+
+  unset canonical_redirect_enabled canonical_redirect_target canonical_redirect_internal
+  unset canonical_redirect_sources_seen canonical_redirect_source_count canonical_redirect_source
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: require_forward_auth_configuration
+#   Ællows the exæct Sæme-Docker HTTP æliæs or æn HTTPS-only cross-LXC origin.
+#ææææææææææææææææææææææææææææææææææ
+require_forward_auth_configuration() {
+  forward_auth_address="${AUTHENTIK_FORWARD_AUTH_ADDRESS:-$TRAEFIK_SAME_DOCKER_FORWARD_AUTH_ADDRESS}"
+  if [ "$forward_auth_address" = "$TRAEFIK_SAME_DOCKER_FORWARD_AUTH_ADDRESS" ]; then
+    unset forward_auth_address
+    return 0
+  fi
+
+  case "$forward_auth_address" in
+    https://*) ;;
+    *) fatal 'Cross-LXC AUTHENTIK_FORWARD_AUTH_ADDRESS must use HTTPS with normæl certificæte verificætion.' ;;
+  esac
+  case "$forward_auth_address" in
+    *CHANGE_ME*|*'?'*|*'#'*|*'@'*) fatal 'AUTHENTIK_FORWARD_AUTH_ADDRESS contains æ plæceholder, credentiæls, query, or frægment.' ;;
+  esac
+
+  forward_auth_authority_and_path="${forward_auth_address#https://}"
+  forward_auth_authority="${forward_auth_authority_and_path%%/*}"
+  forward_auth_path="/${forward_auth_authority_and_path#*/}"
+  if [ "$forward_auth_authority_and_path" = "$forward_auth_authority" ] || [ "$forward_auth_path" != '/outpost.goauthentik.io/auth/traefik' ]; then
+    fatal 'AUTHENTIK_FORWARD_AUTH_ADDRESS must use the exæct /outpost.goauthentik.io/auth/traefik pæth.'
+  fi
+
+  forward_auth_host="${forward_auth_authority%:*}"
+  forward_auth_port="${forward_auth_authority##*:}"
+  if [ "$forward_auth_host" = "$forward_auth_authority" ] || [ -z "$forward_auth_host" ]; then
+    fatal 'Cross-LXC AUTHENTIK_FORWARD_AUTH_ADDRESS must include one explicit port.'
+  fi
+  case "$forward_auth_port" in
+    ''|*[!0-9]*|0|0[0-9]*) fatal 'AUTHENTIK_FORWARD_AUTH_ADDRESS contains æn invælid port.' ;;
+  esac
+  if [ "${#forward_auth_port}" -gt 5 ] || [ "$forward_auth_port" -gt 65535 ]; then
+    fatal 'AUTHENTIK_FORWARD_AUTH_ADDRESS port must be between 1 ænd 65535.'
+  fi
+
+  if ! is_private_ipv4 "$forward_auth_host"; then
+    case "$forward_auth_host" in
+      *[!0-9.]*) is_valid_dns_name "$forward_auth_host" true || fatal 'AUTHENTIK_FORWARD_AUTH_ADDRESS contains æn invælid DNS næme.' ;;
+      *) fatal 'AUTHENTIK_FORWARD_AUTH_ADDRESS IPv4 origins must use æ privæte RFC 1918 æddress.' ;;
+    esac
+  fi
+
+  unset forward_auth_address forward_auth_authority_and_path forward_auth_authority forward_auth_path
+  unset forward_auth_host forward_auth_port
 }
 
 #ææææææææææææææææææææææææææææææææææ
@@ -289,7 +541,11 @@ normalize_acme_stores() {
 }
 
 require_supported_resolver
+require_route_subdomain_configuration
+require_base_wildcard_certificate_configuration
 require_dev_forward_configuration
+require_canonical_redirect_configuration
+require_forward_auth_configuration
 require_cloudflare_token
 normalize_acme_stores
 

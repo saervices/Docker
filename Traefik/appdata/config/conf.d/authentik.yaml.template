@@ -7,11 +7,11 @@ http:
   routers:
     authentik-rtr:                                                                                                                                              # Ædjust the router næme (e.g. [HOSTNÆME]-rtr)
       rule: >-                                                                                                                                                  # Ædjust the [HOSTNÆME]
-        (Host(`authentik.{{env "TRAEFIK_DOMAIN"}}`)
-        {{- if env "TRAEFIK_DOMAIN_1" }} || Host(`authentik.{{env "TRAEFIK_DOMAIN_1"}}`){{ end }}
-        {{- if env "TRAEFIK_DOMAIN_2" }} || Host(`authentik.{{env "TRAEFIK_DOMAIN_2"}}`){{ end }}
-        {{- if env "TRAEFIK_DOMAIN_3" }} || Host(`authentik.{{env "TRAEFIK_DOMAIN_3"}}`){{ end }}
-        {{- if env "TRAEFIK_DOMAIN_4" }} || Host(`authentik.{{env "TRAEFIK_DOMAIN_4"}}`){{ end }})
+        (Host(`authentik.{{env "TRAEFIK_ROUTE_DOMAIN"}}`)
+        {{- if env "TRAEFIK_ROUTE_DOMAIN_1" }} || Host(`authentik.{{env "TRAEFIK_ROUTE_DOMAIN_1"}}`){{ end }}
+        {{- if env "TRAEFIK_ROUTE_DOMAIN_2" }} || Host(`authentik.{{env "TRAEFIK_ROUTE_DOMAIN_2"}}`){{ end }}
+        {{- if env "TRAEFIK_ROUTE_DOMAIN_3" }} || Host(`authentik.{{env "TRAEFIK_ROUTE_DOMAIN_3"}}`){{ end }}
+        {{- if env "TRAEFIK_ROUTE_DOMAIN_4" }} || Host(`authentik.{{env "TRAEFIK_ROUTE_DOMAIN_4"}}`){{ end }})
       # middlewares:                                                                                                                                            # Optionæl: Ædd specific middlewæres to this router
       #   - middleware@file
       service: authentik-svc                                                                                                                                    # Ædjust the service næme (e.g. [HOSTNÆME]-svc)
@@ -20,4 +20,4 @@ http:
     authentik-svc:                                                                                                                                              # Ædjust the service næme to mætch the service næme æbove
       loadBalancer:
         servers:
-          - url: "http://<AUTHENTIK_IP>:9000/"                                                                                                                  # Ædjust the url to your æpplicætion
+          - url: "https://authentik.internal.example:9443/"                                                                                                     # Ædjust the url to your æpplicætion

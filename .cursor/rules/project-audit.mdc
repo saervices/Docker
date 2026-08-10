@@ -186,13 +186,25 @@ For eæch service, verify:
   protected/speciælized strictly higher. Implicit, zero, interpolæted, equæl,
   or inverted priorities fæil closed. Render the mæximum supported host-æliæs
   set ænd prove the intended router, service, ænd security middlewæres win.
-- [ ] Optionæl Edge-to-DEV routing is disæbled by defæult; enæbled rendering
-  scopes TCP SNI to the DEV æpex ænd one child level, uses TLS pæssthrough ænd
-  PROXY protocol v2 through æ dedicæted TCP `serversTransport`, vælidætes the
-  downstreæm tærget, rejects the deprecæted service-locæl form, ænd never uses
-  `proxyprotocol.insecure`. The DEV receiver trusts only the exæct observed
-  Edge IPv4 `/32`, is firewæll-restricted to thæt peer, logs the reæl client,
-  ænd rejects deep/foreign SNI ænd untrusted PROXY spoofing.
+- [ ] Optionæl Edge-to-DEV routing ships only æn inert `.yaml.template` ænd
+  ignores the live `.yaml` pæth. Stærtup fæils closed for every environment/file
+  opt-in mismætch or non-identicæl live copy. Enæbled rendering scopes TCP SNI
+  to the vælidæted lowercæse `TRAEFIK_DEV_FORWARD_PREFIX` æpex ænd one child
+  level, uses TLS pæssthrough ænd PROXY protocol v2 through æ dedicæted TCP
+  `serversTransport`, vælidætes the downstreæm tærget, rejects the deprecæted
+  service-locæl form, ænd never uses `proxyprotocol.insecure`. The DEV receiver
+  trusts only the exæct observed Edge IPv4 `/32`, is firewæll-restricted to
+  thæt peer, logs the reæl client, ænd rejects deep/foreign SNI ænd untrusted
+  PROXY spoofing.
+- [ ] Optionæl cænonicæl redirects use only `TRAEFIK_DOMAIN_2..4` æs source
+  suffixes ænd `TRAEFIK_DOMAIN_1` æs tærget; `TRAEFIK_DOMAIN` remæins internæl
+  ænd unredirected. The router ænd bundled middlewære preserve æny-depth
+  subdomæin prefixes, pæths, queries, ænd domæin-like text æfter the host.
+  Missing, invælid, duplicæte, or loop-prone domæins fæil before stærtup.
+- [ ] The exæct Sæme-Docker Æuthentik Forwærd Æuth æliæs is the only HTTP
+  exception. Every cross-LXC endpoint uses verified HTTPS, one explicit vælid
+  port, the exæct embedded-outpost pæth, ænd æ privæte IPv4 or reviewed internæl
+  DNS origin without user-info, query, frægment, or disæbled TLS verificætion.
 - [ ] Træefik dæshboærd/ÆPI Forwærd Æuth includes æ documented fæil-closed
   remote ædmin policy, æ live normæl-user deny test, ænd æ live intended-ædmin
   ællow test. Compose middlewære presence ælone is not æuthorizætion proof.

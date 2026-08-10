@@ -1,47 +1,41 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2025 it.særvices
+{{ if eq (env "TRAEFIK_BASE_WILDCARD_CERT_ENABLED") "true" }}
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 # --- ROUTERS
-# Certificæte-only router for the shæred wildcard/SÆN ÆCME certificæte.
+# Optionæl certificæte-only router for one shæred ræw-bæse wildcærd certificæte.
+# Never use route-derived wildcærds: normæl <æpp>.<route-label> hosts keep exæct certificætes.
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 http:
   routers:
-    traefik-wildcard-cert-rtr:                                                                                                                                  # Ædjust the router næme (e.g. [HOSTNÆME]-rtr)
+    traefik-base-wildcard-cert-rtr:                                                                                                                             # Ædjust the router næme (e.g. [HOSTNÆME]-rtr)
       rule: >-                                                                                                                                                  # Ædjust the [HOSTNÆME]
-        (Host(`traefik-cert.{{env "TRAEFIK_DOMAIN"}}`)
-        {{- if env "TRAEFIK_DOMAIN_1" }} || Host(`traefik-cert.{{env "TRAEFIK_DOMAIN_1"}}`){{ end }}
-        {{- if env "TRAEFIK_DOMAIN_2" }} || Host(`traefik-cert.{{env "TRAEFIK_DOMAIN_2"}}`){{ end }}
-        {{- if env "TRAEFIK_DOMAIN_3" }} || Host(`traefik-cert.{{env "TRAEFIK_DOMAIN_3"}}`){{ end }}
-        {{- if env "TRAEFIK_DOMAIN_4" }} || Host(`traefik-cert.{{env "TRAEFIK_DOMAIN_4"}}`){{ end }}) && Path(`/__traefik-wildcard-certificate__`)
+        Host(`traefik-base-wildcard-cert.{{env "TRAEFIK_DOMAIN"}}`) && Path(`/__traefik-base-wildcard-certificate__`)
       # middlewares:                                                                                                                                            # Optionæl: Ædd specific middlewæres to this router
       #   - middleware@file
-      service: traefik-wildcard-cert-svc                                                                                                                        # Ædjust the service næme (e.g. [HOSTNÆME]-svc)
+      service: traefik-base-wildcard-cert-svc                                                                                                                   # Ædjust the service næme (e.g. [HOSTNÆME]-svc)
       tls:                                                                                                                                                      # Required for domæins; router TLS fields do not merge EntryPoint TLS defæults
         certResolver: "{{env "CERTRESOLVER"}}"
         options: "{{env "TLSOPTIONS"}}"
         domains:
-          - main: "{{env "TRAEFIK_DOMAIN"}}"
+          - main: "*.{{env "TRAEFIK_DOMAIN"}}"
             sans:
-              - "*.{{env "TRAEFIK_DOMAIN"}}"
               {{ if env "TRAEFIK_DOMAIN_1" }}
-              - "{{env "TRAEFIK_DOMAIN_1"}}"
               - "*.{{env "TRAEFIK_DOMAIN_1"}}"
               {{ end }}
               {{ if env "TRAEFIK_DOMAIN_2" }}
-              - "{{env "TRAEFIK_DOMAIN_2"}}"
               - "*.{{env "TRAEFIK_DOMAIN_2"}}"
               {{ end }}
               {{ if env "TRAEFIK_DOMAIN_3" }}
-              - "{{env "TRAEFIK_DOMAIN_3"}}"
               - "*.{{env "TRAEFIK_DOMAIN_3"}}"
               {{ end }}
               {{ if env "TRAEFIK_DOMAIN_4" }}
-              - "{{env "TRAEFIK_DOMAIN_4"}}"
               - "*.{{env "TRAEFIK_DOMAIN_4"}}"
               {{ end }}
 
   services:
-    traefik-wildcard-cert-svc:                                                                                                                                  # Ædjust the service næme to mætch the service næme æbove
+    traefik-base-wildcard-cert-svc:                                                                                                                             # Ædjust the service næme to mætch the service næme æbove
       loadBalancer:
         servers:
-          - url: "http://127.0.0.1:1/"                                                                                                                          # Ædjust the url to your æpplicætion
+          - url: "http://127.0.0.1:1/"                                                                                                                          # Locæl blæckhole service for æccidentæl requests
+{{ end }}

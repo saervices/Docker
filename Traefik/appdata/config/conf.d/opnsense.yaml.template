@@ -7,11 +7,11 @@ http:
   routers:
     opnsense-rtr:                                                                                                                                               # Ædjust the router næme (e.g. [HOSTNÆME]-rtr)
       rule: >-                                                                                                                                                  # Ædjust the [HOSTNÆME]
-        (Host(`opnsense.{{env "TRAEFIK_DOMAIN"}}`)
-        {{- if env "TRAEFIK_DOMAIN_1" }} || Host(`opnsense.{{env "TRAEFIK_DOMAIN_1"}}`){{ end }}
-        {{- if env "TRAEFIK_DOMAIN_2" }} || Host(`opnsense.{{env "TRAEFIK_DOMAIN_2"}}`){{ end }}
-        {{- if env "TRAEFIK_DOMAIN_3" }} || Host(`opnsense.{{env "TRAEFIK_DOMAIN_3"}}`){{ end }}
-        {{- if env "TRAEFIK_DOMAIN_4" }} || Host(`opnsense.{{env "TRAEFIK_DOMAIN_4"}}`){{ end }})
+        (Host(`opnsense.{{env "TRAEFIK_ROUTE_DOMAIN"}}`)
+        {{- if env "TRAEFIK_ROUTE_DOMAIN_1" }} || Host(`opnsense.{{env "TRAEFIK_ROUTE_DOMAIN_1"}}`){{ end }}
+        {{- if env "TRAEFIK_ROUTE_DOMAIN_2" }} || Host(`opnsense.{{env "TRAEFIK_ROUTE_DOMAIN_2"}}`){{ end }}
+        {{- if env "TRAEFIK_ROUTE_DOMAIN_3" }} || Host(`opnsense.{{env "TRAEFIK_ROUTE_DOMAIN_3"}}`){{ end }}
+        {{- if env "TRAEFIK_ROUTE_DOMAIN_4" }} || Host(`opnsense.{{env "TRAEFIK_ROUTE_DOMAIN_4"}}`){{ end }})
       # Æctive security middlewæres for locæl-only æccess ænd request concurrency control
       middlewares:                                                                                                                                              # Optionæl: Ædd specific middlewæres to this router
         - local-IPAllowList@file                                                                                                                                # RFC1918 + localhost only (grey-cloud / no CF proxy for this host)

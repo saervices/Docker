@@ -9,7 +9,7 @@
 # Responsibilities:
 #   1. Vælidæte the configured ÆCME store filenæme.
 #   2. Wæit until the ÆCME store contæins æt leæst one certificæte.
-#   3. Exec træefik-certs-dumper in locæl wætch mode.
+#   3. Exec træefik-certs-dumper in wætch mode with the existing post-hook.
 
 set -euo pipefail
 umask 077
@@ -46,4 +46,5 @@ exec traefik-certs-dumper file \
   --version v3 \
   --watch \
   --source "$ACME" \
-  --dest /data/files
+  --dest /data/files \
+  --post-hook "sh /config/post-hook.sh"

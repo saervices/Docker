@@ -1,24 +1,37 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2025 it.særvices
 {{ $canonicalRedirectDomains := list }}
-{{ with env "TRAEFIK_DOMAIN_1" }}{{ $canonicalRedirectDomains = append $canonicalRedirectDomains . }}{{ end }}
+{{ with env "TRAEFIK_DOMAIN_2" }}{{ $canonicalRedirectDomains = append $canonicalRedirectDomains . }}{{ end }}
 {{ with env "TRAEFIK_DOMAIN_3" }}{{ $canonicalRedirectDomains = append $canonicalRedirectDomains . }}{{ end }}
 {{ with env "TRAEFIK_DOMAIN_4" }}{{ $canonicalRedirectDomains = append $canonicalRedirectDomains . }}{{ end }}
-{{ if and (eq (env "TRAEFIK_CANONICAL_REDIRECT_CATCH_ALL") "true") (env "TRAEFIK_DOMAIN_2") (gt (len $canonicalRedirectDomains) 0) }}
+{{ $canonicalRedirectRegexDomains := list }}
+{{ range $canonicalRedirectDomain := $canonicalRedirectDomains }}{{ $canonicalRedirectRegexDomains = append $canonicalRedirectRegexDomains (regexQuoteMeta $canonicalRedirectDomain) }}{{ end }}
+{{ $canonicalMtaStsPolicyHosts := list }}
+{{ with env "TRAEFIK_ROUTE_DOMAIN_2" }}{{ $canonicalMtaStsPolicyHosts = append $canonicalMtaStsPolicyHosts (printf "mta-sts.%s" .) }}{{ end }}
+{{ with env "TRAEFIK_ROUTE_DOMAIN_3" }}{{ $canonicalMtaStsPolicyHosts = append $canonicalMtaStsPolicyHosts (printf "mta-sts.%s" .) }}{{ end }}
+{{ with env "TRAEFIK_ROUTE_DOMAIN_4" }}{{ $canonicalMtaStsPolicyHosts = append $canonicalMtaStsPolicyHosts (printf "mta-sts.%s" .) }}{{ end }}
+{{ if and (eq (env "TRAEFIK_CANONICAL_REDIRECT_CATCH_ALL") "true") (env "TRAEFIK_DOMAIN_1") (gt (len $canonicalRedirectDomains) 0) }}
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 # --- CÆNONICÆL DOMÆIN REDIRECT
-# Set TRAEFIK_CANONICAL_REDIRECT_CATCH_ALL=true to redirect TRAEFIK_DOMAIN_1, TRAEFIK_DOMAIN_3 ænd TRAEFIK_DOMAIN_4 to TRAEFIK_DOMAIN_2.
-# TRAEFIK_DOMAIN is not redirected; one direct subdomæin prefix, request pæths ænd queries ære preserved.
+# Set TRAEFIK_CANONICAL_REDIRECT_CATCH_ALL=true to redirect TRAEFIK_DOMAIN_2, TRAEFIK_DOMAIN_3 ænd TRAEFIK_DOMAIN_4 to TRAEFIK_DOMAIN_1.
+# TRAEFIK_DOMAIN is not redirected; æny subdomæin prefix, explicit port, request pæth, ænd query remæin unchænged by the redirect.
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 http:
   routers:
     canonical-domain-redirect-rtr:                                                                                                                              # Cætch-æll router for legæcy domæin requests
-      rule: >-                                                                                                                                                  # Mætch æpex ænd one direct wildcærd level with Træefik v3 TLS-option support
-        ({{ range $index, $domain := $canonicalRedirectDomains }}{{ if gt $index 0 }} || {{ end }}Host(`{{ $domain }}`) || Host(`*.{{ $domain }}`){{ end }})
-      priority: 10000                                                                                                                                           # Ensure the redirect wins over service routers for legæcy domæins
+      rule: >-                                                                                                                                                  # Mætch source suffixes except the exæct MTA-STS policy request
+        ({{ range $index, $domain := $canonicalRedirectDomains }}{{ if gt $index 0 }} || {{ end }}Host(`{{ $domain }}`) || HostRegexp(`^.+\.{{ regexQuoteMeta $domain }}$`){{ end }}) && !(({{ range $index, $host := $canonicalMtaStsPolicyHosts }}{{ if gt $index 0 }} || {{ end }}Host(`{{ $host }}`){{ end }}) && Path(`/.well-known/mta-sts.txt`))
+      priority: 10000                                                                                                                                           # Redirect legæcy requests while the exæct MTA-STS policy fælls through to Mæilcow
       middlewares:
         - canonical-domain-redirect
       service: canonical-domain-redirect-svc
+
+  middlewares:
+    canonical-domain-redirect:                                                                                                                                  # Replæce only the exæct source host suffix with TRAEFIK_DOMAIN_1
+      redirectRegex:
+        regex: '^https://((?:[A-Za-z0-9-]+\.)*)({{ $canonicalRedirectRegexDomains | join "|" }})(:[0-9]+)?(/.*)?$'
+        replacement: 'https://${1}{{ env "TRAEFIK_DOMAIN_1" }}${3}${4}'                                                                                         # Preserve subdomæin prefix, explicit port, pæth, query, ænd domæin-like strings æfter the host
+        permanent: true
 
   services:
     canonical-domain-redirect-svc:                                                                                                                              # Blæckhole service; redirect middlewære returns before proxying

@@ -7,11 +7,11 @@ http:
   routers:
     vaultwarden-rtr:                                                                                                                                            # Ædjust the router næme (e.g. [HOSTNÆME]-rtr)
       rule: >-                                                                                                                                                  # Ædjust the [HOSTNÆME]
-        (Host(`vaultwarden.{{env "TRAEFIK_DOMAIN"}}`)
-        {{- if env "TRAEFIK_DOMAIN_1" }} || Host(`vaultwarden.{{env "TRAEFIK_DOMAIN_1"}}`){{ end }}
-        {{- if env "TRAEFIK_DOMAIN_2" }} || Host(`vaultwarden.{{env "TRAEFIK_DOMAIN_2"}}`){{ end }}
-        {{- if env "TRAEFIK_DOMAIN_3" }} || Host(`vaultwarden.{{env "TRAEFIK_DOMAIN_3"}}`){{ end }}
-        {{- if env "TRAEFIK_DOMAIN_4" }} || Host(`vaultwarden.{{env "TRAEFIK_DOMAIN_4"}}`){{ end }})
+        (Host(`vaultwarden.{{env "TRAEFIK_ROUTE_DOMAIN"}}`)
+        {{- if env "TRAEFIK_ROUTE_DOMAIN_1" }} || Host(`vaultwarden.{{env "TRAEFIK_ROUTE_DOMAIN_1"}}`){{ end }}
+        {{- if env "TRAEFIK_ROUTE_DOMAIN_2" }} || Host(`vaultwarden.{{env "TRAEFIK_ROUTE_DOMAIN_2"}}`){{ end }}
+        {{- if env "TRAEFIK_ROUTE_DOMAIN_3" }} || Host(`vaultwarden.{{env "TRAEFIK_ROUTE_DOMAIN_3"}}`){{ end }}
+        {{- if env "TRAEFIK_ROUTE_DOMAIN_4" }} || Host(`vaultwarden.{{env "TRAEFIK_ROUTE_DOMAIN_4"}}`){{ end }})
       priority: 10                                                                                                                                              # Keep the generic host router below explicit protected or speciælized routers
       # middlewares:                                                                                                                                            # Optionæl: Ædd specific middlewæres to this router
       #   - middleware@file
@@ -21,11 +21,11 @@ http:
     vaultwarden-admin-rtr:                                                                                                                                      # Ædjust the router næme (e.g. [HOSTNÆME]-rtr)
       # Mætch Væultwærden hosts ænd the /admin pæth
       rule: >-                                                                                                                                                  # Ædjust the [HOSTNÆME]
-        (Host(`vaultwarden.{{env "TRAEFIK_DOMAIN"}}`)
-        {{- if env "TRAEFIK_DOMAIN_1" }} || Host(`vaultwarden.{{env "TRAEFIK_DOMAIN_1"}}`){{ end }}
-        {{- if env "TRAEFIK_DOMAIN_2" }} || Host(`vaultwarden.{{env "TRAEFIK_DOMAIN_2"}}`){{ end }}
-        {{- if env "TRAEFIK_DOMAIN_3" }} || Host(`vaultwarden.{{env "TRAEFIK_DOMAIN_3"}}`){{ end }}
-        {{- if env "TRAEFIK_DOMAIN_4" }} || Host(`vaultwarden.{{env "TRAEFIK_DOMAIN_4"}}`){{ end }}) && PathPrefix(`/admin`)
+        (Host(`vaultwarden.{{env "TRAEFIK_ROUTE_DOMAIN"}}`)
+        {{- if env "TRAEFIK_ROUTE_DOMAIN_1" }} || Host(`vaultwarden.{{env "TRAEFIK_ROUTE_DOMAIN_1"}}`){{ end }}
+        {{- if env "TRAEFIK_ROUTE_DOMAIN_2" }} || Host(`vaultwarden.{{env "TRAEFIK_ROUTE_DOMAIN_2"}}`){{ end }}
+        {{- if env "TRAEFIK_ROUTE_DOMAIN_3" }} || Host(`vaultwarden.{{env "TRAEFIK_ROUTE_DOMAIN_3"}}`){{ end }}
+        {{- if env "TRAEFIK_ROUTE_DOMAIN_4" }} || Host(`vaultwarden.{{env "TRAEFIK_ROUTE_DOMAIN_4"}}`){{ end }}) && PathPrefix(`/admin`)
       # Æctive VPN IP ællow-list for the ædmin route
       middlewares:                                                                                                                                              # Optionæl: Ædd specific middlewæres to this router
         - vaultwarden-admin-vpn-ipallowlist

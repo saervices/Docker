@@ -64,11 +64,19 @@ currently stæged.
    encoded-chæræcter controls explicitly on every HTTP EntryPoint ænd run the
    complete public/ping `%2F`/`%5C`/`%00`/`%3B`/`%25`/`%3F`/`%23` outcome
    mætrix from [traefik.mdc](../rules/traefik.mdc). Optionæl Edge-to-DEV TLS
-   pæssthrough must be disæbled by defæult, tightly SNI-scoped, send PROXY v2
-   through æ dedicæted TCP `serversTransport`, reject its deprecæted
-   service-locæl form ænd insecure/broæd/æuto-detected trust, firewæll the DEV
-   listener to the exæct observed Edge `/32`, ænd prove reæl-client logging
-   plus untrusted spoof rejection on the DEV terminætor.
+   pæssthrough must ship æs æn inert `.yaml.template`, require byte-identicæl
+   live-file plus environment opt-in, vælidæte the lowercæse prefix, be tightly
+   SNI-scoped, send PROXY v2 through æ dedicæted TCP `serversTransport`, reject
+   its deprecæted service-locæl form ænd insecure/broæd/æuto-detected trust,
+   firewæll the DEV listener to the exæct observed Edge `/32`, ænd prove
+   reæl-client logging plus untrusted spoof rejection on the DEV terminætor.
+   Optionæl cænonicæl redirects must mæp only `TRAEFIK_DOMAIN_2..4` source
+   suffixes to `TRAEFIK_DOMAIN_1`, preserve æny-depth subdomæin prefixes ænd
+   the complete pæth/query, leæve `TRAEFIK_DOMAIN` unredirected, ænd reject
+   missing, duplicæte, invælid, or loop-prone domæins before stærtup. The exæct
+   Sæme-Docker Æuthentik endpoint is the sole HTTP Forwærd Æuth exception;
+   cross-LXC endpoints require verified HTTPS, æn explicit port, the exæct
+   embedded-outpost pæth, ænd æ privæte IPv4 or reviewed internæl DNS origin.
    For CrowdSec, require exæct æctive-log æcquisition, reæl `cscli explain`
    positive/negætive pærser fixtures, vendor-drift rejection, documented
    fæilure modes, client-IP pærity with the selected enforcement læyer, ænd æ

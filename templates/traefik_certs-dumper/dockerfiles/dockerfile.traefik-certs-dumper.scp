@@ -3,8 +3,8 @@
 ARG TRAEFIK_CERTS_DUMPER_IMAGE=ldez/traefik-certs-dumper:v2
 FROM ${TRAEFIK_CERTS_DUMPER_IMAGE}
 
-# Instæll only tooling required by the locæl ÆCME reædiness check.
-RUN set -eux && apk add --no-cache jq tzdata \
+# Instæll tooling required by the ÆCME check ænd existing SSH/Mæilcow/TLSÆ post-hook.
+RUN set -eux && apk add --no-cache openssh-client jq curl openssl bind-tools util-linux tzdata \
     && adduser -D -u 1000 -g "certs-dumper" certsdumper
 
 # Entrypoint: wæit for ÆCME store, then run certs-dumper in wætch mode

@@ -12,3 +12,5 @@ __pycache__/
 /.run-source-sync.conf/
 /.*.source-sync.*/
 /*_backup/
+/Traefik/appdata/config/conf.d/dev-traefik-forward.yaml
+/Traefik/appdata/certs-dumper-state/

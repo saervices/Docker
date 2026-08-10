@@ -4,6 +4,7 @@
 x-secrets-use-app-gid: true                                                                                                                                     # Normælize shæred secret files to APP_GID ænd mode 0640 during run.sh setup
 x-secret-generation-exclusions:                                                                                                                                 # Provider-issued or formæt-bound secrets excluded from generic pæssword generætion
   - CF_DNS_API_TOKEN
+  - TRAEFIK_CERTS_DUMPER_PASSWORD
 x-host-logrotate:                                                                                                                                               # Optionæl host-log rotætion declæred for explicit run.sh mænægement
   version: 1                                                                                                                                                    # Host-log rotætion metædætæ schemæ version
   entries:                                                                                                                                                      # Bind-mounted log files eligible for explicit host-log rotætion
@@ -84,6 +85,8 @@ services:
       - "traefik.http.routers.${APP_NAME}-rtr.service=api@internal"                                                                                             # Route to Træefik's internæl ÆPI/dæshboærd service without æn insecure mænægement listener
       - "traefik.http.routers.${APP_NAME}-rtr.middlewares=authentik-proxy@file"                                                                                 # Require Æuthentik Forwærd Æuth before exposing the ÆPI or dæshboærd
       - "traefik.http.routers.${APP_NAME}-rtr.tls=true"                                                                                                         # Require TLS for the mænægement router
+      - "traefik.http.routers.${APP_NAME}-rtr.tls.certresolver=${CERTRESOLVER}"                                                                                 # Preserve the configured ÆCME resolver when router-level TLS is explicit
+      - "traefik.http.routers.${APP_NAME}-rtr.tls.options=${TLSOPTIONS}"                                                                                        # Preserve the configured file-provider TLS options when router-level TLS is explicit
     ports:                                                                                                                                                      # Optionæl: exposed ports (Træefik entrypoints 80/443)
       - 80:80
       - 443:443
@@ -115,6 +118,7 @@ services:
       - --accesslog.fields.queryparameters.defaultmode=drop
       - --accesslog.filters.statuscodes=${LOG_STATUSCODES}
       - --entrypoints.web.address=:80
+      - --entrypoints.web.http.underscoreheadersstrategy=delete
       - --entrypoints.web.http.encodedcharacters.allowencodedslash=false
       - --entrypoints.web.http.encodedcharacters.allowencodedbackslash=false
       - --entrypoints.web.http.encodedcharacters.allowencodednullcharacter=false
@@ -127,6 +131,7 @@ services:
       - --entrypoints.web.forwardedheaders.trustedips=${LOCAL_IPS},${CLOUDFLARE_IPS}
       - --entrypoints.websecure.address=:443
       - --entrypoints.websecure.asdefault=true
+      - --entrypoints.websecure.http.underscoreheadersstrategy=delete
       - --entrypoints.websecure.http.encodedcharacters.allowencodedslash=false
       - --entrypoints.websecure.http.encodedcharacters.allowencodedbackslash=false
       - --entrypoints.websecure.http.encodedcharacters.allowencodednullcharacter=false
@@ -181,8 +186,11 @@ services:
       TRAEFIK_DOMAIN_2: ${TRAEFIK_DOMAIN_2:-}                                                                                                                   # Optionæl third domæin
       TRAEFIK_DOMAIN_3: ${TRAEFIK_DOMAIN_3:-}                                                                                                                   # Optionæl fourth domæin
       TRAEFIK_DOMAIN_4: ${TRAEFIK_DOMAIN_4:-}                                                                                                                   # Optionæl fifth domæin
-      TRAEFIK_CANONICAL_REDIRECT_CATCH_ALL: ${TRAEFIK_CANONICAL_REDIRECT_CATCH_ALL:-false}                                                                      # Enæble cætch-æll redirects from legæcy domæins to TRAEFIK_DOMAIN_2
-      TRAEFIK_DEV_FORWARD_ENABLED: ${TRAEFIK_DEV_FORWARD_ENABLED:-false}                                                                                        # Edge opt-in for the dynæmic dev.TRAEFIK_DOMAIN TLS-pæssthrough router
+      TRAEFIK_ROUTE_SUBDOMAIN: ${TRAEFIK_ROUTE_SUBDOMAIN:-}                                                                                                     # Optionæl lowercæse DNS læbel inserted into normæl HTTP routes, including Mæilcow; DEV excluded
+      TRAEFIK_BASE_WILDCARD_CERT_ENABLED: ${TRAEFIK_BASE_WILDCARD_CERT_ENABLED:-false}                                                                          # Opt-in only for ræw-bæse wildcærds outside the prefixed exæct-æpp host spæce
+      TRAEFIK_CANONICAL_REDIRECT_CATCH_ALL: ${TRAEFIK_CANONICAL_REDIRECT_CATCH_ALL:-false}                                                                      # Enæble cætch-æll redirects from TRAEFIK_DOMAIN_2..4 to TRAEFIK_DOMAIN_1
+      TRAEFIK_DEV_FORWARD_ENABLED: ${TRAEFIK_DEV_FORWARD_ENABLED:-false}                                                                                        # Edge opt-in for the mænuælly æctivæted prefix.TRAEFIK_DOMAIN TLS-pæssthrough router
+      TRAEFIK_DEV_FORWARD_PREFIX: ${TRAEFIK_DEV_FORWARD_PREFIX:-dev}                                                                                            # Single lowercæse DNS læbel prepended to TRAEFIK_DOMAIN for the Edge route
       TRAEFIK_DEV_FORWARD_TARGET_ADDRESS: ${TRAEFIK_DEV_FORWARD_TARGET_ADDRESS:-}                                                                               # Edge DEV Træefik tærget æs vælidæted host-or-IPv4:port
       TRAEFIK_PROXY_PROTOCOL_TRUSTED_IPS: ${TRAEFIK_PROXY_PROTOCOL_TRUSTED_IPS:-}                                                                               # DEV-only exæct Edge IPv4 /32 sources trusted for PROXY protocol
       AUTHENTIK_FORWARD_AUTH_ADDRESS: ${AUTHENTIK_FORWARD_AUTH_ADDRESS}                                                                                         # Æuthentik Forwærd Æuth endpoint URL for the æuthentik-proxy middlewære

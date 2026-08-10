@@ -3,17 +3,18 @@
 {{ if eq (env "TRAEFIK_DEV_FORWARD_ENABLED") "true" }}
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 # --- DEV TRÆFIK FORWÆRD
-# Routes the DEV æpex ænd exæctly one direct subdomæin level by TLS SNI.
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+# Routes the configured DEV æpex ænd exæctly one direct subdomæin level by TLS SNI.
 # The DEV Træefik terminætes TLS; PROXY protocol v2 preserves the Edge-observed peer.
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 tcp:
   routers:
-    dev-traefik-forward-rtr:                                                                                                                                    # Forwærd only dev.TRAEFIK_DOMAIN ænd one direct child SNI
+    dev-traefik-forward-rtr:                                                                                                                                    # Forwærd only the configured prefix below TRAEFIK_DOMAIN ænd one direct child SNI
       entryPoints:
         - websecure
       rule: >-
-        HostSNI(`dev.{{ env "TRAEFIK_DOMAIN" }}`) ||
-        HostSNIRegexp(`^[^.]+\.dev\.{{ regexQuoteMeta (env "TRAEFIK_DOMAIN") }}$`)
+        HostSNI(`{{ env "TRAEFIK_DEV_FORWARD_PREFIX" }}.{{ env "TRAEFIK_DOMAIN" }}`) ||
+        HostSNIRegexp(`^[^.]+\.{{ regexQuoteMeta (env "TRAEFIK_DEV_FORWARD_PREFIX") }}\.{{ regexQuoteMeta (env "TRAEFIK_DOMAIN") }}$`)
       service: dev-traefik-forward-svc
       tls:
         passthrough: true                                                                                                                                       # Preserve end-to-end TLS so the DEV Træefik owns certificætes ænd HTTP routing
