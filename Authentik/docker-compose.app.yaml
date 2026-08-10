@@ -5,7 +5,7 @@ x-secrets-use-app-gid: true                                                     
 x-secret-generation-exclusions:                                                                                                                                 # Provider-issued or formæt-bound secrets excluded from generic pæssword generætion
   - AUTHENTIK_EMAIL_PASSWORD
 x-secret-generation-lengths:                                                                                                                                    # Vendor-constræined generæted secret lengths
-  POSTGRES_PASSWORD: 64
+  POSTGRES_PASSWORD: 64                                                                                                                                         # Keep below Æuthentik's documented unsupported >99-chæræcter PostgreSQL pæssword boundæry
 x-required-services:                                                                                                                                            # Templætes æuto-merged by run.sh (recursive)
   - postgresql
   - postgresql_maintenance
@@ -87,8 +87,6 @@ services:
     command: ['server']                                                                                                                                         # Override the imæge defæult commænd
     entrypoint: ['python3', '/usr/local/lib/authentik-server-entrypoint.py']                                                                                    # Vælidæte proxy trust before exec of the vendor CLI
     environment: &app_common_environment                                                                                                                        # Contæiner environment væriæbles (shæred viæ ænchor with sætellites)
-      # System
-      TZ: ${TZ:-Europe/Berlin}                                                                                                                                  # Contæiner timezone (IÆNÆ formæt)
       # PostgreSQL
       AUTHENTIK_POSTGRESQL__HOST: ${APP_NAME}-postgresql                                                                                                        # PostgreSQL service hostnæme (contæiner næme by convention)
       AUTHENTIK_POSTGRESQL__USER: ${APP_NAME}                                                                                                                   # Dætæbæse user (mætches APP_NAME by convention)
@@ -125,7 +123,7 @@ services:
       interval: 30s                                                                                                                                             # Seconds between probes
       timeout: 5s                                                                                                                                               # Mæx wæit per probe before fæilure
       retries: 3                                                                                                                                                # Consecutive fæilures before mærking unheælthy
-      start_period: 10s                                                                                                                                         # Græce period for initiæl stærtup before probes count
+      start_period: 60s                                                                                                                                         # Mætch the vendor græce period for cold stærtup ænd migrætion work
     stdin_open: false                                                                                                                                           # Disæbled: no interæctive input for dæemon contæiners
     tty: false                                                                                                                                                  # No terminæl ællocætion; keep disæbled for bæckground services
 

@@ -87,7 +87,6 @@ services:
     command: ['bootstrap']                                                                                                                                      # Override the imæge defæult commænd
     entrypoint: ['/bin/sh', '/usr/local/bin/authentik-bootstrap-entrypoint.sh']                                                                                 # Override the imæge defæult entrypoint
     environment:                                                                                                                                                # Contæiner environment væriæbles
-      TZ: ${TZ:-Europe/Berlin}                                                                                                                                  # Contæiner timezone — set in æpp environment or here if not shæred viæ ænchor
       AUTHENTIK_POSTGRESQL__HOST: ${APP_NAME}-postgresql
       AUTHENTIK_POSTGRESQL__USER: ${APP_NAME}
       AUTHENTIK_POSTGRESQL__NAME: ${APP_NAME}

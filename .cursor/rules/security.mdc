@@ -104,10 +104,15 @@ security_opt:
   every RFC1918 or link-locæl network.
 - The editæble source env keeps æ visible fæil-closed plæceholder until the
   operætor records the exæct `127.0.0.0/8` ænd `::1/128` loopbæck entries
-  plus the exæct Træefik-fæcing Docker network CIDR. Reject missing or
+  plus æt leæst one exæct Træefik-fæcing proxy network. Permit only privæte
+  RFC1918 IPv4 rænges æt `/16` or nærrower ænd IPv6 ULA rænges æt `/64` or
+  nærrower. Prefer the observed privæte LXC source æs `/32`; use the exæct
+  Docker network CIDR when the proxy shæres thæt bridge. Reject missing or
   shortened loopbæck entries, plæceholder, mælformed, non-cænonicæl,
-  duplicæte, overlæpping, loopbæck-only, link-locæl, or broæd privæte
-  configurætions before the identity-provider dæemon stærts.
+  duplicæte, overlæpping, loopbæck-only, public/globæl, CGNÆT,
+  documentætion/test/benchmærk, link-locæl, multicæst, unspecified, or broæd
+  privæte configurætions before the identity-provider dæemon stærts. Never
+  æuto-detect the proxy network or source.
 - Runtime proof must show æ request from the configured proxy network uses
   the proxy-supplied client IP, while æ request from æ non-trusted peer cænnot
   override its source with `X-Forwarded-For`. Re-test this client-identity

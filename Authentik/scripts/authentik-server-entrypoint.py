@@ -14,8 +14,14 @@ from collections.abc import Sequence
 TRUSTED_PROXY_ENV = "AUTHENTIK_LISTEN__TRUSTED_PROXY_CIDRS"
 PLACEHOLDER = "CHANGE_ME"
 REQUIRED_LOOPBACK_CIDRS = frozenset(("127.0.0.0/8", "::1/128"))
+ALLOWED_PRIVATE_PROXY_RANGES = (
+    ipaddress.ip_network("10.0.0.0/8"),
+    ipaddress.ip_network("172.16.0.0/12"),
+    ipaddress.ip_network("192.168.0.0/16"),
+    ipaddress.ip_network("fc00::/7"),
+)
 BROAD_PRIVATE_CIDRS = frozenset(
-    ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16")
+    ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "fc00::/7")
 )
 
 
@@ -38,21 +44,29 @@ def parse_trusted_proxy_cidrs(raw_value: str) -> tuple[str, ...]:
                 f"{TRUSTED_PROXY_ENV} contains an invalid or non-canonical CIDR"
             ) from error
 
-        loopback_network = ipaddress.ip_network(
-            "127.0.0.0/8" if network.version == 4 else "::1/128"
-        )
-        is_loopback = network.subnet_of(loopback_network)
-        minimum_prefix = 16 if network.version == 4 else 64
-        if not is_loopback and network.prefixlen < minimum_prefix:
-            raise ValueError(
-                f"{TRUSTED_PROXY_ENV} must use the exact proxy network, not a broad private range"
-            )
-        if str(network) in BROAD_PRIVATE_CIDRS:
-            raise ValueError(
-                f"{TRUSTED_PROXY_ENV} must not trust a vendor-default private range"
-            )
         if network.is_unspecified or network.is_multicast or network.is_link_local:
             raise ValueError(f"{TRUSTED_PROXY_ENV} contains an unsafe network class")
+        canonical_network = str(network)
+        is_required_loopback = canonical_network in REQUIRED_LOOPBACK_CIDRS
+        if not is_required_loopback:
+            allowed_private_range = any(
+                network.version == private_range.version
+                and network.subnet_of(private_range)
+                for private_range in ALLOWED_PRIVATE_PROXY_RANGES
+            )
+            if not allowed_private_range:
+                raise ValueError(
+                    f"{TRUSTED_PROXY_ENV} proxy CIDRs must be private RFC1918 or IPv6 ULA networks"
+                )
+            minimum_prefix = 16 if network.version == 4 else 64
+            if network.prefixlen < minimum_prefix:
+                raise ValueError(
+                    f"{TRUSTED_PROXY_ENV} must use the exact proxy network, not a broad private range"
+                )
+            if canonical_network in BROAD_PRIVATE_CIDRS:
+                raise ValueError(
+                    f"{TRUSTED_PROXY_ENV} must not trust a vendor-default private range"
+                )
         if any(
             network.version == existing.version and network.overlaps(existing)
             for existing in parsed
@@ -60,7 +74,7 @@ def parse_trusted_proxy_cidrs(raw_value: str) -> tuple[str, ...]:
             raise ValueError(f"{TRUSTED_PROXY_ENV} contains duplicate or overlapping CIDRs")
 
         parsed.append(network)
-        canonical.append(str(network))
+        canonical.append(canonical_network)
 
     missing_loopback_cidrs = REQUIRED_LOOPBACK_CIDRS.difference(canonical)
     if missing_loopback_cidrs:

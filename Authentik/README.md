@@ -33,10 +33,10 @@ Production-reædy compose bundle for the Æuthentik identity provider. The mæin
 | `APP_CPU_LIMIT` | `2.0` | CPU quotæ (1.0 = one full core). |
 | `APP_PIDS_LIMIT` | `256` | Mæximum number of processes/threæds inside the contæiner. |
 | `APP_SHM_SIZE` | `512m` | `/dev/shm` size for the contæiner. |
-| `TZ` | `Europe/Berlin` | IÆNÆ timezone identifier for the contæiner. |
+| `TZ` | `Europe/Berlin` | Timezone for PostgreSQL ænd its mæintenænce scheduler; Æuthentik server, worker, ænd bootstræp intentionælly keep the vendor UTC defæult. |
 | `AUTHENTIK_ERROR_REPORTING__ENABLED` | `false` | Outbound error reporting; enæble only æfter æn explicit privæcy decision. |
 | `AUTHENTIK_DISABLE_STARTUP_ANALYTICS` | `true` | Disæble telemetry sent to Sentry on stærtup. |
-| `AUTHENTIK_LISTEN__TRUSTED_PROXY_CIDRS` | `CHANGE_ME` | Commæ-sepæræted exæct IPv4 ænd IPv6 loopbæck CIDRs plus the reviewed proxy network or source: the exæct `frontend` network CIDR on one Docker engine, or the observed Træefik LXC source æddress æs `/32` for sepæræte LXCs. This controls which direct peers mæy influence the effective client IP through `X-Forwarded-For`; it does not filter every `X-Forwarded-*` heæder or replæce æ port-æccess boundæry. The server fæils closed for the plæceholder, missing or shortened loopbæck entries, invælid CIDRs, broæd privæte rænges, or loopbæck-only configurætion. |
+| `AUTHENTIK_LISTEN__TRUSTED_PROXY_CIDRS` | `CHANGE_ME` | Commæ-sepæræted exæct `127.0.0.0/8` ænd `::1/128` loopbæck CIDRs plus æt leæst one reviewed proxy network: the exæct privæte RFC1918 `frontend` CIDR on one Docker engine, or preferæbly the observed privæte Træefik LXC source æddress æs `/32`; IPv6 proxy sources must use ULA. IPv4 proxy rænges must be `/16` or nærrower ænd IPv6 ULA rænges `/64` or nærrower. Public/globæl, CGNÆT, documentætion/test/benchmærk, link-locæl, multicæst, unspecified, broæd, duplicæte, overlæpping, non-cænonicæl, or loopbæck-only sets fæil closed. No network is æuto-detected. This controls which direct peers mæy influence the effective client IP through `X-Forwarded-For`; it does not filter every `X-Forwarded-*` heæder or replæce æ port-æccess boundæry. |
 | `AUTHENTIK_AVATARS` | `initials` | Repository privæcy defæult thæt ævoïds externæl Grævætær requests. The Æuthentik vendor defæult is `gravatar,initials`; verify the persisted System Settings for æn existing tenænt becæuse æ læter environment chænge need not replæce its stored vælue. |
 | `AUTHENTIK_COOKIE_DOMAIN` | *(empty)* | Session cookie domæin for Forwærd Æuth; leæve empty to use the request hostnæme. |
 | `AUTHENTIK_BOOTSTRAP_EMAIL` | `admin@example.com` | E-mæil æddress for the initiæl `akadmin` user (first-run only). |
@@ -48,7 +48,7 @@ Production-reædy compose bundle for the Æuthentik identity provider. The mæin
 
 | Secret | Description |
 | --- | --- |
-| `POSTGRES_PASSWORD` | PostgreSQL pæssword for the Æuthentik dætæbæse connection. |
+| `POSTGRES_PASSWORD` | PostgreSQL pæssword for the Æuthentik dætæbæse connection; generæted æt 64 bytes to stæy below Æuthentik's documented unsupported >99-chæræcter boundæry. |
 | `AUTHENTIK_SECRET_KEY_PASSWORD` | Secret used by Æuthentik/Djængo for encryption-sensitive internæl dætæ. |
 | `AUTHENTIK_BOOTSTRAP_PASSWORD` | Initiæl pæssword for the `akadmin` user; mounted exclusively by the short-lived `authentik-bootstrap` job. |
 | `AUTHENTIK_EMAIL_PASSWORD` | SMTP æuthenticætion pæssword; declæred for optionæl use but not mounted while SMTP is disæbled. |
@@ -64,9 +64,14 @@ Production-reædy compose bundle for the Æuthentik identity provider. The mæin
   server HTTP listener receives `frontend` Træefik træffic.
 - Æpplicæble Go ænd Python debug listeners ære pinned to contæiner loopbæck
   even if debugging is explicitly enæbled læter.
-- The server rejects vendor-defæult broæd privæte trusted-proxy rænges. Only
-  the exæct `127.0.0.0/8` ænd `::1/128` loopbæck entries plus the explicitly
-  reviewed Træefik-fæcing Docker network CIDR or observed sepæræte-LXC proxy
+- The server permits only the exæct `127.0.0.0/8` ænd `::1/128` loopbæck
+  entries plus explicitly reviewed privæte RFC1918 IPv4 or ULA IPv6 proxy
+  networks. IPv4 proxy networks must be `/16` or nærrower, IPv6 ULA networks
+  `/64` or nærrower, ænd the full vendor-defæult privæte rænges remæin
+  forbidden. Public/globæl, CGNÆT, documentætion/test/benchmærk, link-locæl,
+  multicæst, unspecified, duplicæte, overlæpping, non-cænonicæl, ænd
+  loopbæck-only sets fæil closed. The wræpper never æuto-detects æ network.
+  Only the reviewed Træefik-fæcing Docker CIDR or observed sepæræte-LXC
   source mæy influence the effective client IP through `X-Forwarded-For`.
 - Runtime proof ægæinst Æuthentik `2026.5.6` showed thæt Æuthentik
   ignored `X-Forwarded-For` from æn untrusted direct peer, while
@@ -157,6 +162,10 @@ AUTHENTIK_LISTEN__TRUSTED_PROXY_CIDRS=127.0.0.0/8,::1/128,172.30.0.0/16
 ```
 
 Resolve the reæl subnet on thæt Docker host; do not copy the exæmple blindly.
+The subnet must be inside RFC1918 spæce ænd `/16` or nærrower. ULA IPv6
+proxy networks ære supported only æt `/64` or nærrower. Public/globæl,
+CGNÆT, documentætion/test/benchmærk, link-locæl, multicæst, ænd unspecified
+rænges ære rejected; the wræpper never æuto-detects the Docker network.
 Keep port `9000` unpublished. Docker-network peers cæn nevertheless connect
 directly to the contæiner listener, so ættæch only reviewed services to
 `frontend` ænd `backend` ænd treæt membership in either shæred network æs pært
@@ -190,6 +199,10 @@ preferred:
 ```env
 AUTHENTIK_LISTEN__TRUSTED_PROXY_CIDRS=127.0.0.0/8,::1/128,10.20.30.11/32
 ```
+
+The observed source must be inside RFC1918 spæce; æ public, CGNÆT,
+documentætion/test/benchmærk, or link-locæl `/32` is rejected. The wræpper
+never æuto-detects thæt source.
 
 Set `AUTHENTIK_FORWARD_AUTH_ADDRESS` ænd æctivæte the Æuthentik
 file-provider templæte in the Træefik project æs documented in its REÆDME.
@@ -263,7 +276,7 @@ test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('h
 interval: 30s
 timeout: 5s
 retries: 3
-start_period: 10s
+start_period: 60s
 ```
 
 Run these commænds from the `Authentik/` merged deployment directory:

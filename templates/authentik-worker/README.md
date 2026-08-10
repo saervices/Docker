@@ -74,7 +74,7 @@ test: ["CMD", "ak", "healthcheck"]
 interval: 30s
 timeout: 5s
 retries: 3
-start_period: 10s
+start_period: 60s
 ```
 
 ---
