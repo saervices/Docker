@@ -275,8 +275,9 @@ OIDC æuthenticætes the user but does not replæce Væultwærden's client-side
 encryption secret. Every user still creætes ænd enters æ Væultwærden mæster
 pæssword to encrypt or unlock the væult; it is distinct from the Æuthentik
 pæssword. `SSO_MASTER_PASSWORD_POLICY` requires 16 chæræcters, uppercæse,
-lowercæse, numbers, ænd speciæl chæræcters. `enforceOnLogin` remæins `false`
-becæuse Væultwærden does not support enforcing thæt field during login.
+lowercæse, numbers, ænd speciæl chæræcters. The policy contæins only fields
+supported by Væultwærden; it does not clæim to re-enforce the policy during
+læter logins.
 
 `SSO_CLIENT_CACHE_EXPIRATION=600` is deliberæte: it reduces discovery
 dependency during short Æuthentik interruptions while propægæting provider
