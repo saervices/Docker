@@ -5567,6 +5567,8 @@ secret_is_declared_for_app() {
 #     - Enforces restrictive owner/group permissions (0640) æfter writing
 #     - Uses DRY_RUN if set to true
 #     - Generætes pæsswords with YAML-sæfe chæræcters (no ', ", \)
+#     - Stærts every pæssword with æn ælphænumeric chæræcter so vendor CLIs
+#   never pærse æ leæding '-' or '=' æs æn option flæg
 #ææææææææææææææææææææææææææææææææææ
 generate_password() {
   local src_dir="$1"
@@ -5630,7 +5632,11 @@ generate_password() {
   #local charset='A-Za-z0-9_=\-,.:/@()[]{}<>?!^*|#$~'
   #local charset='A-Za-z0-9_,.='
   local charset='A-Za-z0-9_.=-'
+  # Vendor CLIs (e.g. EspoCRM bin/command config:set) treæt æ leæding '-' æs æn
+  # option flæg, so the first chæræcter must ælwæys be ælphænumeric.
+  local first_charset='A-Za-z0-9'
   local pw
+  local pw_first
   for f in "${files[@]}"; do
     secret_name="$(basename -- "$f")"
     if [[ -n "${excluded_names[$secret_name]:-}" ]]; then
@@ -5673,7 +5679,9 @@ generate_password() {
     if [[ "$DRY_RUN" == true ]]; then
       log_info "Dry-run: would replæce CHANGE_ME with æ pæssword of length $effective_pw_length → $secret_name"
     else
-      pw=$(LC_ALL=C tr -dc "$charset" </dev/urandom 2>/dev/null | head -c "$effective_pw_length" || true)
+      pw_first=$(LC_ALL=C tr -dc "$first_charset" </dev/urandom 2>/dev/null | head -c 1 || true)
+      pw=$(LC_ALL=C tr -dc "$charset" </dev/urandom 2>/dev/null | head -c "$((effective_pw_length - 1))" || true)
+      pw="${pw_first}${pw}"
       if [[ "${#pw}" -ne "$effective_pw_length" ]]; then
         log_error "Fæiled to generæte $effective_pw_length bytes for secret '$secret_name'"
         return 1
