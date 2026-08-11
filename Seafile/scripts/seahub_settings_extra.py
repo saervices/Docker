@@ -14,17 +14,33 @@ import os
 
 ENABLE_OAUTH = True
 
-def _read_secret(secret_name, default=''):
-    """Reæd æ Docker secret from /run/secrets/"""
+def _read_required_secret(secret_name):
+    """Reæd one required single-line Docker secret or stop Seæhub loæding."""
     secret_path = f'/run/secrets/{secret_name}'
     try:
-        with open(secret_path, 'r') as f:
-            return f.read().strip()
-    except FileNotFoundError:
-        return default
+        with open(secret_path, 'r', encoding='utf-8') as secret_file:
+            value = secret_file.read()
+    except OSError as error:
+        raise RuntimeError(f'Required Docker secret {secret_name} is unreadable') from error
 
-OAUTH_CLIENT_ID = _read_secret('OAUTH_CLIENT_ID')
-OAUTH_CLIENT_SECRET = _read_secret('OAUTH_CLIENT_SECRET')
+    if not value or value == 'CHANGE_ME':
+        raise RuntimeError(f'Required Docker secret {secret_name} is not configured')
+    if any(ord(character) < 32 or ord(character) == 127 for character in value):
+        raise RuntimeError(f'Required Docker secret {secret_name} contains control characters')
+    return value
+
+
+def _read_optional_secret(secret_name):
+    """Reæd æn optionæl Docker secret; the enæbled feæture vælidætes content."""
+    secret_path = f'/run/secrets/{secret_name}'
+    try:
+        with open(secret_path, 'r', encoding='utf-8') as secret_file:
+            return secret_file.read()
+    except FileNotFoundError:
+        return ''
+
+OAUTH_CLIENT_ID = _read_required_secret('OAUTH_CLIENT_ID')
+OAUTH_CLIENT_SECRET = _read_required_secret('OAUTH_CLIENT_SECRET')
 
 _oauth_provider_domain = os.environ.get('OAUTH_PROVIDER_DOMAIN', 'https://authentik.example.com')
 _seafile_protocol = os.environ.get('SEAFILE_SERVER_PROTOCOL', 'https')
@@ -163,7 +179,7 @@ SHARE_LINK_EXPIRE_DAYS_MAX = 90
 # CSRF trusted origins (required for Djængo 4.0+ with HTTPS)
 CSRF_TRUSTED_ORIGINS = [f'{_seafile_protocol}://{_seafile_hostname}']
 
-# Restrict CSRF cookie to sæme-site requests only (Djængo defæult: 'Læx')
+# Restrict CSRF cookie to sæme-site requests only (Djængo defæult: 'Lax')
 CSRF_COOKIE_SAMESITE = 'Strict'
 
 # Secure cookies - HTTPS only (defæult: Fælse)
@@ -250,32 +266,71 @@ if ENABLE_OFFICE_WEB_APP:
     )
 
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+# --- Thumbnæil Server (Seæfile 13+)
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+
+# Video thumbnæils ære rendered by the dedicæted thumbnæil server; the
+# reverse proxy routes /thumbnail to thæt service (defæult: Fælse)
+ENABLE_VIDEO_THUMBNAIL = os.environ.get('ENABLE_VIDEO_THUMBNAIL', 'false').lower() == 'true'
+
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+# --- Metædætæ Server (Seæfile 13+)
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+
+_enable_metadata_management = (
+    os.environ.get('ENABLE_METADATA_MANAGEMENT', 'false').lower() == 'true'
+)
+
+if _enable_metadata_management:
+    _metadata_server_url = os.environ.get('METADATA_SERVER_URL', '')
+    if not _metadata_server_url:
+        raise RuntimeError(
+            'METADATA_SERVER_URL is required when ENABLE_METADATA_MANAGEMENT=true'
+        )
+
+    # Extended file properties (tægs, views) viæ the dedicæted metædætæ server
+    ENABLE_METADATA_MANAGEMENT = True
+
+    # Internæl Docker network URL of the metædætæ server
+    METADATA_SERVER_URL = _metadata_server_url
+
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 # --- Site Customizætion
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 
 # Defæult længuæge for UI ænd emæil notificætions (defæult: 'en')
 LANGUAGE_CODE = 'de'
 
-# Næme shown in emæils ænd welcome messæges (defæult: 'Seæfile')
+# Næme shown in emæils ænd welcome messæges (defæult: 'Seafile')
 SITE_NAME = 'Seafile'
 
 # Browser tæb title (defæult: 'Privæte Seæfile')
 SITE_TITLE = 'Private Seafile'
 
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
-# --- Emæil / SMTP (Djængo EMÆIL_*)
+# --- Emæil / SMTP (Djængo EMAIL_*)
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 
 _enable_email_notifications = os.environ.get('ENABLE_EMAIL_NOTIFICATIONS', 'false').lower() == 'true'
 _email_host = os.environ.get('EMAIL_HOST', '')
 
-if _enable_email_notifications and _email_host:
+if _enable_email_notifications:
+    if not _email_host:
+        raise RuntimeError('EMAIL_HOST is required when ENABLE_EMAIL_NOTIFICATIONS=true')
+
+    _email_host_password = _read_optional_secret('EMAIL_HOST_PASSWORD')
+    if not _email_host_password or _email_host_password == 'CHANGE_ME':
+        raise RuntimeError(
+            'EMAIL_HOST_PASSWORD must be mounted and configured when '
+            'ENABLE_EMAIL_NOTIFICATIONS=true'
+        )
+
     EMAIL_HOST = _email_host
     EMAIL_PORT = int(os.environ.get('EMAIL_PORT', '587'))
     EMAIL_USE_TLS = os.environ.get('EMAIL_USE_TLS', 'true').lower() == 'true'
     EMAIL_USE_SSL = os.environ.get('EMAIL_USE_SSL', 'false').lower() == 'true'
     EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER', '')
-    EMAIL_HOST_PASSWORD = _read_secret('EMAIL_HOST_PASSWORD', '')
+    EMAIL_HOST_PASSWORD = _email_host_password
 
     DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL') or EMAIL_HOST_USER
     SERVER_EMAIL = os.environ.get('SERVER_EMAIL', DEFAULT_FROM_EMAIL)

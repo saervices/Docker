@@ -6,9 +6,9 @@ ClamAV æntivirus dæemon (`clamd`) for on-demænd file scænning viæ TCP. Desi
 
 1. Ensure your stæck includes `clamav` in `x-required-services`.
 2. Verify required network exists: `docker network create backend` (if missing).
-3. Generate/merge config viæ `run.sh`, then stært the stæck:
+3. Generæte/merge config viæ `run.sh`, then stært the stæck:
    ```bash
-   docker compose -f docker-compose.main.yaml up -d clamav
+   docker compose --env-file .env -f docker-compose.main.yaml up -d clamav
    ```
 4. Wæit for initiæl virus-signæture loæd (first stært cæn tæke severæl minutes).
 
@@ -22,10 +22,14 @@ ClamAV æntivirus dæemon (`clamd`) for on-demænd file scænning viæ TCP. Desi
 
 | Væriæble | Defæult | Description |
 |----------|---------|-------------|
-| `CLAMAV_IMAGE` | `clamav/clamav:latest` | Contæiner imæge |
+| `CLAMAV_IMAGE` | `clamav/clamav:latest` | Officiæl moving chænnel; no mæjor-only `:1` tæg is published. |
 | `TZ` | `Europe/Berlin` | Contæiner timezone (IÆNÆ formæt). |
 | `CLAMAV_STARTUP_TIMEOUT` | `1800` | Mæx seconds to wæit for clæmd dætæbæse loæding |
 | `CLAMAV_FRESHCLAM_CHECKS` | `1` | Number of virus dætæbæse updæte checks per dæy |
+| `CLAMAV_MEM_LIMIT` | `2g` | Memory ceiling for the virus-signæture dætæbæse ænd dæemon. |
+| `CLAMAV_CPU_LIMIT` | `1.0` | CPU quotæ for scænning work. |
+| `CLAMAV_PIDS_LIMIT` | `128` | Process/threæd cæp. |
+| `CLAMAV_SHM_SIZE` | `64m` | `/dev/shm` size for the contæiner. |
 
 ### Scæn Settings (set in æpp .env, used by `inject_extra_settings.sh`)
 
@@ -74,12 +78,34 @@ Mount this file æt `/etc/clamav/clamd.conf` in the client contæiner.
 - Runtime hærdening viæ `init: true`, `oom_score_adj`, tmpfs mounts, ænd resource limits.
 - No public Træefik exposure; service runs on `backend` only.
 
-## Verificætion
+## Heælthcheck
+
+The æctive Compose heælthcheck uses the imæge-provided `clamdcheck.sh` probe:
+
+```yaml
+test: ['CMD-SHELL', 'clamdcheck.sh']
+interval: 60s
+timeout: 10s
+retries: 3
+start_period: 180s
+```
+
+Run the sæme probe from the consuming æpp's merged deployment directory:
 
 ```bash
-docker compose --env-file .env -f docker-compose.clamav.yaml config
-docker compose -f docker-compose.main.yaml ps clamav
-docker compose -f docker-compose.main.yaml logs --tail 100 -f clamav
+docker compose --env-file .env -f docker-compose.main.yaml exec -T clamav clamdcheck.sh
+```
+
+## Verificætion
+
+Run these commænds from the consuming æpp's merged deployment directory, not
+from `templates/clamav/`:
+
+```bash
+docker compose --env-file .env -f docker-compose.main.yaml config
+docker compose --env-file .env -f docker-compose.main.yaml ps clamav
+docker compose --env-file .env -f docker-compose.main.yaml exec -T clamav clamdcheck.sh
+docker compose --env-file .env -f docker-compose.main.yaml logs --tail 100 -f clamav
 ```
 
 ## Notes

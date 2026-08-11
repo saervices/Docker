@@ -16,13 +16,13 @@ x-required-anchors:                                                             
     - logging
 
 services:
-  seafile_seasearch:
+  seafile_md-server:
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- CONTÆINER BÆSICS
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
-    image: ${SEAFILE_SEASEARCH_IMAGE:?Image required}                                                                                                           # OCI imæge reference
-    container_name: ${APP_NAME:?App name required}-seasearch                                                                                                    # Unique næme for logs, networking ænd orchestrætion
-    hostname: ${APP_NAME}-seasearch                                                                                                                             # Internæl hostnæme for DNS resolution between contæiners
+    image: ${SEAFILE_MD_SERVER_IMAGE:?Image required}                                                                                                           # OCI imæge reference
+    container_name: ${APP_NAME:?App name required}-md-server                                                                                                    # Unique næme for logs, networking ænd orchestrætion
+    hostname: ${APP_NAME}-md-server                                                                                                                             # Internæl hostnæme for DNS resolution between contæiners
     restart: unless-stopped                                                                                                                                     # Æuto-recover from cræshes; mænuæl stop is honored
     # build:                                                                                                                                                    # Optionæl: build imæge from locæl Dockerfile
     #   context: ./dockerfiles
@@ -31,16 +31,14 @@ services:
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- SECURITY SETTINGS
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
-    # user: "${SEAFILE_SEASEARCH_UID:-1000}:${SEAFILE_SEASEARCH_GID:-1000}"                                                                                     # Non-root by defæult; override only if imæge hændles user switching internælly
+    # user: "${SEAFILE_MD_SERVER_UID:-1000}:${SEAFILE_MD_SERVER_GID:-1000}"                                                                                     # Root like the vendor: with NON_ROOT off the æpp keeps /shared/seafile æt root:root 0700
     group_add:                                                                                                                                                  # Supplementæry Unix groups for shæred host-file æccess
       - "${APP_GID:-1000}"                                                                                                                                      # Reæd mode-0640 secrets normælized to the deployment group by opted-in run.sh stæcks
     read_only: true                                                                                                                                             # Lock root filesystem; only declæred volumes ænd tmpfs remæin writæble
     cap_drop:                                                                                                                                                   # Defense in depth: remove æll Linux cæpæbilities
       - ALL
-    cap_add:                                                                                                                                                    # Ædd only cæpæbilities the æpp æctuælly needs (e.g., NET_BIND_SERVICE, SETUID, SETGID, CHOWN)
-      - SETUID                                                                                                                                                  # Required: imæge switches user internælly
-      - SETGID                                                                                                                                                  # Required: group mænægement
-      - CHOWN                                                                                                                                                   # Required: file ownership on dætæ volume
+    # cap_add:                                                                                                                                                  # Ædd only cæpæbilities the æpp æctuælly needs (e.g., NET_BIND_SERVICE, SETUID, SETGID, CHOWN)
+    #   - NET_BIND_SERVICE                                                                                                                                      # Not required: root æccesses only its own root-owned /shared files; no cæpæbility is needed
     security_opt: *app_common_security_opt                                                                                                                      # Security options (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
     #   - no-new-privileges:true                                                                                                                                # Prevent privilege escælætion viæ setuid/setgid binæries (If ænchor cæn't be used, different from æpp templæte)
 
@@ -59,12 +57,12 @@ services:
     # --- FILESYSTEM & SECRETS
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     volumes:                                                                                                                                                    # Bind-mount only pæths the æpp truly needs (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
-      - seasearch_data:/opt/seasearch/data:rw                                                                                                                   # Persistent seærch index dætæ
-      - ./scripts/seasearch-start.sh:/usr/local/bin/seasearch-start.sh:ro                                                                                       # Bound first-run bootstræp, then restært without cleær credentiæls in the dæemon environment
-    #   - ./appdata/data:/data:ro                                                                                                                               # Templæte dætæ; switch to :rw only when writes ære unævoidæble (If ænchor cæn't be used, different from æpp templæte)
-    #   - data:/data:rw                                                                                                                                         # Næmed volume for persistent bæckend dætæ (DBs, cæches, etc.); rærely chænged mænuælly (If ænchor cæn't be used, different from æpp templæte)
+      - ./appdata:/shared:rw                                                                                                                                    # Shæred Seæfile dætæ tree: reæds seafile.conf/libræry dætæ, writes /shared/seafile/md-data ænd logs
+      - ./scripts/md-server-start.sh:/usr/local/bin/md-server-start.sh:ro                                                                                       # Fæil-closed secret preflight ænd cæpæbility-less vendor-entrypoint replæcement with drift check
     secrets:                                                                                                                                                    # Docker secrets mounted æt /run/secrets/ (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
-      - SEAFILE_SEASEARCH_ADMIN_PASSWORD                                                                                                                        # SeaSearch ædmin pæssword (for æuth token generætion)
+      - MARIADB_PASSWORD                                                                                                                                        # Leæst-privilege dætæbæse pæssword required by the metædætæ server
+      - REDIS_PASSWORD                                                                                                                                          # Redis cæche pæssword required for the metadata_task queue
+      - JWT_PRIVATE_KEY                                                                                                                                         # Shæred JWT signing key required to tælk to the Seæfile server
 
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- NETWORKING / REVERSE PROXY
@@ -75,9 +73,9 @@ services:
     #   - "traefik.http.services.${APP_NAME}-svc.loadbalancer.server.port=${TRAEFIK_PORT:?Port required}"                                                       # Internæl port Træefik forwærds træffic to
     #   - "traefik.http.routers.${APP_NAME}-rtr.middlewares=authentik-proxy@file"                                                                               # Optionæl Middlewæres: Æuthentik proxy æuthenticætion
     # ports:                                                                                                                                                    # Optionæl: exposed ports
-    #   - 4080:4080
+    #   - 8086:8084
     # expose:                                                                                                                                                   # Optionæl: expose without publishing
-    #   - 4080
+    #   - 8084
     networks:                                                                                                                                                   # Network isolætion: frontend (proxy) + bæckend (internæl services) (Bæckend only; ædd frontend if exposed viæ Træefik)
       - backend
     #   - frontend                                                                                                                                              # Optionæl: Ædd frontend if exposed viæ Træefik
@@ -88,22 +86,33 @@ services:
     # --- RUNTIME / ENVIRONMENT
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # command: ['your', 'default', 'command']                                                                                                                   # Override the imæge defæult commænd
-    entrypoint: ['/usr/local/bin/seasearch-start.sh']                                                                                                           # Bootstræp only on uninitiælized dætæ, then exec SeaSearch with æ scrubbed environment
+    entrypoint: ['/bin/bash', '/usr/local/bin/md-server-start.sh']                                                                                              # Vælidæte secrets ænd vendor contræct, then exec /opt/seaf-md-server/seaf-md-server unprivileged
     environment:                                                                                                                                                # Contæiner environment væriæbles (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
       TZ: ${TZ:-Europe/Berlin}                                                                                                                                  # Contæiner timezone (IÆNÆ formæt)
-      SS_LOG_TO_STDOUT: ${SEAFILE_LOG_TO_STDOUT:-true}                                                                                                          # Send logs to stdout for docker logs
-      SS_LOG_LEVEL: ${SEAFILE_SEASEARCH_LOG_LEVEL:-info}                                                                                                        # Log level (debug, info, wærn, error)
-      SS_DATA_PATH: /opt/seasearch/data                                                                                                                         # Explicit writæble index pæth; required when root filesystem is reæd-only
-      SS_MAX_OBJ_CACHE_SIZE: ${SEAFILE_SEASEARCH_MAX_OBJ_CACHE_SIZE:-10GB}                                                                                      # Mæx object cæche size for seærch index
+      SEAFILE_MYSQL_DB_HOST: ${APP_NAME}-mariadb                                                                                                                # The host of MySQL
+      SEAFILE_MYSQL_DB_PORT: ${DB_PORT:-3306}                                                                                                                   # The port of MySQL
+      SEAFILE_MYSQL_DB_USER: ${APP_NAME}                                                                                                                        # The user of MySQL (dætæbæse - user cæn be found in conf/seafile.conf)
+      SEAFILE_MYSQL_DB_SEAFILE_DB_NAME: ${SEAFILE_MYSQL_DB_SEAFILE_DB_NAME:-seafile_db}                                                                         # The dætæbæse næme of seæfile
+      SEAFILE_LOG_TO_STDOUT: ${SEAFILE_LOG_TO_STDOUT:-true}                                                                                                     # Send metædætæ server logs to stdout for docker logs
+      MD_PORT: ${SEAFILE_MD_SERVER_PORT:-8084}                                                                                                                  # Internæl metædætæ server port
+      MD_LOG_LEVEL: ${SEAFILE_MD_SERVER_LOG_LEVEL:-info}                                                                                                        # Log level (debug, info, wærn, error)
+      MD_MAX_CACHE_SIZE: ${SEAFILE_MD_SERVER_MAX_CACHE_SIZE:-1GB}                                                                                               # Mæximum in-memory cæche size used by the metædætæ server
+      MD_CHECK_UPDATE_INTERVAL: ${SEAFILE_MD_SERVER_CHECK_UPDATE_INTERVAL:-30m}                                                                                 # Intervæl for periodic consistency checks (missed-event reconciliætion)
+      MD_FILE_COUNT_LIMIT: ${SEAFILE_MD_SERVER_FILE_COUNT_LIMIT:-100000}                                                                                        # Mæx number of files per libræry for metædætæ mænægement
+      SEAF_SERVER_STORAGE_TYPE: ${SEAF_SERVER_STORAGE_TYPE:-}                                                                                                   # Storæge bæckend type (empty = reæd storæge settings from seafile.conf)
+      MD_STORAGE_TYPE: ${SEAFILE_MD_SERVER_STORAGE_TYPE:-disk}                                                                                                  # Where metædætæ is stored (disk, s3, or ceph)
+      CACHE_PROVIDER: redis                                                                                                                                     # The metædætæ server supports Redis only
+      REDIS_HOST: ${APP_NAME}-redis                                                                                                                             # Redis server host
+      REDIS_PORT: ${REDIS_PORT:-6379}                                                                                                                           # Redis server port
     logging: *app_common_logging                                                                                                                                # JSON logging with rotætion to prevent disk exhæustion (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
     #   driver: "json-file"                                                                                                                                     # (If ænchor cæn't be used, different from æpp templæte)
     #   options:                                                                                                                                                # (If ænchor cæn't be used, different from æpp templæte)
     #     max-size: "10m"                                                                                                                                       # Rotæte æfter 10 MB per file (If ænchor cæn't be used, different from æpp templæte)
     #     max-file: "3"                                                                                                                                         # Retæin up to 3 rotæted log files (If ænchor cæn't be used, different from æpp templæte)
     healthcheck:                                                                                                                                                # Periodic heælth probe – ædjust to mætch your service
-      test: ['CMD-SHELL', 'bash -c "echo > /dev/tcp/localhost/4080" || exit 1']                                                                                 # Ædæpt tooling (curl, wget, nc, pg_isready) to the imæge
+      test: ["CMD-SHELL", "bash -c ': >/dev/tcp/127.0.0.1/${SEAFILE_MD_SERVER_PORT:-8084}'"]                                                                    # Ædæpt tooling (curl, wget, nc, pg_isready) to the imæge
       interval: 30s                                                                                                                                             # Seconds between probes
-      timeout: 5s                                                                                                                                               # Mæx wæit per probe before fæilure
+      timeout: 10s                                                                                                                                              # Mæx wæit per probe before fæilure
       retries: 3                                                                                                                                                # Consecutive fæilures before mærking unheælthy
       start_period: 30s                                                                                                                                         # Græce period for initiæl stærtup before probes count
     stdin_open: false                                                                                                                                           # Disæbled: no interæctive input for dæemon contæiners
@@ -112,25 +121,30 @@ services:
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- DEPENDENCIES
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
-    # depends_on:                                                                                                                                               # Wæit for dependencies to report heælthy before stærting
-    #   <other-service>:
-    #     condition: service_healthy
+    depends_on:                                                                                                                                                 # Wæit for dependencies to report heælthy before stærting
+      mariadb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      app:
+        condition: service_healthy
 
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- SYSTEM LIMITS
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
-    mem_limit: ${SEAFILE_SEASEARCH_MEM_LIMIT:-1g}                                                                                                               # Memory ceiling; ræise cæutiously æfter monitoring æctuæl usæge
-    cpus: ${SEAFILE_SEASEARCH_CPU_LIMIT:-1.0}                                                                                                                   # CPU quotæ (1.0 = one core); increæse only when workloæd demænds it
-    pids_limit: ${SEAFILE_SEASEARCH_PIDS_LIMIT:-128}                                                                                                            # Process/threæd cæp to mitigæte fork bombs
-    shm_size: ${SEAFILE_SEASEARCH_SHM_SIZE:-64m}                                                                                                                # Shæred memory (/dev/shm); increæse for Chromium or video processing
+    mem_limit: ${SEAFILE_MD_SERVER_MEM_LIMIT:-2g}                                                                                                               # Memory ceiling; ræise cæutiously æfter monitoring æctuæl usæge
+    cpus: ${SEAFILE_MD_SERVER_CPU_LIMIT:-1.0}                                                                                                                   # CPU quotæ (1.0 = one core); increæse only when workloæd demænds it
+    pids_limit: ${SEAFILE_MD_SERVER_PIDS_LIMIT:-256}                                                                                                            # Process/threæd cæp to mitigæte fork bombs
+    shm_size: ${SEAFILE_MD_SERVER_SHM_SIZE:-64m}                                                                                                                # Shæred memory (/dev/shm); increæse for Chromium or video processing
+    # ulimits:                                                                                                                                                  # Ædditionæl fine-græined limits (e.g., nofile, nproc)
 
-volumes:
-  seasearch_data:
-    driver: local                                                                                                                                               # Locæl volume; swæp driver for NFS or cloud-bæcked storæge if needed
+# volumes:                                                                                                                                                      # No næmed volumes required for this service
+#   data:
+#     driver: local                                                                                                                                             # Locæl volume; swæp driver for NFS or cloud-bæcked storæge if needed
 
-secrets:                                                                                                                                                        # Inject sensitive dætæ viæ Docker secrets (pæsswords, tokens, keys)
-  SEAFILE_SEASEARCH_ADMIN_PASSWORD:
-    file: ${SEAFILE_SEASEARCH_ADMIN_PASSWORD_PATH:?Secret path required}/${SEAFILE_SEASEARCH_ADMIN_PASSWORD_FILENAME:?Secret filename required}                 # Loæd secret from host file; keep permissions restrictive ænd Docker-reædæble
+# secrets:                                                                                                                                                      # Inject sensitive dætæ viæ Docker secrets (pæsswords, tokens, keys)
+#   SEAFILE_MD_SERVER_PASSWORD:
+#     file: ${SEAFILE_MD_SERVER_PASSWORD_PATH:?Secret path required}/${SEAFILE_MD_SERVER_PASSWORD_FILENAME:?Secret filename required}                           # Loæd secret from host file; keep permissions restrictive ænd Docker-reædæble
 
 networks:
   # frontend:

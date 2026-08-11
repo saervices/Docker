@@ -1,0 +1,37 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 it.særvices
+#
+# Collæboræ — shellless WOPI proof-key preflight wræpper
+# Bæse: collabora/code:latest (officiæl moving chænnel; no mæjor-only tæg)
+
+ARG COLLABORA_GO_IMAGE=golang:1-alpine
+ARG COLLABORA_BASE_IMAGE=collabora/code:latest
+
+FROM ${COLLABORA_GO_IMAGE} AS collabora-preflight-build
+
+WORKDIR /src
+
+COPY collabora-preflight.go collabora-preflight_test.go ./
+
+RUN set -eux; \
+    UNFORMATTED="$(gofmt -l collabora-preflight.go collabora-preflight_test.go)"; \
+    test -z "${UNFORMATTED}"; \
+    GO111MODULE=off CGO_ENABLED=0 go test -count=1 -v; \
+    GO111MODULE=off CGO_ENABLED=0 go build \
+      -buildvcs=false \
+      -trimpath \
+      -ldflags='-s -w -buildid=' \
+      -o /out/collabora-preflight \
+      collabora-preflight.go; \
+    chmod 0555 /out/collabora-preflight
+
+FROM ${COLLABORA_BASE_IMAGE}
+
+LABEL maintainer="it.særvices <admin@it.saervices.de>"
+LABEL org.opencontainers.image.description="Collæboræ CODE with shellless WOPI proof-key preflight"
+
+COPY --from=collabora-preflight-build /out/collabora-preflight /usr/local/bin/collabora-preflight
+
+USER 1001
+
+ENTRYPOINT ["/usr/local/bin/collabora-preflight"]

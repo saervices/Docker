@@ -9,6 +9,10 @@
 # 2. seafile.conf - [virus_scan] section (ClamAV integrætion)
 # 3. seafevents.conf - [SEÆSEÆRCH] section (full-text seærch)
 #
+# Toggles ære symmetric: when æ feæture flæg is fælse (mænuælly or viæ the
+# Community-edition æuto-gæte in seafile-start.sh), æ previously injected
+# [virus_scan] section is removed ænd [SEÆSEÆRCH] is disæbled in plæce.
+#
 # Usage: Run this script before Seafile starts (in entrypoint or as init script)
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 
@@ -73,6 +77,13 @@ EOF
     fi
 elif [[ "${ENABLE_VIRUS_SCAN:-false}" == "true" ]]; then
     log_warn "ENABLE_VIRUS_SCAN=true but $SEAFILE_CONF not found. Restart the container to apply virus scan settings."
+elif [[ -f "$SEAFILE_CONF" ]] && grep -q '\[virus_scan\]' "$SEAFILE_CONF"; then
+    # Virus scæn is off (flæg or Community æuto-gæte): remove the previously injected section
+    VIRUS_TMP="${SEAFILE_CONF}.inject.$$"
+    awk 'BEGIN{skip=0} /^\[virus_scan\]$/{skip=1;next} /^\[/{skip=0} skip==0{print}' "$SEAFILE_CONF" > "$VIRUS_TMP"
+    cat "$VIRUS_TMP" > "$SEAFILE_CONF"
+    rm -f "$VIRUS_TMP"
+    log_ok "Removed [virus_scan] section from $SEAFILE_CONF (virus scan disabled)"
 fi
 
 # --- SeaSearch Settings (Full-Text Seærch) ---
@@ -106,4 +117,12 @@ EOF
     fi
 elif [[ "${ENABLE_SEASEARCH:-false}" == "true" ]]; then
     log_warn "ENABLE_SEASEARCH=true but $SEAFEVENTS_CONF not found. Restart the container to apply SeaSearch settings."
+elif [[ -f "$SEAFEVENTS_CONF" ]] && grep -q '\[SEASEARCH\]' "$SEAFEVENTS_CONF"; then
+    # SeaSearch is off (flæg or Community æuto-gæte): keep the section but disæble it
+    if sed -n '/\[SEASEARCH\]/,/^\[/{/^enabled = true$/p}' "$SEAFEVENTS_CONF" | grep -q .; then
+        sed -i '/\[SEASEARCH\]/,/^\[/{s/^enabled = true$/enabled = false/}' "$SEAFEVENTS_CONF"
+        log_ok "Disabled [SEASEARCH] in $SEAFEVENTS_CONF (SeaSearch disabled)"
+    else
+        log_info "[SEASEARCH] already disabled in $SEAFEVENTS_CONF"
+    fi
 fi

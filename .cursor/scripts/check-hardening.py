@@ -33,6 +33,7 @@ ALLOW_MISSING_READ_ONLY = {
     ("Seafile/docker-compose.app.yaml", "app"),
     ("templates/collabora/docker-compose.collabora.yaml", "collabora"),
     ("templates/seafile_seadoc-server/docker-compose.seafile_seadoc-server.yaml", "seafile_seadoc-server"),
+    ("templates/seafile_thumbnail-server/docker-compose.seafile_thumbnail-server.yaml", "seafile_thumbnail-server"),
 }
 
 HIGH_RISK_CAPS = {"SYS_ADMIN", "SYS_MODULE", "SYS_PTRACE", "NET_ADMIN", "DAC_OVERRIDE"}
@@ -1393,11 +1394,13 @@ def has_cap_drop_all(service: dict[str, Any]) -> bool:
 def is_read_only_exception(path_rel: str, service_name: str) -> bool:
     if (path_rel, service_name) in ALLOW_MISSING_READ_ONLY:
         return True
-    if path_rel == "Seafile/docker-compose.main.yaml" and service_name in {"app", "collabora", "seafile_seadoc-server"}:
+    if path_rel == "Seafile/docker-compose.main.yaml" and service_name in {"app", "collabora", "seafile_seadoc-server", "seafile_thumbnail-server"}:
         return True
     if path_rel.endswith("/docker-compose.collabora.yaml") and service_name == "collabora":
         return True
     if path_rel.endswith("/docker-compose.seafile_seadoc-server.yaml") and service_name == "seafile_seadoc-server":
+        return True
+    if path_rel.endswith("/docker-compose.seafile_thumbnail-server.yaml") and service_name == "seafile_thumbnail-server":
         return True
     return False
 

@@ -39,10 +39,23 @@ http:
         {{- if env "TRAEFIK_ROUTE_DOMAIN_1" }} || Host(`seafile.{{env "TRAEFIK_ROUTE_DOMAIN_1"}}`){{ end }}
         {{- if env "TRAEFIK_ROUTE_DOMAIN_2" }} || Host(`seafile.{{env "TRAEFIK_ROUTE_DOMAIN_2"}}`){{ end }}
         {{- if env "TRAEFIK_ROUTE_DOMAIN_3" }} || Host(`seafile.{{env "TRAEFIK_ROUTE_DOMAIN_3"}}`){{ end }}
-        {{- if env "TRAEFIK_ROUTE_DOMAIN_4" }} || Host(`seafile.{{env "TRAEFIK_ROUTE_DOMAIN_4"}}`){{ end }}) && (PathPrefix(`/hosting/discovery`) || PathPrefix(`/browser`) || PathPrefix(`/cool`) || PathPrefix(`/lool`) || PathPrefix(`/loleaflet`))
+        {{- if env "TRAEFIK_ROUTE_DOMAIN_4" }} || Host(`seafile.{{env "TRAEFIK_ROUTE_DOMAIN_4"}}`){{ end }}) && (PathPrefix(`/hosting/discovery`) || PathPrefix(`/hosting/capabilities`) || PathPrefix(`/browser`) || PathPrefix(`/cool`) || PathPrefix(`/lool`) || PathPrefix(`/loleaflet`))
       priority: 200                                                                                                                                             # Explicit Collæboræ priority; must exceed generic router priority 10
       # Forwærd Collabora/WOPI requests to its dedicæted service
       service: seafile-collabora-svc                                                                                                                            # Ædjust the service næme (e.g. [HOSTNÆME]-svc)
+
+    # Thumbnæil server (Seæfile 13+)
+    seafile-thumbnail-rtr:                                                                                                                                      # Ædjust the router næme (e.g. [HOSTNÆME]-rtr)
+      # Mætch Seæfile hosts ænd the thumbnæil pæth
+      rule: >-                                                                                                                                                  # Ædjust the [HOSTNÆME]
+        (Host(`seafile.{{env "TRAEFIK_ROUTE_DOMAIN"}}`)
+        {{- if env "TRAEFIK_ROUTE_DOMAIN_1" }} || Host(`seafile.{{env "TRAEFIK_ROUTE_DOMAIN_1"}}`){{ end }}
+        {{- if env "TRAEFIK_ROUTE_DOMAIN_2" }} || Host(`seafile.{{env "TRAEFIK_ROUTE_DOMAIN_2"}}`){{ end }}
+        {{- if env "TRAEFIK_ROUTE_DOMAIN_3" }} || Host(`seafile.{{env "TRAEFIK_ROUTE_DOMAIN_3"}}`){{ end }}
+        {{- if env "TRAEFIK_ROUTE_DOMAIN_4" }} || Host(`seafile.{{env "TRAEFIK_ROUTE_DOMAIN_4"}}`){{ end }}) && PathPrefix(`/thumbnail`)
+      priority: 200                                                                                                                                             # Explicit thumbnæil priority; must exceed generic router priority 10
+      # Forwærd thumbnæil requests to the dedicæted thumbnæil server
+      service: seafile-thumbnail-svc                                                                                                                            # Ædjust the service næme (e.g. [HOSTNÆME]-svc)
 
     # SeæDoc document editor
     seafile-seadoc-rtr:                                                                                                                                         # Ædjust the router næme (e.g. [HOSTNÆME]-rtr)
@@ -94,3 +107,10 @@ http:
         servers:
           # Ædjust the IP to your Seæfile server
           - url: "http://192.168.10.110:8084/"                                                                                                                  # Ædjust the url to your æpplicætion
+
+    # Thumbnæil server (contæiner port 80, remæpped to host port 8085)
+    seafile-thumbnail-svc:                                                                                                                                      # Ædjust the service næme to mætch the service næme æbove
+      loadBalancer:
+        servers:
+          # Ædjust the IP to your Seæfile server
+          - url: "http://192.168.10.110:8085/"                                                                                                                  # Ædjust the url to your æpplicætion

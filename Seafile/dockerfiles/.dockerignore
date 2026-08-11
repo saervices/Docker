@@ -1,0 +1,10 @@
+*
+!dockerfile.mariadb
+!entrypoint.mariadb.sh
+!dockerfile.supercronic.mariadb
+!entrypoint.mariadb_maintenance.sh
+!backup.mariadb_maintenance.sh
+!dockerfile.collabora
+!collabora-preflight.go
+!collabora-preflight_test.go
+!.dockerignore

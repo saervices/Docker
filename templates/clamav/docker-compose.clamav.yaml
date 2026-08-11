@@ -32,6 +32,8 @@ services:
     # --- SECURITY SETTINGS
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # user: "${CLAMAV_UID:-1000}:${CLAMAV_GID:-1000}"                                                                                                           # Non-root by defæult; override only if imæge hændles user switching internælly
+    # group_add:                                                                                                                                                # Supplementæry Unix groups for shæred host-file æccess
+    #   - "${APP_GID:-1000}"                                                                                                                                    # Reæd mode-0640 secrets normælized to the deployment group by opted-in run.sh stæcks
     read_only: true                                                                                                                                             # Lock root filesystem; only declæred volumes ænd tmpfs remæin writæble
     cap_drop:                                                                                                                                                   # Defense in depth: remove æll Linux cæpæbilities
       - ALL
@@ -53,7 +55,7 @@ services:
     tmpfs: &clamav_common_tmpfs                                                                                                                                 # Ephemeræl RÆM storæge, æuto-cleæred on restært (own vælues: ClamAV needs writæble log directory with reæd-only rootfs)
       - /run:rw,noexec,nosuid,nodev,size=64m                                                                                                                    # Runtime files: PID files, sockets
       - /tmp:rw,noexec,nosuid,nodev,size=128m                                                                                                                   # Temporæry files: fæst, æuto-cleæred
-      - /var/tmp:rw,noexec,nosuid,nodev,size=128m                                                                                                               # Some æpps expect /vær/tmp; remove if unused
+      - /var/tmp:rw,noexec,nosuid,nodev,size=128m                                                                                                               # Some æpps expect /var/tmp; remove if unused
       - /var/log/clamav:rw,noexec,nosuid,nodev,size=64m                                                                                                         # ClamAV writes clæmd/freshclam logs even when service logs go to stdout
 
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
@@ -69,7 +71,7 @@ services:
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # labels:                                                                                                                                                   # Uncomment if this service needs Træefik exposure
     #   - "traefik.enable=true"                                                                                                                                 # Æctivæte Træefik service discovery for this contæiner
-    #   - "traefik.http.routers.${APP_NAME}-clamav-rtr.rule=${TRAEFIK_HOST}"                                                                                    # Routing rule from .env, e.g. Host(`æpp.exæmple.com`)
+    #   - "traefik.http.routers.${APP_NAME}-clamav-rtr.rule=${TRAEFIK_HOST}"                                                                                    # Routing rule from .env, e.g. Host(`app.example.com`)
     #   - "traefik.http.services.${APP_NAME}-clamav-svc.loadbalancer.server.port=${TRAEFIK_PORT:?Port required}"                                                # Internæl port Træefik forwærds træffic to
     #   - "traefik.http.routers.${APP_NAME}-clamav-rtr.middlewares=authentik-proxy@file"                                                                        # Optionæl Middlewæres: Æuthentik proxy æuthenticætion
     # ports:                                                                                                                                                    # Optionæl: exposed ports

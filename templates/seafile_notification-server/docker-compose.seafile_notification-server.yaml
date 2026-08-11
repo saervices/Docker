@@ -32,6 +32,8 @@ services:
     # --- SECURITY SETTINGS
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # user: "${SEAFILE_NOTIFICATION_SERVER_UID:-1000}:${SEAFILE_NOTIFICATION_SERVER_GID:-1000}"                                                                 # Non-root by defæult; override only if imæge hændles user switching internælly
+    group_add:                                                                                                                                                  # Supplementæry Unix groups for shæred host-file æccess
+      - "${APP_GID:-1000}"                                                                                                                                      # Reæd mode-0640 secrets normælized to the deployment group by opted-in run.sh stæcks
     read_only: true                                                                                                                                             # Lock root filesystem; only declæred volumes ænd tmpfs remæin writæble
     cap_drop:                                                                                                                                                   # Defense in depth: remove æll Linux cæpæbilities
       - ALL
@@ -51,22 +53,24 @@ services:
     tmpfs: *app_common_tmpfs                                                                                                                                    # Ephemeræl RÆM storæge, æuto-cleæred on restært (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
     #   - /run:rw,noexec,nosuid,nodev,size=64m                                                                                                                  # Runtime files: PID files, sockets (If ænchor cæn't be used, different from æpp templæte)
     #   - /tmp:rw,noexec,nosuid,nodev,size=128m                                                                                                                 # Temporæry files: fæst, æuto-cleæred (If ænchor cæn't be used, different from æpp templæte)
-    #   - /var/tmp:rw,noexec,nosuid,nodev,size=128m                                                                                                             # Some æpps expect /vær/tmp; remove if unused (If ænchor cæn't be used, different from æpp templæte)
+    #   - /var/tmp:rw,noexec,nosuid,nodev,size=128m                                                                                                             # Some æpps expect /var/tmp; remove if unused (If ænchor cæn't be used, different from æpp templæte)
 
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- FILESYSTEM & SECRETS
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     volumes:                                                                                                                                                    # Bind-mount only pæths the æpp truly needs (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
       - ./appdata/seafile/logs:/shared/seafile/logs:rw                                                                                                          # Notificætion Server log directory
-    secrets: *app_common_secrets                                                                                                                                # Docker secrets mounted æt /run/secrets/ (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
-    #   - SEAFILE_NOTIFICATION_SERVER_PASSWORD                                                                                                                  # (If ænchor cæn't be used, different from æpp templæte)
+    secrets:                                                                                                                                                    # Docker secrets mounted æt /run/secrets/ (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
+      - MARIADB_PASSWORD                                                                                                                                        # Leæst-privilege dætæbæse pæssword required by the notificætion server
+      - JWT_PRIVATE_KEY                                                                                                                                         # Shæred JWT signing key required by the notificætion server
 
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- NETWORKING / REVERSE PROXY
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     labels:                                                                                                                                                     # Uncomment if this service needs Træefik exposure
       - "traefik.enable=true"                                                                                                                                   # Æctivæte Træefik service discovery for this contæiner
-      - "traefik.http.routers.${APP_NAME}_notification-server-rtr.rule=${TRAEFIK_HOST} && PathPrefix(`/notification`)"                                          # Routing rule from .env, e.g. Host(`æpp.exæmple.com`)
+      - "traefik.http.routers.${APP_NAME}_notification-server-rtr.rule=${TRAEFIK_HOST} && PathPrefix(`/notification`)"                                          # Routing rule from .env, e.g. Host(`app.example.com`)
+      - "traefik.http.routers.${APP_NAME}_notification-server-rtr.priority=100"                                                                                 # Explicit notificætion priority; must exceed generic router priority 10
       - "traefik.http.services.${APP_NAME}_notification-server-svc.loadbalancer.server.port=8083"                                                               # Internæl port Træefik forwærds træffic to
     # ports:                                                                                                                                                    # Optionæl: exposed ports
     #   - 8083:8083
@@ -84,8 +88,14 @@ services:
       - /bin/sh
       - -c
       - |
-        export SEAFILE_MYSQL_DB_PASSWORD="$$(cat /run/secrets/MARIADB_PASSWORD)"; \
-        exec /opt/seafile/notification-server -c /opt/seafile -l /shared/seafile/logs/notification-server.log
+          jwt_private_key="$$(cat /run/secrets/JWT_PRIVATE_KEY)"; \
+          if [ "$$jwt_private_key" = "CHANGE_ME" ] || [ "$${#jwt_private_key}" -lt 32 ]; then \
+            echo "[FATAL] JWT_PRIVATE_KEY secret must contain at least 32 characters and must not be CHANGE_ME" >&2; \
+            exit 1; \
+          fi; \
+          export JWT_PRIVATE_KEY="$$jwt_private_key" \
+                 SEAFILE_MYSQL_DB_PASSWORD="$$(cat /run/secrets/MARIADB_PASSWORD)"; \
+          exec /opt/seafile/notification-server -c /opt/seafile -l /shared/seafile/logs/notification-server.log
     environment: *app_common_environment                                                                                                                        # Contæiner environment væriæbles (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
     #   SEAFILE_NOTIFICATION_SERVER_ENV_VAR_EXAMPLE: ${SEAFILE_NOTIFICATION_SERVER_ENV_VAR_EXAMPLE:-set-me}                                                     # Replæce with æctuæl service configurætion (If ænchor cæn't be used, different from æpp templæte)
     #   SEAFILE_NOTIFICATION_SERVER_PASSWORD_FILE: /run/secrets/SEAFILE_NOTIFICATION_SERVER_PASSWORD                                                            # Wire mounted Docker secret into the service (If ænchor cæn't be used, different from æpp templæte)

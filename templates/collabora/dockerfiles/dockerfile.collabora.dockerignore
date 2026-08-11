@@ -1,0 +1,5 @@
+*
+!.dockerignore
+!dockerfile.collabora
+!collabora-preflight.go
+!collabora-preflight_test.go
