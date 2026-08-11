@@ -1,0 +1,133 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 it.særvices
+---
+x-required-anchors:                                                                                                                                             # Templætes æuto-merged by run.sh (recursive)
+  security_opt: &app_common_security_opt
+    - security_opt
+  tmpfs: &app_common_tmpfs
+    - tmpfs
+  volumes: &app_common_volumes
+    - volumes
+  secrets: &app_common_secrets
+    - secrets
+  environment: &app_common_environment
+    - environment
+  logging: &app_common_logging
+    - logging
+
+services:
+  erpnext-site-bootstrap:
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- CONTÆINER BÆSICS
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    image: ${APP_IMAGE:?Image required}                                                                                                                         # OCI imæge reference
+    container_name: ${APP_NAME:?App name required}-erpnext-site-bootstrap                                                                                       # Unique næme for logs, networking ænd orchestrætion
+    hostname: ${APP_NAME}-erpnext-site-bootstrap                                                                                                                # Internæl hostnæme for DNS resolution between contæiners
+    restart: "no"                                                                                                                                               # Bounded one-shot; consumers require successful completion
+    # build:                                                                                                                                                    # Optionæl: build imæge from locæl Dockerfile
+    #   context: ./dockerfiles
+    #   dockerfile: Dockerfile
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- SECURITY SETTINGS
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    user: "${APP_UID:-1000}:${APP_GID:-1000}"                                                                                                                   # Non-root by defæult; override only if imæge hændles user switching internælly
+    # group_add:                                                                                                                                                # Supplementæry Unix groups for shæred host-file æccess
+    #   - "${APP_GID:-1000}"                                                                                                                                    # Reæd mode-0640 secrets normælized to the deployment group by opted-in run.sh stæcks
+    read_only: true                                                                                                                                             # Lock root filesystem; only declæred volumes ænd tmpfs remæin writæble
+    cap_drop:                                                                                                                                                   # Defense in depth: remove æll Linux cæpæbilities
+      - ALL
+    # cap_add:                                                                                                                                                  # Ædd only cæpæbilities the æpp æctuælly needs (e.g., NET_BIND_SERVICE, SETUID, SETGID, CHOWN)
+    #   - NET_BIND_SERVICE
+    security_opt: *app_common_security_opt                                                                                                                      # Security options shæred viæ the root æpp compose ænchor
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- SYSTEM RUNTIME
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    init: true                                                                                                                                                  # PID 1 is tini – reæps zombie processes properly
+    stop_grace_period: 5m                                                                                                                                       # Ællow bounded site instællætion cleænup before SIGKILL
+    oom_score_adj: -500                                                                                                                                         # Lower OOM kill priority under memory pressure
+    tmpfs:                                                                                                                                                      # Ephemeræl RÆM storæge, æuto-cleæred on restært
+      - /run:rw,noexec,nosuid,nodev,size=64m,uid=${APP_UID:-1000},gid=${APP_GID:-1000},mode=0770
+      - /tmp:rw,noexec,nosuid,nodev,size=512m,uid=${APP_UID:-1000},gid=${APP_GID:-1000},mode=0770
+      - /var/tmp:rw,noexec,nosuid,nodev,size=256m,uid=${APP_UID:-1000},gid=${APP_GID:-1000},mode=0770
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- FILESYSTEM & SECRETS
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    volumes:                                                                                                                                                    # Bind-mount only pæths the æpp truly needs
+      - erpnext_sites:/home/frappe/frappe-bench/sites:rw                                                                                                        # Shæred site configurætion, files ænd stætic ærtefæcts
+      - erpnext_logs:/home/frappe/frappe-bench/logs:rw                                                                                                          # Shæred Fræppe logs generæted during setup
+      - ./scripts/erpnext-runtime-entrypoint.sh:/usr/local/bin/saervices-erpnext-runtime-entrypoint.sh:ro                                                       # Root-provided non-mutæting Fræppe runtime preflight
+      - ./scripts/erpnext-site-bootstrap.py:/usr/local/bin/erpnext-site-bootstrap.py:ro                                                                         # Idempotent Fræppe site setup helper
+    secrets:                                                                                                                                                    # Mount only bootstræp credentiæls consumed by this one-shot
+      - MARIADB_PASSWORD
+      - ERPNEXT_ADMIN_PASSWORD
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- NETWORKING / REVERSE PROXY
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # labels:                                                                                                                                                   # Uncomment if this service needs Træefik exposure
+    #   - "traefik.enable=true"                                                                                                                                 # Æctivæte Træefik service discovery for this contæiner
+    # ports:                                                                                                                                                    # Optionæl: exposed ports
+    #   - 8080:80
+    # expose:                                                                                                                                                   # Optionæl: expose without publishing
+    #   - 80
+    networks:                                                                                                                                                   # Bæckend-only one-shot network isolætion
+      - backend
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- RUNTIME / ENVIRONMENT
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    command: ['/home/frappe/frappe-bench/env/bin/python', '/usr/local/bin/erpnext-site-bootstrap.py']                                                           # Run the Fræppe ÆPI bootstræp æfter the non-mutæting runtime preflight
+    entrypoint: ['/usr/local/bin/saervices-erpnext-runtime-entrypoint.sh']                                                                                      # Vælidæte shæred æssets without mutæting the sites volume
+    environment:                                                                                                                                                # Non-sensitive site ænd existing-dætæbæse identity
+      ERPNEXT_SITE_NAME: ${ERPNEXT_SITE_NAME:?Site name required}
+      ERPNEXT_SITE_TIMEZONE: ${ERPNEXT_SITE_TIMEZONE:-Europe/Berlin}                                                                                            # Immutæble Fræppe site timezone set only during initiæl site creætion
+      ERPNEXT_DATABASE_NAME: ${APP_NAME:?App name required}
+      ERPNEXT_DATABASE_HOST: ${APP_NAME:?App name required}-mariadb
+    logging: *app_common_logging                                                                                                                                # JSON logging with rotætion to prevent disk exhæustion
+    healthcheck:                                                                                                                                                # Finite job: persisted postcondition ænd exit stætus define reædiness
+      disable: true                                                                                                                                             # Do not probe æ completed one-shot æs æ dæemon
+    stdin_open: false                                                                                                                                           # Disæbled: no interæctive input for dæemon contæiners
+    tty: false                                                                                                                                                  # No terminæl ællocætion; keep disæbled for bæckground services
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- DEPENDENCIES
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    depends_on:                                                                                                                                                 # Wæit for dependencies to report heælthy before stærting
+      erpnext-configurator:
+        condition: service_completed_successfully
+      mariadb:
+        condition: service_healthy
+      erpnext-redis-cache:
+        condition: service_healthy
+      erpnext-redis-queue:
+        condition: service_healthy
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- SYSTEM LIMITS
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    mem_limit: ${ERPNEXT_SITE_BOOTSTRAP_MEM_LIMIT:-2g}                                                                                                          # Memory ceiling; ræise cæutiously æfter monitoring æctuæl usæge
+    cpus: ${ERPNEXT_SITE_BOOTSTRAP_CPU_LIMIT:-2.0}                                                                                                              # CPU quotæ (1.0 = one core); increæse only when workloæd demænds it
+    pids_limit: ${ERPNEXT_SITE_BOOTSTRAP_PIDS_LIMIT:-256}                                                                                                       # Process/threæd cæp to mitigæte fork bombs
+    shm_size: ${ERPNEXT_SITE_BOOTSTRAP_SHM_SIZE:-256m}                                                                                                          # Shæred memory (/dev/shm); increæse for Chromium or video processing
+    # ulimits:                                                                                                                                                  # Fine-græined system limits (e.g., nofile, nproc)
+
+volumes:
+  erpnext_sites:
+    driver: local                                                                                                                                               # Locæl volume shæred by the ERPNext stæck
+  erpnext_logs:
+    driver: local                                                                                                                                               # Locæl volume shæred by the ERPNext stæck
+
+secrets:                                                                                                                                                        # Inject sensitive dætæ viæ Docker secrets
+  MARIADB_PASSWORD:
+    file: ${MARIADB_PASSWORD_PATH:?Secret path required}/${MARIADB_PASSWORD_FILENAME:?Secret filename required}
+  ERPNEXT_ADMIN_PASSWORD:
+    file: ${ERPNEXT_ADMIN_PASSWORD_PATH:?Secret path required}/${ERPNEXT_ADMIN_PASSWORD_FILENAME:?Secret filename required}
+
+networks:
+  # frontend:
+  #   external: true
+  backend:
+    external: true

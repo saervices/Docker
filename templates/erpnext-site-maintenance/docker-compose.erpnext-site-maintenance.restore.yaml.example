@@ -1,0 +1,14 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 it.særvices
+---
+services:
+  erpnext-site-maintenance:
+    restart: "no"                                                                                                                                               # Bounded one-shot restore; successful completion replaces dæemon heælth
+    group_add:                                                                                                                                                  # Restore-only æccess to the mode-0640 MæriæDB root secret
+      - "${APP_GID:-1000}"
+    secrets:                                                                                                                                                    # Restore-only credentiæls; scheduled bæckups mount neither secret
+      - MARIADB_ROOT_PASSWORD
+      - MARIADB_PASSWORD                                                                                                                                        # Current deployment app credentiæl must mætch the selected bundle before mutætion
+    command: ['restore']                                                                                                                                        # Run the explicit bundle restore pæth
+    healthcheck:
+      disable: true                                                                                                                                             # One-shot success is conveyed by exit zero, not æ dæemon probe

@@ -163,6 +163,8 @@ EXPECTED_DEPENDENCIES: dict[str, dict[str, str]] = {
     },
     "erpnext-site-maintenance": {
         "mariadb": "service_healthy",
+        "erpnext-redis-cache": "service_healthy",
+        "erpnext-redis-queue": "service_healthy",
         "erpnext-site-bootstrap": "service_completed_successfully",
         "erpnext-migrator": "service_completed_successfully",
         "erpnext-sso-bootstrap": "service_completed_successfully",
@@ -4656,13 +4658,15 @@ def validate_stack(root: Path) -> ValidationResult:
     contract.expect(
         '[[ -L "${assets_path}" ]]' in runtime_wrapper_source
         and 'readlink -- "${assets_path}"' in runtime_wrapper_source
-        and 'exec "$@"' in runtime_wrapper_source
+        and 'trap forward_termination TERM INT' in runtime_wrapper_source
+        and 'run_supervised "$@"' in runtime_wrapper_source
         and not re.search(
             r"(?:^|[;&|()\s])(?:ln|mv|cp|rm|mkdir|touch|chmod|chown)(?:\s|$)",
             active_runtime_wrapper,
         ),
-        "[entrypoint] root runtime wrapper must only validate the exact assets link "
-        "before exec and never mutate sites/assets",
+        "[entrypoint] root runtime wrapper must only validate the exact assets link, "
+        "supervise the service command for a zero-status SIGTERM shutdown, and "
+        "never mutate sites/assets",
     )
     assets_wrapper_source = _regular_text(
         root
@@ -4689,11 +4693,13 @@ def validate_stack(root: Path) -> ValidationResult:
     )
     contract.expect(
         'ERPNEXT_VENDOR_NGINX_ENTRYPOINT:-/usr/local/bin/nginx-entrypoint.sh' in frontend_source
-        and 'exec "${ERPNEXT_VENDOR_NGINX_ENTRYPOINT}"' in frontend_source
+        and "require_vendor_marker \"nginx -g 'daemon off;'\"" in frontend_source
+        and "exec nginx -g 'daemon off;'" in frontend_source
         and f"require_template_marker '{dangerous_file_location}'"
         in frontend_source,
-        "[entrypoint] frontend wrapper must hand off to the inspected vendor Nginx "
-        "entrypoint and pin the full browser-active download regex",
+        "[entrypoint] frontend wrapper must reject vendor drift, render the "
+        "vendor-equivalent configuration, exec Nginx directly for a zero-status "
+        "SIGTERM shutdown, and pin the full browser-active download regex",
     )
     frontend_volumes = set(_volume_sources(app_service))
     contract.expect(
@@ -4992,9 +4998,25 @@ def validate_stack(root: Path) -> ValidationResult:
         "versions",
     )
     contract.expect(
-        maintenance_values.get("ERPNEXT_SITE_MAINTENANCE_IMAGE")
-        == "frappe/erpnext:v16",
-        "[versions] site-maintenance build must use the moving Frappe v16 base",
+        maintenance_values.get("ERPNEXT_SITE_MAINTENANCE_IMAGE") is None,
+        "[versions] site-maintenance must not actively pin its own Frappe base",
+    )
+    maintenance_env_text = _regular_text(
+        component_roots["erpnext-site-maintenance"] / ".env",
+        contract,
+        "versions",
+    )
+    contract.expect(
+        "# ERPNEXT_SITE_MAINTENANCE_IMAGE=" in maintenance_env_text,
+        "[versions] site-maintenance .env must keep the commented image override",
+    )
+    maintenance_build_args = (
+        services.get("erpnext-site-maintenance", {}).get("build", {}).get("args", {})
+    )
+    contract.expect(
+        maintenance_build_args.get("ERPNEXT_SITE_MAINTENANCE_IMAGE")
+        == "${ERPNEXT_SITE_MAINTENANCE_IMAGE:-${APP_IMAGE:?Image required}}",
+        "[versions] site-maintenance build must default its base to the root APP_IMAGE",
     )
     maintenance_dockerfile = _regular_text(
         component_roots["erpnext-site-maintenance"]
@@ -5632,6 +5654,16 @@ def _negative_cases() -> tuple[NegativeCase, ...]:
             ),
         ),
         yaml_case(
+            "site-maintenance-missing-redis-dependency",
+            "[dependency]",
+            Path(
+                "templates/erpnext-site-maintenance/docker-compose.erpnext-site-maintenance.yaml"
+            ),
+            lambda document: document["services"]["erpnext-site-maintenance"][
+                "depends_on"
+            ].pop("erpnext-redis-queue"),
+        ),
+        yaml_case(
             "admin-secret-in-long-runner",
             "[secrets]",
             Path("templates/erpnext-backend/docker-compose.erpnext-backend.yaml"),
@@ -6223,6 +6255,15 @@ def _negative_cases() -> tuple[NegativeCase, ...]:
                 "[versions]",
                 lambda root: _set_env(
                     _source_env_path(root), "APP_IMAGE", "frappe/erpnext:v16.31.1"
+                ),
+            ),
+            NegativeCase(
+                "site-maintenance-active-image-pin",
+                "[versions]",
+                lambda root: _replace_once(
+                    root / "templates/erpnext-site-maintenance/.env",
+                    "# ERPNEXT_SITE_MAINTENANCE_IMAGE=frappe/erpnext:v16",
+                    "ERPNEXT_SITE_MAINTENANCE_IMAGE=frappe/erpnext:v15",
                 ),
             ),
             NegativeCase(
@@ -6888,8 +6929,17 @@ def _negative_cases() -> tuple[NegativeCase, ...]:
                 "[entrypoint]",
                 lambda root: _replace_once(
                     root / "ERPNext/scripts/erpnext-runtime-entrypoint.sh",
+                    '  run_supervised "$@"',
+                    '  rm -f -- "${assets_path}"\n  run_supervised "$@"',
+                ),
+            ),
+            NegativeCase(
+                "runtime-wrapper-supervision-removed",
+                "[entrypoint]",
+                lambda root: _replace_once(
+                    root / "ERPNext/scripts/erpnext-runtime-entrypoint.sh",
+                    '  run_supervised "$@"',
                     '  exec "$@"',
-                    '  rm -f -- "${assets_path}"\n  exec "$@"',
                 ),
             ),
             NegativeCase(
@@ -7016,12 +7066,21 @@ def _negative_cases() -> tuple[NegativeCase, ...]:
                 ).write_bytes(b"CHANGE_ME\n"),
             ),
             NegativeCase(
-                "frontend-vendor-handoff-removed",
+                "frontend-daemon-handoff-removed",
                 "[entrypoint]",
                 lambda root: _replace_once(
                     root / "ERPNext/scripts/erpnext-frontend.sh",
-                    'exec "${ERPNEXT_VENDOR_NGINX_ENTRYPOINT}"',
+                    "exec nginx -g 'daemon off;'",
                     'exec /bin/false',
+                ),
+            ),
+            NegativeCase(
+                "frontend-vendor-drift-check-removed",
+                "[entrypoint]",
+                lambda root: _replace_once(
+                    root / "ERPNext/scripts/erpnext-frontend.sh",
+                    "  require_vendor_marker \"nginx -g 'daemon off;'\"",
+                    "  true",
                 ),
             ),
         ]

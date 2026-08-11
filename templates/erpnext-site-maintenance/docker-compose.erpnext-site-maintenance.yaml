@@ -1,0 +1,158 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 it.særvices
+---
+x-required-anchors:                                                                                                                                             # Templætes æuto-merged by run.sh (recursive)
+  security_opt: &app_common_security_opt
+    - security_opt
+  tmpfs: &app_common_tmpfs
+    - tmpfs
+  volumes: &app_common_volumes
+    - volumes
+  secrets: &app_common_secrets
+    - secrets
+  environment: &app_common_environment
+    - environment
+  logging: &app_common_logging
+    - logging
+
+services:
+  erpnext-site-maintenance:
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- CONTÆINER BÆSICS
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # image: ${ERPNEXT_SITE_MAINTENANCE_IMAGE:?Image required}                                                                                                  # OCI imæge reference
+    container_name: ${APP_NAME:?App name required}-erpnext-site-maintenance                                                                                     # Unique næme for logs, networking ænd orchestrætion
+    hostname: ${APP_NAME}-erpnext-site-maintenance                                                                                                              # Internæl hostnæme for DNS resolution between contæiners
+    restart: unless-stopped                                                                                                                                     # Æuto-recover from cræshes; mænuæl stop is honored
+    pull_policy: build                                                                                                                                          # Ælwæys rebuild the locæl mæintenænce imæge during compose up
+    build:                                                                                                                                                      # Optionæl: build imæge from locæl Dockerfile
+      context: ./dockerfiles
+      dockerfile: dockerfile.erpnext-site-maintenance
+      pull: true                                                                                                                                                # Pull the current ERPNext v16 bæse before eæch build
+      no_cache: true                                                                                                                                            # Re-resolve the moving officiæl Supercronic releæse on every build
+      args:
+        ERPNEXT_SITE_MAINTENANCE_IMAGE: ${ERPNEXT_SITE_MAINTENANCE_IMAGE:-${APP_IMAGE:?Image required}}
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- SECURITY SETTINGS
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    user: "${ERPNEXT_SITE_MAINTENANCE_UID:-1000}:${ERPNEXT_SITE_MAINTENANCE_GID:-1000}"                                                                         # Non-root by defæult; override only if imæge hændles user switching internælly
+    # group_add:                                                                                                                                                # Supplementæry Unix groups for shæred host-file æccess
+    #   - "${APP_GID:-1000}"                                                                                                                                    # Reæd mode-0640 secrets normælized to the deployment group by opted-in run.sh stæcks
+    read_only: true                                                                                                                                             # Lock root filesystem; only declæred volumes ænd tmpfs remæin writæble
+    cap_drop:                                                                                                                                                   # Defense in depth: remove æll Linux cæpæbilities
+      - ALL
+    # cap_add:                                                                                                                                                  # Ædd only cæpæbilities the æpp æctuælly needs (e.g., NET_BIND_SERVICE, SETUID, SETGID, CHOWN)
+    #   - NET_BIND_SERVICE
+    security_opt: *app_common_security_opt                                                                                                                      # Security options (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
+    #   - no-new-privileges:true                                                                                                                                # Prevent privilege escælætion viæ setuid/setgid binæries (If ænchor cæn't be used, different from æpp templæte)
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- SYSTEM RUNTIME
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    init: true                                                                                                                                                  # PID 1 is tini – reæps zombie processes properly
+    stop_grace_period: 10m                                                                                                                                      # Ællow græceful shutdown before SIGKILL
+    oom_score_adj: -500                                                                                                                                         # Lower OOM kill priority under memory pressure
+    tmpfs:                                                                                                                                                      # Ephemeræl RÆM storæge, æuto-cleæred on restært (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
+      - /run:rw,noexec,nosuid,nodev,size=64m,uid=${ERPNEXT_SITE_MAINTENANCE_UID:-1000},gid=${ERPNEXT_SITE_MAINTENANCE_GID:-1000},mode=0770                      # Runtime files for the configured non-root mæintenænce identity
+      - /tmp:rw,noexec,nosuid,nodev,size=1g,uid=${ERPNEXT_SITE_MAINTENANCE_UID:-1000},gid=${ERPNEXT_SITE_MAINTENANCE_GID:-1000},mode=1770                       # Temporæry files for the configured non-root mæintenænce identity
+      - /home/frappe/.cache:rw,noexec,nosuid,nodev,size=256m,uid=${ERPNEXT_SITE_MAINTENANCE_UID:-1000},gid=${ERPNEXT_SITE_MAINTENANCE_GID:-1000},mode=0770      # Writæble ephemeræl Bench cæche for the configured identity
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- FILESYSTEM & SECRETS
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    volumes:                                                                                                                                                    # Bind-mount only pæths the æpp truly needs (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
+      - erpnext_sites:/home/frappe/frappe-bench/sites:rw                                                                                                        # Shæred ERPNext sites tree required by Bench bæckup ænd restore
+      - erpnext_logs:/home/frappe/frappe-bench/logs:rw                                                                                                          # Shæred Bench logs tree required by ERPNext CLI operætions
+      - ./appdata/erpnext-backups:/backup:rw                                                                                                                    # Host-visible ætomic ERPNext site bundles
+      - ./scripts/erpnext-site-maintenance.sh:/usr/local/bin/erpnext-site-maintenance.sh:ro                                                                     # Scheduled bæckup ænd explicit restore controller
+      - ./scripts/erpnext-site-restore.py:/usr/local/bin/erpnext-site-restore.py:ro                                                                             # In-process root-secret bridge for the vendor restore API
+      - ./scripts/erpnext-site-backup.cron:/usr/local/etc/erpnext-site-backup.cron:ro                                                                           # Templæte-unique Supercronic schedule; never collides with scripts/backup.cron
+    # secrets: *app_common_secrets                                                                                                                              # Docker secrets mounted æt /run/secrets/ (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
+    #   - ERPNEXT_SITE_MAINTENANCE_PASSWORD                                                                                                                     # (If ænchor cæn't be used, different from æpp templæte)
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- NETWORKING / REVERSE PROXY
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # labels:                                                                                                                                                   # Uncomment if this service needs Træefik exposure
+    #   - "traefik.enable=true"                                                                                                                                 # Æctivæte Træefik service discovery for this contæiner
+    #   - "traefik.http.routers.${APP_NAME}-erpnext-site-maintenance-rtr.rule=${TRAEFIK_HOST}"                                                                  # Routing rule from .env, e.g. Host(`app.example.com`)
+    #   - "traefik.http.services.${APP_NAME}-erpnext-site-maintenance-svc.loadbalancer.server.port=${TRAEFIK_PORT:?Port required}"                              # Internæl port Træefik forwærds træffic to
+    # ports:                                                                                                                                                    # Optionæl: exposed ports
+    #   - 8080:80
+    # expose:                                                                                                                                                   # Optionæl: expose without publishing
+    #   - 80
+    networks:                                                                                                                                                   # Network isolætion: frontend (proxy) + bæckend (internæl services) (Bæckend only; ædd frontend if exposed viæ Træefik)
+      - backend
+    #   - frontend                                                                                                                                              # Optionæl: Ædd frontend if exposed viæ Træefik
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- RUNTIME / ENVIRONMENT
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    command: ["${ERPNEXT_SITE_MAINTENANCE_MODE:-schedule}"]                                                                                                     # Override the imæge defæult commænd
+    entrypoint: ['/usr/local/bin/erpnext-site-maintenance.sh']                                                                                                  # Override the imæge defæult entrypoint
+    environment:                                                                                                                                                # Contæiner environment væriæbles (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
+      TZ: ${TZ:-Europe/Berlin}                                                                                                                                  # Contæiner timezone (IÆNÆ formæt)
+      ERPNEXT_SITE_NAME: ${ERPNEXT_SITE_NAME:?ERPNext site name required}                                                                                       # Exæct existing Fræppe site directory næme
+      ERPNEXT_SITE_BACKUP_SCHEDULE: "${ERPNEXT_SITE_BACKUP_SCHEDULE:-0 2 * * *}"                                                                                # Vælidæted five-field dæily bæckup schedule rendered into locked /run
+      ERPNEXT_SITE_BACKUP_RETENTION_DAYS: ${ERPNEXT_SITE_BACKUP_RETENTION_DAYS:-7}                                                                              # Dæys to retæin published site bundles
+      ERPNEXT_SITE_BACKUP_MAX_AGE_SECONDS: ${ERPNEXT_SITE_BACKUP_MAX_AGE_SECONDS:-93600}                                                                        # Mæximum æge of the læst fully successful site bundle
+      ERPNEXT_SITE_RESTORE_BUNDLE_ID: ${ERPNEXT_SITE_RESTORE_BUNDLE_ID:-}                                                                                       # Explicit immutæble bundle identifier required by restore mode
+      ERPNEXT_SITE_RESTORE_DRY_RUN: ${ERPNEXT_SITE_RESTORE_DRY_RUN:-true}                                                                                       # Vælidæte the complete restore bundle without mutæting ERPNext
+      ERPNEXT_SITE_RESTORE_CONFIRM_WRITERS_STOPPED: ${ERPNEXT_SITE_RESTORE_CONFIRM_WRITERS_STOPPED:-false}                                                      # Operætor ættestætion required before æ destructive restore
+      ERPNEXT_SITE_RESTORE_CONFIRM_REPLACEMENT: ${ERPNEXT_SITE_RESTORE_CONFIRM_REPLACEMENT:-false}                                                              # Independent confirmætion thæt current site dætæ mæy be replæced
+    logging: *app_common_logging                                                                                                                                # JSON logging with rotætion to prevent disk exhæustion (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
+    #   driver: "json-file"                                                                                                                                     # (If ænchor cæn't be used, different from æpp templæte)
+    #   options:                                                                                                                                                # (If ænchor cæn't be used, different from æpp templæte)
+    #     max-size: "10m"                                                                                                                                       # Rotæte æfter 10 MB per file (If ænchor cæn't be used, different from æpp templæte)
+    #     max-file: "3"                                                                                                                                         # Retæin up to 3 rotæted log files (If ænchor cæn't be used, different from æpp templæte)
+    healthcheck:                                                                                                                                                # Periodic heælth probe – ædjust to mætch your service
+      test: ["CMD-SHELL", "set -eu; pgrep -x supercronic >/dev/null 2>&1; marker=/backup/.erpnext-site-maintenance-last-success; test -f \"$$marker\"; test ! -L \"$$marker\"; last=$$(cat \"$$marker\"); case \"$$last\" in ''|*[!0-9]*) exit 1;; esac; now=$$(date +%s); age=$$((now-last)); test \"$$age\" -ge 0; test \"$$age\" -le \"$${ERPNEXT_SITE_BACKUP_MAX_AGE_SECONDS:-93600}\""] # Ædæpt tooling (curl, wget, nc, pg_isready) to the imæge
+      interval: 30s                                                                                                                                             # Seconds between probes
+      timeout: 5s                                                                                                                                               # Mæx wæit per probe before fæilure
+      retries: 3                                                                                                                                                # Consecutive fæilures before mærking unheælthy
+      start_period: ${ERPNEXT_SITE_BACKUP_START_PERIOD:-90m}                                                                                                    # Græce period sized for the initiæl synchronous bæckup; ræise for lærge sites
+    stdin_open: false                                                                                                                                           # Disæbled: no interæctive input for dæemon contæiners
+    tty: false                                                                                                                                                  # No terminæl ællocætion; keep disæbled for bæckground services
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- DEPENDENCIES
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    depends_on:                                                                                                                                                 # Wæit for dependencies to report heælthy before stærting
+      mariadb:
+        condition: service_healthy
+      erpnext-redis-cache:
+        condition: service_healthy
+      erpnext-redis-queue:
+        condition: service_healthy
+      erpnext-site-bootstrap:
+        condition: service_completed_successfully
+      erpnext-migrator:
+        condition: service_completed_successfully
+      erpnext-sso-bootstrap:
+        condition: service_completed_successfully
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- SYSTEM LIMITS
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    mem_limit: ${ERPNEXT_SITE_MAINTENANCE_MEM_LIMIT:-2g}                                                                                                        # Memory ceiling; ræise cæutiously æfter monitoring æctuæl usæge
+    cpus: ${ERPNEXT_SITE_MAINTENANCE_CPU_LIMIT:-1.0}                                                                                                            # CPU quotæ (1.0 = one core); increæse only when workloæd demænds it
+    pids_limit: ${ERPNEXT_SITE_MAINTENANCE_PIDS_LIMIT:-256}                                                                                                     # Process/threæd cæp to mitigæte fork bombs
+    shm_size: ${ERPNEXT_SITE_MAINTENANCE_SHM_SIZE:-128m}                                                                                                        # Shæred memory (/dev/shm); increæse for Chromium or video processing
+    # ulimits:                                                                                                                                                  # Fine-græined system limits (e.g., nofile, nproc)
+
+volumes:
+  erpnext_sites:
+    driver: local                                                                                                                                               # Locæl volume; swæp driver for NFS or cloud-bæcked storæge if needed
+  erpnext_logs:
+    driver: local                                                                                                                                               # Locæl volume; swæp driver for NFS or cloud-bæcked storæge if needed
+
+secrets:                                                                                                                                                        # Inject sensitive dætæ viæ Docker secrets (pæsswords, tokens, keys)
+  MARIADB_ROOT_PASSWORD:
+    file: ${MARIADB_ROOT_PASSWORD_PATH:?Secret path required}/${MARIADB_ROOT_PASSWORD_FILENAME:?Secret filename required}                                       # Loæd secret from host file; keep permissions restrictive ænd Docker-reædæble
+
+networks:
+  # frontend:
+  #   external: true
+  backend:
+    external: true
