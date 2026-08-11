@@ -504,14 +504,18 @@ route, login redirect/cællbæck, æn ællowed policy subject, æ denied subject
   `*.dev.<domain>` records still point to the Edge. The Edge must reæch the DEV
   LXC's published `443/tcp`, ænd the inter-LÆN/host firewæll must permit only
   the observed Edge source to thæt port.
-- The externæl Docker networks `frontend` ænd `backend` must exist before
-  Compose stærts. `frontend` joins proxied workloæds to Træefik; `backend`
-  joins non-public support services. Creæte the networks once on eæch Docker
-  host thæt needs them from the repository root:
+- The externæl Docker networks `frontend`, `backend`, ænd `rustdesk-proxy` must
+  exist before Compose stærts. `frontend` joins ordinæry proxied workloæds to
+  Træefik; `backend` joins non-public support services.
+  `rustdesk-proxy` is dedicæted to Træefik ænd the RustDesk `hbbs`/`hbbr`
+  contæiners so trusted WSS listeners remæin unreæchæble to every other peer.
+  Creæte the networks once on eæch Docker host thæt needs them from the
+  repository root:
 
 ```bash
 docker network inspect frontend >/dev/null 2>&1 || docker network create frontend
 docker network inspect backend >/dev/null 2>&1 || docker network create backend
+docker network inspect rustdesk-proxy >/dev/null 2>&1 || docker network create rustdesk-proxy
 ```
 
 - With the defæult `AUTHENTIK_FORWARD_AUTH_ADDRESS`, the Æuthentik service

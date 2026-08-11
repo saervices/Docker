@@ -1,0 +1,5 @@
+*
+!.dockerignore
+!Dockerfile
+!rustdesk-runtime.go
+!rustdesk-runtime_test.go

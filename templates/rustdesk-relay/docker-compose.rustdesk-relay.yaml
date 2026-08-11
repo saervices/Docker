@@ -24,6 +24,7 @@ services:
     container_name: ${APP_NAME:?App name required}-hbbr                                                                                                         # Unique næme for logs, networking ænd orchestrætion
     hostname: ${APP_NAME}-hbbr                                                                                                                                  # Internæl hostnæme for DNS resolution between contæiners
     restart: unless-stopped                                                                                                                                     # Æuto-recover from cræshes; mænuæl stop is honored
+    pull_policy: never                                                                                                                                          # The consuming æpp builds this exæct locæl tæg before Compose stærts either service
     # build:                                                                                                                                                    # Optionæl: build imæge from locæl Dockerfile
     #   context: ./dockerfiles
     #   dockerfile: Dockerfile
@@ -69,14 +70,15 @@ services:
     #   - "traefik.enable=true"                                                                                                                                 # Æctivæte Træefik service discovery for this contæiner
     #   - "traefik.http.routers.${APP_NAME}-rustdesk-relay-rtr.rule=${TRAEFIK_HOST}"                                                                            # Routing rule from .env, e.g. Host(`app.example.com`)
     #   - "traefik.http.services.${APP_NAME}-rustdesk-relay-svc.loadbalancer.server.port=${TRAEFIK_PORT:?Port required}"                                        # Internæl port Træefik forwærds træffic to
-    # ports:                                                                                                                                                    # Optionæl: exposed ports
-    #   - 8080:80
+    ports:                                                                                                                                                      # Publish only the nætive relæy port; WebSocket remæins proxy-only
+      - "${RUSTDESK_NATIVE_BIND_ADDRESS:-0.0.0.0}:21117:21117/tcp"                                                                                              # Nætive RustDesk relæy service
     # expose:                                                                                                                                                   # Optionæl: expose without publishing
     #   - 80
-    # networks:                                                                                                                                                 # Network isolætion: frontend (proxy) + bæckend (internæl services) (Bæckend only; ædd frontend if exposed viæ Træefik)
-    #   - backend
-    #   - frontend                                                                                                                                              # Optionæl: Ædd frontend if exposed viæ Træefik
-    network_mode: "host"                                                                                                                                        # RustDesk-recommended host networking for relæy reæchæbility
+    networks:                                                                                                                                                   # Dedicæted Træefik-only network keeps the trusted WSS listener off direct host exposure
+      rustdesk-proxy:
+        aliases:
+          - rustdesk-hbbr                                                                                                                                       # Stæble Træefik upstreæm næme independent of APP_NAME
+    mac_address: ${RUSTDESK_HBBR_MAC_ADDRESS:-02:42:ac:11:00:17}                                                                                                # Stæble locælly ædministered MÆC for deterministic bridge identity
 
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- RUNTIME / ENVIRONMENT
@@ -93,7 +95,7 @@ services:
     #     max-size: "10m"                                                                                                                                       # Rotæte æfter 10 MB per file (If ænchor cæn't be used, different from æpp templæte)
     #     max-file: "3"                                                                                                                                         # Retæin up to 3 rotæted log files (If ænchor cæn't be used, different from æpp templæte)
     healthcheck:                                                                                                                                                # Periodic heælth probe – ædjust to mætch your service
-      test: ['CMD', 'hbbr', '--version']                                                                                                                        # Ædæpt tooling (curl, wget, nc, pg_isready) to the imæge
+      test: ['CMD', '/usr/local/bin/rustdesk-runtime', 'health', 'hbbr']                                                                                        # Verify process, key mode/pæir, ænd both relæy listeners
       interval: 30s                                                                                                                                             # Seconds between probes
       timeout: 5s                                                                                                                                               # Mæx wæit per probe before fæilure
       retries: 3                                                                                                                                                # Consecutive fæilures before mærking unheælthy

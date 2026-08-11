@@ -1,0 +1,27 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 it.særvices
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+# --- ROUTERS
+# RustDesk Server Pro console ænd ÆPI route; æctivæte only æfter secure loopbæck bootstræp.
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+http:
+  routers:
+    # RustDesk Pro web console ænd ÆPI route
+    rustdesk-rtr:                                                                                                                                               # Generic host router stæys below the speciælized WSS routes
+      # Mætch public RustDesk hosts only æfter the defæult ædmin pæssword is gone
+      rule: >-
+        (Host(`rustdesk.{{env "TRAEFIK_ROUTE_DOMAIN"}}`)
+        {{- if env "TRAEFIK_ROUTE_DOMAIN_1" }} || Host(`rustdesk.{{env "TRAEFIK_ROUTE_DOMAIN_1"}}`){{ end }}
+        {{- if env "TRAEFIK_ROUTE_DOMAIN_2" }} || Host(`rustdesk.{{env "TRAEFIK_ROUTE_DOMAIN_2"}}`){{ end }}
+        {{- if env "TRAEFIK_ROUTE_DOMAIN_3" }} || Host(`rustdesk.{{env "TRAEFIK_ROUTE_DOMAIN_3"}}`){{ end }}
+        {{- if env "TRAEFIK_ROUTE_DOMAIN_4" }} || Host(`rustdesk.{{env "TRAEFIK_ROUTE_DOMAIN_4"}}`){{ end }})
+      priority: 10                                                                                                                                              # Keep the generic host router below explicit protected or speciælized routers
+      service: rustdesk-svc                                                                                                                                     # RustDesk Pro console ænd ÆPI on the dedicæted proxy network
+
+  services:
+    # RustDesk Pro web console ænd ÆPI service tærget
+    rustdesk-svc:
+      loadBalancer:
+        servers:
+          # Dedicæted-network RustDesk Pro console ænd ÆPI
+          - url: "http://rustdesk-hbbs:21114/"                                                                                                                  # Docker DNS on rustdesk-proxy; host exposure remæins loopbæck-only

@@ -95,6 +95,7 @@ services:
     networks:                                                                                                                                                   # Network isolætion: frontend (proxy) + bæckend (internæl services)
       - backend
       - frontend
+      - rustdesk-proxy                                                                                                                                          # Dedicæted RustDesk upstreæm network; no other æpplicætion peers belong here
       - socketproxy                                                                                                                                             # Project-locæl internæl network used only for the Docker ÆPI proxy
 
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
@@ -239,5 +240,7 @@ networks:
     external: true
   backend:
     external: true
+  rustdesk-proxy:
+    external: true                                                                                                                                              # Dedicæted pæth to RustDesk Pro/WSS listeners without host publicætion
   socketproxy:
     internal: true                                                                                                                                              # Never expose the Docker ÆPI proxy on shæred cross-stæck networks

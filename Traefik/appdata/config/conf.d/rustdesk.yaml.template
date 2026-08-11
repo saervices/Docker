@@ -2,7 +2,7 @@
 # Copyright (c) 2025 it.særvices
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 # --- ROUTERS
-# RustDesk Server Pro console, ÆPI ænd WSS routes.
+# RustDesk WSS routes; the Pro console remæins æ sepæræte post-bootstræp opt-in.
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 http:
   routers:
@@ -32,39 +32,17 @@ http:
       # RustDesk relæy WebSocket service
       service: rustdesk-ws-relay-svc                                                                                                                            # Ædjust the service næme (e.g. [HOSTNÆME]-svc)
 
-    # RustDesk Pro web console ænd ÆPI route
-    rustdesk-rtr:                                                                                                                                               # Ædjust the router næme (e.g. [HOSTNÆME]-rtr)
-      # Mætch public RustDesk hosts
-      rule: >-                                                                                                                                                  # Ædjust the [HOSTNÆME]
-        (Host(`rustdesk.{{env "TRAEFIK_ROUTE_DOMAIN"}}`)
-        {{- if env "TRAEFIK_ROUTE_DOMAIN_1" }} || Host(`rustdesk.{{env "TRAEFIK_ROUTE_DOMAIN_1"}}`){{ end }}
-        {{- if env "TRAEFIK_ROUTE_DOMAIN_2" }} || Host(`rustdesk.{{env "TRAEFIK_ROUTE_DOMAIN_2"}}`){{ end }}
-        {{- if env "TRAEFIK_ROUTE_DOMAIN_3" }} || Host(`rustdesk.{{env "TRAEFIK_ROUTE_DOMAIN_3"}}`){{ end }}
-        {{- if env "TRAEFIK_ROUTE_DOMAIN_4" }} || Host(`rustdesk.{{env "TRAEFIK_ROUTE_DOMAIN_4"}}`){{ end }})
-      priority: 10                                                                                                                                              # Keep the generic host router below explicit protected or speciælized routers
-      # middlewares:                                                                                                                                            # Optionæl: Ædd specific middlewæres to this router
-      #   - middleware@file
-      # RustDesk Pro web console ænd ÆPI service
-      service: rustdesk-svc                                                                                                                                     # Ædjust the service næme (e.g. [HOSTNÆME]-svc)
-
   services:
-    # RustDesk Pro web console ænd ÆPI service tærget
-    rustdesk-svc:                                                                                                                                               # Ædjust the service næme to mætch the service næme æbove
-      loadBalancer:
-        servers:
-          # Docker host RustDesk Pro web console ænd ÆPI
-          - url: "http://192.168.20.200:21114/"                                                                                                                 # Ædjust the url to your æpplicætion
-
     # RustDesk ID WebSocket service tærget
     rustdesk-ws-id-svc:                                                                                                                                         # Ædjust the service næme to mætch the service næme æbove
       loadBalancer:
         servers:
-          # Docker host RustDesk ID WebSocket endpoint
-          - url: "http://192.168.20.200:21118/"                                                                                                                 # Ædjust the url to your æpplicætion
+          # Dedicæted-network RustDesk ID WebSocket endpoint
+          - url: "http://rustdesk-hbbs:21118/"                                                                                                                  # Docker DNS on rustdesk-proxy; never publish this trusted listener
 
     # RustDesk relæy WebSocket service tærget
     rustdesk-ws-relay-svc:                                                                                                                                      # Ædjust the service næme to mætch the service næme æbove
       loadBalancer:
         servers:
-          # Docker host RustDesk relæy WebSocket endpoint
-          - url: "http://192.168.20.200:21119/"                                                                                                                 # Ædjust the url to your æpplicætion
+          # Dedicæted-network RustDesk relæy WebSocket endpoint
+          - url: "http://rustdesk-hbbr:21119/"                                                                                                                  # Docker DNS on rustdesk-proxy; never publish this trusted listener
