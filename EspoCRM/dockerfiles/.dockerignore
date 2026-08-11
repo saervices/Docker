@@ -1,0 +1,7 @@
+*
+!dockerfile.mariadb
+!entrypoint.mariadb.sh
+!dockerfile.supercronic.mariadb
+!entrypoint.mariadb_maintenance.sh
+!backup.mariadb_maintenance.sh
+!.dockerignore
