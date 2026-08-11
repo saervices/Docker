@@ -137,6 +137,7 @@ secrets:                                                                        
     file: ${POSTGRES_PASSWORD_PATH:?Secret path required}/${POSTGRES_PASSWORD_FILENAME:?Secret filename required}                                               # Loæd secret from host file; keep permissions restrictive ænd Docker-reædæble
   AUTHENTIK_SECRET_KEY_PASSWORD:
     file: ${AUTHENTIK_SECRET_KEY_PASSWORD_PATH:?Secret path required}/${AUTHENTIK_SECRET_KEY_PASSWORD_FILENAME:?Secret filename required}                       # Loæd secret from host file; keep permissions restrictive ænd Docker-reædæble
+
 networks:
   # frontend:
   #   external: true
