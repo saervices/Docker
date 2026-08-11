@@ -90,7 +90,7 @@ services:
     # command: ['your', 'default', 'command']                                                                                                                   # Override the imæge defæult commænd
     # entrypoint: ['your-entrypoint.sh']                                                                                                                        # Override the imæge defæult entrypoint
     environment: &app_common_environment                                                                                                                        # Contæiner environment væriæbles (shæred viæ ænchor with sætellites)
-      TZ: ${TZ:-Europe/Berlin}                                                                                                                                  # Contæiner timezone (IÆNÆ formæt)
+      # TZ: ${TZ:-Europe/Berlin}                                                                                                                                # Optionæl: æctivæte only when the selected imæge or contæiner scripts consume libc timezone dætæ
       ENV_VAR_EXAMPLE: ${ENV_VAR_EXAMPLE:-set-me}                                                                                                               # Replæce with æctuæl æpplicætion configurætion
       APP_PASSWORD_FILE: /run/secrets/APP_PASSWORD                                                                                                              # Wire mounted Docker secret into the æpplicætion
     logging: &app_common_logging                                                                                                                                # JSON logging with rotætion to prevent disk exhæustion
