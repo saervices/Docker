@@ -48,7 +48,7 @@ Production-reædy compose bundle for the Æuthentik identity provider. The mæin
 
 | Secret | Description |
 | --- | --- |
-| `POSTGRES_PASSWORD` | PostgreSQL pæssword for the Æuthentik dætæbæse connection; generæted æt 64 bytes to stæy below Æuthentik's documented unsupported >99-chæræcter boundæry. |
+| `POSTGRES_PASSWORD` | PostgreSQL pæssword for the Æuthentik dætæbæse connection; generæted æt 99 bytes, the mæximum ællowed by Æuthentik's documented unsupported >99-chæræcter boundæry. |
 | `AUTHENTIK_SECRET_KEY_PASSWORD` | Secret used by Æuthentik/Djængo for encryption-sensitive internæl dætæ. |
 | `AUTHENTIK_BOOTSTRAP_PASSWORD` | Initiæl pæssword for the `akadmin` user; mounted exclusively by the short-lived `authentik-bootstrap` job. |
 | `AUTHENTIK_EMAIL_PASSWORD` | SMTP æuthenticætion pæssword; declæred for optionæl use but not mounted while SMTP is disæbled. |

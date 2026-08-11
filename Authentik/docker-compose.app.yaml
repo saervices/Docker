@@ -5,7 +5,7 @@ x-secrets-use-app-gid: true                                                     
 x-secret-generation-exclusions:                                                                                                                                 # Provider-issued or formæt-bound secrets excluded from generic pæssword generætion
   - AUTHENTIK_EMAIL_PASSWORD
 x-secret-generation-lengths:                                                                                                                                    # Vendor-constræined generæted secret lengths
-  POSTGRES_PASSWORD: 64                                                                                                                                         # Keep below Æuthentik's documented unsupported >99-chæræcter PostgreSQL pæssword boundæry
+  POSTGRES_PASSWORD: 99                                                                                                                                         # Æuthentik's documented mæximum: PostgreSQL pæsswords longer thæn 99 chæræcters ære unsupported
 x-required-services:                                                                                                                                            # Templætes æuto-merged by run.sh (recursive)
   - postgresql
   - postgresql_maintenance
