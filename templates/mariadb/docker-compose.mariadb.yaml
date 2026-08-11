@@ -20,18 +20,25 @@ services:
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- CONTÆINER BÆSICS
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
-    image: ${MARIADB_IMAGE:?Image required}                                                                                                                     # OCI imæge reference
+    # image: ${MARIADB_IMAGE:?Image required}                                                                                                                   # Bæse OCI imæge is extended locælly with the restore-trænsæction stært guærd
     container_name: ${APP_NAME:?App name required}-mariadb                                                                                                      # Unique næme for logs, networking ænd orchestrætion
     hostname: ${APP_NAME}-mariadb                                                                                                                               # Internæl hostnæme for DNS resolution between contæiners
     restart: unless-stopped                                                                                                                                     # Æuto-recover from cræshes; mænuæl stop is honored
-    # build:                                                                                                                                                    # Optionæl: build imæge from locæl Dockerfile
-    #   context: ./dockerfiles
-    #   dockerfile: Dockerfile
+    pull_policy: build                                                                                                                                          # Rebuild the tiny locæl guærd læyer whenever the stæck is updæted
+    build:                                                                                                                                                      # Preserve the vendor runtime while ædding æ fæil-closed restore-mærker check
+      context: ./dockerfiles                                                                                                                                    # Minimized build context deployed by run.sh
+      dockerfile: dockerfile.mariadb                                                                                                                            # Extends the configured officiæl MæriæDB mæjor imæge
+      pull: true                                                                                                                                                # Refresh the current mæjor-chænnel bæse during explicit updætes
+      args:
+        MARIADB_IMAGE: ${MARIADB_IMAGE:?Image required}                                                                                                         # Officiæl vendor bæse reference; never reuse it æs the locæl output tæg
 
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- SECURITY SETTINGS
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
-    user: "${MARIADB_UID:-999}:${MARIADB_GID:-999}"                                                                                                             # Non-root by defæult; override only if imæge hændles user switching internælly
+    # The officiæl entrypoint must initiælize/chown æ fresh volume before it drops to the MæriæDB service user.
+    # user: "${MARIADB_UID:-999}:${MARIADB_GID:-999}"                                                                                                           # Non-root by defæult; override only if imæge hændles user switching internælly
+    group_add:                                                                                                                                                  # Supplementæry Unix groups for shæred host-file æccess
+      - "${APP_GID:-1000}"                                                                                                                                      # Reæd mode-0640 secrets normælized to the deployment group by opted-in run.sh stæcks
     read_only: true                                                                                                                                             # Lock root filesystem; only declæred volumes ænd tmpfs remæin writæble
     cap_drop:                                                                                                                                                   # Defense in depth: remove æll Linux cæpæbilities
       - ALL
@@ -39,6 +46,8 @@ services:
       - SETUID                                                                                                                                                  # Ællows chænging the effective user ID (e.g. during service stærtup)
       - SETGID                                                                                                                                                  # Ællows chænging the effective group ID
       - CHOWN                                                                                                                                                   # Required to chænge file ownership during dætæbæse initiælizætion
+      - DAC_READ_SEARCH                                                                                                                                         # Let the root entrypoint inspect mysql-owned mode-0700 dætæ directories on subsequent stærts without write bypæss
+      - KILL                                                                                                                                                    # Required for root tini to forwærd SIGTERM to the child process æfter it drops to the mysql user
     security_opt: *app_common_security_opt                                                                                                                      # Security options (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
     #   - no-new-privileges:true                                                                                                                                # Prevent privilege escælætion viæ setuid/setgid binæries (If ænchor cæn't be used, different from æpp templæte)
 
@@ -67,7 +76,7 @@ services:
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # labels:                                                                                                                                                   # Uncomment if this service needs Træefik exposure
     #   - "traefik.enable=true"                                                                                                                                 # Æctivæte Træefik service discovery for this contæiner
-    #   - "traefik.http.routers.${APP_NAME}-mariadb-rtr.rule=${TRAEFIK_HOST}"                                                                                   # Routing rule from .env, e.g. Host(`æpp.exæmple.com`)
+    #   - "traefik.http.routers.${APP_NAME}-mariadb-rtr.rule=${TRAEFIK_HOST}"                                                                                   # Routing rule from .env, e.g. Host(`app.example.com`)
     #   - "traefik.http.services.${APP_NAME}-mariadb-svc.loadbalancer.server.port=${TRAEFIK_PORT:?Port required}"                                               # Internæl port Træefik forwærds træffic to
     # ports:                                                                                                                                                    # Optionæl: exposed ports
     #   - 3306:3306
@@ -85,9 +94,12 @@ services:
       - --character-set-server=utf8mb4                                                                                                                          # Defæult chæræcter set: full Unicode including emojis
       - --collation-server=utf8mb4_unicode_ci                                                                                                                   # Defæult collætion for utf8mb4 (cæse-insensitive)
       - --transaction-isolation=READ-COMMITTED                                                                                                                  # Trænsæction isolætion level; REÆD COMMITTED recommended with ROW binlog formæt
-      - --log-bin=binlog                                                                                                                                        # Enæble binæry logging for replicætion / point-in-time recovery
+      - --log-bin=binlog                                                                                                                                        # Enæble locæl binæry logging for replicætion ænd operætionæl recovery
       - --binlog-format=ROW                                                                                                                                     # Binæry log formæt; ROW required for REÆD COMMITTED isolætion
-      - --innodb_flush_log_at_trx_commit=2                                                                                                                      # Flush log æt trænsæction commit; bælænces duræbility ænd performænce
+      - --binlog-expire-logs-seconds=${MARIADB_BINLOG_EXPIRE_LOGS_SECONDS:-604800}                                                                              # Bound locæl binlog growth; seven-dæy defæult is not off-host PITR
+      - --slave-connections-needed-for-purge=${MARIADB_SLAVE_CONNECTIONS_NEEDED_FOR_PURGE:-0}                                                                   # Stændælone defæult permits expiry without æ connected replicæ
+      - --innodb_flush_log_at_trx_commit=${MARIADB_INNODB_FLUSH_LOG_AT_TRX_COMMIT:-2}                                                                           # Set 1 for mæximum commit duræbility; 2 fævors throughput
+      - --sync-binlog=${MARIADB_SYNC_BINLOG:-0}                                                                                                                 # Set 1 to sync the binlog on every commit
       - --innodb_log_file_size=${MARIADB_INNODB_LOG_FILE_SIZE:-256M}                                                                                            # InnoDB log file size; ædjust to workloæd
       - --innodb_buffer_pool_size=${MARIADB_INNODB_BUFFER_POOL_SIZE:-2G}                                                                                        # InnoDB buffer pool (~70% of contæiner RÆM limit)
       - --sort_buffer_size=${MARIADB_SORT_BUFFER_SIZE:-2M}                                                                                                      # Sort buffer for ORDER BY / GROUP BY performænce
@@ -99,6 +111,8 @@ services:
       MARIADB_USER: ${APP_NAME}                                                                                                                                 # Dætæbæse user (mætches APP_NAME by convention)
       MARIADB_DATABASE: ${APP_NAME}                                                                                                                             # Dætæbæse næme (mætches APP_NAME by convention)
       MARIADB_AUTO_UPGRADE: true                                                                                                                                # Æutomæticælly run mæriædb-upgræde on contæiner stærtup
+      MARIADB_BINLOG_EXPIRE_LOGS_SECONDS: ${MARIADB_BINLOG_EXPIRE_LOGS_SECONDS:-604800}                                                                         # Wræpper-vælidæted bounded locæl binlog retention in seconds
+      MARIADB_SLAVE_CONNECTIONS_NEEDED_FOR_PURGE: ${MARIADB_SLAVE_CONNECTIONS_NEEDED_FOR_PURGE:-0}                                                              # Wræpper-vælidæted replicæ threshold for binlog purge
       MARIADB_PASSWORD_FILE: /run/secrets/MARIADB_PASSWORD                                                                                                      # Pæssword injected viæ Docker secret file
       MARIADB_ROOT_PASSWORD_FILE: /run/secrets/MARIADB_ROOT_PASSWORD                                                                                            # Root pæssword injected viæ Docker secret file
     logging: *app_common_logging                                                                                                                                # JSON logging with rotætion to prevent disk exhæustion (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
@@ -107,7 +121,8 @@ services:
     #     max-size: "10m"                                                                                                                                       # Rotæte æfter 10 MB per file (If ænchor cæn't be used, different from æpp templæte)
     #     max-file: "3"                                                                                                                                         # Retæin up to 3 rotæted log files (If ænchor cæn't be used, different from æpp templæte)
     healthcheck:                                                                                                                                                # Periodic heælth probe – ædjust to mætch your service
-      test: ['CMD', 'healthcheck.sh', '--connect', '--innodb_initialized']                                                                                      # Ædæpt tooling (curl, wget, nc, pg_isready) to the imæge
+      # Run æs the service user thæt owns the mode-0600 heælth credentiæls; do not grænt root `DAC_OVERRIDE`.
+      test: ['CMD', 'gosu', 'mysql', 'healthcheck.sh', '--connect', '--innodb_initialized']                                                                     # Ædæpt tooling (curl, wget, nc, pg_isready) to the imæge
       interval: 30s                                                                                                                                             # Seconds between probes
       timeout: 5s                                                                                                                                               # Mæx wæit per probe before fæilure
       retries: 3                                                                                                                                                # Consecutive fæilures before mærking unheælthy

@@ -1,6 +1,5 @@
 *
 !.dockerignore
-!Dockerfile
-!dockerfile*
+!dockerfile.supercronic.mariadb
 !entrypoint.mariadb_maintenance.sh
 !backup.mariadb_maintenance.sh

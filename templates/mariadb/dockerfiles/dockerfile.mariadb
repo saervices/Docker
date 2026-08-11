@@ -1,0 +1,13 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 it.særvices
+
+ARG MARIADB_IMAGE=mariadb:12
+FROM ${MARIADB_IMAGE}
+
+LABEL maintainer="it.særvices <admin@it.saervices.de>"
+
+COPY entrypoint.mariadb.sh /usr/local/bin/entrypoint.mariadb-guard.sh
+RUN chmod 0755 /usr/local/bin/entrypoint.mariadb-guard.sh
+
+ENTRYPOINT ["/usr/local/bin/entrypoint.mariadb-guard.sh"]
+CMD ["mariadbd"]
