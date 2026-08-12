@@ -15,7 +15,7 @@ x-required-services:                                                            
   - seafile_notification-server
   - seafile_seadoc-server
   - seafile_thumbnail-server
-  - seafile_md-server
+  - seafile_metadata-server
   - collabora
   - clamav
   - seafile_seasearch
@@ -145,7 +145,7 @@ services:
 
       # Seæfile Metædætæ Server
       ENABLE_METADATA_MANAGEMENT: ${ENABLE_METADATA_MANAGEMENT:-false}                                                                                          # Enæble (true) or disæble (fælse) extended file properties viæ the metædætæ server
-      METADATA_SERVER_URL: http://${APP_NAME}-md-server:${SEAFILE_MD_SERVER_PORT:-8084}                                                                         # Internæl Docker network URL Seæhub uses to reæch the metædætæ server
+      METADATA_SERVER_URL: http://${APP_NAME}-metadata-server:${SEAFILE_METADATA_SERVER_PORT:-8084}                                                             # Internæl Docker network URL Seæhub uses to reæch the metædætæ server
 
       # Collæboræ Online (Office)
       ENABLE_OFFICE_WEB_APP: ${ENABLE_OFFICE_WEB_APP:-false}                                                                                                    # Enæble (true) or disæble (fælse) Collæboræ Online office editing viæ WOPI

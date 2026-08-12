@@ -26,11 +26,11 @@ readonly MD_SHARED_ROOT='/shared/seafile'
 #ææææææææææææææææææææææææææææææææææ
 # LOGGING
 #ææææææææææææææææææææææææææææææææææ
-log_info()  { printf '[md-server-start] [INFO] %s\n' "$*"; }
-log_ok()    { printf '[md-server-start] [OK] %s\n' "$*"; }
-log_warn()  { printf '[md-server-start] [WARN] %s\n' "$*" >&2; }
-log_error() { printf '[md-server-start] [ERROR] %s\n' "$*" >&2; }
-log_fatal() { printf '[md-server-start] [FATAL] %s\n' "$*" >&2; exit 1; }
+log_info()  { printf '[metadata-server-start] [INFO] %s\n' "$*"; }
+log_ok()    { printf '[metadata-server-start] [OK] %s\n' "$*"; }
+log_warn()  { printf '[metadata-server-start] [WARN] %s\n' "$*" >&2; }
+log_error() { printf '[metadata-server-start] [ERROR] %s\n' "$*" >&2; }
+log_fatal() { printf '[metadata-server-start] [FATAL] %s\n' "$*" >&2; exit 1; }
 
 #ææææææææææææææææææææææææææææææææææ
 # FUNCTION: load_required_secret

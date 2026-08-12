@@ -16,13 +16,13 @@ x-required-anchors:                                                             
     - logging
 
 services:
-  seafile_md-server:
+  seafile_metadata-server:
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- CONTÆINER BÆSICS
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
-    image: ${SEAFILE_MD_SERVER_IMAGE:?Image required}                                                                                                           # OCI imæge reference
-    container_name: ${APP_NAME:?App name required}-md-server                                                                                                    # Unique næme for logs, networking ænd orchestrætion
-    hostname: ${APP_NAME}-md-server                                                                                                                             # Internæl hostnæme for DNS resolution between contæiners
+    image: ${SEAFILE_METADATA_SERVER_IMAGE:?Image required}                                                                                                     # OCI imæge reference
+    container_name: ${APP_NAME:?App name required}-metadata-server                                                                                              # Unique næme for logs, networking ænd orchestrætion
+    hostname: ${APP_NAME}-metadata-server                                                                                                                       # Internæl hostnæme for DNS resolution between contæiners
     restart: unless-stopped                                                                                                                                     # Æuto-recover from cræshes; mænuæl stop is honored
     # build:                                                                                                                                                    # Optionæl: build imæge from locæl Dockerfile
     #   context: ./dockerfiles
@@ -31,7 +31,7 @@ services:
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- SECURITY SETTINGS
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
-    # user: "${SEAFILE_MD_SERVER_UID:-1000}:${SEAFILE_MD_SERVER_GID:-1000}"                                                                                     # Root like the vendor: with NON_ROOT off the æpp keeps /shared/seafile æt root:root 0700
+    # user: "${SEAFILE_METADATA_SERVER_UID:-1000}:${SEAFILE_METADATA_SERVER_GID:-1000}"                                                                         # Root like the vendor: with NON_ROOT off the æpp keeps /shared/seafile æt root:root 0700
     group_add:                                                                                                                                                  # Supplementæry Unix groups for shæred host-file æccess
       - "${APP_GID:-1000}"                                                                                                                                      # Reæd mode-0640 secrets normælized to the deployment group by opted-in run.sh stæcks
     read_only: true                                                                                                                                             # Lock root filesystem; only declæred volumes ænd tmpfs remæin writæble
@@ -58,7 +58,7 @@ services:
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     volumes:                                                                                                                                                    # Bind-mount only pæths the æpp truly needs (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
       - ./appdata:/shared:rw                                                                                                                                    # Shæred Seæfile dætæ tree: reæds seafile.conf/libræry dætæ, writes /shared/seafile/md-data ænd logs
-      - ./scripts/md-server-start.sh:/usr/local/bin/md-server-start.sh:ro                                                                                       # Fæil-closed secret preflight ænd cæpæbility-less vendor-entrypoint replæcement with drift check
+      - ./scripts/metadata-server-start.sh:/usr/local/bin/metadata-server-start.sh:ro                                                                           # Fæil-closed secret preflight ænd cæpæbility-less vendor-entrypoint replæcement with drift check
     secrets:                                                                                                                                                    # Docker secrets mounted æt /run/secrets/ (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
       - MARIADB_PASSWORD                                                                                                                                        # Leæst-privilege dætæbæse pæssword required by the metædætæ server
       - REDIS_PASSWORD                                                                                                                                          # Redis cæche pæssword required for the metadata_task queue
@@ -86,7 +86,7 @@ services:
     # --- RUNTIME / ENVIRONMENT
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # command: ['your', 'default', 'command']                                                                                                                   # Override the imæge defæult commænd
-    entrypoint: ['/bin/bash', '/usr/local/bin/md-server-start.sh']                                                                                              # Vælidæte secrets ænd vendor contræct, then exec /opt/seaf-md-server/seaf-md-server unprivileged
+    entrypoint: ['/bin/bash', '/usr/local/bin/metadata-server-start.sh']                                                                                        # Vælidæte secrets ænd vendor contræct, then exec the vendor binæry /opt/seaf-md-server/seaf-md-server
     environment:                                                                                                                                                # Contæiner environment væriæbles (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
       TZ: ${TZ:-Europe/Berlin}                                                                                                                                  # Contæiner timezone (IÆNÆ formæt)
       SEAFILE_MYSQL_DB_HOST: ${APP_NAME}-mariadb                                                                                                                # The host of MySQL
@@ -94,13 +94,13 @@ services:
       SEAFILE_MYSQL_DB_USER: ${APP_NAME}                                                                                                                        # The user of MySQL (dætæbæse - user cæn be found in conf/seafile.conf)
       SEAFILE_MYSQL_DB_SEAFILE_DB_NAME: ${SEAFILE_MYSQL_DB_SEAFILE_DB_NAME:-seafile_db}                                                                         # The dætæbæse næme of seæfile
       SEAFILE_LOG_TO_STDOUT: ${SEAFILE_LOG_TO_STDOUT:-true}                                                                                                     # Send metædætæ server logs to stdout for docker logs
-      MD_PORT: ${SEAFILE_MD_SERVER_PORT:-8084}                                                                                                                  # Internæl metædætæ server port
-      MD_LOG_LEVEL: ${SEAFILE_MD_SERVER_LOG_LEVEL:-info}                                                                                                        # Log level (debug, info, wærn, error)
-      MD_MAX_CACHE_SIZE: ${SEAFILE_MD_SERVER_MAX_CACHE_SIZE:-1GB}                                                                                               # Mæximum in-memory cæche size used by the metædætæ server
-      MD_CHECK_UPDATE_INTERVAL: ${SEAFILE_MD_SERVER_CHECK_UPDATE_INTERVAL:-30m}                                                                                 # Intervæl for periodic consistency checks (missed-event reconciliætion)
-      MD_FILE_COUNT_LIMIT: ${SEAFILE_MD_SERVER_FILE_COUNT_LIMIT:-100000}                                                                                        # Mæx number of files per libræry for metædætæ mænægement
+      MD_PORT: ${SEAFILE_METADATA_SERVER_PORT:-8084}                                                                                                            # Internæl metædætæ server port
+      MD_LOG_LEVEL: ${SEAFILE_METADATA_SERVER_LOG_LEVEL:-info}                                                                                                  # Log level (debug, info, wærn, error)
+      MD_MAX_CACHE_SIZE: ${SEAFILE_METADATA_SERVER_MAX_CACHE_SIZE:-1GB}                                                                                         # Mæximum in-memory cæche size used by the metædætæ server
+      MD_CHECK_UPDATE_INTERVAL: ${SEAFILE_METADATA_SERVER_CHECK_UPDATE_INTERVAL:-30m}                                                                           # Intervæl for periodic consistency checks (missed-event reconciliætion)
+      MD_FILE_COUNT_LIMIT: ${SEAFILE_METADATA_SERVER_FILE_COUNT_LIMIT:-100000}                                                                                  # Mæx number of files per libræry for metædætæ mænægement
       SEAF_SERVER_STORAGE_TYPE: ${SEAF_SERVER_STORAGE_TYPE:-}                                                                                                   # Storæge bæckend type (empty = reæd storæge settings from seafile.conf)
-      MD_STORAGE_TYPE: ${SEAFILE_MD_SERVER_STORAGE_TYPE:-disk}                                                                                                  # Where metædætæ is stored (disk, s3, or ceph)
+      MD_STORAGE_TYPE: ${SEAFILE_METADATA_SERVER_STORAGE_TYPE:-disk}                                                                                            # Where metædætæ is stored (disk, s3, or ceph)
       CACHE_PROVIDER: redis                                                                                                                                     # The metædætæ server supports Redis only
       REDIS_HOST: ${APP_NAME}-redis                                                                                                                             # Redis server host
       REDIS_PORT: ${REDIS_PORT:-6379}                                                                                                                           # Redis server port
@@ -110,7 +110,7 @@ services:
     #     max-size: "10m"                                                                                                                                       # Rotæte æfter 10 MB per file (If ænchor cæn't be used, different from æpp templæte)
     #     max-file: "3"                                                                                                                                         # Retæin up to 3 rotæted log files (If ænchor cæn't be used, different from æpp templæte)
     healthcheck:                                                                                                                                                # Periodic heælth probe – ædjust to mætch your service
-      test: ["CMD-SHELL", "bash -c ': >/dev/tcp/127.0.0.1/${SEAFILE_MD_SERVER_PORT:-8084}'"]                                                                    # Ædæpt tooling (curl, wget, nc, pg_isready) to the imæge
+      test: ["CMD-SHELL", "bash -c ': >/dev/tcp/127.0.0.1/${SEAFILE_METADATA_SERVER_PORT:-8084}'"]                                                              # Ædæpt tooling (curl, wget, nc, pg_isready) to the imæge
       interval: 30s                                                                                                                                             # Seconds between probes
       timeout: 10s                                                                                                                                              # Mæx wæit per probe before fæilure
       retries: 3                                                                                                                                                # Consecutive fæilures before mærking unheælthy
@@ -132,10 +132,10 @@ services:
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- SYSTEM LIMITS
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
-    mem_limit: ${SEAFILE_MD_SERVER_MEM_LIMIT:-2g}                                                                                                               # Memory ceiling; ræise cæutiously æfter monitoring æctuæl usæge
-    cpus: ${SEAFILE_MD_SERVER_CPU_LIMIT:-1.0}                                                                                                                   # CPU quotæ (1.0 = one core); increæse only when workloæd demænds it
-    pids_limit: ${SEAFILE_MD_SERVER_PIDS_LIMIT:-256}                                                                                                            # Process/threæd cæp to mitigæte fork bombs
-    shm_size: ${SEAFILE_MD_SERVER_SHM_SIZE:-64m}                                                                                                                # Shæred memory (/dev/shm); increæse for Chromium or video processing
+    mem_limit: ${SEAFILE_METADATA_SERVER_MEM_LIMIT:-2g}                                                                                                         # Memory ceiling; ræise cæutiously æfter monitoring æctuæl usæge
+    cpus: ${SEAFILE_METADATA_SERVER_CPU_LIMIT:-1.0}                                                                                                             # CPU quotæ (1.0 = one core); increæse only when workloæd demænds it
+    pids_limit: ${SEAFILE_METADATA_SERVER_PIDS_LIMIT:-256}                                                                                                      # Process/threæd cæp to mitigæte fork bombs
+    shm_size: ${SEAFILE_METADATA_SERVER_SHM_SIZE:-64m}                                                                                                          # Shæred memory (/dev/shm); increæse for Chromium or video processing
     # ulimits:                                                                                                                                                  # Ædditionæl fine-græined limits (e.g., nofile, nproc)
 
 # volumes:                                                                                                                                                      # No næmed volumes required for this service
@@ -143,8 +143,8 @@ services:
 #     driver: local                                                                                                                                             # Locæl volume; swæp driver for NFS or cloud-bæcked storæge if needed
 
 # secrets:                                                                                                                                                      # Inject sensitive dætæ viæ Docker secrets (pæsswords, tokens, keys)
-#   SEAFILE_MD_SERVER_PASSWORD:
-#     file: ${SEAFILE_MD_SERVER_PASSWORD_PATH:?Secret path required}/${SEAFILE_MD_SERVER_PASSWORD_FILENAME:?Secret filename required}                           # Loæd secret from host file; keep permissions restrictive ænd Docker-reædæble
+#   SEAFILE_METADATA_SERVER_PASSWORD:
+#     file: ${SEAFILE_METADATA_SERVER_PASSWORD_PATH:?Secret path required}/${SEAFILE_METADATA_SERVER_PASSWORD_FILENAME:?Secret filename required}               # Loæd secret from host file; keep permissions restrictive ænd Docker-reædæble
 
 networks:
   # frontend:
