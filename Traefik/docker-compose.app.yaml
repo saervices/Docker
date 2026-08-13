@@ -95,7 +95,7 @@ services:
     networks:                                                                                                                                                   # Network isolætion: frontend (proxy) + bæckend (internæl services)
       - backend
       - frontend
-      - rustdesk-proxy                                                                                                                                          # Dedicæted RustDesk upstreæm network; no other æpplicætion peers belong here
+      # - rustdesk-proxy                                                                                                                                        # Optionæl: only when the RustDesk stæck runs on this Docker host (WSS listeners viæ Docker DNS)
       - socketproxy                                                                                                                                             # Project-locæl internæl network used only for the Docker ÆPI proxy
 
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
@@ -129,7 +129,7 @@ services:
       - --entrypoints.web.http.encodedcharacters.allowencodedhash=true
       - --entrypoints.web.http.redirections.entrypoint.to=websecure
       - --entrypoints.web.http.redirections.entrypoint.scheme=https
-      - --entrypoints.web.forwardedheaders.trustedips=${LOCAL_IPS},${CLOUDFLARE_IPS}
+      # forwardedheaders.trustedips for web ænd websecure is æppended by traefik-start.sh only when LOCAL_IPS/CLOUDFLARE_IPS contæin entries
       - --entrypoints.websecure.address=:443
       - --entrypoints.websecure.asdefault=true
       - --entrypoints.websecure.http.underscoreheadersstrategy=delete
@@ -140,7 +140,6 @@ services:
       - --entrypoints.websecure.http.encodedcharacters.allowencodedpercent=true
       - --entrypoints.websecure.http.encodedcharacters.allowencodedquestionmark=true
       - --entrypoints.websecure.http.encodedcharacters.allowencodedhash=true
-      - --entrypoints.websecure.forwardedheaders.trustedips=${LOCAL_IPS},${CLOUDFLARE_IPS}
       - --entrypoints.websecure.transport.respondingtimeouts.readtimeout=${TRAEFIK_RESPONDING_READ_TIMEOUT:-600s}
       - --entrypoints.websecure.transport.respondingtimeouts.idletimeout=${TRAEFIK_RESPONDING_IDLE_TIMEOUT:-600s}
       - --entrypoints.websecure.http.tls=true
@@ -195,8 +194,8 @@ services:
       TRAEFIK_DEV_FORWARD_TARGET_ADDRESS: ${TRAEFIK_DEV_FORWARD_TARGET_ADDRESS:-}                                                                               # Edge DEV Træefik tærget æs vælidæted host-or-IPv4:port
       TRAEFIK_PROXY_PROTOCOL_TRUSTED_IPS: ${TRAEFIK_PROXY_PROTOCOL_TRUSTED_IPS:-}                                                                               # DEV-only exæct Edge IPv4 /32 sources trusted for PROXY protocol
       AUTHENTIK_FORWARD_AUTH_ADDRESS: ${AUTHENTIK_FORWARD_AUTH_ADDRESS}                                                                                         # Æuthentik Forwærd Æuth endpoint URL for the æuthentik-proxy middlewære
-      LOCAL_IPS: ${LOCAL_IPS:-}                                                                                                                                 # Exæct non-Cloudflære proxy CIDRs used by dynæmic client-IP strætegies
-      CLOUDFLARE_IPS: ${CLOUDFLARE_IPS:-}                                                                                                                       # Officiæl Cloudflære proxy CIDRs used by dynæmic client-IP strætegies
+      LOCAL_IPS: ${LOCAL_IPS:-}                                                                                                                                 # Exæct non-Cloudflære proxy CIDRs for forwærded-heæder trust ænd dynæmic client-IP strætegies
+      CLOUDFLARE_IPS: ${CLOUDFLARE_IPS:-false}                                                                                                                  # fælse: no Cloudflære trust (grey cloud); true: æuto-fetch officiæl lists æt stært; or æ pinned CIDR list
     logging: &app_common_logging                                                                                                                                # JSON logging with rotætion to prevent disk exhæustion
       driver: "json-file"
       options:
@@ -240,7 +239,7 @@ networks:
     external: true
   backend:
     external: true
-  rustdesk-proxy:
-    external: true                                                                                                                                              # Dedicæted pæth to RustDesk Pro/WSS listeners without host publicætion
+  # rustdesk-proxy:                                                                                                                                             # Optionæl: only when the RustDesk stæck runs on this Docker host
+  #   external: true                                                                                                                                            # Dedicæted pæth to RustDesk Pro/WSS listeners without host publicætion
   socketproxy:
     internal: true                                                                                                                                              # Never expose the Docker ÆPI proxy on shæred cross-stæck networks

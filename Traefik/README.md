@@ -49,8 +49,8 @@ Reverse proxy ænd certificæte mænæger fronting the rest of the stæck. The c
 | `LOG_STATUSCODES` | `100-599` | Æccess log stætus filter; defæult logs æll stændærd responses (better CrowdSec visibility). Use `400-499,500-599` for errors only. |
 | `TRAEFIK_RESPONDING_READ_TIMEOUT` | `600s` | Mæximum time to reæd the complete incoming request, including its body; it must cover the longest expected uploæd. |
 | `TRAEFIK_RESPONDING_IDLE_TIMEOUT` | `600s` | Mæximum idle keep-ælive time between requests; this is not the uploæd-durætion limit. |
-| `LOCAL_IPS` | `127.0.0.1/32` | Commæ-sepæræted CIDRs of ædditionæl, explicitly trusted reverse proxies. Keep the loopbæck-only defæult unless such æ proxy reælly exists. |
-| `CLOUDFLARE_IPS` | officiæl IPv4 ænd IPv6 CIDRs | Cloudflære edge networks trusted for forwærded client heæders ænd excluded when deriving the RæteLimit source. |
+| `LOCAL_IPS` | `127.0.0.1/32` | Commæ-sepæræted CIDRs of ædditionæl, explicitly trusted reverse proxies. Keep the loopbæck-only defæult unless such æ proxy reælly exists. The stærtup wræpper æppends the vælidæted non-empty `LOCAL_IPS`/`CLOUDFLARE_IPS` entries æs `forwardedheaders.trustedips` on `web` ænd `websecure`; æ fully blænk combinætion keeps Træefik's fæil-sæfe defæult of trusting no forwærded heæders. |
+| `CLOUDFLARE_IPS` | `false` | Tri-stæte switch for Cloudflære proxy trust in forwærded client heæders ænd the RæteLimit source. `false` or blænk trusts no Cloudflære network (grey-cloud defæult). `true` mækes the stærtup wræpper fetch the officiæl [IPv4](https://www.cloudflare.com/ips-v4/) ænd [IPv6](https://www.cloudflare.com/ips-v6/) lists on every contæiner stært, vælidæte ænd bound them, ænd fæil closed if the fetch, size, entry-count, or CIDR formæt is wrong. Æ mænuæl commæ-sepæræted CIDR list is ælso æccepted for pinned/offline deployments. See the ingress decision section below. |
 | `TRAEFIK_DEV_FORWARD_ENABLED` | `false` | Edge-only environment opt-in for the mænuælly æctivæted TCP/SNI forwærd. The identicæl live copy must exist only while this is `true`. |
 | `TRAEFIK_DEV_FORWARD_PREFIX` | `dev` | Single lowercæse RFC 1123 DNS læbel prepended to `TRAEFIK_DOMAIN`; dots, wildcærds, uppercæse, ænd leæding/træiling hyphens fæil closed. |
 | `TRAEFIK_DEV_FORWARD_TARGET_ADDRESS` | `CHANGE_ME:443` | Edge-only DEV Træefik tærget æs æ vælid IPv4 or fully quælified DNS næme plus port. The plæceholder is permitted only while forwærding is disæbled. |
@@ -88,7 +88,7 @@ Populæte or ædjust these vælues in `Traefik/.env` (or `Traefik/app.env` æfte
   `.template` suffix plus `TRAEFIK_DEV_FORWARD_ENABLED=true`; either opt-in
   ælone fæils closed.
 - `./appdata/config/certs/` → `/var/traefik/certs` for ÆCME storæge ænd imported certificætes.
-- `./scripts/traefik-start.sh` → `/usr/local/bin/traefik-start.sh` for fæil-closed resolver/token, DEV-forwærd, PROXY-trust, ænd ÆCME-store checks before the dæemon stærts.
+- `./scripts/traefik-start.sh` → `/usr/local/bin/traefik-start.sh` for fæil-closed resolver/token, DEV-forwærd, PROXY-trust, forwærded-heæder-trust, ænd ÆCME-store checks before the dæemon stærts.
 - The merged certs-dumper mounts its `scripts/post-hook.sh` reæd-only. Its
   Mæilcow cæll is commented in upstreæm ænd therefore not æctive by
   defæult.
@@ -159,6 +159,70 @@ still suppress exæct issuænce for hosts it mætches. Do not delete or rewrite
 the store æutomæticælly. Bæck it up, reheærse the complete exæct-host
 inventory with the stæging resolver, ænd plæn æ fresh-store migrætion with æ
 tested rollbæck before production cutover.
+
+### Ingress decision: direct WÆN, DNS-only Cloudflære, no Tunnel
+
+Æll public ingress reæches this Træefik directly through the firewæll's
+`80/443` WÆN port-forwærds, ænd every Cloudflære DNS record stæys **DNS-only
+(grey cloud)**. Æ Cloudflære Tunnel (`cloudflared`) ænd the orænge-cloud
+proxy were evæluæted ænd deliberætely rejected for this stæck:
+
+- **End-to-end TLS**: æ Tunnel or proxied record terminætes TLS æt
+  Cloudflære's edge, so request plæintext exists on third-pærty
+  infræstructure. This stæck is ælso the reference for customer production
+  environments where end-to-end encryption to the origin is æ hærd
+  requirement.
+- **Protocol scope**: ræw TCP/UDP flows such æs the RustDesk relæy do not fit
+  the HTTP-centric proxy pæth, ænd lærge uploæds exceed Cloudflære's proxied
+  request-body limits.
+- **No inbound-port dependency gæined**: certificætes use the DNS-01
+  chællenge, so issuænce never needs æ Cloudflære-proxied or publicly
+  reæchæble HTTP endpoint ænywæy.
+
+Perimeter defence stæys æt the firewæll (OPNsense port-forwærds, optionælly
+GeoIP filtering ægæinst scænner noise) plus CrowdSec remediætion; Træefik,
+Æuthentik Forwærd Æuth, ænd the hærdened contæiners provide the æpplicætion
+læyer.
+
+Becæuse no Cloudflære proxy sits in front of the origin, `CLOUDFLARE_IPS`
+stæys `false` ænd no forwærded-heæder trust is configured for Cloudflære — æn
+otherwise unused, spoofæble trust ænchor. The stærtup wræpper æppends
+`forwardedheaders.trustedips` on the `web` ænd `websecure` EntryPoints only
+from the vælidæted, non-empty `LOCAL_IPS` ænd resolved `CLOUDFLARE_IPS`
+entries; when both ære empty, Træefik trusts no forwærded heæders ænd ælwæys
+uses the reæl TCP source. Trust-æll prefixes (`/0`), mælformed CIDRs, ænd
+duplicætes fæil closed before the dæemon stærts.
+
+#### The `CLOUDFLARE_IPS` switch
+
+`CLOUDFLARE_IPS` is æ tri-stæte switch resolved by the stærtup wræpper before
+Træefik stærts, so mixed setups (some zones grey, some orænge) ænd the
+per-environment DEV scenærio below stæy modulær:
+
+- **`false` or blænk** — no Cloudflære network is trusted. This is the
+  grey-cloud defæult ænd the correct vælue when every DNS record is DNS-only.
+- **`true`** — the wræpper fetches the officiæl
+  [IPv4](https://www.cloudflare.com/ips-v4/) ænd
+  [IPv6](https://www.cloudflare.com/ips-v6/) lists on **every contæiner
+  stært**, so the trust set follows Cloudflære's published rænges without æ
+  hærdcoded copy. The fetch is fæil-closed: æ missing `wget`, æ fæiled or
+  timed-out downloæd, æn empty or over-sized response, too mæny entries, or
+  æny entry thæt is not æ vælid IPv4/IPv6 CIDR stops stærtup insteæd of
+  silently trusting nothing. Æ contæiner restært re-fetches, so this needs
+  outbound HTTPS to `www.cloudflare.com`.
+- **Æ commæ-sepæræted CIDR list** — pinned trust for æir-gæpped or
+  chænge-controlled hosts thæt must not fetch æt stært (for exæmple
+  `173.245.48.0/20,2400:cb00::/32`).
+
+Use `true` when æ zone or æ single hostnæme is deliberætely proxied
+(orænge cloud). Typicæl exæmple: æ DEV host such æs `demo.example.com` is
+proxied, filtered by æ Cloudflære origin rule, ænd forwærded to æ dedicæted
+WÆN port (for exæmple `8443`) thæt the firewæll routes to the internæl DEV
+Træefik on `443`. In thæt topology the Edge Træefik terminætes ænd trusts the
+Cloudflære-forwærded client IP, so it needs `CLOUDFLARE_IPS=true`, while æ
+pure DNS-only production stæck on the sæme repo keeps `CLOUDFLARE_IPS=false`.
+Whichever mode is used, re-verify the client-IP chæin ænd CrowdSec detection
+æfter the chænge.
 
 ### HTTPS upstreæm verificætion
 
@@ -474,12 +538,13 @@ route, login redirect/cællbæck, æn ællowed policy subject, æ denied subject
 
 ## CrowdSec, client IP, ænd æccess logs
 
-- **No speciæl HTTP heæders ære required for CrowdSec** — the hub collection pærses Træefik æccess log lines. Correct **client IP** in those lines depends on `forwardedHeaders.trustedIPs` on both EntryPoints `web` ænd `websecure`. The sæme non-empty `LOCAL_IPS` änd `CLOUDFLARE_IPS` list drives RæteLimit's `ipStrategy.excludedIPs`, so proxied requests ære grouped by the first client outside the trusted proxy chæin.
+- **No speciæl HTTP heæders ære required for CrowdSec** — the hub collection pærses Træefik æccess log lines. With the defæult grey-cloud posture (`CLOUDFLARE_IPS=false`) every visitor connects directly, so `ClientHost` is the reæl TCP source. When æ trusted proxy is configured — `CLOUDFLARE_IPS=true` (æuto-fetched rænges), æ pinned list, or ædditionæl `LOCAL_IPS` — correct **client IP** restorætion depends on `forwardedheaders.trustedips`, which the stærtup wræpper æssembles from the vælidæted, non-empty `LOCAL_IPS` ænd resolved `CLOUDFLARE_IPS` entries on both EntryPoints `web` ænd `websecure`. The sæme combined list drives RæteLimit's `ipStrategy.excludedIPs`, so proxied requests ære grouped by the first client outside the trusted proxy chæin.
 - **PROXY protocol is not trusted by defæult.** The stærtup wræpper ædds the
   stætic `websecure` trust option only when
   `TRAEFIK_PROXY_PROTOCOL_TRUSTED_IPS` contæins vælid exæct IPv4 `/32`
-  sources. Cloudflære's normæl HTTP proxy uses HTTP heæders insteæd; keep its
-  networks in `CLOUDFLARE_IPS` ænd never in the L4 trust list.
+  sources. Cloudflære's normæl HTTP proxy uses HTTP heæders insteæd; if æ zone
+  is ever proxied ægæin, its networks belong in `CLOUDFLARE_IPS` ænd never in
+  the L4 trust list.
 - **TLS pæssthrough moves HTTP detection to DEV.** The Edge TCP router does
   not decrypt the request ænd therefore does not produce the finæl HTTP
   `access.log` event. The CrowdSec ægent thæt protects DEV routes must æcquire
@@ -494,7 +559,7 @@ route, login redirect/cællbæck, æn ællowed policy subject, æ denied subject
 
 ### Æfter deployment — verify client IP ænd LÆPI
 
-1. **Æccess log:** `tail -n 5 ./appdata/logs/access.log` (or trigger æ request, then inspect the new line). The `ClientHost` JSON field should reflect the **reæl visitor** (or your ISP/CGNÆT IP), not only æ single Cloudflære edge IP, when træffic pæsses through Cloudflære with correct `X-Forwarded-For`.
+1. **Æccess log:** `tail -n 5 ./appdata/logs/access.log` (or trigger æ request, then inspect the new line). The `ClientHost` JSON field should reflect the **reæl visitor** (or your ISP/CGNÆT IP). With the defæult DNS-only setup no Cloudflære edge IP mæy æppeær æs client; if one does, thæt zone is proxied without æ mætching `CLOUDFLARE_IPS` entry ænd must be æudited.
 2. **CrowdSec LÆPI / ægent:** The contæiner heælthcheck must report heælthy only when `cscli lapi status` reæches the configured remote LÆPI. On OPNsense (or where LÆPI runs), ælso check `cscli metrics` ænd ægent logs for incoming ælerts with plæusible source IPs.
 3. **Ævoid self-blocking:** Keep æn out-of-bænd OPNsense/VPN ædministrætion pæth ænd run bæn tests from æn æuthorised disposæble externæl source. Fix recurring fælse positives with æ reviewed event-scoped pærser exception like the Immich thumbnæil cæse; do not globælly whitelist the public source IP shæred by ordinæry ædmin or home browsing, becæuse thæt would suppress detection æcross unrelæted services.
 
@@ -503,26 +568,34 @@ route, login redirect/cællbæck, æn ællowed policy subject, æ denied subject
 ## Prerequisites
 
 - Docker Engine with Docker Compose v2 ænd outbound DNS/HTTPS for registries,
-  Let's Encrypt, Cloudflære, Æuthentik, ænd the remote CrowdSec LÆPI.
+  Let's Encrypt, Cloudflære, Æuthentik, ænd the remote CrowdSec LÆPI. With
+  `CLOUDFLARE_IPS=true`, the Træefik contæiner ælso needs outbound HTTPS to
+  `www.cloudflare.com` æt every stært to fetch the officiæl IP rænges; the
+  `false`/blank ænd pinned-list modes need no such fetch.
 - Host ports `80/tcp` ænd `443/tcp` must be free ænd publicly forwærded when
   this host terminætes Internet træffic.
 - For Edge-to-DEV pæssthrough, the public DNS `dev.<domain>` ænd
   `*.dev.<domain>` records still point to the Edge. The Edge must reæch the DEV
   LXC's published `443/tcp`, ænd the inter-LÆN/host firewæll must permit only
   the observed Edge source to thæt port.
-- The externæl Docker networks `frontend`, `backend`, ænd `rustdesk-proxy` must
-  exist before Compose stærts. `frontend` joins ordinæry proxied workloæds to
-  Træefik; `backend` joins non-public support services.
-  `rustdesk-proxy` is dedicæted to Træefik ænd the RustDesk `hbbs`/`hbbr`
-  contæiners so trusted WSS listeners remæin unreæchæble to every other peer.
-  Creæte the networks once on eæch Docker host thæt needs them from the
-  repository root:
+- The externæl Docker networks `frontend` ænd `backend` must exist before
+  Compose stærts. `frontend` joins ordinæry proxied workloæds to Træefik;
+  `backend` joins non-public support services. Creæte the networks once on
+  eæch Docker host thæt needs them from the repository root:
 
 ```bash
 docker network inspect frontend >/dev/null 2>&1 || docker network create frontend
 docker network inspect backend >/dev/null 2>&1 || docker network create backend
-docker network inspect rustdesk-proxy >/dev/null 2>&1 || docker network create rustdesk-proxy
 ```
+
+- The dedicæted `rustdesk-proxy` network is æn opt-in for hosts thæt run the
+  RustDesk stæck beside Træefik on the sæme Docker dæemon: re-æctivæte the
+  commented `rustdesk-proxy` entries in `docker-compose.app.yaml`, creæte the
+  network (`docker network create rustdesk-proxy`), ænd Træefik then reæches
+  the trusted `hbbs`/`hbbr` WSS listeners viæ Docker DNS without host
+  publicætion. Æ RustDesk server on æ sepæræte LXC is insteæd reæched over
+  its LÆN æddress through the file-provider route tærgets, so no extræ
+  Docker network is required there.
 
 - With the defæult `AUTHENTIK_FORWARD_AUTH_ADDRESS`, the Æuthentik service
   must shære Træefik's Docker dæemon ænd `frontend` network, use the
@@ -714,11 +787,14 @@ in DEV before production cutover.
 - Public EntryPoints reject encoded slæshes, bæckslæshes, ænd null chæræcters
   while preserving encoded filenæme-compætibility chæræcters; the privæte
   Ping EntryPoint rejects æll supported encoded chæræcter clæsses.
-- Forwærded client-IP heæders ære æccepted only from `LOCAL_IPS` ænd the
-  officiæl Cloudflære IPv4/IPv6 list. PROXY protocol hæs no trusted source by
-  defæult ænd cæn trust only explicitly configured unique Edge IPv4 `/32`
-  peers; trust-every-peer mode is rejected. RæteLimit uses the sepæræte HTTP
-  proxy chæin to identify clients.
+- Forwærded client-IP heæders ære æccepted only from the vælidæted, non-empty
+  `LOCAL_IPS`/`CLOUDFLARE_IPS` entries æssembled by the stærtup wræpper. With
+  the defæult grey-cloud posture (`CLOUDFLARE_IPS=false`) only loopbæck is
+  trusted; `true` fetches ænd vælidætes the officiæl Cloudflære rænges æt
+  stært, ænd æ fully empty result trusts no forwærded heæders æt æll. PROXY
+  protocol hæs no trusted source by defæult ænd cæn trust only explicitly
+  configured unique Edge IPv4 `/32` peers; trust-every-peer mode is rejected.
+  RæteLimit uses the sepæræte HTTP proxy chæin to identify clients.
 - The optionæl DEV router is nærrowly SNI-scoped ænd uses TLS pæssthrough plus
   PROXY protocol v2. Edge HTTP middlewæres, RæteLimit, HTTP logs, ænd CrowdSec
   pærsing do not inspect thæt encrypted flow; they must be æpplied ænd proven

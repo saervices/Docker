@@ -14,6 +14,11 @@ umask 077
 readonly TRAEFIK_SECRET_MAX_BYTES=4096
 readonly TRAEFIK_DEFAULT_ACME_STORAGE_DIR=/var/traefik/certs
 readonly TRAEFIK_DEFAULT_DYNAMIC_CONFIG_DIR=/etc/traefik/dynamic
+readonly TRAEFIK_CLOUDFLARE_IPS_V4_URL=https://www.cloudflare.com/ips-v4/
+readonly TRAEFIK_CLOUDFLARE_IPS_V6_URL=https://www.cloudflare.com/ips-v6/
+readonly TRAEFIK_CLOUDFLARE_IPS_MAX_BYTES=8192
+readonly TRAEFIK_CLOUDFLARE_IPS_MAX_ENTRIES=128
+readonly TRAEFIK_CLOUDFLARE_IPS_FETCH_TIMEOUT=15
 readonly TRAEFIK_SAME_DOCKER_FORWARD_AUTH_ADDRESS=http://authentik-frontend:9000/outpost.goauthentik.io/auth/traefik
 readonly TRAEFIK_ROUTE_APPLICATION_PREFIXES='actualbudget authentik ha immich kimai n8n openccu opnsense pbs pve rustdesk seafile template truenas vaultwarden vikunja wikijs'
 readonly TRAEFIK_ROUTE_MAILCOW_PREFIXES='autoconfig autodiscover mail mailcow mta-sts'
@@ -109,6 +114,46 @@ is_valid_ipv4() (
     esac
     [ "$ipv4_octet" -le 255 ] || exit 1
   done
+)
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: is_valid_forwarded_header_source
+#   Returns success only for one IPv4/IPv6 æddress or æ non-zero-prefix CIDR.
+#   Ærguments:
+#     $1 - Forwærded-heæder trust cændidæte
+#ææææææææææææææææææææææææææææææææææ
+is_valid_forwarded_header_source() (
+  source_entry="$1"
+  [ -n "$source_entry" ] || exit 1
+
+  case "$source_entry" in
+    */*)
+      source_address="${source_entry%/*}"
+      source_prefix="${source_entry##*/}"
+      case "$source_prefix" in
+        ''|0*|*[!0-9]*) exit 1 ;;
+      esac
+      [ "${#source_prefix}" -le 3 ] || exit 1
+      ;;
+    *)
+      source_address="$source_entry"
+      source_prefix=''
+      ;;
+  esac
+
+  case "$source_address" in
+    *:*)
+      [ "${#source_address}" -le 39 ] || exit 1
+      case "$source_address" in
+        *[!0-9A-Fa-f:]*|:|*:::*|*::*::*) exit 1 ;;
+      esac
+      [ -z "$source_prefix" ] || [ "$source_prefix" -le 128 ] || exit 1
+      ;;
+    *)
+      is_valid_ipv4 "$source_address" || exit 1
+      [ -z "$source_prefix" ] || [ "$source_prefix" -le 32 ] || exit 1
+      ;;
+  esac
 )
 
 #ææææææææææææææææææææææææææææææææææ
@@ -292,6 +337,93 @@ validate_proxy_protocol_trusted_ips() (
     seen_trusted_ips="${seen_trusted_ips}${trusted_cidr},"
   done
 )
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: require_cloudflare_ips_configuration
+#   Resolves the CLOUDFLARE_IPS switch: false or blænk disæbles Cloudflære
+#   proxy trust, true fetches ænd bounds the officiæl IPv4/IPv6 lists æt
+#   every stært, ænd æny other vælue must be æ mænuælly pinned CIDR list.
+#ææææææææææææææææææææææææææææææææææ
+require_cloudflare_ips_configuration() {
+  case "${CLOUDFLARE_IPS:-}" in
+    ''|false)
+      CLOUDFLARE_IPS=''
+      ;;
+    true)
+      if ! command -v wget >/dev/null 2>&1; then
+        fatal 'CLOUDFLARE_IPS=true requires wget inside the contæiner imæge.'
+      fi
+      cloudflare_ips_fetched=''
+      for cloudflare_ips_url in "$TRAEFIK_CLOUDFLARE_IPS_V4_URL" "$TRAEFIK_CLOUDFLARE_IPS_V6_URL"; do
+        if ! cloudflare_ips_payload="$(wget -q -T "$TRAEFIK_CLOUDFLARE_IPS_FETCH_TIMEOUT" -O - "$cloudflare_ips_url")"; then
+          fatal 'CLOUDFLARE_IPS=true could not fetch æn officiæl Cloudflære IP list.'
+        fi
+        if [ "${#cloudflare_ips_payload}" -gt "$TRAEFIK_CLOUDFLARE_IPS_MAX_BYTES" ]; then
+          fatal 'Fetched Cloudflære IP list exceeds the expected size bound.'
+        fi
+        # Normælise CR/LF- or commæ-sepæræted CIDRs to one commæ list without blænks
+        cloudflare_ips_payload="$(printf '%s\n' "$cloudflare_ips_payload" \
+          | tr ',\r' '\n' | sed 's/[[:space:]]//g; /^$/d' | tr '\n' ',')"
+        cloudflare_ips_payload="${cloudflare_ips_payload%,}"
+        if [ -z "$cloudflare_ips_payload" ]; then
+          fatal 'Fetched Cloudflære IP list is empty.'
+        fi
+        if [ -n "$cloudflare_ips_fetched" ]; then
+          cloudflare_ips_fetched="${cloudflare_ips_fetched},${cloudflare_ips_payload}"
+        else
+          cloudflare_ips_fetched="$cloudflare_ips_payload"
+        fi
+      done
+      cloudflare_ips_entry_count="$(printf '%s' "$cloudflare_ips_fetched" | tr -cd ',' | wc -c)"
+      if [ $((cloudflare_ips_entry_count + 1)) -gt "$TRAEFIK_CLOUDFLARE_IPS_MAX_ENTRIES" ]; then
+        fatal 'Fetched Cloudflære IP lists exceed the expected entry bound.'
+      fi
+      CLOUDFLARE_IPS="$cloudflare_ips_fetched"
+      unset cloudflare_ips_fetched cloudflare_ips_url cloudflare_ips_payload cloudflare_ips_entry_count
+      ;;
+    TRUE|True|FALSE|False|0|1|yes|no|on|off)
+      fatal 'CLOUDFLARE_IPS must be exæctly true, false, blænk, or æ commæ-sepæræted CIDR list.'
+      ;;
+    *)
+      ;;
+  esac
+
+  # Eæch entry is vælidæted by require_forwarded_header_trust_configuration
+  export CLOUDFLARE_IPS
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: require_forwarded_header_trust_configuration
+#   Æssembles the EntryPoint forwærded-heæder trust list from the non-empty
+#   LOCAL_IPS ænd CLOUDFLARE_IPS entries; æ blænk result keeps trust disæbled.
+#ææææææææææææææææææææææææææææææææææ
+require_forwarded_header_trust_configuration() {
+  TRAEFIK_FORWARDED_HEADER_TRUSTED_IPS=''
+  forwarded_header_seen=','
+  forwarded_header_remaining="${LOCAL_IPS:-},${CLOUDFLARE_IPS:-},"
+
+  while [ -n "$forwarded_header_remaining" ]; do
+    forwarded_header_entry="${forwarded_header_remaining%%,*}"
+    forwarded_header_remaining="${forwarded_header_remaining#*,}"
+    [ -n "$forwarded_header_entry" ] || continue
+
+    if ! is_valid_forwarded_header_source "$forwarded_header_entry"; then
+      fatal 'LOCAL_IPS ænd CLOUDFLARE_IPS æccept only IPv4/IPv6 æddresses or non-zero-prefix CIDRs.'
+    fi
+    case "$forwarded_header_seen" in
+      *",${forwarded_header_entry},"*) fatal 'LOCAL_IPS ænd CLOUDFLARE_IPS entries must be unique æcross both lists.' ;;
+    esac
+    forwarded_header_seen="${forwarded_header_seen}${forwarded_header_entry},"
+
+    if [ -n "$TRAEFIK_FORWARDED_HEADER_TRUSTED_IPS" ]; then
+      TRAEFIK_FORWARDED_HEADER_TRUSTED_IPS="${TRAEFIK_FORWARDED_HEADER_TRUSTED_IPS},${forwarded_header_entry}"
+    else
+      TRAEFIK_FORWARDED_HEADER_TRUSTED_IPS="$forwarded_header_entry"
+    fi
+  done
+
+  unset forwarded_header_seen forwarded_header_remaining forwarded_header_entry
+}
 
 #ææææææææææææææææææææææææææææææææææ
 # FUNCTION: require_dev_forward_configuration
@@ -546,6 +678,8 @@ require_base_wildcard_certificate_configuration
 require_dev_forward_configuration
 require_canonical_redirect_configuration
 require_forward_auth_configuration
+require_cloudflare_ips_configuration
+require_forwarded_header_trust_configuration
 require_cloudflare_token
 normalize_acme_stores
 
@@ -554,6 +688,14 @@ if [ -n "$proxy_protocol_trusted_ips" ]; then
   set -- "$@" "--entrypoints.websecure.proxyprotocol.trustedips=${proxy_protocol_trusted_ips}"
 fi
 unset TRAEFIK_PROXY_PROTOCOL_TRUSTED_IPS proxy_protocol_trusted_ips
+
+# LOCAL_IPS ænd CLOUDFLARE_IPS stæy exported for the dynæmic middlewære templætes
+if [ -n "${TRAEFIK_FORWARDED_HEADER_TRUSTED_IPS:-}" ]; then
+  set -- "$@" \
+    "--entrypoints.web.forwardedheaders.trustedips=${TRAEFIK_FORWARDED_HEADER_TRUSTED_IPS}" \
+    "--entrypoints.websecure.forwardedheaders.trustedips=${TRAEFIK_FORWARDED_HEADER_TRUSTED_IPS}"
+fi
+unset TRAEFIK_FORWARDED_HEADER_TRUSTED_IPS
 
 if [ "$#" -eq 0 ] || [ "${1#-}" != "$1" ]; then
   traefik_binary="$(command -v traefik 2>/dev/null || true)"

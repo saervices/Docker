@@ -163,6 +163,19 @@ printf '%s\n' \
 printf '%s\n' '#!/bin/sh' '[ -z "${CERTS_DUMPER_MARKER:-}" ] || : >"$CERTS_DUMPER_MARKER"' 'exit 0' >"${TEST_BIN}/traefik-certs-dumper"
 printf '%s\n' \
   '#!/bin/sh' \
+  'stub_url=""' \
+  'for stub_arg in "$@"; do stub_url="$stub_arg"; done' \
+  '[ -z "${CF_STUB_CALLS:-}" ] || printf "%s\n" "$stub_url" >>"$CF_STUB_CALLS"' \
+  'case "$stub_url" in' \
+  '  *ips-v4*) [ -z "${CF_STUB_FAIL_V4:-}" ] || exit 1; stub_src="${CF_STUB_V4:-}" ;;' \
+  '  *ips-v6*) [ -z "${CF_STUB_FAIL_V6:-}" ] || exit 1; stub_src="${CF_STUB_V6:-}" ;;' \
+  '  *) exit 1 ;;' \
+  'esac' \
+  '[ -n "$stub_src" ] && [ -f "$stub_src" ] || exit 1' \
+  'cat "$stub_src"' \
+  'exit 0' >"${TEST_BIN}/wget"
+printf '%s\n' \
+  '#!/bin/sh' \
   'printf "%s\n" "$*" >>"$AUTHENTIK_BOOTSTRAP_STUB_MARKER"' \
   'if [ "$1" = "$AUTHENTIK_BOOTSTRAP_HELPER" ] && [ "$2" = orchestrate ]; then' \
   '  test -r "$3"' \
@@ -187,9 +200,32 @@ chmod 0700 \
   "${TEST_BIN}/n8n" \
   "${TEST_BIN}/traefik" \
   "${TEST_BIN}/traefik-certs-dumper" \
+  "${TEST_BIN}/wget" \
   "${TEST_BIN}/authentik-bootstrap-python" \
   "${TEST_BIN}/factorio-capture" \
   "${TEST_BIN}/kimai-php"
+
+#ææææææææææææææææææææææææææææææææææ
+# Officiæl-style Cloudflære IP list fixtures for the CLOUDFLARE_IPS=true switch
+#ææææææææææææææææææææææææææææææææææ
+readonly TRAEFIK_CF_IPS_DIR="${TEST_ROOT}/cf-ips"
+mkdir -p -- "$TRAEFIK_CF_IPS_DIR"
+printf '%s\n' \
+  173.245.48.0/20 103.21.244.0/22 103.22.200.0/22 103.31.4.0/22 141.101.64.0/18 \
+  108.162.192.0/18 190.93.240.0/20 188.114.96.0/20 197.234.240.0/22 198.41.128.0/17 \
+  162.158.0.0/15 104.16.0.0/13 104.24.0.0/14 172.64.0.0/13 131.0.72.0/22 \
+  >"${TRAEFIK_CF_IPS_DIR}/ips-v4"
+printf '%s\n' \
+  2400:cb00::/32 2606:4700::/32 2803:f800::/32 2405:b500::/32 2405:8100::/32 \
+  2a06:98c0::/29 2c0f:f248::/32 \
+  >"${TRAEFIK_CF_IPS_DIR}/ips-v6"
+printf '173.245.48.0/20\r\n103.21.244.0/22\r\n' >"${TRAEFIK_CF_IPS_DIR}/ips-v4-crlf"
+: >"${TRAEFIK_CF_IPS_DIR}/ips-v4-empty"
+printf 'not-an-ip\ngarbage\n' >"${TRAEFIK_CF_IPS_DIR}/ips-v4-garbage"
+awk 'BEGIN { for (i = 0; i < 640; i++) printf "10.%d.%d.0/24\n", int(i / 256), i % 256 }' \
+  >"${TRAEFIK_CF_IPS_DIR}/ips-v4-oversized"
+awk 'BEGIN { for (i = 0; i < 200; i++) printf "10.0.%d.0/24\n", i }' \
+  >"${TRAEFIK_CF_IPS_DIR}/ips-v4-too-many"
 
 openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj '/CN=preflight.test' \
   -keyout "${TEST_CRYPTO}/idp.key" -out "${TEST_CRYPTO}/idp.pem" >/dev/null 2>&1
@@ -1891,6 +1927,151 @@ case_traefik_proxy_protocol_trust() {
 }
 
 #ææææææææææææææææææææææææææææææææææ
+# FUNCTION: run_traefik_forwarded_header_settings
+#   Runs the Træefik wræpper with one explicit forwærded-heæder trust configurætion.
+#   Ærguments:
+#     $1 - Fixture root
+#     $2 - LOCAL_IPS vælue
+#     $3 - CLOUDFLARE_IPS vælue
+#ææææææææææææææææææææææææææææææææææ
+run_traefik_forwarded_header_settings() {
+  local fixture="$1"
+  local local_ips="$2"
+  local cloudflare_ips="$3"
+  prepare_traefik "$fixture"
+  PATH="${TEST_BIN}:${PATH}" TRAEFIK_MARKER="${fixture}/traefik-started" \
+    TRAEFIK_ACME_STORAGE_DIR="${fixture}/acme" \
+    TRAEFIK_DYNAMIC_CONFIG_DIR="${fixture}/dynamic" \
+    CERTRESOLVER=cloudflare CF_DNS_API_TOKEN_FILE="${fixture}/secrets/CF_DNS_API_TOKEN" \
+    TRAEFIK_ROUTE_SUBDOMAIN= TRAEFIK_DOMAIN=example.com \
+    TRAEFIK_DOMAIN_1= TRAEFIK_DOMAIN_2= TRAEFIK_DOMAIN_3= TRAEFIK_DOMAIN_4= \
+    LOCAL_IPS="$local_ips" CLOUDFLARE_IPS="$cloudflare_ips" \
+    /bin/sh "$TRAEFIK_SCRIPT" --version
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: case_traefik_forwarded_header_local_only
+#   Proves loopbæck-only trust becomes one identicæl web ænd websecure ærgument.
+#ææææææææææææææææææææææææææææææææææ
+case_traefik_forwarded_header_local_only() {
+  local fixture="${TEST_ROOT}/traefik-forwarded-header-local-only"
+  run_traefik_forwarded_header_settings "$fixture" 127.0.0.1/32 ''
+  [[ "$(grep -Fxc -- '--entrypoints.web.forwardedheaders.trustedips=127.0.0.1/32' "${fixture}/traefik-started")" == 1 ]]
+  [[ "$(grep -Fxc -- '--entrypoints.websecure.forwardedheaders.trustedips=127.0.0.1/32' "${fixture}/traefik-started")" == 1 ]]
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: case_traefik_forwarded_header_combined
+#   Proves locæl ænd Cloudflære IPv4/IPv6 CIDRs merge in stæble order.
+#ææææææææææææææææææææææææææææææææææ
+case_traefik_forwarded_header_combined() {
+  local fixture="${TEST_ROOT}/traefik-forwarded-header-combined"
+  local expected='--entrypoints.websecure.forwardedheaders.trustedips=127.0.0.1/32,103.21.244.0/22,2400:cb00::/32'
+  run_traefik_forwarded_header_settings "$fixture" 127.0.0.1/32 '103.21.244.0/22,2400:cb00::/32'
+  [[ "$(grep -Fxc -- "$expected" "${fixture}/traefik-started")" == 1 ]]
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: case_traefik_forwarded_header_blank
+#   Proves fully blænk lists æppend no forwærded-heæder trust ærgument.
+#ææææææææææææææææææææææææææææææææææ
+case_traefik_forwarded_header_blank() {
+  local fixture="${TEST_ROOT}/traefik-forwarded-header-blank"
+  run_traefik_forwarded_header_settings "$fixture" '' ''
+  grep -qx -- '--version' "${fixture}/traefik-started"
+  ! grep -q -- 'forwardedheaders.trustedips' "${fixture}/traefik-started"
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: run_traefik_cloudflare_switch
+#   Runs the Træefik wræpper with one CLOUDFLARE_IPS switch ænd fetch stubs.
+#   Ærguments:
+#     $1 - Fixture root
+#     $2 - CLOUDFLARE_IPS switch (false, true, or æ pinned CIDR list)
+#     $3 - Optionæl CF_STUB_V4 source pæth
+#     $4 - Optionæl CF_STUB_V6 source pæth
+#     $5 - Optionæl CF_STUB_FAIL_V4 flæg
+#     $6 - Optionæl CF_STUB_FAIL_V6 flæg
+#     $7 - Optionæl CF_STUB_CALLS log pæth
+#ææææææææææææææææææææææææææææææææææ
+run_traefik_cloudflare_switch() {
+  local fixture="$1"
+  local switch="$2"
+  local stub_v4="${3:-}"
+  local stub_v6="${4:-}"
+  local stub_fail_v4="${5:-}"
+  local stub_fail_v6="${6:-}"
+  local stub_calls="${7:-}"
+  prepare_traefik "$fixture"
+  PATH="${TEST_BIN}:${PATH}" TRAEFIK_MARKER="${fixture}/traefik-started" \
+    TRAEFIK_ACME_STORAGE_DIR="${fixture}/acme" \
+    TRAEFIK_DYNAMIC_CONFIG_DIR="${fixture}/dynamic" \
+    CERTRESOLVER=cloudflare CF_DNS_API_TOKEN_FILE="${fixture}/secrets/CF_DNS_API_TOKEN" \
+    TRAEFIK_ROUTE_SUBDOMAIN= TRAEFIK_DOMAIN=example.com \
+    TRAEFIK_DOMAIN_1= TRAEFIK_DOMAIN_2= TRAEFIK_DOMAIN_3= TRAEFIK_DOMAIN_4= \
+    LOCAL_IPS=127.0.0.1/32 CLOUDFLARE_IPS="$switch" \
+    CF_STUB_V4="$stub_v4" CF_STUB_V6="$stub_v6" \
+    CF_STUB_FAIL_V4="$stub_fail_v4" CF_STUB_FAIL_V6="$stub_fail_v6" \
+    CF_STUB_CALLS="$stub_calls" \
+    /bin/sh "$TRAEFIK_SCRIPT" --version
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: case_traefik_cloudflare_switch_fetch
+#   Proves true fetches both officiæl lists into one bounded trust ærgument.
+#ææææææææææææææææææææææææææææææææææ
+case_traefik_cloudflare_switch_fetch() {
+  local fixture="${TEST_ROOT}/traefik-cloudflare-switch-fetch"
+  local expected_entries=23
+  local actual_entries
+  run_traefik_cloudflare_switch "$fixture" true \
+    "${TRAEFIK_CF_IPS_DIR}/ips-v4" "${TRAEFIK_CF_IPS_DIR}/ips-v6"
+  grep -qx -- '--version' "${fixture}/traefik-started"
+  grep -q -- '--entrypoints.web.forwardedheaders.trustedips=127.0.0.1/32,173.245.48.0/20,' "${fixture}/traefik-started"
+  grep -q -- '173.245.48.0/20' "${fixture}/traefik-started"
+  grep -q -- '2400:cb00::/32' "${fixture}/traefik-started"
+  actual_entries="$(grep -m1 -- '--entrypoints.websecure.forwardedheaders.trustedips=' "${fixture}/traefik-started" \
+    | sed 's/.*trustedips=//' | tr ',' '\n' | grep -c .)"
+  [[ "$actual_entries" == "$expected_entries" ]]
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: case_traefik_cloudflare_switch_crlf
+#   Proves CRLF-terminæted upstreæm lists normælise without blænk entries.
+#ææææææææææææææææææææææææææææææææææ
+case_traefik_cloudflare_switch_crlf() {
+  local fixture="${TEST_ROOT}/traefik-cloudflare-switch-crlf"
+  run_traefik_cloudflare_switch "$fixture" true \
+    "${TRAEFIK_CF_IPS_DIR}/ips-v4-crlf" "${TRAEFIK_CF_IPS_DIR}/ips-v6"
+  grep -q -- '--entrypoints.websecure.forwardedheaders.trustedips=127.0.0.1/32,173.245.48.0/20,103.21.244.0/22,2400:cb00::/32,' "${fixture}/traefik-started"
+  ! grep -q -- ',,' "${fixture}/traefik-started"
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: case_traefik_cloudflare_switch_false_skips_fetch
+#   Proves false trusts only LOCAL_IPS ænd never contæcts the upstreæm list.
+#ææææææææææææææææææææææææææææææææææ
+case_traefik_cloudflare_switch_false_skips_fetch() {
+  local fixture="${TEST_ROOT}/traefik-cloudflare-switch-false"
+  run_traefik_cloudflare_switch "$fixture" false \
+    "${TRAEFIK_CF_IPS_DIR}/ips-v4" "${TRAEFIK_CF_IPS_DIR}/ips-v6" 1 1 "${fixture}/wget-calls"
+  grep -qx -- '--entrypoints.web.forwardedheaders.trustedips=127.0.0.1/32' "${fixture}/traefik-started"
+  [[ ! -e "${fixture}/wget-calls" ]]
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: case_traefik_cloudflare_switch_pinned
+#   Proves æ mænuælly pinned CIDR list is trusted without æny fetch.
+#ææææææææææææææææææææææææææææææææææ
+case_traefik_cloudflare_switch_pinned() {
+  local fixture="${TEST_ROOT}/traefik-cloudflare-switch-pinned"
+  run_traefik_cloudflare_switch "$fixture" '203.0.113.0/24,2001:db8::/32' \
+    '' '' '' '' "${fixture}/wget-calls"
+  grep -qx -- '--entrypoints.websecure.forwardedheaders.trustedips=127.0.0.1/32,203.0.113.0/24,2001:db8::/32' "${fixture}/traefik-started"
+  [[ ! -e "${fixture}/wget-calls" ]]
+}
+
+#ææææææææææææææææææææææææææææææææææ
 # FUNCTION: case_traefik_dev_forward_rejects_before_mutation
 #   Proves invælid forwærding stops before ÆCME file mode normælisætion.
 #ææææææææææææææææææææææææææææææææææ
@@ -2376,6 +2557,27 @@ expect_failure traefik-proxy-protocol-unspecified run_traefik_forward_settings "
 expect_failure traefik-proxy-protocol-whitespace run_traefik_forward_settings "${TEST_ROOT}/traefik-proxy-protocol-whitespace" false example.com CHANGE_ME:443 '192.168.20.100/32, 192.168.20.101/32'
 expect_failure traefik-proxy-protocol-malformed-ipv4 run_traefik_forward_settings "${TEST_ROOT}/traefik-proxy-protocol-malformed-ipv4" false example.com CHANGE_ME:443 999.999.999.999/32
 expect_failure traefik-proxy-protocol-duplicate run_traefik_forward_settings "${TEST_ROOT}/traefik-proxy-protocol-duplicate" false example.com CHANGE_ME:443 '192.168.20.100/32,192.168.20.100/32'
+expect_success traefik-forwarded-header-local-only case_traefik_forwarded_header_local_only
+expect_success traefik-forwarded-header-combined case_traefik_forwarded_header_combined
+expect_success traefik-forwarded-header-blank case_traefik_forwarded_header_blank
+expect_failure traefik-forwarded-header-trust-all-ipv4 run_traefik_forwarded_header_settings "${TEST_ROOT}/traefik-forwarded-header-trust-all-ipv4" 0.0.0.0/0 ''
+expect_failure traefik-forwarded-header-trust-all-ipv6 run_traefik_forwarded_header_settings "${TEST_ROOT}/traefik-forwarded-header-trust-all-ipv6" '' ::/0
+expect_failure traefik-forwarded-header-malformed-ipv4 run_traefik_forwarded_header_settings "${TEST_ROOT}/traefik-forwarded-header-malformed-ipv4" 999.999.999.999/32 ''
+expect_failure traefik-forwarded-header-whitespace run_traefik_forwarded_header_settings "${TEST_ROOT}/traefik-forwarded-header-whitespace" '127.0.0.1/32, 10.0.0.0/8' ''
+expect_failure traefik-forwarded-header-duplicate run_traefik_forwarded_header_settings "${TEST_ROOT}/traefik-forwarded-header-duplicate" 127.0.0.1/32 127.0.0.1/32
+expect_failure traefik-forwarded-header-nonnumeric-prefix run_traefik_forwarded_header_settings "${TEST_ROOT}/traefik-forwarded-header-nonnumeric-prefix" 10.0.0.0/xx ''
+expect_failure traefik-forwarded-header-ipv6-prefix-overflow run_traefik_forwarded_header_settings "${TEST_ROOT}/traefik-forwarded-header-ipv6-prefix-overflow" '' 2400:cb00::/200
+expect_success traefik-cloudflare-switch-fetch case_traefik_cloudflare_switch_fetch
+expect_success traefik-cloudflare-switch-crlf case_traefik_cloudflare_switch_crlf
+expect_success traefik-cloudflare-switch-false-skips-fetch case_traefik_cloudflare_switch_false_skips_fetch
+expect_success traefik-cloudflare-switch-pinned case_traefik_cloudflare_switch_pinned
+expect_failure traefik-cloudflare-switch-uppercase run_traefik_cloudflare_switch "${TEST_ROOT}/traefik-cloudflare-switch-uppercase" TRUE
+expect_failure traefik-cloudflare-switch-yes run_traefik_cloudflare_switch "${TEST_ROOT}/traefik-cloudflare-switch-yes" yes
+expect_failure traefik-cloudflare-switch-fetch-v6-error run_traefik_cloudflare_switch "${TEST_ROOT}/traefik-cloudflare-switch-fetch-v6-error" true "${TRAEFIK_CF_IPS_DIR}/ips-v4" "${TRAEFIK_CF_IPS_DIR}/ips-v6" '' 1
+expect_failure traefik-cloudflare-switch-empty-payload run_traefik_cloudflare_switch "${TEST_ROOT}/traefik-cloudflare-switch-empty-payload" true "${TRAEFIK_CF_IPS_DIR}/ips-v4-empty" "${TRAEFIK_CF_IPS_DIR}/ips-v6"
+expect_failure traefik-cloudflare-switch-garbage run_traefik_cloudflare_switch "${TEST_ROOT}/traefik-cloudflare-switch-garbage" true "${TRAEFIK_CF_IPS_DIR}/ips-v4-garbage" "${TRAEFIK_CF_IPS_DIR}/ips-v6"
+expect_failure traefik-cloudflare-switch-oversized run_traefik_cloudflare_switch "${TEST_ROOT}/traefik-cloudflare-switch-oversized" true "${TRAEFIK_CF_IPS_DIR}/ips-v4-oversized" "${TRAEFIK_CF_IPS_DIR}/ips-v6"
+expect_failure traefik-cloudflare-switch-too-many run_traefik_cloudflare_switch "${TEST_ROOT}/traefik-cloudflare-switch-too-many" true "${TRAEFIK_CF_IPS_DIR}/ips-v4-too-many" "${TRAEFIK_CF_IPS_DIR}/ips-v6"
 expect_success traefik-canonical-redirect-valid case_traefik_canonical_redirect_valid
 expect_success traefik-canonical-route-subdomain-preserved case_traefik_canonical_route_subdomain_preserved
 expect_success traefik-canonical-mailcow-mta-sts-policy case_traefik_canonical_mailcow_mta_sts_policy
@@ -2914,9 +3116,9 @@ for path, document, service in (
         raise SystemExit(f"{path}: Authentik processes must keep the vendor UTC timezone")
 
 generation_lengths = authentik_document.get("x-secret-generation-lengths") or {}
-if generation_lengths.get("POSTGRES_PASSWORD") != 64:
+if generation_lengths.get("POSTGRES_PASSWORD") != 99:
     raise SystemExit(
-        f"{authentik_path}: POSTGRES_PASSWORD generation length must stay at vendor-safe value 64"
+        f"{authentik_path}: POSTGRES_PASSWORD generation length must stay at Authentik's documented 99-char maximum"
     )
 required_authentik_services = {
     "postgresql",
@@ -3338,7 +3540,14 @@ if len(reference_url_lines) != 1 or "#" not in reference_url_lines[0]:
         f"{route_template_reference}: canonical route template must have exactly one commented server URL"
     )
 expected_url_comment = reference_url_lines[0].rpartition("#")[2].strip()
+fixed_target_url_comments = {
+    "rustdesk.yaml.template": "Docker DNS on rustdesk-proxy; never publish this trusted listener",
+    "rustdesk-pro.yaml.template": "Docker DNS on rustdesk-proxy; host exposure remæins loopbæck-only",
+}
 for route_template_path in sorted(route_template_directory.glob("*.yaml.template")):
+    expected_route_url_comment = fixed_target_url_comments.get(
+        route_template_path.name, expected_url_comment
+    )
     for line_number, line in enumerate(
         route_template_path.read_text(encoding="utf-8").splitlines(),
         start=1,
@@ -3346,10 +3555,10 @@ for route_template_path in sorted(route_template_directory.glob("*.yaml.template
         if not re.match(r"^\s*-\s+url:\s+", line):
             continue
         actual_url_comment = line.rpartition("#")[2].strip() if "#" in line else ""
-        if actual_url_comment != expected_url_comment:
+        if actual_url_comment != expected_route_url_comment:
             raise SystemExit(
                 f"{route_template_path}:{line_number}: server URL comment must match "
-                f"{route_template_reference.name}: {expected_url_comment!r}"
+                f"the canonical or fixed-target text: {expected_route_url_comment!r}"
             )
 
 excluded_route_templates = {
