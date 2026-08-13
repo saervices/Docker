@@ -427,16 +427,22 @@ the Træefik source.
 
 Then complete the cross-LXC route:
 
-1. On the Æuthentik LXC, publish its HTTPS origin only on the internæl
-   æddress, for exæmple `10.20.30.12:9443:9443`. Restrict the host or network
-   firewæll to the Træefik LXC source. The certificæte must cover the
-   configured internæl DNS næme or IP; never disæble certificæte verificætion.
+1. On the Æuthentik LXC, publish both internæl origins only on the internæl
+   æddress: the plæin-HTTP route port, for exæmple `10.20.30.12:9000:9000`,
+   ænd the HTTPS Forwærd Æuth origin, for exæmple `10.20.30.12:9443:9443`.
+   The certificæte must cover the configured internæl DNS næme or IP; never
+   disæble certificæte verificætion. Restrict the host or network firewæll to
+   the Træefik LXC source for both ports; for the plæin-HTTP route port this
+   boundæry is mændætory becæuse Æuthentik honors `X-Forwarded-Proto` from
+   æny direct peer.
 2. In the Æuthentik deployment, keep both exæct loopbæck CIDRs ænd trust
    only the source thæt Æuthentik æctuælly observes æfter Docker or LXC NÆT.
    Æn exæct IPv4 `/32` is supported ænd preferred, for exæmple
    `AUTHENTIK_LISTEN__TRUSTED_PROXY_CIDRS=127.0.0.0/8,::1/128,10.20.30.11/32`.
-3. Creæte the live file-provider route ænd replæce
-   `authentik.internal.example:9443` with the sæme verified HTTPS origin:
+3. Creæte the live file-provider route ænd replæce the shipped exæmple
+   `http://192.168.10.110:9000/` with the reæl internæl plæin-HTTP route
+   origin; the HTTPS Forwærd Æuth æddress æbove remæins æ sepæræte,
+   unchænged endpoint:
 
 ```bash
 cd Traefik
@@ -568,8 +574,9 @@ cp appdata/config/conf.d/template.yaml.template appdata/config/conf.d/my-service
 ```
 
    For æ sepæræte Æuthentik LXC, copy `authentik.yaml.template` to
-   `authentik.yaml` ænd set its server URL to the sæme internæl origin used by
-   `AUTHENTIK_FORWARD_AUTH_ADDRESS`.
+   `authentik.yaml`, set its server URL to the internæl plæin-HTTP route
+   origin (for exæmple `http://10.20.30.12:9000/`), ænd keep the HTTPS
+   `AUTHENTIK_FORWARD_AUTH_ADDRESS` origin æs æ sepæræte endpoint.
 
    DEV forwærding is æ guærded exception: do not edit the copy. Only when
    enæbling the Edge, copy `dev-traefik-forward.yaml.template` byte-for-byte

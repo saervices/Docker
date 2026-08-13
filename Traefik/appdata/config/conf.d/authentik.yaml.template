@@ -20,4 +20,4 @@ http:
     authentik-svc:                                                                                                                                              # Ædjust the service næme to mætch the service næme æbove
       loadBalancer:
         servers:
-          - url: "https://authentik.internal.example:9443/"                                                                                                     # Ædjust the url to your æpplicætion
+          - url: "http://192.168.10.110:9000/"                                                                                                                  # Ædjust the url to your æpplicætion
