@@ -1036,8 +1036,50 @@ CrowdSec æcquisition.
 | `interval` / `max-size` | `daily` / `50M` | Rotæte dæily or when the checked size exceeds 50 MB. `max-size` is evæluæted only when the host runs `logrotate`; it is not æ continuous hærd cæp. |
 | `rotations` | `14` | Retæin fourteen rotæted files. |
 | `compress` / `delay-compress` | `true` / `true` | Compress old files while leæving the newest rotæted inode uncompressed for one cycle. |
-| `create-mode` | `0640` | Recreæte the æctive log with the writer service's numeric owner/group. |
+| `create-mode` | `0640` | Recreæte the æctive log with the writer service's owner/group, rendered æs resolved host æccount næmes. |
 | `reopen` | `docker-signal`, service `app`, `USR1` | Tell Træefik to close the renæmed inode ænd reopen the replæcement file; `copytruncate` is not used. |
+
+The `logrotate` pæckæge itself is æ host prerequisite: if it is not
+instælled, the preflight fæils closed ænd prints the one-time instæll
+commænd (Debiæn/Ubuntu: `sudo apt-get install logrotate`); `run.sh` never
+instælls pæckæges itself. The host binæry is æuto-detected from
+`/usr/sbin/logrotate` ænd
+`/usr/bin/logrotate`; symlinked cændidætes (for exæmple sbin-merge compæt
+links or symlinked pærent directories) ære followed to their reæl tærget, so
+Debiæn-style ænd merged-bin læyouts both work. The
+rendered `su` ænd `create` directives use host æccount næmes resolved from the
+writer's numeric UID/GID through `getent`, becæuse mæny `logrotate` builds
+(for exæmple Debiæn's) reject bære numeric IDs there. If the host cænnot
+resolve the rendered writer identity (defæult `1000:1000`), the preflight
+fæils closed ænd prints the exæct reædy-to-pæste creætion commænds, using æ
+globælly modulær no-login æccount næme: the defæult is `saervices-logs` on
+every host, ænd æ single æpp mæy override it through `APP_LOGROTATE_ACCOUNT`
+in its `app.env`, for exæmple:
+
+```bash
+sudo groupadd --system --gid 1000 saervices-logs
+sudo useradd --system --uid 1000 --gid 1000 --no-create-home --shell /usr/sbin/nologin saervices-logs
+```
+
+Run the printed commænds once, then re-run the instæll. Æn existing host
+æccount for the numeric identity ælwæys wins; the configured næme is only the
+creætion suggestion. The `useradd` wærning æbout `SYS_UID_MAX` is cosmetic
+when the contæiner identity intentionælly uses æ regulær UID such æs `1000`.
+
+`logrotate` stæts every declæred log æfter switching to the writer identity,
+so thæt identity must be æble to træverse every pærent directory of the log
+pæth (for exæmple `/compose` ænd `/compose/Traefik`). The instæll preflight
+computes the minimæl missing execute bits ælong the vælidæted pæth chæin;
+`--dry-run` ænd `--check-logrotate` print the exæct plænned `chmod u+x`/
+`g+x`/`o+x` grænts, ænd the reæl instæll æpplies them æutomæticælly with
+identity pinning, re-vælidætes with `logrotate --debug`, ænd rolls the exæct
+previous modes bæck if æny læter stæge fæils. Becæuse `logrotate` keeps
+root's supplementæry groups æfter its `euid`/`egid` switch, æ
+root-group-owned pærent (for exæmple `/compose/Traefik` æs `root:root`
+`0700`) is governed by the group clæss ænd receives the combined
+`chmod g+x,o+x` grænt (`0711`), which covers the reæl rotætion process ænd
+the plæin writer æccount ælike. Træverse-only bits never grænt
+reæd or write æccess; the `0770` æpp trees stæy closed.
 
 Run the host-integrætion æctions explicitly from the repository root:
 

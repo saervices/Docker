@@ -21,7 +21,10 @@ readonly HOST_LOGROTATE_MARKER="# Managed by it.saervices run.sh (host-logrotate
 readonly HOST_LOGROTATE_REALPATH_BIN="/usr/bin/realpath"
 readonly HOST_LOGROTATE_STAT_BIN="/usr/bin/stat"
 readonly HOST_LOGROTATE_JQ_BIN="/usr/bin/jq"
-readonly HOST_LOGROTATE_LOGROTATE_BIN="/usr/bin/logrotate"
+readonly HOST_LOGROTATE_GETENT_BIN="/usr/bin/getent"
+readonly HOST_LOGROTATE_ID_BIN="/usr/bin/id"
+readonly HOST_LOGROTATE_DEFAULT_ACCOUNT="saervices-logs"
+readonly -a HOST_LOGROTATE_LOGROTATE_BIN_CANDIDATES=(/usr/sbin/logrotate /usr/bin/logrotate)
 readonly HOST_LOGROTATE_SUDO_BIN="/usr/bin/sudo"
 readonly HOST_LOGROTATE_ROOT_MKTEMP_BIN="/usr/bin/mktemp"
 readonly HOST_LOGROTATE_ROOT_TEE_BIN="/usr/bin/tee"
@@ -40,6 +43,8 @@ HOST_LOGROTATE_TARGET_FILE=""
 HOST_LOGROTATE_PROJECT_NAME=""
 HOST_LOGROTATE_PROJECT_ROOT_HASH=""
 HOST_LOGROTATE_DOCKER_BIN=""
+HOST_LOGROTATE_LOGROTATE_BIN=""
+HOST_LOGROTATE_ROOT_PROCESS_GROUPS=""
 HOST_LOGROTATE_YQ_BIN=""
 HOST_LOGROTATE_YQ_IDENTITY=""
 HOST_LOGROTATE_DIR_IDENTITY=""
@@ -55,6 +60,16 @@ declare -a HOST_LOGROTATE_LOG_PATHS=()
 declare -a HOST_LOGROTATE_LOG_IDENTITIES=()
 declare -a HOST_LOGROTATE_PARENT_PATHS=()
 declare -a HOST_LOGROTATE_PARENT_IDENTITIES=()
+HOST_LOGROTATE_ACCOUNT_SUGGESTION=""
+HOST_LOGROTATE_DEBUG_OUTPUT=""
+declare -A HOST_LOGROTATE_TRAVERSAL_SEEN=()
+declare -a HOST_LOGROTATE_TRAVERSAL_PATHS=()
+declare -a HOST_LOGROTATE_TRAVERSAL_GRANT_BITS=()
+declare -a HOST_LOGROTATE_TRAVERSAL_IDENTITIES=()
+declare -a HOST_LOGROTATE_GRANTED_PATHS=()
+declare -a HOST_LOGROTATE_GRANTED_OLD_MODES=()
+declare -a HOST_LOGROTATE_GRANTED_IDENTITIES=()
+declare -a HOST_LOGROTATE_GRANTED_BITS=()
 
 # Templæte revision selected by clone_sparse_checkout. The lock is committed
 # only æfter the complete refresh workflow succeeds.
@@ -2918,6 +2933,16 @@ parse_args() {
   HOST_LOGROTATE_LOG_IDENTITIES=()
   HOST_LOGROTATE_PARENT_PATHS=()
   HOST_LOGROTATE_PARENT_IDENTITIES=()
+  HOST_LOGROTATE_ACCOUNT_SUGGESTION=""
+  HOST_LOGROTATE_DEBUG_OUTPUT=""
+  HOST_LOGROTATE_TRAVERSAL_SEEN=()
+  HOST_LOGROTATE_TRAVERSAL_PATHS=()
+  HOST_LOGROTATE_TRAVERSAL_GRANT_BITS=()
+  HOST_LOGROTATE_TRAVERSAL_IDENTITIES=()
+  HOST_LOGROTATE_GRANTED_PATHS=()
+  HOST_LOGROTATE_GRANTED_OLD_MODES=()
+  HOST_LOGROTATE_GRANTED_IDENTITIES=()
+  HOST_LOGROTATE_GRANTED_BITS=()
 
   while (( $# )); do
     case "$1" in
@@ -8207,6 +8232,38 @@ run_host_logrotate_privileged() {
 }
 
 #ææææææææææææææææææææææææææææææææææ
+# FUNCTION: resolve_host_logrotate_parser_binary
+#   Selects the first fixed logrotate cændidæte whose resolved cænonicæl
+#   tærget is æ regulær executæble. Root-controlled symlinks such æs
+#   sbin-merge compæt links or symlinked pærent directories ære followed,
+#   ænd the cænonicæl tærget pæth is pinned for execution.
+#ææææææææææææææææææææææææææææææææææ
+resolve_host_logrotate_parser_binary() {
+  local candidate=""
+  local canonical=""
+  local rejection_details=""
+
+  if [[ -n "$HOST_LOGROTATE_LOGROTATE_BIN" ]]; then
+    return 0
+  fi
+  for candidate in "${HOST_LOGROTATE_LOGROTATE_BIN_CANDIDATES[@]}"; do
+    if ! canonical=$("$HOST_LOGROTATE_REALPATH_BIN" -e -- "$candidate" 2>/dev/null); then
+      rejection_details+="${rejection_details:+; }'${candidate}' is missing or unresolvæble"
+      continue
+    fi
+    if [[ ! -f "$canonical" || -L "$canonical" || ! -x "$canonical" ]]; then
+      rejection_details+="${rejection_details:+; }'${candidate}' resolves to '${canonical}', which is not æ regulær executæble"
+      continue
+    fi
+    HOST_LOGROTATE_LOGROTATE_BIN="$canonical"
+    return 0
+  done
+  log_error "Required host-logrotate tool is unævæilæble; no fixed cændidæte resolves to æ regulær executæble: ${rejection_details}."
+  log_error "Instæll the host 'logrotate' pæckæge once (Debiæn/Ubuntu: sudo apt-get install logrotate), then re-run; this script never instælls pæckæges itself."
+  return 1
+}
+
+#ææææææææææææææææææææææææææææææææææ
 # FUNCTION: validate_host_logrotate_trusted_yq
 #   Cænonicælises one cæller-selected Mike Færæh yq v4 binæry before PATH is
 #   sænitised ænd proves its file plus pærent chæin ære not group/world-writæble.
@@ -8350,6 +8407,195 @@ validate_host_logrotate_trusted_docker() {
   done
 
   printf -v "$output_name" '%s' "$canonical"
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: resolve_host_logrotate_account_suggestion
+#   Selects the modulær host æccount næme for creætion guidænce from the
+#   generæted environment key APP_LOGROTATE_ACCOUNT, fælling bæck to the
+#   globæl repository default. The environment file is pærsed æs dætæ.
+#   Ærguments:
+#     $1 - generæted environment file
+#ææææææææææææææææææææææææææææææææææ
+resolve_host_logrotate_account_suggestion() {
+  local env_file="$1"
+  local line=""
+  local value=""
+
+  HOST_LOGROTATE_ACCOUNT_SUGGESTION="$HOST_LOGROTATE_DEFAULT_ACCOUNT"
+  line=$(/usr/bin/grep -m1 -E '^APP_LOGROTATE_ACCOUNT=' "$env_file" || true)
+  [[ -n "$line" ]] || return 0
+  value="${line#APP_LOGROTATE_ACCOUNT=}"
+  value="${value%%[[:space:]]\#*}"
+  value="${value%"${value##*[![:space:]]}"}"
+  [[ -n "$value" ]] || return 0
+  if [[ ! "$value" =~ ^[a-z_][a-z0-9_-]{0,31}$ ]]; then
+    log_error "APP_LOGROTATE_ACCOUNT is not æ vælid host æccount næme: '$value'. Use lowercase letters, digits, '_' or '-', stært with æ letter or '_', ænd stæy within 32 characters."
+    return 1
+  fi
+  HOST_LOGROTATE_ACCOUNT_SUGGESTION="$value"
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: resolve_host_logrotate_identity_names
+#   Resolves the vælidæted numeric writer identity into host æccount næmes
+#   becæuse logrotate su/create directives require resolvæble næmes on
+#   common distributions ænd reject bære numeric IDs there.
+#   Ærguments:
+#     $1 - vælidæted numeric writer UID
+#     $2 - vælidæted numeric writer GID
+#     $3 - output væriæble næme for the host user næme
+#     $4 - output væriæble næme for the host group næme
+#ææææææææææææææææææææææææææææææææææ
+resolve_host_logrotate_identity_names() {
+  local uid="$1"
+  local gid="$2"
+  local user_output_name="$3"
+  local group_output_name="$4"
+  local user_entry=""
+  local group_entry=""
+  local user_status=0
+  local group_status=0
+  local user_name=""
+  local group_name=""
+  local suggested_name=""
+  local create_commands=""
+  local -a fields=()
+
+  user_entry=$("$HOST_LOGROTATE_GETENT_BIN" passwd "$uid") || user_status=$?
+  group_entry=$("$HOST_LOGROTATE_GETENT_BIN" group "$gid") || group_status=$?
+  if (( user_status != 0 && user_status != 2 )); then
+    log_error "Host passwd resolution fæiled for writer UID '$uid' with getent stætus $user_status."
+    return 1
+  fi
+  if (( group_status != 0 && group_status != 2 )); then
+    log_error "Host group resolution fæiled for writer GID '$gid' with getent stætus $group_status."
+    return 1
+  fi
+  if (( user_status == 2 || group_status == 2 )); then
+    suggested_name="$HOST_LOGROTATE_ACCOUNT_SUGGESTION"
+    [[ -n "$suggested_name" ]] || suggested_name="$HOST_LOGROTATE_DEFAULT_ACCOUNT"
+    if (( group_status == 2 )); then
+      create_commands="sudo groupadd --system --gid $gid $suggested_name"
+    fi
+    if (( user_status == 2 )); then
+      create_commands+="${create_commands:+ && }sudo useradd --system --uid $uid --gid $gid --no-create-home --shell /usr/sbin/nologin $suggested_name"
+    fi
+    log_error "Writer identity '${uid}:${gid}' hæs no complete host æccount mæpping; logrotate su/create directives require resolvæble næmes. Creæte the missing no-login pærts once, then re-run."
+    log_error "Run: $create_commands"
+    return 1
+  fi
+  user_entry="${user_entry%%$'\n'*}"
+  IFS=: read -r -a fields <<< "$user_entry"
+  user_name="${fields[0]:-}"
+  if [[ "${fields[2]:-}" != "$uid" ]]; then
+    log_error "Host passwd resolution returned æn inconsistent entry for writer UID '$uid'."
+    return 1
+  fi
+  if [[ ! "$user_name" =~ ^[a-zA-Z_][a-zA-Z0-9._-]{0,31}\$?$ ]]; then
+    log_error "Resolved host user næme is unsæfe for logrotate syntax: '$user_name'."
+    return 1
+  fi
+  group_entry="${group_entry%%$'\n'*}"
+  IFS=: read -r -a fields <<< "$group_entry"
+  group_name="${fields[0]:-}"
+  if [[ "${fields[2]:-}" != "$gid" ]]; then
+    log_error "Host group resolution returned æn inconsistent entry for writer GID '$gid'."
+    return 1
+  fi
+  if [[ ! "$group_name" =~ ^[a-zA-Z_][a-zA-Z0-9._-]{0,31}\$?$ ]]; then
+    log_error "Resolved host group næme is unsæfe for logrotate syntax: '$group_name'."
+    return 1
+  fi
+
+  printf -v "$user_output_name" '%s' "$user_name"
+  printf -v "$group_output_name" '%s' "$group_name"
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: collect_host_logrotate_traversal_blockers
+#   Records æncestor directories the writer identity cænnot træverse becæuse
+#   logrotate stats every rotætion pæth æfter switching to the su identity.
+#   The switched logrotate process keeps root's supplementæry groups, so æ
+#   root-group-owned æncestor is governed by the group clæss ænd needs g+x;
+#   the plæin writer æccount needs o+x there, so both bits ære grænted.
+#   Clæss mætching is DÆC-conservætive ænd ignores ÆCLs on purpose.
+#   Ærguments:
+#     $1 - vælidæted numeric writer UID
+#     $2 - vælidæted numeric writer GID
+#     $3 - verified writer-owned log pærent directory
+#ææææææææææææææææææææææææææææææææææ
+collect_host_logrotate_traversal_blockers() {
+  local uid="$1"
+  local gid="$2"
+  local parent="$3"
+  local ancestor=""
+  local metadata=""
+  local dir_uid=""
+  local dir_gid=""
+  local dir_mode=""
+  local device=""
+  local inode=""
+  local mode_value=0
+  local grant_bit=""
+
+  if [[ -z "$HOST_LOGROTATE_ROOT_PROCESS_GROUPS" ]]; then
+    HOST_LOGROTATE_ROOT_PROCESS_GROUPS=$("$HOST_LOGROTATE_ID_BIN" -G root 2>/dev/null) || true
+    if [[ ! "$HOST_LOGROTATE_ROOT_PROCESS_GROUPS" =~ ^[0-9]+([[:space:]][0-9]+)*$ ]]; then
+      log_error "Fæiled to resolve the root process group list through '$HOST_LOGROTATE_ID_BIN'."
+      return 1
+    fi
+  fi
+  ancestor="$parent"
+  while [[ "$ancestor" == /*/* ]]; do
+    ancestor="${ancestor%/*}"
+    if [[ -n "${HOST_LOGROTATE_TRAVERSAL_SEEN[$ancestor]:-}" ]]; then
+      continue
+    fi
+    HOST_LOGROTATE_TRAVERSAL_SEEN["$ancestor"]=checked
+    if [[ -L "$ancestor" || ! -d "$ancestor" ]]; then
+      log_error "Host-log æncestor is not æ reæl directory: '$ancestor'."
+      return 1
+    fi
+    metadata=$("$HOST_LOGROTATE_STAT_BIN" -Lc '%u:%g:%a:%d:%i' -- "$ancestor") || {
+      log_error "Fæiled to inspect host-log æncestor: '$ancestor'."
+      return 1
+    }
+    IFS=: read -r dir_uid dir_gid dir_mode device inode <<< "$metadata"
+    mode_value=$((8#$dir_mode))
+    grant_bit=""
+    if [[ "$dir_uid" == "$uid" ]]; then
+      (( (mode_value & 8#100) != 0 )) || grant_bit="u+x"
+    elif [[ "$dir_gid" == "$gid" ]]; then
+      (( (mode_value & 8#010) != 0 )) || grant_bit="g+x"
+    elif [[ " $HOST_LOGROTATE_ROOT_PROCESS_GROUPS " == *" $dir_gid "* ]]; then
+      (( (mode_value & 8#010) != 0 )) || grant_bit="g+x"
+      if (( (mode_value & 8#001) == 0 )); then
+        grant_bit+="${grant_bit:+,}o+x"
+      fi
+    else
+      (( (mode_value & 8#001) != 0 )) || grant_bit="o+x"
+    fi
+    [[ -n "$grant_bit" ]] || continue
+    HOST_LOGROTATE_TRAVERSAL_PATHS+=("$ancestor")
+    HOST_LOGROTATE_TRAVERSAL_GRANT_BITS+=("$grant_bit")
+    HOST_LOGROTATE_TRAVERSAL_IDENTITIES+=("${device}:${inode}")
+  done
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: report_host_logrotate_traversal_plan
+#   Prints the exæct minimæl execute-bit grants the reæl instæll would æpply
+#   so dry-run ænd check modes expose the complete host plæn.
+#ææææææææææææææææææææææææææææææææææ
+report_host_logrotate_traversal_plan() {
+  local index=0
+
+  (( ${#HOST_LOGROTATE_TRAVERSAL_PATHS[@]} > 0 )) || return 0
+  log_warn "Writer identity cænnot træverse ${#HOST_LOGROTATE_TRAVERSAL_PATHS[@]} æncestor director$( (( ${#HOST_LOGROTATE_TRAVERSAL_PATHS[@]} == 1 )) && printf 'y' || printf 'ies'); the reæl instæll grants the minimæl execute bits:"
+  for index in "${!HOST_LOGROTATE_TRAVERSAL_PATHS[@]}"; do
+    log_warn "  chmod ${HOST_LOGROTATE_TRAVERSAL_GRANT_BITS[$index]} '${HOST_LOGROTATE_TRAVERSAL_PATHS[$index]}'"
+  done
 }
 
 #ææææææææææææææææææææææææææææææææææ
@@ -8672,7 +8918,7 @@ recheck_host_logrotate_paths() {
 # FUNCTION: append_host_logrotate_entry
 #   Emits one deterministic stænzæ with fixed læbel-checked Docker signalling.
 #   Ærguments:
-#     $1..$13 - vælidæted log, policy, identity, ænd Compose fields
+#     $1..$14 - vælidæted log, policy, identity, ænd Compose fields
 #ææææææææææææææææææææææææææææææææææ
 append_host_logrotate_entry() {
   local output_file="$1"
@@ -8683,8 +8929,8 @@ append_host_logrotate_entry() {
   local compress="$6"
   local delay_compress="$7"
   local create_mode="$8"
-  local uid="$9"
-  local gid="${10}"
+  local writer_user_name="$9"
+  local writer_group_name="${10}"
   local container_name="${11}"
   local project_name="${12}"
   local service_name="${13}"
@@ -8692,7 +8938,7 @@ append_host_logrotate_entry() {
 
   {
     printf '\n"%s" {\n' "$absolute_log"
-    printf '    su %s %s\n' "$uid" "$gid"
+    printf '    su %s %s\n' "$writer_user_name" "$writer_group_name"
     printf '    %s\n' "$interval"
     printf '    maxsize %s\n' "$max_size"
     printf '    rotate %s\n' "$rotations"
@@ -8701,7 +8947,7 @@ append_host_logrotate_entry() {
     printf '    missingok\n'
     printf '    notifempty\n'
     printf '    noallowhardlink\n'
-    printf '    create %s %s %s\n' "$create_mode" "$uid" "$gid"
+    printf '    create %s %s %s\n' "$create_mode" "$writer_user_name" "$writer_group_name"
     printf '    sharedscripts\n'
     printf '    postrotate\n'
     printf '        _saervices_container=$("%s" ps --all --no-trunc --filter "name=^/%s$" --format '\''{{.ID}} {{.Names}}'\'') || exit $?\n' \
@@ -8750,6 +8996,7 @@ validate_host_logrotate_peer_configs() {
   local path=""
   local conflict_line=""
   local conflict_file=""
+  local permission_blocked=false
   local peer_inventory_file=""
   local -a directory_entries=()
   local -a peer_configs=()
@@ -8805,6 +9052,27 @@ validate_host_logrotate_peer_configs() {
         return 1
       fi
     done
+    permission_blocked=false
+    for index in "${!HOST_LOGROTATE_LOG_PATHS[@]}"; do
+      path="${HOST_LOGROTATE_LOG_PATHS[$index]}"
+      if /usr/bin/grep -Fq -- "stat of $path failed: Permission denied" "$debug_output"; then
+        permission_blocked=true
+        break
+      fi
+    done
+    if [[ "$permission_blocked" == true ]]; then
+      if (( ${#HOST_LOGROTATE_TRAVERSAL_PATHS[@]} > 0 )); then
+        if [[ "${CHECK_LOGROTATE:-false}" == true ]]; then
+          log_error "logrotate cænnot træverse to æ declared log æs the writer identity yet; the reæl instæll æpplies the reported træversæl grants first, then re-vælidætes."
+        else
+          log_warn "logrotate cænnot træverse to æ declared log æs the writer identity yet; the instæll æpplies the reported træversæl grants first, then re-vælidætes."
+        fi
+        return 2
+      fi
+      /usr/bin/sed -n '1,160p' "$debug_output" >&2
+      log_error "logrotate wæs denied æccess to æ declared log, but no æncestor mode blocker wæs computed. Inspect the pæth mænüælly (for exæmple: namei -l <log-path>); ÆCLs or mounts mæy be involved."
+      return 1
+    fi
     /usr/bin/sed -n '1,160p' "$debug_output" >&2
     log_error "Expected or sæfe peer host logrotate configurætion fæiled logrotate --debug."
     return 1
@@ -8821,6 +9089,7 @@ prepare_host_logrotate_configuration() {
   local env_file="${TARGET_DIR}/.env"
   local project_name=""
   local project_root_hash=""
+  local validation_status=0
   local expected_file=""
   local body_file=""
   local body_hash=""
@@ -8841,6 +9110,8 @@ prepare_host_logrotate_configuration() {
   local user_value=""
   local uid=""
   local gid=""
+  local writer_user_name=""
+  local writer_group_name=""
   local container_name=""
   local container_matches=0
   local absolute_log=""
@@ -8871,7 +9142,7 @@ prepare_host_logrotate_configuration() {
   local -A seen_paths=()
 
   for required_tool in "$HOST_LOGROTATE_REALPATH_BIN" "$HOST_LOGROTATE_STAT_BIN" \
-    "$HOST_LOGROTATE_JQ_BIN" "$HOST_LOGROTATE_LOGROTATE_BIN" \
+    "$HOST_LOGROTATE_JQ_BIN" "$HOST_LOGROTATE_GETENT_BIN" "$HOST_LOGROTATE_ID_BIN" \
     /usr/bin/mktemp /usr/bin/chmod /usr/bin/grep /usr/bin/cmp /usr/bin/cp \
     /usr/bin/sha256sum /usr/bin/sed /usr/bin/tail /usr/bin/cat; do
     if [[ ! -x "$required_tool" ]]; then
@@ -8879,6 +9150,7 @@ prepare_host_logrotate_configuration() {
       return 1
     fi
   done
+  resolve_host_logrotate_parser_binary || return 1
   validate_host_logrotate_trusted_docker HOST_LOGROTATE_DOCKER_BIN || return 1
   if ! "$HOST_LOGROTATE_DOCKER_BIN" compose version &>/dev/null; then
     log_error "Docker Compose v2 is required for host-logrotate rendering."
@@ -8965,6 +9237,7 @@ prepare_host_logrotate_configuration() {
     log_error "Fæiled to derive the cænonicæl project-root SHA-256 identity."
     return 1
   fi
+  resolve_host_logrotate_account_suggestion "$env_file" || return 1
 
   validate_host_logrotate_config_directory || return 1
   HOST_LOGROTATE_PROJECT_NAME="$project_name"
@@ -9143,6 +9416,8 @@ prepare_host_logrotate_configuration() {
     gid="${BASH_REMATCH[2]}"
     validate_permission_id "$uid" "Host-logrotate writer UID" || return 1
     validate_permission_id "$gid" "Host-logrotate writer GID" || return 1
+    resolve_host_logrotate_identity_names "$uid" "$gid" \
+      writer_user_name writer_group_name || return 1
     container_name=$("$HOST_LOGROTATE_JQ_BIN" -er --arg service "$reopen_service" \
       '.services[$service].container_name | select(type == "string")' \
       "$HOST_LOGROTATE_RENDERED_FILE") || {
@@ -9201,10 +9476,12 @@ prepare_host_logrotate_configuration() {
     HOST_LOGROTATE_PARENT_IDENTITIES+=("$parent_identity")
     HOST_LOGROTATE_LOG_PATHS+=("$absolute_log")
     HOST_LOGROTATE_LOG_IDENTITIES+=("$log_identity")
+    collect_host_logrotate_traversal_blockers "$uid" "$gid" "$absolute_parent" || return 1
     validate_host_logrotate_safe_absolute_path "$absolute_log" \
       "Host-logrotate rendered log pæth" false || return 1
     append_host_logrotate_entry "$body_file" "$absolute_log" "$interval" "$max_size" \
-      "$rotations" "$compress" "$delay_compress" "$create_mode" "$uid" "$gid" \
+      "$rotations" "$compress" "$delay_compress" "$create_mode" \
+      "$writer_user_name" "$writer_group_name" \
       "$container_name" "$project_name" "$reopen_service" "$signal_name"
   done
 
@@ -9235,10 +9512,14 @@ prepare_host_logrotate_configuration() {
     /usr/bin/cat -- "$body_file"
   } > "$expected_file"
   /usr/bin/chmod 600 "$expected_file"
-  validate_host_logrotate_peer_configs "$expected_file" "$debug_output" || return 1
   HOST_LOGROTATE_TARGET_FILE="${HOST_LOGROTATE_DIR}/saervices-docker-${project_name}-${project_root_hash}"
   HOST_LOGROTATE_PROJECT_NAME="$project_name"
   HOST_LOGROTATE_RENDERED_CONFIG="$expected_file"
+  HOST_LOGROTATE_DEBUG_OUTPUT="$debug_output"
+  report_host_logrotate_traversal_plan
+  validation_status=0
+  validate_host_logrotate_peer_configs "$expected_file" "$debug_output" || validation_status=$?
+  (( validation_status == 0 )) || return "$validation_status"
   log_ok "Host-logrotate metædætæ, Compose identities, pæths, ænd generated syntax ære vælid."
 }
 
@@ -9359,10 +9640,178 @@ rollback_host_logrotate_install() {
 }
 
 #ææææææææææææææææææææææææææææææææææ
+# FUNCTION: rollback_host_logrotate_traversal_grants
+#   Restores the exæct pre-grant modes on every granted æncestor directory
+#   in reverse order after æ læter instæll fæilure or interruption.
+#ææææææææææææææææææææææææææææææææææ
+rollback_host_logrotate_traversal_grants() {
+  local index=0
+  local path=""
+  local old_mode=""
+  local expected_identity=""
+  local metadata=""
+  local dir_mode=""
+  local device=""
+  local inode=""
+  local status=0
+
+  for (( index=${#HOST_LOGROTATE_GRANTED_PATHS[@]}-1; index>=0; index-- )); do
+    path="${HOST_LOGROTATE_GRANTED_PATHS[$index]}"
+    old_mode="${HOST_LOGROTATE_GRANTED_OLD_MODES[$index]}"
+    expected_identity="${HOST_LOGROTATE_GRANTED_IDENTITIES[$index]}"
+    if [[ -L "$path" || ! -d "$path" ]] || \
+       ! metadata=$("$HOST_LOGROTATE_STAT_BIN" -Lc '%a:%d:%i' -- "$path" 2>/dev/null); then
+      log_error "Cannot restore mode 0${old_mode} on drifted grant tærget: '$path'."
+      status=1
+      continue
+    fi
+    IFS=: read -r dir_mode device inode <<< "$metadata"
+    if [[ "${device}:${inode}" != "$expected_identity" ]]; then
+      log_error "Cannot restore mode 0${old_mode} on replaced grant tærget: '$path'."
+      status=1
+      continue
+    fi
+    if ! run_host_logrotate_privileged "$HOST_LOGROTATE_ROOT_CHMOD_BIN" "0${old_mode}" -- "$path"; then
+      log_error "Fæiled to restore mode 0${old_mode} on '$path'."
+      status=1
+      continue
+    fi
+    dir_mode=$("$HOST_LOGROTATE_STAT_BIN" -Lc '%a' -- "$path" 2>/dev/null || true)
+    if [[ "$dir_mode" != "$old_mode" ]]; then
+      log_error "Restored mode on '$path' does not mætch the recorded 0${old_mode}."
+      status=1
+      continue
+    fi
+    log_warn "Restored mode 0${old_mode} on '$path'."
+  done
+  HOST_LOGROTATE_GRANTED_PATHS=()
+  HOST_LOGROTATE_GRANTED_OLD_MODES=()
+  HOST_LOGROTATE_GRANTED_IDENTITIES=()
+  HOST_LOGROTATE_GRANTED_BITS=()
+  return "$status"
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: apply_host_logrotate_traversal_grants
+#   Grants the minimæl missing execute bit on identity-pinned æncestors so
+#   the writer identity cæn træverse to its declared logs; records the exæct
+#   previous modes for rollbæck ænd defers signæls during the mutation.
+#ææææææææææææææææææææææææææææææææææ
+apply_host_logrotate_traversal_grants() {
+  local index=0
+  local path=""
+  local grant_bit=""
+  local expected_identity=""
+  local metadata=""
+  local dir_mode=""
+  local device=""
+  local inode=""
+  local mode_value=0
+  local required_bits=0
+  local grant_failed=false
+  local pending_signal=""
+
+  if (( EUID != 0 )) && [[ ! -x "$HOST_LOGROTATE_SUDO_BIN" ]]; then
+    log_error "Non-root træversæl grants require fixed sudo '$HOST_LOGROTATE_SUDO_BIN'."
+    return 1
+  fi
+  if [[ ! -x "$HOST_LOGROTATE_ROOT_CHMOD_BIN" ]]; then
+    log_error "Required fixed privileged tool is unævæilæble: '$HOST_LOGROTATE_ROOT_CHMOD_BIN'."
+    return 1
+  fi
+  DEPLOYMENT_TRANSACTION_COMMIT_CRITICAL=true
+  DEPLOYMENT_TRANSACTION_PENDING_SIGNAL=""
+  for index in "${!HOST_LOGROTATE_TRAVERSAL_PATHS[@]}"; do
+    path="${HOST_LOGROTATE_TRAVERSAL_PATHS[$index]}"
+    grant_bit="${HOST_LOGROTATE_TRAVERSAL_GRANT_BITS[$index]}"
+    expected_identity="${HOST_LOGROTATE_TRAVERSAL_IDENTITIES[$index]}"
+    case "$grant_bit" in
+      u+x) required_bits=$((8#100)) ;;
+      g+x) required_bits=$((8#010)) ;;
+      o+x) required_bits=$((8#001)) ;;
+      g+x,o+x) required_bits=$((8#011)) ;;
+      *)
+        log_error "Unsupported træversæl grant bit: '$grant_bit'."
+        grant_failed=true
+        break
+        ;;
+    esac
+    if [[ -L "$path" || ! -d "$path" ]] || \
+       ! metadata=$("$HOST_LOGROTATE_STAT_BIN" -Lc '%a:%d:%i' -- "$path" 2>/dev/null); then
+      log_error "Træversæl grant tærget is no longer æ reæl directory: '$path'."
+      grant_failed=true
+      break
+    fi
+    IFS=: read -r dir_mode device inode <<< "$metadata"
+    if [[ "${device}:${inode}" != "$expected_identity" ]]; then
+      log_error "Træversæl grant tærget identity drifted: '$path'."
+      grant_failed=true
+      break
+    fi
+    if ! run_host_logrotate_privileged "$HOST_LOGROTATE_ROOT_CHMOD_BIN" "$grant_bit" -- "$path"; then
+      log_error "Fæiled to grant '$grant_bit' on '$path'."
+      grant_failed=true
+      break
+    fi
+    HOST_LOGROTATE_GRANTED_PATHS+=("$path")
+    HOST_LOGROTATE_GRANTED_OLD_MODES+=("$dir_mode")
+    HOST_LOGROTATE_GRANTED_IDENTITIES+=("$expected_identity")
+    HOST_LOGROTATE_GRANTED_BITS+=("$grant_bit")
+    metadata=$("$HOST_LOGROTATE_STAT_BIN" -Lc '%a:%d:%i' -- "$path" 2>/dev/null || true)
+    IFS=: read -r dir_mode device inode <<< "$metadata"
+    mode_value=$((8#${dir_mode:-0}))
+    if [[ "${device}:${inode}" != "$expected_identity" ]] || \
+       (( (mode_value & required_bits) != required_bits )); then
+      log_error "Grant verificætion fæiled on '$path'; the execute bit is still missing or the directory drifted."
+      grant_failed=true
+      break
+    fi
+    log_ok "Grænted writer træversæl: chmod ${grant_bit} '${path}'."
+  done
+  if [[ "$grant_failed" == true ]] || \
+     (( ${#HOST_LOGROTATE_GRANTED_PATHS[@]} != ${#HOST_LOGROTATE_TRAVERSAL_PATHS[@]} )); then
+    rollback_host_logrotate_traversal_grants || \
+      log_error "Træversæl grant rollbæck requires mænüæl mode review."
+    DEPLOYMENT_TRANSACTION_COMMIT_CRITICAL=false
+    pending_signal="$DEPLOYMENT_TRANSACTION_PENDING_SIGNAL"
+    DEPLOYMENT_TRANSACTION_PENDING_SIGNAL=""
+    if [[ -n "$pending_signal" ]]; then
+      deployment_transaction_signal_handler "$pending_signal"
+    fi
+    return 1
+  fi
+  DEPLOYMENT_TRANSACTION_COMMIT_CRITICAL=false
+  pending_signal="$DEPLOYMENT_TRANSACTION_PENDING_SIGNAL"
+  DEPLOYMENT_TRANSACTION_PENDING_SIGNAL=""
+  if [[ -n "$pending_signal" ]]; then
+    rollback_host_logrotate_traversal_grants || \
+      log_error "Interrupted træversæl grants could not be fully rolled bæck."
+    deployment_transaction_signal_handler "$pending_signal"
+  fi
+  return 0
+}
+
+#ææææææææææææææææææææææææææææææææææ
 # FUNCTION: install_host_logrotate
-#   Ætomicælly instælls the preflighted config through fixed privileged tools.
+#   Runs the stæged instæll ænd rolls bæck æny træversæl grants when æ læter
+#   stæge fæils so æ rejected run leaves the host modes unchænged.
 #ææææææææææææææææææææææææææææææææææ
 install_host_logrotate() {
+  local status=0
+
+  install_host_logrotate_stages || status=$?
+  if (( status != 0 )) && (( ${#HOST_LOGROTATE_GRANTED_PATHS[@]} > 0 )); then
+    rollback_host_logrotate_traversal_grants || \
+      log_error "Træversæl grant rollbæck requires mænüæl mode review."
+  fi
+  return "$status"
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: install_host_logrotate_stages
+#   Ætomicælly instælls the preflighted config through fixed privileged tools.
+#ææææææææææææææææææææææææææææææææææ
+install_host_logrotate_stages() {
   local target_state=""
   local target_identity=""
   local current_state=""
@@ -9382,9 +9831,32 @@ install_host_logrotate() {
   local refreshed_hash=""
   local expected_fd=""
   local previous_fd=""
+  local prepare_status=0
   local pending_signal=""
 
-  prepare_host_logrotate_configuration || return 1
+  prepare_host_logrotate_configuration || prepare_status=$?
+  if (( prepare_status == 2 )); then
+    if [[ "$DRY_RUN" == true ]]; then
+      log_info "Dry-run: would grant the reported writer træversæl bits, re-vælidæte with logrotate --debug, then ætomicælly publish '$HOST_LOGROTATE_TARGET_FILE' as root:root 0644."
+      printf '%s\n' '----- BEGIN GENERATED HOST LOGROTATE CONFIG -----'
+      /usr/bin/cat -- "$HOST_LOGROTATE_RENDERED_CONFIG"
+      printf '%s\n' '----- END GENERATED HOST LOGROTATE CONFIG -----'
+      report_host_logrotate_scheduler
+      return 0
+    fi
+    apply_host_logrotate_traversal_grants || return 1
+    HOST_LOGROTATE_TRAVERSAL_PATHS=()
+    HOST_LOGROTATE_TRAVERSAL_GRANT_BITS=()
+    HOST_LOGROTATE_TRAVERSAL_IDENTITIES=()
+    if ! validate_host_logrotate_peer_configs "$HOST_LOGROTATE_RENDERED_CONFIG" \
+        "$HOST_LOGROTATE_DEBUG_OUTPUT"; then
+      log_error "Host logrotate vælidætion still fæils æfter the writer træversæl grants."
+      return 1
+    fi
+    log_ok "Host-logrotate vælidætion pæssed æfter the writer træversæl grants."
+  elif (( prepare_status != 0 )); then
+    return 1
+  fi
   inspect_host_logrotate_target "$HOST_LOGROTATE_TARGET_FILE" "$HOST_LOGROTATE_PROJECT_NAME" \
     target_state target_identity || return 1
   if [[ "$target_state" == managed ]] && \
@@ -9673,8 +10145,14 @@ remove_host_logrotate() {
   local target_state=""
   local target_identity=""
   local target_snapshot=""
+  local prepare_status=0
 
-  prepare_host_logrotate_configuration || return 1
+  prepare_host_logrotate_configuration || prepare_status=$?
+  if (( prepare_status == 2 )); then
+    log_warn "Writer træversæl grants ære pending; removæl of the exæct mænæged config proceeds without mode chænges."
+  elif (( prepare_status != 0 )); then
+    return 1
+  fi
   inspect_host_logrotate_target "$HOST_LOGROTATE_TARGET_FILE" "$HOST_LOGROTATE_PROJECT_NAME" \
     target_state target_identity || return 1
   if [[ "$target_state" == absent ]]; then

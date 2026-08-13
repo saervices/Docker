@@ -16,6 +16,8 @@ OUTPUT_FILE="${TEST_ROOT}/output.log"
 RUNNER="${HARNESS_ROOT}/run.sh"
 APP_UID="$(id -u)"
 APP_GID="$(id -g)"
+APP_USER_NAME="$(/usr/bin/getent passwd "$APP_UID" | /usr/bin/cut -d: -f1)"
+APP_GROUP_NAME="$(/usr/bin/getent group "$APP_GID" | /usr/bin/cut -d: -f1)"
 PASS_COUNT=0
 
 cleanup() {
@@ -247,6 +249,10 @@ write_lines "${TOOL_ROOT}/stat" \
   '#!/usr/bin/env bash' \
   'set -euo pipefail' \
   'target="${!#}"' \
+  'if [[ -n "${HOST_LOGROTATE_TEST_MASK_OWNER_DIR:-}" && "$target" == "$HOST_LOGROTATE_TEST_MASK_OWNER_DIR" && " $* " == *" %u:%g:%a:%d:%i "* ]]; then' \
+  '  printf "0:0:%s:%s:%s\\n" "$(/usr/bin/stat -Lc '\''%a'\'' -- "$target")" "$(/usr/bin/stat -Lc '\''%d'\'' -- "$target")" "$(/usr/bin/stat -Lc '\''%i'\'' -- "$target")"' \
+  '  exit 0' \
+  'fi' \
   'special=false' \
   'case "$target" in /|/usr|/usr/bin|/usr/bin/docker|/usr/bin/gzip|/usr/local|/usr/local/bin|/usr/local/bin/docker) special=true ;; esac' \
   'if [[ -n "${HOST_LOGROTATE_TEST_TRUSTED_DOCKER:-}" && ( "$target" == "$HOST_LOGROTATE_TEST_TRUSTED_DOCKER" || "$HOST_LOGROTATE_TEST_TRUSTED_DOCKER" == "$target/"* ) ]]; then special=true; fi' \
@@ -276,10 +282,31 @@ write_lines "${TOOL_ROOT}/stat" \
   'exec /usr/bin/stat "$@"'
 /usr/bin/chmod 0755 -- "${TOOL_ROOT}/stat"
 
+REAL_LOGROTATE_BIN=""
+for REAL_LOGROTATE_CANDIDATE in /usr/sbin/logrotate /usr/bin/logrotate; do
+  if [[ -f "$REAL_LOGROTATE_CANDIDATE" && -x "$REAL_LOGROTATE_CANDIDATE" ]]; then
+    REAL_LOGROTATE_BIN="$REAL_LOGROTATE_CANDIDATE"
+    break
+  fi
+done
+[[ -n "$REAL_LOGROTATE_BIN" ]] || \
+  fail 'No host logrotate binary found below /usr/sbin or /usr/bin; install logrotate first.'
+
 write_lines "${TOOL_ROOT}/logrotate" \
   '#!/usr/bin/env bash' \
   'set -euo pipefail' \
   'printf "logrotate-debug\\n" >> "$HOST_LOGROTATE_TEST_TRACE"' \
+  'if [[ -n "${HOST_LOGROTATE_TEST_PERMISSION_DENIED_LOG:-}" ]]; then' \
+  '  denial=true' \
+  '  if [[ -n "${HOST_LOGROTATE_TEST_MASK_OWNER_DIR:-}" ]]; then' \
+  '    mask_mode=$(/usr/bin/stat -Lc "%a" -- "$HOST_LOGROTATE_TEST_MASK_OWNER_DIR")' \
+  '    if (( (8#$mask_mode & 8#010) != 0 )); then denial=false; fi' \
+  '  fi' \
+  '  if [[ "$denial" == true ]]; then' \
+  '    printf "error: stat of %s failed: Permission denied\\n" "$HOST_LOGROTATE_TEST_PERMISSION_DENIED_LOG"' \
+  '    exit 1' \
+  '  fi' \
+  'fi' \
   'if [[ -n "${HOST_LOGROTATE_TEST_SWAP_CONFIG_DIR:-}" && ! -e "$HOST_LOGROTATE_TEST_SWAP_CONFIG_DIR" ]]; then' \
   '  /usr/bin/mv -- "$HOST_LOGROTATE_TEST_ROOT" "${HOST_LOGROTATE_TEST_ROOT}.original"' \
   '  /usr/bin/mkdir -p -- "$HOST_LOGROTATE_TEST_ROOT"' \
@@ -292,7 +319,7 @@ write_lines "${TOOL_ROOT}/logrotate" \
   '  : > "$HOST_LOGROTATE_TEST_SWAP_LOG_PARENT"' \
   'fi' \
   'if [[ "${HOST_LOGROTATE_TEST_FAIL_PARSER:-false}" == true ]]; then exit 71; fi' \
-  'exec /usr/bin/logrotate "$@"'
+  "exec \"${REAL_LOGROTATE_BIN}\" \"\$@\""
 /usr/bin/chmod 0755 -- "${TOOL_ROOT}/logrotate"
 
 write_lines "${TOOL_ROOT}/sudo" \
@@ -340,9 +367,11 @@ write_lines "${TOOL_ROOT}/sudo" \
 /usr/bin/sed -i \
   -e "s|readonly HOST_LOGROTATE_DIR=\"/etc/logrotate.d\"|readonly HOST_LOGROTATE_DIR=\"${HOST_ROOT}\"|" \
   -e "s|readonly HOST_LOGROTATE_STAT_BIN=\"/usr/bin/stat\"|readonly HOST_LOGROTATE_STAT_BIN=\"${TOOL_ROOT}/stat\"|" \
-  -e "s|readonly HOST_LOGROTATE_LOGROTATE_BIN=\"/usr/bin/logrotate\"|readonly HOST_LOGROTATE_LOGROTATE_BIN=\"${TOOL_ROOT}/logrotate\"|" \
+  -e "s|readonly -a HOST_LOGROTATE_LOGROTATE_BIN_CANDIDATES=(/usr/sbin/logrotate /usr/bin/logrotate)|readonly -a HOST_LOGROTATE_LOGROTATE_BIN_CANDIDATES=(\"${TOOL_ROOT}/logrotate\")|" \
   -e "s|readonly HOST_LOGROTATE_SUDO_BIN=\"/usr/bin/sudo\"|readonly HOST_LOGROTATE_SUDO_BIN=\"${TOOL_ROOT}/sudo\"|" \
   "$RUNNER"
+/usr/bin/grep -Fq "HOST_LOGROTATE_LOGROTATE_BIN_CANDIDATES=(\"${TOOL_ROOT}/logrotate\")" "$RUNNER" || \
+  fail 'Logrotate candidate substitution did not match the runner source.'
 
 bash -n "$RUNNER"
 
@@ -681,8 +710,9 @@ expect_success 'Install dry-run validates without mutation' TestApp --install-lo
 assert_not_contains "$TRACE_FILE" 'sudo:'
 [[ ! -e "${HARNESS_ROOT}/TestApp/.run.conf" ]] || fail 'Dry-run created .run.conf.'
 assert_contains "$OUTPUT_FILE" 'BEGIN GENERATED HOST LOGROTATE CONFIG'
-assert_contains "$OUTPUT_FILE" "su ${APP_UID} ${APP_GID}"
-assert_contains "$OUTPUT_FILE" "create 0640 ${APP_UID} ${APP_GID}"
+assert_contains "$OUTPUT_FILE" "su ${APP_USER_NAME} ${APP_GROUP_NAME}"
+assert_contains "$OUTPUT_FILE" "create 0640 ${APP_USER_NAME} ${APP_GROUP_NAME}"
+assert_not_contains "$OUTPUT_FILE" "su ${APP_UID} ${APP_GID}"
 assert_contains "$OUTPUT_FILE" 'com.docker.compose.project'
 assert_contains "$OUTPUT_FILE" 'com.docker.compose.service'
 assert_contains "$OUTPUT_FILE" 'kill --signal=USR1'
@@ -1256,6 +1286,122 @@ reject_yaml_case 'Missing writer service fails without mutation' \
    ."x-host-logrotate".entries[0].reopen.service = "missing"'
 reject_yaml_case 'Writer and reopen service mismatch fails without mutation' \
   '."x-host-logrotate".entries[0].reopen.service = "other"'
+
+UNKNOWN_UID=60000
+while /usr/bin/getent passwd "$UNKNOWN_UID" >/dev/null; do
+  UNKNOWN_UID=$((UNKNOWN_UID + 1))
+done
+UNKNOWN_GID=60000
+while /usr/bin/getent group "$UNKNOWN_GID" >/dev/null; do
+  UNKNOWN_GID=$((UNKNOWN_GID + 1))
+done
+reject_yaml_case 'Writer UID without host account fails without mutation' \
+  ".services.app.user = \"${UNKNOWN_UID}:${APP_GID}\""
+assert_contains "$OUTPUT_FILE" "Writer identity '${UNKNOWN_UID}:${APP_GID}' hæs no complete host æccount mæpping"
+assert_contains "$OUTPUT_FILE" "Run: sudo useradd --system --uid ${UNKNOWN_UID} --gid ${APP_GID} --no-create-home --shell /usr/sbin/nologin saervices-logs"
+assert_not_contains "$OUTPUT_FILE" 'sudo groupadd'
+reject_yaml_case 'Writer GID without host group fails without mutation' \
+  ".services.app.user = \"${APP_UID}:${UNKNOWN_GID}\""
+assert_contains "$OUTPUT_FILE" "Writer identity '${APP_UID}:${UNKNOWN_GID}' hæs no complete host æccount mæpping"
+assert_contains "$OUTPUT_FILE" "Run: sudo groupadd --system --gid ${UNKNOWN_GID} saervices-logs"
+assert_not_contains "$OUTPUT_FILE" 'sudo useradd'
+reject_yaml_case 'Writer identity without host account or group fails without mutation' \
+  ".services.app.user = \"${UNKNOWN_UID}:${UNKNOWN_GID}\""
+assert_contains "$OUTPUT_FILE" \
+  "Run: sudo groupadd --system --gid ${UNKNOWN_GID} saervices-logs && sudo useradd --system --uid ${UNKNOWN_UID} --gid ${UNKNOWN_GID} --no-create-home --shell /usr/sbin/nologin saervices-logs"
+
+reset_case MatrixApp matrixstack
+set_yaml_expression MatrixApp ".services.app.user = \"${UNKNOWN_UID}:${UNKNOWN_GID}\""
+printf 'APP_LOGROTATE_ACCOUNT=matrix-writer-logs # locæl override\n' >> "${HARNESS_ROOT}/MatrixApp/.env"
+expect_rejected_without_mutation 'Environment-selected account name drives the creation guidance' \
+  MatrixApp --install-logrotate --dry-run
+assert_contains "$OUTPUT_FILE" \
+  "Run: sudo groupadd --system --gid ${UNKNOWN_GID} matrix-writer-logs && sudo useradd --system --uid ${UNKNOWN_UID} --gid ${UNKNOWN_GID} --no-create-home --shell /usr/sbin/nologin matrix-writer-logs"
+assert_not_contains "$OUTPUT_FILE" 'saervices-logs'
+assert_not_contains "$TRACE_FILE" 'sudo:'
+
+reset_case MatrixApp matrixstack
+printf 'APP_LOGROTATE_ACCOUNT=Bad Name!\n' >> "${HARNESS_ROOT}/MatrixApp/.env"
+expect_rejected_without_mutation 'Invalid environment account name fails closed' \
+  MatrixApp --install-logrotate --dry-run
+assert_contains "$OUTPUT_FILE" "APP_LOGROTATE_ACCOUNT is not æ vælid host æccount næme: 'Bad Name!'"
+assert_not_contains "$TRACE_FILE" 'sudo:'
+
+TRAVERSAL_LOG="${HARNESS_ROOT}/MatrixApp/appdata/logs/access.log"
+reset_case MatrixApp matrixstack
+/usr/bin/chmod 0700 -- "$HARNESS_ROOT"
+export HOST_LOGROTATE_TEST_MASK_OWNER_DIR="$HARNESS_ROOT"
+export HOST_LOGROTATE_TEST_PERMISSION_DENIED_LOG="$TRAVERSAL_LOG"
+reset_trace
+run_runner MatrixApp --install-logrotate --dry-run
+[[ "$RUN_STATUS" -eq 0 ]] || fail "Traversal dry-run returned $RUN_STATUS."
+assert_contains "$OUTPUT_FILE" "chmod g+x,o+x '${HARNESS_ROOT}'"
+assert_contains "$OUTPUT_FILE" 'Dry-run: would grant the reported writer træversæl bits'
+assert_contains "$OUTPUT_FILE" 'the instæll æpplies the reported træversæl grants first'
+assert_not_contains "$OUTPUT_FILE" '[ERROR]'
+assert_not_contains "$TRACE_FILE" 'sudo:'
+[[ "$(/usr/bin/stat -Lc '%a' -- "$HARNESS_ROOT")" == 700 ]] || \
+  fail 'Traversal dry-run changed the blocked ancestor mode.'
+pass 'Traversal dry-run reports the exact grant plan without mutation'
+
+reset_trace
+run_runner MatrixApp --check-logrotate
+[[ "$RUN_STATUS" -ne 0 ]] || fail 'Traversal check unexpectedly succeeded.'
+assert_contains "$OUTPUT_FILE" "chmod g+x,o+x '${HARNESS_ROOT}'"
+assert_contains "$OUTPUT_FILE" 'reæl instæll æpplies the reported træversæl grants first'
+assert_not_contains "$TRACE_FILE" 'sudo:'
+[[ "$(/usr/bin/stat -Lc '%a' -- "$HARNESS_ROOT")" == 700 ]] || \
+  fail 'Traversal check changed the blocked ancestor mode.'
+pass 'Traversal check mode fails closed with the exact grant plan'
+
+reset_trace
+run_runner MatrixApp --install-logrotate
+[[ "$RUN_STATUS" -eq 0 ]] || fail "Traversal install returned $RUN_STATUS."
+assert_contains "$OUTPUT_FILE" "Grænted writer træversæl: chmod g+x,o+x '${HARNESS_ROOT}'"
+assert_contains "$OUTPUT_FILE" 'vælidætion pæssed æfter the writer træversæl grants'
+assert_not_contains "$OUTPUT_FILE" '[ERROR]'
+assert_contains "$TRACE_FILE" 'sudo:chmod'
+[[ "$(/usr/bin/stat -Lc '%a' -- "$HARNESS_ROOT")" == 711 ]] || \
+  fail 'Real install did not grant g+x,o+x on the blocked ancestor.'
+TRAVERSAL_TARGET_FILE=$(find_target matrixstack)
+assert_contains "$TRAVERSAL_TARGET_FILE" "    su ${APP_USER_NAME} ${APP_GROUP_NAME}"
+unset HOST_LOGROTATE_TEST_PERMISSION_DENIED_LOG HOST_LOGROTATE_TEST_MASK_OWNER_DIR
+/usr/bin/chmod 0755 -- "$HARNESS_ROOT"
+pass 'Real install grants the minimal traversal bits, re-validates, and publishes'
+
+reset_case MatrixApp matrixstack
+/usr/bin/chmod 0700 -- "$HARNESS_ROOT"
+export HOST_LOGROTATE_TEST_MASK_OWNER_DIR="$HARNESS_ROOT"
+export HOST_LOGROTATE_TEST_PERMISSION_DENIED_LOG="$TRAVERSAL_LOG"
+export HOST_LOGROTATE_TEST_FAIL_PARSER=true
+reset_trace
+run_runner MatrixApp --install-logrotate
+[[ "$RUN_STATUS" -ne 0 ]] || fail 'Post-grant validation failure unexpectedly succeeded.'
+assert_contains "$OUTPUT_FILE" "Grænted writer træversæl: chmod g+x,o+x '${HARNESS_ROOT}'"
+assert_contains "$OUTPUT_FILE" 'vælidætion still fæils æfter the writer træversæl grants'
+assert_contains "$OUTPUT_FILE" "Restored mode 0700 on '${HARNESS_ROOT}'"
+[[ "$(/usr/bin/stat -Lc '%a' -- "$HARNESS_ROOT")" == 700 ]] || \
+  fail 'Failed install did not restore the pre-grant ancestor mode.'
+mapfile -t TRAVERSAL_TARGETS < <(
+  /usr/bin/find "$HOST_ROOT" -mindepth 1 -maxdepth 1 -type f \
+    -name 'saervices-docker-matrixstack-*' -print
+)
+[[ "${#TRAVERSAL_TARGETS[@]}" -eq 0 ]] || \
+  fail 'Failed install published a target despite validation failure.'
+unset HOST_LOGROTATE_TEST_FAIL_PARSER HOST_LOGROTATE_TEST_PERMISSION_DENIED_LOG \
+  HOST_LOGROTATE_TEST_MASK_OWNER_DIR
+/usr/bin/chmod 0755 -- "$HARNESS_ROOT"
+pass 'Later validation failure rolls back the granted traversal bit exactly'
+
+reset_case MatrixApp matrixstack
+export HOST_LOGROTATE_TEST_PERMISSION_DENIED_LOG="$TRAVERSAL_LOG"
+expect_rejected_without_mutation 'Permission denial without computed blockers fails closed' \
+  MatrixApp --install-logrotate
+unset HOST_LOGROTATE_TEST_PERMISSION_DENIED_LOG
+assert_contains "$OUTPUT_FILE" 'no æncestor mode blocker wæs computed'
+assert_contains "$OUTPUT_FILE" 'namei -l'
+assert_not_contains "$TRACE_FILE" 'sudo:'
+
 reject_yaml_case 'Unsupported reopen type fails without mutation' \
   '."x-host-logrotate".entries[0].reopen.type = "copytruncate"'
 reject_yaml_case 'Unsupported reopen signal fails without mutation snapshot' \
@@ -1305,8 +1451,42 @@ run_missing_tool_case 'Missing fixed stat fails without mutation' \
   HOST_LOGROTATE_STAT_BIN
 run_missing_tool_case 'Missing fixed jq fails without mutation' \
   HOST_LOGROTATE_JQ_BIN
-run_missing_tool_case 'Missing fixed parser fails without mutation' \
-  HOST_LOGROTATE_LOGROTATE_BIN
+run_missing_tool_case 'Missing fixed getent fails without mutation' \
+  HOST_LOGROTATE_GETENT_BIN
+run_missing_tool_case 'Missing fixed id fails without mutation' \
+  HOST_LOGROTATE_ID_BIN
+
+reset_case ToolApp toolstack
+PARSER_RUNNER_BACKUP="${TEST_ROOT}/runner-parser-backup"
+/usr/bin/cp -- "$RUNNER" "$PARSER_RUNNER_BACKUP"
+/usr/bin/sed -i \
+  "s|readonly -a HOST_LOGROTATE_LOGROTATE_BIN_CANDIDATES=(.*)|readonly -a HOST_LOGROTATE_LOGROTATE_BIN_CANDIDATES=(\"${TEST_ROOT}/missing-logrotate-sbin\" \"${TEST_ROOT}/missing-logrotate-bin\")|" \
+  "$RUNNER"
+expect_rejected_without_mutation 'Missing fixed parser fails without mutation' \
+  ToolApp --install-logrotate --dry-run
+assert_not_contains "$TRACE_FILE" 'sudo:'
+assert_contains "$OUTPUT_FILE" 'Required host-logrotate tool is unævæilæble; no fixed cændidæte resolves to æ regulær executæble'
+assert_contains "$OUTPUT_FILE" "'${TEST_ROOT}/missing-logrotate-sbin' is missing or unresolvæble"
+assert_contains "$OUTPUT_FILE" "'${TEST_ROOT}/missing-logrotate-bin' is missing or unresolvæble"
+assert_contains "$OUTPUT_FILE" 'sudo apt-get install logrotate'
+/usr/bin/cp -- "$PARSER_RUNNER_BACKUP" "$RUNNER"
+/usr/bin/chmod 0755 -- "$RUNNER"
+
+reset_case ToolApp toolstack
+/usr/bin/cp -- "$RUNNER" "$PARSER_RUNNER_BACKUP"
+/usr/bin/ln -s -- "${TOOL_ROOT}/logrotate" "${TEST_ROOT}/linked-logrotate"
+/usr/bin/sed -i \
+  "s|readonly -a HOST_LOGROTATE_LOGROTATE_BIN_CANDIDATES=(.*)|readonly -a HOST_LOGROTATE_LOGROTATE_BIN_CANDIDATES=(\"${TEST_ROOT}/missing-logrotate-sbin\" \"${TEST_ROOT}/linked-logrotate\")|" \
+  "$RUNNER"
+reset_trace
+expect_success 'Symlinked parser candidate resolves to its canonical target' \
+  ToolApp --install-logrotate --dry-run
+assert_contains "$TRACE_FILE" 'logrotate-debug'
+assert_not_contains "$TRACE_FILE" 'sudo:'
+/usr/bin/rm -- "${TEST_ROOT}/linked-logrotate"
+/usr/bin/cp -- "$PARSER_RUNNER_BACKUP" "$RUNNER"
+/usr/bin/chmod 0755 -- "$RUNNER"
+
 run_missing_tool_case 'Missing privileged mktemp fails before mutation' \
   HOST_LOGROTATE_ROOT_MKTEMP_BIN '--install-logrotate'
 run_missing_tool_case 'Missing fixed sudo fails before mutation' \

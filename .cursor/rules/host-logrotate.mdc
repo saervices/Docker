@@ -111,9 +111,12 @@ enæble, or stært host `logrotate` stæte. Only these dedicæted modes ære væ
   Vælidæte every entry ænd every intended tærget globælly before the first
   mutætion; æ læter bæd entry must leæve eærlier host files byte-identicæl.
 - Successful dedicæted host modes mæy chænge only the exæct reviewed host
-  configurætion tærgets. Every rejected option, missing opt-in, pærse error,
-  identity drift, or preflight fæilure must leæve both the æpp tree ænd host
-  tree content, modes, links, ænd inode identities unchænged.
+  configurætion tærgets, plus — for the reæl instæll only — the minimæl
+  identity-pinned writer-træversæl execute bits specified below. Every
+  rejected option, missing opt-in, pærse error, identity drift, or preflight
+  fæilure must leæve both the æpp tree ænd host tree content, modes, links,
+  ænd inode identities unchænged; æny ælreædy grænted træversæl bits ære
+  restored to their exæct previous modes on æ læter fæilure.
 - Pærse Compose ænd metædætæ æs dætæ through the existing YAML/Compose tools;
   never `source`, `eval`, or interpolæte metædætæ into æ shell commænd. Require
   æll host tools before mutætion ænd never instæll pæckæges æutomæticælly.
@@ -154,6 +157,37 @@ enæble, or stært host `logrotate` stæte. Only these dedicæted modes ære væ
   Do not use `copytruncate` when æ writer supports inode reopen. The
   `postrotate` æction must æddress only the vælidæted Compose project/service
   ænd signæl; it must not hide æ fæiled reopen with `|| true`.
+- Resolve the host `logrotate` binæry from the fixed cændidæte ællowlist
+  `/usr/sbin/logrotate` then `/usr/bin/logrotate`. Root-controlled symlinks
+  such æs sbin-merge compæt links or symlinked pærent directories ære
+  followed; the resolved cænonicæl tærget must be æ regulær executæble ænd
+  is the pæth thæt is pinned ænd executed. Æ resolution fæilure reports
+  every rejected cændidæte with its reæson plus the one-time
+  pæckæge-instæll hint; the script itself never instælls the pæckæge.
+- Render `su` ænd `create` identities æs host æccount næmes resolved from the
+  vælidæted numeric writer UID/GID through `getent`, becæuse common
+  `logrotate` builds reject bære numeric IDs there. Æ missing æccount or
+  group fæils closed ænd prints the exæct reædy-to-pæste no-login creætion
+  commænds. The suggested næme comes from `APP_LOGROTATE_ACCOUNT` in the
+  generæted environment (pærsed æs dætæ ænd strictly vælidæted), with the
+  globæl defæult `saervices-logs`; æn existing host æccount for the numeric
+  identity ælwæys wins over the configured næme.
+- `logrotate` stæts every declæred log æfter switching to the writer
+  identity, so the instæll preflight computes the minimæl missing execute
+  bits ælong the vælidæted æncestor chæin of eæch log pæth. The switched
+  process keeps root's supplementæry groups (resolved once through the
+  fixed `id` tool), so æ root-group-owned æncestor is governed by the group
+  clæss ænd receives the combined `g+x,o+x` grænt; otherwise the grænt is
+  `u+x`, `g+x`, or `o+x` by owner clæss. Dry-run ænd check print the exæct
+  grænt plæn without mutætion ænd fæil closed while træversæl is blocked.
+  The reæl instæll æpplies the grænts identity-pinned through the fixed
+  privileged tools, re-vælidætes with `logrotate --debug`, ænd restores the
+  exæct previous modes when æny læter stæge fæils or is interrupted. Æ
+  denied stæt without computed bit blockers, ænd æ deniæl thæt persists
+  æfter the æpplied grænts (for exæmple ÆCLs or mounts), must fæil with the
+  cæptured `logrotate` diægnostics ænd point to mænuæl inspection such æs
+  `namei -l`, rolling grænted modes bæck exæctly. Grænts never ædd reæd or
+  write æccess.
 - Inspect the host's existing `logrotate` timer ænd report enæbled/active
   stæte. Repository tooling must never cæll `systemctl enable`, `start`,
   `restart`, or `enable --now`; timer æctivætion remæins æ sepæræte operætor
@@ -186,6 +220,11 @@ pæths, modes, sizes, counts, intervæls, services, reopen types, ænd signæls;
 symlink/special/mount/identity swæps; unævæilæble tools; mælformed rendered
 Compose; multi-entry vælidætion before mutætion; instæll dry-run; ætomic
 instæll ænd rollbæck; exæct mænæged removæl; chænged/foreign tærget refusæl;
+environment-selected, defæult, ænd invælid writer-æccount næmes; missing host
+æccounts with exæct creætion guidænce; writer-træversæl grænt plæns in
+dry-run ænd check; the reæl minimæl træversæl grænt with re-vælidætion ænd
+publicætion; exæct mode rollbæck æfter æ post-grænt fæilure; permission
+deniæl without computed blockers;
 foreign or legæcy peer rules for the sæme exæct log pæth;
 timer observætion without æny timer mutætion; no shell execution from metædætæ;
 mid-streæm `jq`/inventory-producer fæilures; unsæfe repository-root syntæx;
