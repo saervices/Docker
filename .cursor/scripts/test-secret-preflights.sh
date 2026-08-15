@@ -31,6 +31,8 @@ readonly TRAEFIK_SCRIPT="${TEST_REPO_ROOT}/Traefik/scripts/traefik-start.sh"
 readonly TRAEFIK_DEV_FORWARD_TEMPLATE="${TEST_REPO_ROOT}/Traefik/appdata/config/conf.d/dev-traefik-forward.yaml.template"
 readonly CERTS_DUMPER_SCRIPT="${TEST_REPO_ROOT}/templates/traefik_certs-dumper/dockerfiles/entrypoint.traefik_certs-dumper.sh"
 readonly VIKUNJA_SCRIPT="${TEST_REPO_ROOT}/Vikunja/dockerfiles/entrypoint.sh"
+readonly GITEA_SCRIPT="${TEST_REPO_ROOT}/Gitea/scripts/gitea-start.sh"
+readonly GITEA_OIDC_SCRIPT="${TEST_REPO_ROOT}/Gitea/scripts/gitea-register-oidc.sh"
 readonly KIMAI_SCRIPT="${TEST_REPO_ROOT}/Kimai/scripts/kimai-start.sh"
 readonly SEAFILE_SCRIPT="${TEST_REPO_ROOT}/Seafile/scripts/seafile-start.sh"
 readonly SEAFILE_RUNTIME_PREPARER="${TEST_REPO_ROOT}/Seafile/scripts/prepare-seafile-runtime.py"
@@ -2664,6 +2666,143 @@ exercise_secret_matrix vikunja-oidc-id prepare_vikunja run_vikunja VIKUNJA_OIDC_
 exercise_secret_matrix vikunja-oidc-secret prepare_vikunja run_vikunja VIKUNJA_OIDC_CLIENT_SECRET
 
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+# --- GITEÆ
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+prepare_gitea() {
+  local fixture="$1"
+  mkdir -p -- "${fixture}/secrets" "${fixture}/run"
+  printf 'postgres-password' >"${fixture}/secrets/POSTGRES_PASSWORD"
+  printf 'redis:@/?#%%+ password' >"${fixture}/secrets/REDIS_PASSWORD"
+  printf 'gitea-secret-key-value-32bytes-min' >"${fixture}/secrets/GITEA_SECRET_KEY"
+  printf 'gitea-internal-token-value-32b' >"${fixture}/secrets/GITEA_INTERNAL_TOKEN"
+  printf 'gitea-lfs-jwt-secret-value-32b' >"${fixture}/secrets/GITEA_LFS_JWT_SECRET"
+  printf 'gitea-oauth2-jwt-secret-32byte' >"${fixture}/secrets/GITEA_OAUTH2_JWT_SECRET"
+  printf 'smtp-password' >"${fixture}/secrets/MAILER_SMTP_PASSWORD"
+  printf 'provider-client-id' >"${fixture}/secrets/GITEA_OIDC_CLIENT_ID"
+  printf 'provider-client-secret' >"${fixture}/secrets/GITEA_OIDC_CLIENT_SECRET"
+}
+
+run_gitea() {
+  local fixture="$1"
+  SECRET_DIR="${fixture}/secrets" \
+    GITEA_RUNTIME_DIR="${fixture}/run" \
+    GITEA_REDIS_HOST=gitea-redis \
+    GITEA_REDIS_PORT=6379 \
+    GITEA_SMTP_ENABLED=true \
+    GITEA_OIDC_ENABLED=true \
+    /bin/sh "$GITEA_SCRIPT" --preflight-only
+}
+
+run_gitea_without_smtp_secret() {
+  local fixture="${TEST_ROOT}/gitea-no-smtp"
+  prepare_gitea "$fixture"
+  rm -f -- "${fixture}/secrets/MAILER_SMTP_PASSWORD"
+  SECRET_DIR="${fixture}/secrets" \
+    GITEA_RUNTIME_DIR="${fixture}/run" \
+    GITEA_REDIS_HOST=gitea-redis \
+    GITEA_SMTP_ENABLED=false \
+    GITEA_OIDC_ENABLED=true \
+    /bin/sh "$GITEA_SCRIPT" --preflight-only
+}
+
+run_gitea_without_oidc_secret() {
+  local fixture="${TEST_ROOT}/gitea-no-oidc"
+  prepare_gitea "$fixture"
+  rm -f -- "${fixture}/secrets/GITEA_OIDC_CLIENT_ID" "${fixture}/secrets/GITEA_OIDC_CLIENT_SECRET"
+  SECRET_DIR="${fixture}/secrets" \
+    GITEA_RUNTIME_DIR="${fixture}/run" \
+    GITEA_REDIS_HOST=gitea-redis \
+    GITEA_SMTP_ENABLED=false \
+    GITEA_OIDC_ENABLED=false \
+    /bin/sh "$GITEA_SCRIPT" --preflight-only
+}
+
+case_gitea_redis_url_encoding() {
+  local fixture="${TEST_ROOT}/gitea-redis-url"
+  prepare_gitea "$fixture"
+  printf 'p@ss=word/#' >"${fixture}/secrets/REDIS_PASSWORD"
+  SECRET_DIR="${fixture}/secrets" \
+    GITEA_RUNTIME_DIR="${fixture}/run" \
+    GITEA_REDIS_HOST=gitea-redis \
+    GITEA_REDIS_PORT=6379 \
+    GITEA_SMTP_ENABLED=false \
+    GITEA_OIDC_ENABLED=true \
+    /bin/sh "$GITEA_SCRIPT" --preflight-only
+  [[ "$(cat "${fixture}/run/redis.url")" == 'redis://:p%40ss%3Dword%2F%23@gitea-redis:6379/0' ]]
+}
+
+case_gitea_preflight_does_not_exec_vendor() {
+  local fixture="${TEST_ROOT}/gitea-no-vendor"
+  prepare_gitea "$fixture"
+  printf '%s\n' '#!/bin/sh' 'printf ran >"$GITEA_VENDOR_MARKER"' 'exit 0' \
+    >"${fixture}/vendor.sh"
+  chmod 0700 "${fixture}/vendor.sh"
+  SECRET_DIR="${fixture}/secrets" \
+    GITEA_RUNTIME_DIR="${fixture}/run" \
+    GITEA_REDIS_HOST=gitea-redis \
+    GITEA_SMTP_ENABLED=false \
+    GITEA_OIDC_ENABLED=true \
+    GITEA_VENDOR_ENTRYPOINT="${fixture}/vendor.sh" \
+    GITEA_VENDOR_MARKER="${fixture}/vendor.ran" \
+    /bin/sh "$GITEA_SCRIPT" --preflight-only
+  [[ ! -e "${fixture}/vendor.ran" ]]
+}
+
+case_gitea_symlink_secret() {
+  local fixture="${TEST_ROOT}/gitea-symlink"
+  prepare_gitea "$fixture"
+  rm -f -- "${fixture}/secrets/GITEA_SECRET_KEY"
+  ln -s /etc/hostname "${fixture}/secrets/GITEA_SECRET_KEY"
+  run_gitea "$fixture"
+}
+
+case_gitea_oversized_secret() {
+  local fixture="${TEST_ROOT}/gitea-oversized"
+  prepare_gitea "$fixture"
+  printf '%04097d' 0 >"${fixture}/secrets/GITEA_SECRET_KEY"
+  run_gitea "$fixture"
+}
+
+run_gitea_register_oidc() {
+  local fixture="$1"
+  SECRET_DIR="${fixture}/secrets" \
+    AUTHENTIK_DOMAIN=authentik.example.test \
+    APP_DOMAIN=gitea.example.test \
+    GITEA_OIDC_NAME=authentik \
+    GITEA_OIDC_SLUG=gitea \
+    /bin/sh "$GITEA_OIDC_SCRIPT" --preflight-only
+}
+
+case_gitea_register_oidc_bad_domain() {
+  local fixture="${TEST_ROOT}/gitea-oidc-bad-domain"
+  prepare_gitea "$fixture"
+  SECRET_DIR="${fixture}/secrets" \
+    AUTHENTIK_DOMAIN='https://authentik.example.test' \
+    APP_DOMAIN=gitea.example.test \
+    /bin/sh "$GITEA_OIDC_SCRIPT" --preflight-only
+}
+
+prepare_gitea "${TEST_ROOT}/gitea-valid"
+expect_success gitea-valid run_gitea "${TEST_ROOT}/gitea-valid"
+expect_success gitea-disabled-smtp-does-not-require-secret run_gitea_without_smtp_secret
+expect_success gitea-disabled-oidc-does-not-require-secret run_gitea_without_oidc_secret
+expect_success gitea-redis-url-encoding case_gitea_redis_url_encoding
+expect_success gitea-preflight-does-not-exec-vendor case_gitea_preflight_does_not_exec_vendor
+expect_success gitea-register-oidc-preflight run_gitea_register_oidc "${TEST_ROOT}/gitea-valid"
+expect_failure gitea-register-oidc-bad-domain case_gitea_register_oidc_bad_domain
+expect_failure gitea-symlink-secret case_gitea_symlink_secret
+expect_failure gitea-oversized-secret case_gitea_oversized_secret
+exercise_secret_matrix gitea-postgres prepare_gitea run_gitea POSTGRES_PASSWORD
+exercise_secret_matrix gitea-redis prepare_gitea run_gitea REDIS_PASSWORD
+exercise_secret_matrix gitea-secret-key prepare_gitea run_gitea GITEA_SECRET_KEY
+exercise_secret_matrix gitea-internal-token prepare_gitea run_gitea GITEA_INTERNAL_TOKEN
+exercise_secret_matrix gitea-lfs-jwt prepare_gitea run_gitea GITEA_LFS_JWT_SECRET
+exercise_secret_matrix gitea-oauth2-jwt prepare_gitea run_gitea GITEA_OAUTH2_JWT_SECRET
+exercise_secret_matrix gitea-smtp prepare_gitea run_gitea MAILER_SMTP_PASSWORD
+exercise_secret_matrix gitea-oidc-id prepare_gitea run_gitea GITEA_OIDC_CLIENT_ID
+exercise_secret_matrix gitea-oidc-secret prepare_gitea run_gitea GITEA_OIDC_CLIENT_SECRET
+
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 # --- KIMÆI
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 prepare_kimai() {
@@ -3013,6 +3152,12 @@ checks = (
         "EMAIL_HOST_PASSWORD",
         "ENABLE_EMAIL_NOTIFICATIONS",
         "${ENABLE_EMAIL_NOTIFICATIONS:-false}",
+    ),
+    (
+        root / "Gitea/docker-compose.app.yaml",
+        "MAILER_SMTP_PASSWORD",
+        "GITEA_SMTP_ENABLED",
+        "${GITEA_SMTP_ENABLED:-false}",
     ),
 )
 
