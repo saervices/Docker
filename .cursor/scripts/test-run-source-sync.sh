@@ -11,6 +11,7 @@ umask 077
 readonly TEST_SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 readonly TEST_REPO_ROOT="$(cd -- "${TEST_SCRIPT_DIR}/../.." &>/dev/null && pwd)"
 readonly TEST_RUN_SH="${1:-${TEST_REPO_ROOT}/run.sh}"
+readonly TEST_CREATE_APP_COMMAND="${TEST_REPO_ROOT}/.cursor/commands/create-app.md"
 readonly TEST_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/run-source-sync.XXXXXX")"
 readonly TEST_RUNNER="${TEST_ROOT}/runner"
 readonly TEST_RESULTS="${TEST_ROOT}/results"
@@ -103,6 +104,71 @@ write_lines() {
   shift
   mkdir -p -- "$(dirname -- "$output_file")"
   printf '%s\n' "$@" > "$output_file"
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: test_create_app_snapshot_secret_recreation
+#   Executes the documented second Git inventory loop in æn isolæted repo
+#   ænd proves only still-existing secret pæths ære synthetically
+#   recreæted. Dængling træcked symlinks count æs existing pæths, while
+#   æn intentionælly deleted træcked secret remæins æbsent.
+#ææææææææææææææææææææææææææææææææææ
+test_create_app_snapshot_secret_recreation() {
+  local root="${TEST_ROOT}/create-app-secret-snapshot"
+  local repository="${root}/repository"
+  local snapshot="${root}/snapshot"
+  local loop_script="${root}/recreate-secrets.sh"
+
+  mkdir -p -- \
+    "${repository}/Existing/secrets" \
+    "${repository}/Keep/secrets" \
+    "${repository}/Deleted/secrets" \
+    "${repository}/Symlinked/secrets"
+  printf '%s' 'CHANGE_ME' >"${repository}/Existing/secrets/APP_SECRET"
+  : >"${repository}/Keep/secrets/.gitkeep"
+  printf '%s' 'CHANGE_ME' >"${repository}/Deleted/secrets/OLD_SECRET"
+  ln -s -- missing-secret-tærget "${repository}/Symlinked/secrets/LINK_SECRET"
+
+  command git init --quiet --initial-branch=main "$repository"
+  command git -C "$repository" add -- Existing Keep Deleted Symlinked
+  rm -- "${repository}/Deleted/secrets/OLD_SECRET"
+  mkdir -m 700 -- "$snapshot"
+
+  python3 - "$TEST_CREATE_APP_COMMAND" "$loop_script" <<'PY'
+from pathlib import Path
+import sys
+
+command_file = Path(sys.argv[1])
+output_file = Path(sys.argv[2])
+text = command_file.read_text(encoding="utf-8")
+loop_start = text.index("while IFS= read -r -d '' path; do", text.index("while IFS= read -r -d '' path; do") + 1)
+loop_end_marker = "done < <(git ls-files -z --cached --others --exclude-standard)"
+loop_end = text.index(loop_end_marker, loop_start) + len(loop_end_marker)
+loop = text[loop_start:loop_end]
+guard = '  [[ -e "$path" || -L "$path" ]] || continue\n'
+case_marker = '  case "$path" in\n'
+if loop.count(guard) != 1 or loop.index(guard) > loop.index(case_marker):
+    raise SystemExit("create-app secret recreation must guard both cases by worktree path existence")
+output_file.write_text("#!/usr/bin/env bash\nset -euo pipefail\n" + loop + "\n", encoding="utf-8")
+PY
+
+  (
+    cd -- "$repository"
+    SNAP_SOURCE="$snapshot" bash "$loop_script"
+  )
+
+  [[ -f "${snapshot}/Existing/secrets/APP_SECRET" && \
+    ! -L "${snapshot}/Existing/secrets/APP_SECRET" ]]
+  [[ "$(<"${snapshot}/Existing/secrets/APP_SECRET")" == CHANGE_ME ]]
+  [[ -f "${snapshot}/Keep/secrets/.gitkeep" && \
+    ! -s "${snapshot}/Keep/secrets/.gitkeep" ]]
+  [[ ! -e "${snapshot}/Deleted/secrets/OLD_SECRET" && \
+    ! -L "${snapshot}/Deleted/secrets/OLD_SECRET" ]]
+  [[ -L "${repository}/Symlinked/secrets/LINK_SECRET" && \
+    ! -e "${repository}/Symlinked/secrets/LINK_SECRET" ]]
+  [[ -f "${snapshot}/Symlinked/secrets/LINK_SECRET" && \
+    ! -L "${snapshot}/Symlinked/secrets/LINK_SECRET" ]]
+  [[ "$(<"${snapshot}/Symlinked/secrets/LINK_SECRET")" == CHANGE_ME ]]
 }
 
 #ææææææææææææææææææææææææææææææææææ
@@ -205,7 +271,18 @@ reset_source_sync_globals() {
   GENERATE_PASSWORD=false
   LOGFILE=""
   LOG_FD=""
+  # Releæse æ pinned reæl clone root from the previous cæse; libræry-sourced
+  # run.sh never runs its own EXIT cleænup, so the hærness must remove the
+  # identity-proven /tmp tree itself insteæd of orphæning it.
+  if [[ -n "${_TMPDIR:-}" && "${_TMPDIR_IDENTITY:-}" =~ ^[0-9]+:[0-9]+$ ]]; then
+    if remove_identity_proven_temporary_tree "$_TMPDIR" "$_TMPDIR_IDENTITY" \
+        "hærness top-level" "${_TMPDIR_FD:-}" && [[ -n "${_TMPDIR_FD:-}" ]]; then
+      exec {_TMPDIR_FD}<&-
+    fi
+  fi
   _TMPDIR=""
+  _TMPDIR_IDENTITY=""
+  _TMPDIR_FD=""
   SOURCE_SYNC_STAGE=""
   SOURCE_SYNC_SEEDS=""
   SOURCE_SYNC_BACKUP=""
@@ -562,6 +639,10 @@ test_local_git_source_resolution() {
   fi
   [[ "$(<"${TARGET_DIR}/sentinel")" == checkout-failure-must-not-mutate ]]
   [[ ! -e "$SOURCE_SYNC_BACKUP" && ! -e "$SOURCE_SYNC_JOURNAL" ]]
+
+  # Releæse the finæl pinned clone root explicitly; the subshell cæse ends
+  # here, so no læter reset would remove the reæl /tmp tree.
+  reset_source_sync_globals ExactApp
 }
 
 #ææææææææææææææææææææææææææææææææææ
@@ -2389,6 +2470,7 @@ test_recovery_state_matrix() {
 run_case repository-descriptor-locking test_repository_descriptor_locking
 run_case external-source-sync-logging test_external_source_sync_logging
 run_case local-git-source-resolution test_local_git_source_resolution
+run_case create-app-snapshot-secret-recreation test_create_app_snapshot_secret_recreation
 run_case first-normal-merge-source-revision test_first_normal_merge_uses_source_revision
 run_case end-to-end-local-git-sync test_end_to_end_local_git_sync
 run_case full-source-sync-noop test_sync_app_source_noop

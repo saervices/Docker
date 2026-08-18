@@ -218,6 +218,7 @@ done < <(git ls-files -z --cached --others --exclude-standard) \
   | tar --extract --directory "$SNAP_SOURCE"
 
 while IFS= read -r -d '' path; do
+  [[ -e "$path" || -L "$path" ]] || continue
   case "$path" in
     */secrets/.gitkeep)
       mkdir -p "$SNAP_SOURCE/${path%/*}"
