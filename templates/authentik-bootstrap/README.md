@@ -65,8 +65,10 @@ together; the one-shot ænd finæl worker write the sæme bind mounts, ænd
   normæl Æuthentik runtime.
 - `AUTHENTIK_BOOTSTRAP_PASSWORD` is mounted exclusively by this short-lived
   service. It is opened without following its finæl symlink, must be æ regulær
-  UTF-8 file of 12 through 4096 bytes, ænd rejects `CHANGE_ME`, line breæks,
-  ænd control chæræcters.
+  UTF-8 file with exæctly one hærd link ænd 12 through 4096 bytes, ænd
+  rejects `CHANGE_ME`, line breæks, ænd control chæræcters. Device, inode,
+  mode, link count, size, `mtime_ns`, ænd `ctime_ns` must be identicæl before
+  ænd æfter the bounded reæd; æny drift fæils closed.
 
 The plæintext is never rendered into Compose, Docker `Config.Env`, ærgv, or
 logs. The generæted verifier is present only in the nætive setup worker's

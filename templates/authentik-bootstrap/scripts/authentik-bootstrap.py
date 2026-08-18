@@ -100,9 +100,10 @@ def database_state() -> tuple[bool, set[str]]:
 
 def read_password(secret_path: Path) -> str:
     """Open one bounded regulær secret without following its finæl component."""
-    flags = os.O_RDONLY | os.O_CLOEXEC | os.O_NONBLOCK
-    if hasattr(os, "O_NOFOLLOW"):
-        flags |= os.O_NOFOLLOW
+    try:
+        flags = os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW | os.O_NONBLOCK
+    except AttributeError:
+        fail("AUTHENTIK_BOOTSTRAP_PASSWORD secret cannot be opened safely")
     try:
         descriptor = os.open(secret_path, flags)
     except OSError:
@@ -112,16 +113,49 @@ def read_password(secret_path: Path) -> str:
         metadata = os.fstat(descriptor)
         if not stat.S_ISREG(metadata.st_mode):
             fail("AUTHENTIK_BOOTSTRAP_PASSWORD secret is not a regular file")
+        if metadata.st_nlink != 1:
+            fail("AUTHENTIK_BOOTSTRAP_PASSWORD secret must have exactly one hard link")
         if not MIN_PASSWORD_BYTES <= metadata.st_size <= MAX_PASSWORD_BYTES:
             fail(
                 "AUTHENTIK_BOOTSTRAP_PASSWORD secret must contain "
                 f"{MIN_PASSWORD_BYTES} through {MAX_PASSWORD_BYTES} bytes"
             )
-        raw_password = os.read(descriptor, MAX_PASSWORD_BYTES + 1)
+
+        initial_identity = (
+            metadata.st_dev,
+            metadata.st_ino,
+            metadata.st_mode,
+            metadata.st_nlink,
+            metadata.st_size,
+            metadata.st_mtime_ns,
+            metadata.st_ctime_ns,
+        )
+
+        chunks: list[bytes] = []
+        remaining = MAX_PASSWORD_BYTES + 1
+        while remaining:
+            chunk = os.read(descriptor, remaining)
+            if not chunk:
+                break
+            chunks.append(chunk)
+            remaining -= len(chunk)
+        raw_password = b"".join(chunks)
+        final_metadata = os.fstat(descriptor)
+    except OSError:
+        fail("AUTHENTIK_BOOTSTRAP_PASSWORD secret could not be read safely")
     finally:
         os.close(descriptor)
 
-    if len(raw_password) != metadata.st_size:
+    final_identity = (
+        final_metadata.st_dev,
+        final_metadata.st_ino,
+        final_metadata.st_mode,
+        final_metadata.st_nlink,
+        final_metadata.st_size,
+        final_metadata.st_mtime_ns,
+        final_metadata.st_ctime_ns,
+    )
+    if final_identity != initial_identity or len(raw_password) != metadata.st_size:
         fail("AUTHENTIK_BOOTSTRAP_PASSWORD secret changed while it was read")
     if raw_password == b"CHANGE_ME":
         fail("AUTHENTIK_BOOTSTRAP_PASSWORD secret must not be CHANGE_ME")
@@ -129,7 +163,7 @@ def read_password(secret_path: Path) -> str:
         password = raw_password.decode("utf-8")
     except UnicodeDecodeError:
         fail("AUTHENTIK_BOOTSTRAP_PASSWORD secret must be valid UTF-8")
-    if any(ord(character) < 32 or ord(character) == 127 for character in password):
+    if any(not character.isprintable() for character in password):
         fail("AUTHENTIK_BOOTSTRAP_PASSWORD secret contains control characters")
     return password
 
