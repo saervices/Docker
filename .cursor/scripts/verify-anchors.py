@@ -38,6 +38,7 @@ ANCHOR_KEYS = [
 ]
 
 SERVICE_OWNED_SECRET_SERVICES = {"postgresql", "mariadb", "redis"}
+SERVICE_OWNED_TMPFS_SERVICES = {"socketproxy", "crowdsec_agent", "traefik_certs-dumper"}
 
 
 def get_repo_root():
@@ -65,7 +66,9 @@ def format_value(val, max_len=70):
 
 def should_keep_own_values(service_name, key):
     """Return True when æ templæte key must remæin service-owned."""
-    return key == "secrets" and service_name in SERVICE_OWNED_SECRET_SERVICES
+    return (key == "secrets" and service_name in SERVICE_OWNED_SECRET_SERVICES) or (
+        key == "tmpfs" and service_name in SERVICE_OWNED_TMPFS_SERVICES
+    )
 
 
 def _indent_width(line):

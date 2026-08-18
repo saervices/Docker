@@ -6,12 +6,13 @@
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 # --- TRÆFIK STÆRTUP PREFLIGHT
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
-# Vælidætes the Cloudflære DNS token before the Træefik dæemon stærts.
+# Vælidætes the generic DNS ÆPI token ænd mæps it to the selected lego provider.
 
 set -eu
 umask 077
 
-readonly TRAEFIK_SECRET_MAX_BYTES=4096
+readonly TRAEFIK_SECRET_READER=/usr/local/bin/traefik-secret-reader
+readonly TRAEFIK_DNS_TOKEN_RUNTIME_FILE=/run/traefik-secrets/DNS_API_TOKEN
 readonly TRAEFIK_DEFAULT_ACME_STORAGE_DIR=/var/traefik/certs
 readonly TRAEFIK_DEFAULT_DYNAMIC_CONFIG_DIR=/etc/traefik/dynamic
 readonly TRAEFIK_CLOUDFLARE_IPS_V4_URL=https://www.cloudflare.com/ips-v4/
@@ -20,7 +21,7 @@ readonly TRAEFIK_CLOUDFLARE_IPS_MAX_BYTES=8192
 readonly TRAEFIK_CLOUDFLARE_IPS_MAX_ENTRIES=128
 readonly TRAEFIK_CLOUDFLARE_IPS_FETCH_TIMEOUT=15
 readonly TRAEFIK_SAME_DOCKER_FORWARD_AUTH_ADDRESS=http://authentik-frontend:9000/outpost.goauthentik.io/auth/traefik
-readonly TRAEFIK_ROUTE_APPLICATION_PREFIXES='actualbudget authentik ha immich kimai n8n openccu opnsense pbs pve rustdesk seafile template truenas vaultwarden vikunja wikijs'
+readonly TRAEFIK_ROUTE_APPLICATION_PREFIXES='actualbudget authentik gitea ha immich kimai matrix n8n openccu opnsense pbs pve rustdesk seafile template truenas vaultwarden vikunja wiki'
 readonly TRAEFIK_ROUTE_MAILCOW_PREFIXES='autoconfig autodiscover mail mailcow mta-sts'
 
 #ææææææææææææææææææææææææææææææææææ
@@ -33,44 +34,31 @@ fatal() {
 }
 
 #ææææææææææææææææææææææææææææææææææ
-# FUNCTION: require_cloudflare_token
-#   Requires æ reædæble, non-empty, single-line Cloudflære token.
+# FUNCTION: require_dns_api_token
+#   Publishes one descriptor-vælidæted DNS token into privæte runtime tmpfs.
 #ææææææææææææææææææææææææææææææææææ
-require_cloudflare_token() {
-  token_file="${CF_DNS_API_TOKEN_FILE:-/run/secrets/CF_DNS_API_TOKEN}"
+require_dns_api_token() {
+  token_file="${DNS_API_TOKEN_FILE:-/run/secrets/DNS_API_TOKEN}"
 
-  if [ ! -f "$token_file" ] || [ ! -r "$token_file" ]; then
-    fatal 'Required CF_DNS_API_TOKEN secret is missing or unreadable.'
+  [ -x "$TRAEFIK_SECRET_READER" ] \
+    || fatal 'The bounded DNS secret reæder is missing or not executæble.'
+  if ! "$TRAEFIK_SECRET_READER" --source "$token_file"; then
+    fatal 'Required DNS_API_TOKEN secret failed bounded regulær-file vælidætion.'
   fi
+  [ ! -L "$TRAEFIK_DNS_TOKEN_RUNTIME_FILE" ] \
+    && [ -f "$TRAEFIK_DNS_TOKEN_RUNTIME_FILE" ] \
+    && [ -r "$TRAEFIK_DNS_TOKEN_RUNTIME_FILE" ] \
+    || fatal 'The vælidæted DNS token runtime copy is missing or unsæfe.'
 
-  token_file_size="$(wc -c < "$token_file")"
-  if [ "$token_file_size" -lt 1 ] || [ "$token_file_size" -gt "$TRAEFIK_SECRET_MAX_BYTES" ]; then
-    fatal 'Required CF_DNS_API_TOKEN secret has an invalid length.'
-  fi
-
-  token_line_free_size="$(LC_ALL=C tr -d '\n\r' < "$token_file" | wc -c)"
-  if [ "$token_line_free_size" -ne "$token_file_size" ]; then
-    fatal 'Required CF_DNS_API_TOKEN secret contains line breæks.'
-  fi
-
-  token_value="$(cat "$token_file")"
-  token_value_size="$(printf '%s' "$token_value" | wc -c)"
-  if [ "$token_value_size" -ne "$token_file_size" ]; then
-    fatal 'Required CF_DNS_API_TOKEN secret contains træiling line breæks or binæry dætæ.'
-  fi
-  if [ "$token_value" = 'CHANGE_ME' ]; then
-    fatal 'Required CF_DNS_API_TOKEN secret still contains the plæceholder vælue.'
-  fi
-  if printf '%s' "$token_value" | LC_ALL=C grep -q '[[:cntrl:]]'; then
-    fatal 'Required CF_DNS_API_TOKEN secret contains control chæræcters.'
-  fi
-
-  unset token_file token_file_size token_line_free_size token_value token_value_size
+  unset token_file DNS_API_TOKEN_FILE
 }
 
 #ææææææææææææææææææææææææææææææææææ
 # FUNCTION: require_supported_resolver
-#   Vælidætes the resolver næme before it is used in ÆCME file pæths.
+#   Vælidætes the resolver næme before it is used in ÆCME file pæths ænd
+#   exports the lego credentiæl pæth mætching the selected DNS provider.
+#   Extend the whitelist below with one stætic export per ædditionæl
+#   lego provider (næme ænd credentiæl væriæble from the lego docs).
 #ææææææææææææææææææææææææææææææææææ
 require_supported_resolver() {
   resolver="${CERTRESOLVER:-}"
@@ -80,9 +68,18 @@ require_supported_resolver() {
     *[!A-Za-z0-9_-]*) fatal 'CERTRESOLVER contains unsupported chæræcters.' ;;
   esac
 
-  if [ "$resolver" != 'cloudflare' ]; then
-    fatal 'This stæck currently supports only the Cloudflære DNS resolver.'
-  fi
+  unset CF_DNS_API_TOKEN_FILE DESEC_TOKEN_FILE
+  case "$resolver" in
+    cloudflare)
+      export CF_DNS_API_TOKEN_FILE="$TRAEFIK_DNS_TOKEN_RUNTIME_FILE"
+      ;;
+    desec)
+      export DESEC_TOKEN_FILE="$TRAEFIK_DNS_TOKEN_RUNTIME_FILE"
+      ;;
+    *)
+      fatal 'CERTRESOLVER must be æ supported DNS provider (cloudflare, desec); extend the whitelist in traefik-start.sh for further lego providers.'
+      ;;
+  esac
 
   unset resolver
 }
@@ -123,37 +120,8 @@ is_valid_ipv4() (
 #     $1 - Forwærded-heæder trust cændidæte
 #ææææææææææææææææææææææææææææææææææ
 is_valid_forwarded_header_source() (
-  source_entry="$1"
-  [ -n "$source_entry" ] || exit 1
-
-  case "$source_entry" in
-    */*)
-      source_address="${source_entry%/*}"
-      source_prefix="${source_entry##*/}"
-      case "$source_prefix" in
-        ''|0*|*[!0-9]*) exit 1 ;;
-      esac
-      [ "${#source_prefix}" -le 3 ] || exit 1
-      ;;
-    *)
-      source_address="$source_entry"
-      source_prefix=''
-      ;;
-  esac
-
-  case "$source_address" in
-    *:*)
-      [ "${#source_address}" -le 39 ] || exit 1
-      case "$source_address" in
-        *[!0-9A-Fa-f:]*|:|*:::*|*::*::*) exit 1 ;;
-      esac
-      [ -z "$source_prefix" ] || [ "$source_prefix" -le 128 ] || exit 1
-      ;;
-    *)
-      is_valid_ipv4 "$source_address" || exit 1
-      [ -z "$source_prefix" ] || [ "$source_prefix" -le 32 ] || exit 1
-      ;;
-  esac
+  [ "$#" -eq 1 ] || exit 1
+  "$TRAEFIK_SECRET_READER" --validate-forwarded-source "$1" >/dev/null 2>&1
 )
 
 #ææææææææææææææææææææææææææææææææææ
@@ -615,44 +583,19 @@ require_forward_auth_configuration() {
 #ææææææææææææææææææææææææææææææææææ
 # FUNCTION: normalize_acme_file
 #   Creætes one missing ÆCME store without clobbering existing dætæ ænd
-#   enforces the mode required by Træefik.
+#   descriptor-sæfely enforces the type, link, ownership, ænd mode contræct.
 #   Ærguments:
 #     $1 - Æbsolute ÆCME store pæth
 #ææææææææææææææææææææææææææææææææææ
 normalize_acme_file() {
   acme_file="$1"
 
-  if [ -L "$acme_file" ]; then
-    fatal 'ÆCME store must not be æ symbolic link.'
-  fi
-  if [ -e "$acme_file" ] && [ ! -f "$acme_file" ]; then
-    fatal 'ÆCME store must be æ regulær file.'
-  fi
+  [ -x "$TRAEFIK_SECRET_READER" ] \
+    || fatal 'The bounded file helper is missing or not executæble.'
+  "$TRAEFIK_SECRET_READER" --acme-store "$acme_file" \
+    || fatal 'ÆCME store failed descriptor-bæsed regulær single-link file vælidætion.'
 
-  if [ ! -e "$acme_file" ]; then
-    if ! (set -C; umask 077; : > "$acme_file") 2>/dev/null; then
-      fatal 'Could not sæfely creæte the ÆCME store.'
-    fi
-  fi
-
-  if [ -L "$acme_file" ] || [ ! -f "$acme_file" ]; then
-    fatal 'ÆCME store type chænged during stærtup.'
-  fi
-
-  acme_identity="$(stat -c '%d:%i' "$acme_file" 2>/dev/null)" || fatal 'Could not inspect the ÆCME store identity.'
-  chmod 0600 "$acme_file" || fatal 'Could not enforce ÆCME store mode 0600.'
-
-  if [ -L "$acme_file" ] || [ ! -f "$acme_file" ]; then
-    fatal 'ÆCME store type chænged while enforcing permissions.'
-  fi
-  if [ "$(stat -c '%d:%i' "$acme_file" 2>/dev/null)" != "$acme_identity" ]; then
-    fatal 'ÆCME store identity chænged while enforcing permissions.'
-  fi
-  if [ "$(stat -c '%a' "$acme_file" 2>/dev/null)" != '600' ]; then
-    fatal 'ÆCME store mode is not 0600.'
-  fi
-
-  unset acme_file acme_identity
+  unset acme_file
 }
 
 #ææææææææææææææææææææææææææææææææææ
@@ -680,7 +623,7 @@ require_canonical_redirect_configuration
 require_forward_auth_configuration
 require_cloudflare_ips_configuration
 require_forwarded_header_trust_configuration
-require_cloudflare_token
+require_dns_api_token
 normalize_acme_stores
 
 proxy_protocol_trusted_ips="${TRAEFIK_PROXY_PROTOCOL_TRUSTED_IPS:-}"

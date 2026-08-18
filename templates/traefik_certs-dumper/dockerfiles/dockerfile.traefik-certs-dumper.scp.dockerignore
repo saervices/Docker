@@ -1,4 +1,6 @@
 *
 !.dockerignore
 !dockerfile.traefik-certs-dumper.scp
+!certs-dumper-safe-reader.go
+!certs-dumper-safe-reader_test.go
 !entrypoint.traefik_certs-dumper.sh

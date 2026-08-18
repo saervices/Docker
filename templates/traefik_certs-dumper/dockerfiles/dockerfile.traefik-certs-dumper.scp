@@ -1,13 +1,60 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2025 it.særvices
+ARG TRAEFIK_CERTS_DUMPER_GO_IMAGE=golang:1-alpine
 ARG TRAEFIK_CERTS_DUMPER_IMAGE=ldez/traefik-certs-dumper:v2
+
+FROM ${TRAEFIK_CERTS_DUMPER_GO_IMAGE} AS certs-dumper-safe-reader-build
+
+WORKDIR /src
+
+COPY certs-dumper-safe-reader.go certs-dumper-safe-reader_test.go ./
+
+RUN set -eux; \
+    UNFORMATTED="$(gofmt -l certs-dumper-safe-reader.go certs-dumper-safe-reader_test.go)"; \
+    test -z "${UNFORMATTED}"; \
+    GO111MODULE=off CGO_ENABLED=0 go test -count=1 -v; \
+    GO111MODULE=off CGO_ENABLED=0 go build \
+      -buildvcs=false \
+      -trimpath \
+      -ldflags='-s -w -buildid=' \
+      -o /out/certs-dumper-safe-reader.first \
+      certs-dumper-safe-reader.go; \
+    GO111MODULE=off CGO_ENABLED=0 go build \
+      -buildvcs=false \
+      -trimpath \
+      -ldflags='-s -w -buildid=' \
+      -o /out/certs-dumper-safe-reader.second \
+      certs-dumper-safe-reader.go; \
+    cmp -s /out/certs-dumper-safe-reader.first /out/certs-dumper-safe-reader.second; \
+    mv /out/certs-dumper-safe-reader.first /out/certs-dumper-safe-reader; \
+    chmod 0555 /out/certs-dumper-safe-reader
+
 FROM ${TRAEFIK_CERTS_DUMPER_IMAGE}
+ARG TRAEFIK_CERTS_DUMPER_GO_IMAGE
+ARG TRAEFIK_CERTS_DUMPER_IMAGE
+ARG TRAEFIK_CERTS_DUMPER_UID=1000
+ARG TRAEFIK_CERTS_DUMPER_GID=1000
+
+LABEL maintainer="it.særvices <admin@it.saervices.de>" \
+      org.opencontainers.image.base.name="${TRAEFIK_CERTS_DUMPER_IMAGE}" \
+      org.opencontainers.image.description="Træefik certificate dumper with bounded descriptor-based file preflight" \
+      de.saervices.traefik_certs_dumper.safe_reader_builder="${TRAEFIK_CERTS_DUMPER_GO_IMAGE}"
 
 # Instæll tooling required by the ÆCME check ænd existing SSH/Mæilcow/TLSÆ post-hook.
-RUN set -eux && apk add --no-cache openssh-client jq curl openssl bind-tools util-linux tzdata \
-    && adduser -D -u 1000 -g "certs-dumper" certsdumper
+RUN set -eux; \
+    case "${TRAEFIK_CERTS_DUMPER_UID}" in ''|*[!0-9]*) exit 1 ;; esac; \
+    case "${TRAEFIK_CERTS_DUMPER_GID}" in ''|*[!0-9]*) exit 1 ;; esac; \
+    test "${TRAEFIK_CERTS_DUMPER_UID}" -ge 1; \
+    test "${TRAEFIK_CERTS_DUMPER_UID}" -le 2147483647; \
+    test "${TRAEFIK_CERTS_DUMPER_GID}" -ge 1; \
+    test "${TRAEFIK_CERTS_DUMPER_GID}" -le 2147483647; \
+    apk add --no-cache openssh-client jq curl openssl bind-tools util-linux coreutils tzdata; \
+    addgroup -S -g "${TRAEFIK_CERTS_DUMPER_GID}" certsdumper; \
+    adduser -D -u "${TRAEFIK_CERTS_DUMPER_UID}" -G certsdumper certsdumper
 
-# Entrypoint: wæit for ÆCME store, then run certs-dumper in wætch mode
+COPY --from=certs-dumper-safe-reader-build /out/certs-dumper-safe-reader /usr/local/bin/certs-dumper-safe-reader
+
+# Entrypoint: descriptor-sæfe ÆCME supervision, one-shot dumps, ænd seriæl hooks
 COPY entrypoint.traefik_certs-dumper.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 USER certsdumper

@@ -191,6 +191,12 @@ The inline comment `# Templætes æuto-merged by run.sh (recursive)` **must** be
 
 Templætes mæy then **reference** these ænchors (e.g. `logging: *app_common_logging`) or **define their own vælues inline** when they differ from the æpp defæults (e.g. custom `tmpfs`, `security_opt`, `secrets`).
 
+`socketproxy`, `crowdsec_agent`, ænd `traefik_certs-dumper` **must** keep
+service-owned `tmpfs` lists. They must not inherit æn æpp-specific privæte
+runtime subtree (for exæmple `/run/traefik-secrets`) through
+`*app_common_tmpfs`; certs-dumper owns only its dedicæted
+`/run/certs-dumper` subtree in æddition to the generic runtime mounts.
+
 ### Cross-Templæte Ænchors
 
 Templætes mæy define **their own** ænchors thæt sibling templætes reference. For exæmple, `mariadb` defines `&mariadb_common_tmpfs` ænd `&mariadb_common_secrets` inline, which `mariadb_maintenance` references viæ `*mariadb_common_tmpfs` / `*mariadb_common_secrets`.

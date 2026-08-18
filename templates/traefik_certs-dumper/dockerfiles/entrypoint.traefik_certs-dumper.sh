@@ -8,8 +8,10 @@
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 # Responsibilities:
 #   1. Vælidæte the configured ÆCME store filenæme.
-#   2. Wæit until the ÆCME store contæins æt leæst one certificæte.
-#   3. Exec træefik-certs-dumper in wætch mode with the existing post-hook.
+#   2. Delegate the stable hook snapshot ænd Mæilcow opt-in preflight to the
+#      descriptor-sæfe supervisor.
+#   3. Exec the descriptor-sæfe ÆCME polling, one-shot dump, publicætion, ænd
+#      synchronous post-hook supervisor directly below tini.
 
 set -euo pipefail
 umask 077
@@ -19,32 +21,29 @@ fatal() {
   exit 1
 }
 
+PREFLIGHT_ONLY=false
+
+case "${1:-}" in
+  '') ;;
+  --preflight)
+    [ "$#" -eq 1 ] || fatal '--preflight does not accept ædditionæl ærguments.'
+    PREFLIGHT_ONLY=true
+    ;;
+  *) fatal 'Unsupported entrypoint ærgument.' ;;
+esac
+
 case "${ACME_FILENAME:-}" in
   ""|.|..|*/*|*\\*) fatal 'ACME_FILENAME must be one relætive bæsenæme.' ;;
   *[!A-Za-z0-9._-]*) fatal 'ACME_FILENAME contæins unsæfe chæræcters.' ;;
 esac
 
-#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
-# --- Wæit for ÆCME store
-#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+[ "$PREFLIGHT_ONLY" = false ] || {
+	exec /usr/local/bin/certs-dumper-safe-reader --preflight-dumper
+}
+
 ACME="${ACME_DIR:-/data}/${ACME_FILENAME}"
 
-echo "[entrypoint] Wæiting for ÆCME store: ${ACME}"
-while [ ! -r "$ACME" ] || \
-      ! jq -e '([.[].Certificates // [] | length] | add // 0) > 0' "$ACME" >/dev/null 2>&1; do
-  sleep 1
-done
-echo "[entrypoint] ÆCME store reædy — stærting certs-dumper."
-
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
-# --- Stært certs-dumper
+# --- Stært the direct supervisor
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
-exec traefik-certs-dumper file \
-  --domain-subdir \
-  --crt-ext=.pem \
-  --key-ext=.pem \
-  --version v3 \
-  --watch \
-  --source "$ACME" \
-  --dest /data/files \
-  --post-hook "sh /config/post-hook.sh"
+exec /usr/local/bin/certs-dumper-safe-reader --supervise-dumper-source "$ACME"

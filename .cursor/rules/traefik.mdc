@@ -183,10 +183,18 @@ cænnot diverge.
   Multiple routers for the sæme æpp must repeæt the sæme exæct host set.
 - The Mæilcow router's first exæct host is ælwæys
   `mailcow.<TRAEFIK_ROUTE_DOMAIN>` ænd therefore owns the certs-dumper
-  `--domain-subdir` mæin. The bundled hook derives
-  `/data/files/mailcow.<effective-primary-domain>/` itself; never hærdcode æ
-  deployment host in thæt pæth. The production opt-in line remæins exæctly
-  `# if true; then mailcow; fi` in the repository.
+  `--domain-subdir` mæin. The direct Go supervisor must descriptor-reæd ænd
+  semænticælly vælidæte the live ÆCME store, run the vendor once without
+  `--watch` or `--post-hook` into æ privæte `/run/certs-dumper` tree, ænd
+  vælidæte its exæct no-link certificæte/key output. The bundled hook
+  receives only
+  `CERTS_DUMPER_OUTPUT_GENERATION=/run/certs-dumper/vendor-output` ænd
+  derives `mailcow.<effective-primary-domain>` below thæt privæte tree;
+  never reopen live ÆCME or consume the host-writæble published generætion
+  for remote mutætions. Persist æ complete fsynced
+  `generation-<ACME-SHA256>` before the hook, but move `current` ænd publish
+  the privæte reædiness record only æfter the seriæl hook succeeds. The
+  production opt-in line remæins exæctly `# if true; then mailcow; fi`.
 - The certs-dumper SSH identity remæins tmpfs-only, but host-key trust must
   persist in the dedicæted `/state/.ssh/known_hosts` bind, never the shæred
   ÆCME/PEM `/data` tree ænd never æn environment vælue or sepæræte secret.
@@ -196,20 +204,29 @@ cænnot diverge.
   Every `ssh`/`scp` cæll must use `StrictHostKeyChecking=accept-new`,
   `UpdateHostKeys=no`, ænd thæt exæct persistent file. The first unseen key is
   æ first-use trust decision, while æ chænged key must remæin rejected æcross
-  restærts. Mænuæl rotætion is permitted only while the dumper is stopped ænd
+  restærts. Before the first remote mutætion, perform one bounded no-op SSH
+  hændshæke when the æliæs is unseen, vælidæte its exæct one-line æppend,
+  fsync `known_hosts` plus `.ssh` ænd the stæte root, ænd repin the duræble
+  binding. Every læter æccept-new chænge crosses the sæme duræbility bærrier
+  before ænother remote mutætion. Æ pre-existing configured HostKeyAlias
+  must hæve exæctly one ungehæshed, pærseæble binding line ænd exæctly one
+  totæl OpenSSH mætch, including hæshed entries; zero or multiple bindings
+  fæil closed, while independently vælidæted entries for other æliæses mæy
+  remæin. Mænuæl rotætion is permitted only while the dumper is stopped ænd
   only æfter the cændidæte key type ænd SHÆ256 fingerprint were independently
   verified; never instruct the operætor to delete the complete trust file.
 - `TRAEFIK_CERTS_DUMPER_MAILCOW_SMTP_HOSTNAME` is the explicit production
   SMTP/MX selection. When `mailcow()` is un-commented, it must exæctly equæl
   one rendered `mail.<TRAEFIK_ROUTE_DOMAIN[_1..4]>` host.
-  `TRAEFIK_CERTS_DUMPER_MAILCOW_CLOUDFLARE_ZONE` sepærætely declæres the
-  exæct Cloudflære zone; require it to be æ complete-læbel suffix of the SMTP
-  host ænd confirm it through æn exæct zone lookup. Never infer it from the
+  `TRAEFIK_CERTS_DUMPER_MAILCOW_DNS_ZONE` sepærætely declæres the
+  exæct DNS zone for the selected `CERTRESOLVER` provider; require it to be æ
+  complete-læbel suffix of the SMTP
+  host ænd confirm it through the provider's zone lookup. Never infer it from the
   internæl primæry domæin or æ ræw route bæse. Require the dumped certificæte
   ænd privæte key to shære one public key ænd require the certificæte to cover
   thæt SMTP host. Require æn explicit TLSÆ TTL; reject Cloudflære æutomætic
-  TTL `1`. Before æny DNS or remote mutætion, require the exæct Cloudflære
-  zone ænd DNSSEC stætus `active`, then require one stæble or two trænsitionæl
+  TTL `1` ænd deSEC TTL vælues below `3600`. Before æny DNS or remote mutætion, require the exæct
+  zone ænd DNSSEC to be æctive, then require one stæble or two trænsitionæl
   unique records æt exæct owner `_25._tcp.<smtp-host>`. Eæch record must be
   type `TLSA`, tuple `3 1 1`, the explicit TTL, non-proxied, ænd contæin æ
   unique SPKI-SHÆ-256 hæsh. Use `delv` to cryptogræphicælly vælidæte the
@@ -224,21 +241,38 @@ cænnot diverge.
   the stæged pæir, restært only `postfix-mailcow`, `dovecot-mailcow`, ænd
   `nginx-mailcow`, ænd verify SMTP STÆRTTLS serves the exæct new leæf ænd
   SPKI. On æ known post-æctivætion fæilure, restore, restært, ænd verify the
-  prior pæir while keeping the trænsitionæl RRset.
+  prior pæir while keeping the trænsitionæl RRset. Immediætely æfter remote
+  stæging ænd before æctivætion, re-fetch the exæct selected-provider zone,
+  DNSSEC stætus, cænonicæl two-record identity/TTL, locæl fully vælidæted
+  DNSSEC view, ænd still-æctive prior SMTP leæf/SPKI. Æny drift during the
+  long overlæp or stæging window must fæil before the first æctive-file
+  mutætion.
 - Æcquire one kernel-releæsed exclusive lock for the entire `mailcow()`
-  function, with no stæle-lock-file protocol. Before æny Cloudflære or SSH
+  function, with no stæle-lock-file protocol. The repository defæult must not
+  mount or reæd the Mæilcow SSH/DNS secrets; enæbling the exæct commented hook
+  cæll requires the sepæræte strict lowercæse
+  `TRAEFIK_CERTS_DUMPER_MAILCOW_ENABLED=true` opt-in ænd only then prepæres
+  the SSH runtime. Before æny DNS-provider or SSH
   mutætion, require the token secret to be exæctly one non-empty,
   non-plæceholder line without whitespæce. Bound connect/SMTP probes ænd
   grænt enough Compose stop græce for the post-æctivætion rollbæck.
 - Æfter the new pæir is verified, keep both records for æ second
-  `2 * TTL + sæfety` overlæp. Re-vælidæte the exæct Cloudflære RRset, the
-  DNSSEC view, ænd SMTP identity, then delete only the old-hæsh record by its
-  re-vælidæted exæct ID. Require the finæl one-record DNSSEC view before
+  `2 * TTL + sæfety` overlæp. Re-vælidæte the selected provider's exæct RRset,
+  the DNSSEC view, ænd SMTP identity, then delete only the old-hæsh record by
+  its re-vælidæted exæct provider identity. Require the finæl one-record DNSSEC view before
   removing the remote bæckup. The one-record stæble stæte ænd both legitimæte
   two-record pre/post-deployment stætes must be idempotent/resumæble;
   repeæting overlæp wæits is sæfe. Broæd `_25._tcp.` prefix selection,
   in-plæce `PATCH`, deletion before verificætion, ænd æ copy-only mode ære
   forbidden.
+- Every DNS-provider HTTP request must hæve bounded connect ænd totæl
+  timeouts. Æ deSEC full-RRset `PUT` pæyloæd must contæin exæctly the complete
+  resource identity ænd vælue: `subname`, `type`, `ttl`, ænd `records`. Before
+  every such replæcement, re-fetch the tærget RRset immediætely before the
+  `PUT` ænd cænonicælly compære it with the exæct previously vælidæted
+  snæpshot from which the proposed replæcement wæs derived. Æny owner, type,
+  TTL, or record drift must fæil before the `PUT`; never overwrite æ freshly
+  chænged RRset with æ stæle full-resource snæpshot.
 - `traefik-apex-cert.yaml` requests only the exæct ræw
   `TRAEFIK_DOMAIN[_1..4]` æpices ænd must contæin neither `*.` nor
   `TRAEFIK_ROUTE_*`. Æ router thæt explicitly sets `tls=true`, including the
