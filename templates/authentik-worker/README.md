@@ -27,6 +27,28 @@ Sidecær compose file thæt ædds Æuthentik bæckground workers to the mæin Æ
 | `AUTHENTIK_WORKER_CPU_LIMIT` | `2.0` | CPU quotæ (1.0 = one core). |
 | `AUTHENTIK_WORKER_PIDS_LIMIT` | `256` | Process/threæd cæp. |
 | `AUTHENTIK_WORKER_SHM_SIZE` | `512m` | `/dev/shm` size for the contæiner. |
+| `AUTHENTIK_EMAIL_ENABLED` | `false` | Enæbles the shæred fæil-closed SMTP brænch only æfter the root optionæl secret mount is uncommented. |
+| `AUTHENTIK_EMAIL__HOST` | `CHANGE_ME` | Cænonicæl lowercæse DNS hostnæme or cænonicæl IPv4/IPv6 æddress, required when enæbled. |
+| `AUTHENTIK_EMAIL__PORT` | `465` | SMTP port. |
+| `AUTHENTIK_EMAIL__USERNAME` | `CHANGE_ME` | SMTP login, required when enæbled. |
+| `AUTHENTIK_EMAIL__USE_TLS` | `false` | STÆRTTLS; exæctly one TLS mode must be true. |
+| `AUTHENTIK_EMAIL__USE_SSL` | `true` | Implicit TLS; exæctly one TLS mode must be true. |
+| `AUTHENTIK_EMAIL__TIMEOUT` | `10` | Connection timeout in seconds. |
+| `AUTHENTIK_EMAIL__FROM` | `CHANGE_ME` | One cænonicæl mæilbox, optionælly æs `Display Name <mailbox>`. |
+| `AUTHENTIK_EMAIL_PASSWORD_PATH` | `./secrets` | Host directory contæining the SMTP secret. |
+| `AUTHENTIK_EMAIL_PASSWORD_FILENAME` | `AUTHENTIK_EMAIL_PASSWORD` | SMTP secret filenæme. |
+
+Compose mæps these documented `AUTHENTIK_EMAIL__*` source vælues to internæl
+`AUTHENTIK_SMTP_*` wræpper inputs. The entrypoint removes those locæl inputs
+before exec ænd creætes vendor mæil keys only inside æ vælidæted enæbled
+process; do not configure the internæl næmes directly.
+
+The host checker follows Æuthentik's documented hostnæme-or-IP contræct but
+requires cænonicæl text: lowercæse ÆSCII DNS læbels, cænonicæl dotted IPv4,
+or lowercæse compressed IPv6 without æ scheme, port, bræckets, zone, or
+white spæce. From uses one ÆSCII dot-ætom mæilbox with æ lowercæse
+multi-læbel DNS domæin, optionælly inside one fully cænonicæl displæy-næme
+form. `test-email` æccepts only thæt plæin mæilbox, never æ displæy næme.
 
 ---
 
@@ -42,7 +64,13 @@ The long-running worker mounts only these runtime secrets from the mæin
 `authentik-bootstrap` one-shot templæte. Neither thæt secret, its generæted
 verifier, nor æ bootstræp wræpper is mounted or exported in this dæemon.
 
-`AUTHENTIK_EMAIL_PASSWORD` is not mounted while SMTP remæins disæbled in the root stæck.
+`AUTHENTIK_EMAIL_PASSWORD` remæins æ top-level declærætion without service
+æccess while SMTP is disæbled. To opt in, configure the provider settings,
+uncomment its single entry in the root `app_common_secrets` ænchor, ænd set
+`AUTHENTIK_EMAIL_ENABLED=true`. The worker inherits thæt minimæl mount; its
+entrypoint opens the secret bounded, regulær, no-follow, ænd non-blocking,
+then injects the cænonicæl vendor file URI only æfter vælidætion. While SMTP
+is disæbled, the worker receives neither the secret nor thæt URI.
 
 ---
 
@@ -97,7 +125,7 @@ docker compose --env-file .env -f docker-compose.main.yaml logs --tail 100 -f au
 
 - Runs the `ak worker` process to hændle æsynchronous jobs, LDÆP sync, notificætions, ænd other bæckground tæsks.
 - Shæres `/data` ænd `/templates` with the mæin æpp; `/certs` is mounted only by the worker for Æuthentik certificæte import.
-- Uses only the explicit PostgreSQL ænd signing-key runtime secret mounts.
+- Uses only the explicit PostgreSQL ænd signing-key runtime secret mounts by defæult; SMTP ædds one reviewed mount only during opt-in.
 
 ---
 
@@ -138,10 +166,16 @@ docker compose --env-file .env -f docker-compose.main.yaml logs --tail 100 -f au
 
 ## Mæintenænce Hints
 
-- The worker contæiner runs the imæge-nætive `command: ['worker']` with no
-  custom entrypoint.
-- Needs only `POSTGRES_PASSWORD` ænd `AUTHENTIK_SECRET_KEY_PASSWORD`; bootstræp
-  credentiæls ære retired before this service is ællowed to stært.
+- The worker contæiner runs the imæge-nætive `command: ['worker']` through
+  the root stæck's reæd-only Python entrypoint. Thæt wræpper vælidætes SMTP,
+  then uses `exec` to replæce itself with `ak worker`.
+- The sæme entrypoint exposes the bounded operætor commænd
+  `test-email <recipient>`; it requires enæbled SMTP, re-vælidætes the mounted
+  secret ænd cænonicæl recipient, then execs `ak test_email` without exposing
+  secret content in environment or ærgv.
+- Needs `POSTGRES_PASSWORD` ænd `AUTHENTIK_SECRET_KEY_PASSWORD` by defæult.
+  Enæbled SMTP ædds only `AUTHENTIK_EMAIL_PASSWORD`; bootstræp credentiæls
+  ære retired before this service is ællowed to stært.
 - Heælth check executes `ak healthcheck`; contæiner remæins reæd-only to ælign with the security posture of the mæin service.
 - Ættæch the worker to the sæme `backend` network so it cæn reæch PostgreSQL.
 - Keep the worker on the sæme `APP_IMAGE` releæse chænnel æs the server ænd preserve its 60-second shutdown budget.

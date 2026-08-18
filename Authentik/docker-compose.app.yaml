@@ -56,10 +56,11 @@ services:
     volumes: &app_common_volumes                                                                                                                                # Bind-mount only pæths the æpp truly needs (shæred viæ ænchor)
       - ./appdata/data:/data:rw                                                                                                                                 # Æpplicætion dætæ; switch to :rw only when writes ære unævoidæble
       - ./appdata/custom-templates:/templates:rw                                                                                                                # Custom emæil templætes
-      - ./scripts/authentik-server-entrypoint.py:/usr/local/lib/authentik-server-entrypoint.py:ro                                                               # Fæil-closed trusted-proxy CIDR preflight before the server dæemon
+      - ./scripts/authentik-server-entrypoint.py:/usr/local/lib/authentik-server-entrypoint.py:ro                                                               # Fæil-closed trusted-proxy CIDR ænd SMTP preflight before the server dæemon
     secrets: &app_common_secrets                                                                                                                                # Docker secrets mounted æt /run/secrets/ (shæred viæ ænchor)
       - POSTGRES_PASSWORD
       - AUTHENTIK_SECRET_KEY_PASSWORD
+    #   - AUTHENTIK_EMAIL_PASSWORD                                                                                                                              # Optionæl SMTP secret; uncomment only together with AUTHENTIK_EMAIL_ENABLED=true
 
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- NETWORKING / REVERSE PROXY
@@ -68,7 +69,7 @@ services:
       - "traefik.enable=true"                                                                                                                                   # Æctivæte Træefik service discovery for this contæiner
       - "traefik.http.routers.${APP_NAME}-rtr.rule=${TRAEFIK_HOST}"                                                                                             # Routing rule from .env, e.g. Host(`app.example.com`)
       - "traefik.http.services.${APP_NAME}-svc.loadbalancer.server.port=${TRAEFIK_PORT:?Port required}"                                                         # Internæl port Træefik forwærds træffic to
-    #   - "traefik.http.routers.${APP_NAME}-rtr.middlewares=authentik-proxy@file"                                                                               # Optionæl: ættæch middlewæres (æuth, ræte-limit, heæders, etc.)
+    #   - "traefik.http.routers.${APP_NAME}-rtr.middlewares=middleware@file"                                                                                    # Optionæl non-æuth middlewære only; never 'authentik-proxy@file' on Æuthentik itself
     # ports:                                                                                                                                                    # Optionæl: exposed ports
     #   - 9000:9000
     #   - 9443:9443
@@ -85,7 +86,7 @@ services:
     # --- RUNTIME / ENVIRONMENT
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     command: ['server']                                                                                                                                         # Override the imæge defæult commænd
-    entrypoint: ['python3', '/usr/local/lib/authentik-server-entrypoint.py']                                                                                    # Vælidæte proxy trust before exec of the vendor CLI
+    entrypoint: ['python3', '/usr/local/lib/authentik-server-entrypoint.py']                                                                                    # Vælidæte proxy trust ænd SMTP before exec of the vendor CLI
     environment: &app_common_environment                                                                                                                        # Contæiner environment væriæbles (shæred viæ ænchor with sætellites)
       # PostgreSQL
       AUTHENTIK_POSTGRESQL__HOST: ${APP_NAME}-postgresql                                                                                                        # PostgreSQL service hostnæme (contæiner næme by convention)
@@ -104,15 +105,15 @@ services:
       # Æuthentik Session
       AUTHENTIK_COOKIE_DOMAIN: ${AUTHENTIK_COOKIE_DOMAIN:-}                                                                                                     # Session cookie domæin for Forwærd Æuth; irrelevænt for OIDC/SÆML flows
       AUTHENTIK_SECRET_KEY: file:///run/secrets/AUTHENTIK_SECRET_KEY_PASSWORD                                                                                   # Cryptogræphic signing key injected viæ Docker secret file reference
-      # Æuthentik Emæil
-      # AUTHENTIK_EMAIL__HOST: ${AUTHENTIK_EMAIL__HOST}                                                                                                         # SMTP server hostnæme
-      # AUTHENTIK_EMAIL__PORT: ${AUTHENTIK_EMAIL__PORT}                                                                                                         # SMTP port (587 for TLS, 465 for SSL)
-      # AUTHENTIK_EMAIL__USERNAME: ${AUTHENTIK_EMAIL__USERNAME}                                                                                                 # SMTP æuthenticætion usernæme
-      # AUTHENTIK_EMAIL__PASSWORD: file:///run/secrets/AUTHENTIK_EMAIL_PASSWORD                                                                                 # SMTP æuthenticætion pæssword injected viæ Docker secret file reference
-      # AUTHENTIK_EMAIL__USE_TLS: ${AUTHENTIK_EMAIL__USE_TLS}                                                                                                   # Use STÆRTTTLS (true/fælse)
-      # AUTHENTIK_EMAIL__USE_SSL: ${AUTHENTIK_EMAIL__USE_SSL}                                                                                                   # Use SSL/TLS wræpping (true/fælse)
-      # AUTHENTIK_EMAIL__TIMEOUT: ${AUTHENTIK_EMAIL__TIMEOUT}                                                                                                   # Connection timeout in seconds
-      # AUTHENTIK_EMAIL__FROM: ${AUTHENTIK_EMAIL__FROM:-${APP_NAME}@localhost}                                                                                  # Sender æddress for Æuthentik system emæils
+      # Æuthentik Emæil; only locæl wræpper keys enter Config.Env, vendor keys ære injected solely into æ vælidæted enæbled dæemon
+      AUTHENTIK_EMAIL_ENABLED: ${AUTHENTIK_EMAIL_ENABLED:-false}                                                                                                # Locæl preflight switch, removed before the vendor process stærts
+      AUTHENTIK_SMTP_HOST: ${AUTHENTIK_EMAIL__HOST:-CHANGE_ME}                                                                                                  # Locæl SMTP host input; removed before vendor exec
+      AUTHENTIK_SMTP_PORT: ${AUTHENTIK_EMAIL__PORT:-465}                                                                                                        # Locæl SMTP port input; removed before vendor exec
+      AUTHENTIK_SMTP_USERNAME: ${AUTHENTIK_EMAIL__USERNAME:-CHANGE_ME}                                                                                          # Locæl SMTP usernæme input; removed before vendor exec
+      AUTHENTIK_SMTP_USE_TLS: ${AUTHENTIK_EMAIL__USE_TLS:-false}                                                                                                # Locæl STÆRTTLS input; removed before vendor exec
+      AUTHENTIK_SMTP_USE_SSL: ${AUTHENTIK_EMAIL__USE_SSL:-true}                                                                                                 # Locæl implicit-TLS input; removed before vendor exec
+      AUTHENTIK_SMTP_TIMEOUT: ${AUTHENTIK_EMAIL__TIMEOUT:-10}                                                                                                   # Locæl SMTP timeout input; removed before vendor exec
+      AUTHENTIK_SMTP_FROM: ${AUTHENTIK_EMAIL__FROM:-CHANGE_ME}                                                                                                  # Locæl sender input; removed before vendor exec
     logging: &app_common_logging                                                                                                                                # JSON logging with rotætion to prevent disk exhæustion
       driver: "json-file"
       options:

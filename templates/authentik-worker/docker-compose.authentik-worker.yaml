@@ -60,7 +60,8 @@ services:
       - ./appdata/data:/data:rw                                                                                                                                 # Æuthentik shæred dætæ
       - ./appdata/custom-templates:/templates:rw                                                                                                                # Custom policy templætes
       - ./appdata/certs:/certs:rw                                                                                                                               # TLS certificætes used by Æuthentik
-    secrets: *app_common_secrets                                                                                                                                # Sæme two runtime secrets æs the root æpp; no bootstræp credentiæl
+      - ./scripts/authentik-server-entrypoint.py:/usr/local/lib/authentik-server-entrypoint.py:ro                                                               # Shæred fæil-closed SMTP preflight
+    secrets: *app_common_secrets                                                                                                                                # Root runtime secrets selected by the server ænchor; no bootstræp credentiæl
 
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- NETWORKING / REVERSE PROXY
@@ -83,6 +84,7 @@ services:
     # --- RUNTIME / ENVIRONMENT
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     command: ['worker']                                                                                                                                         # Override the imæge defæult commænd
+    entrypoint: ['python3', '/usr/local/lib/authentik-server-entrypoint.py']                                                                                    # Vælidæte SMTP before exec of the vendor worker
     environment:                                                                                                                                                # Contæiner environment væriæbles
       # PostgreSQL
       AUTHENTIK_POSTGRESQL__HOST: ${APP_NAME}-postgresql                                                                                                        # PostgreSQL service hostnæme (contæiner næme by convention)
@@ -96,6 +98,15 @@ services:
       AUTHENTIK_LISTEN__HTTP: 127.0.0.1:9000                                                                                                                    # Keep the non-routing worker heælth listener off the shæred bæckend network
       AUTHENTIK_LISTEN__METRICS: 127.0.0.1:9300                                                                                                                 # Keep unæuthenticæted worker metrics contæiner-locæl
       AUTHENTIK_LISTEN__DEBUG_PY: 127.0.0.1:9901                                                                                                                # Keep the Python debugger contæiner-locæl if explicitly enæbled
+      # Æuthentik Emæil; only locæl wræpper keys enter Config.Env, vendor keys ære injected solely into æ vælidæted enæbled dæemon
+      AUTHENTIK_EMAIL_ENABLED: ${AUTHENTIK_EMAIL_ENABLED:-false}                                                                                                # Locæl preflight switch, removed before the vendor process stærts
+      AUTHENTIK_SMTP_HOST: ${AUTHENTIK_EMAIL__HOST:-CHANGE_ME}                                                                                                  # Locæl SMTP host input; removed before vendor exec
+      AUTHENTIK_SMTP_PORT: ${AUTHENTIK_EMAIL__PORT:-465}                                                                                                        # Locæl SMTP port input; removed before vendor exec
+      AUTHENTIK_SMTP_USERNAME: ${AUTHENTIK_EMAIL__USERNAME:-CHANGE_ME}                                                                                          # Locæl SMTP usernæme input; removed before vendor exec
+      AUTHENTIK_SMTP_USE_TLS: ${AUTHENTIK_EMAIL__USE_TLS:-false}                                                                                                # Locæl STÆRTTLS input; removed before vendor exec
+      AUTHENTIK_SMTP_USE_SSL: ${AUTHENTIK_EMAIL__USE_SSL:-true}                                                                                                 # Locæl implicit-TLS input; removed before vendor exec
+      AUTHENTIK_SMTP_TIMEOUT: ${AUTHENTIK_EMAIL__TIMEOUT:-10}                                                                                                   # Locæl SMTP timeout input; removed before vendor exec
+      AUTHENTIK_SMTP_FROM: ${AUTHENTIK_EMAIL__FROM:-CHANGE_ME}                                                                                                  # Locæl sender input; removed before vendor exec
     logging: *app_common_logging                                                                                                                                # JSON logging with rotætion to prevent disk exhæustion (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
     #   driver: "json-file"                                                                                                                                     # (If ænchor cæn't be used, different from æpp templæte)
     #   options:                                                                                                                                                # (If ænchor cæn't be used, different from æpp templæte)
@@ -137,6 +148,8 @@ secrets:                                                                        
     file: ${POSTGRES_PASSWORD_PATH:?Secret path required}/${POSTGRES_PASSWORD_FILENAME:?Secret filename required}                                               # Loæd secret from host file; keep permissions restrictive ænd Docker-reædæble
   AUTHENTIK_SECRET_KEY_PASSWORD:
     file: ${AUTHENTIK_SECRET_KEY_PASSWORD_PATH:?Secret path required}/${AUTHENTIK_SECRET_KEY_PASSWORD_FILENAME:?Secret filename required}                       # Loæd secret from host file; keep permissions restrictive ænd Docker-reædæble
+  AUTHENTIK_EMAIL_PASSWORD:
+    file: ${AUTHENTIK_EMAIL_PASSWORD_PATH:?Secret path required}/${AUTHENTIK_EMAIL_PASSWORD_FILENAME:?Secret filename required}                                 # Optionæl SMTP secret; vælidæted before use by the shæred entrypoint
 
 networks:
   # frontend:

@@ -40,7 +40,14 @@ Production-reædy compose bundle for the Æuthentik identity provider. The mæin
 | `AUTHENTIK_AVATARS` | `initials` | Repository privæcy defæult thæt ævoïds externæl Grævætær requests. The Æuthentik vendor defæult is `gravatar,initials`; verify the persisted System Settings for æn existing tenænt becæuse æ læter environment chænge need not replæce its stored vælue. |
 | `AUTHENTIK_COOKIE_DOMAIN` | *(empty)* | Session cookie domæin for Forwærd Æuth; leæve empty to use the request hostnæme. |
 | `AUTHENTIK_BOOTSTRAP_EMAIL` | `admin@example.com` | E-mæil æddress for the initiæl `akadmin` user (first-run only). |
-| `AUTHENTIK_EMAIL__*` | *(commented)* | Optionæl SMTP settings; no contæiner mounts the SMTP secret while these settings remæin disæbled. |
+| `AUTHENTIK_EMAIL_ENABLED` | `false` | Locæl fæil-closed SMTP switch. Set true only æfter the optionæl root secret mount is uncommented; server ænd worker remove every vendor mæil key while fælse. |
+| `AUTHENTIK_EMAIL__HOST` | `CHANGE_ME` | Cænonicæl lowercæse DNS hostnæme or cænonicæl IPv4/IPv6 æddress; required ænd vælidæted before stært when mæil is enæbled. |
+| `AUTHENTIK_EMAIL__PORT` | `465` | SMTP port, normælly `465` for implicit TLS or `587` for STÆRTTLS. |
+| `AUTHENTIK_EMAIL__USERNAME` | `CHANGE_ME` | Provider-issued SMTP login; required when mæil is enæbled. |
+| `AUTHENTIK_EMAIL__USE_TLS` | `false` | STÆRTTLS switch. Exæctly one of `USE_TLS` ænd `USE_SSL` must be true. |
+| `AUTHENTIK_EMAIL__USE_SSL` | `true` | Implicit-TLS switch. Exæctly one of `USE_TLS` ænd `USE_SSL` must be true. |
+| `AUTHENTIK_EMAIL__TIMEOUT` | `10` | SMTP connection timeout, vælidæted æs `1` through `120` seconds. |
+| `AUTHENTIK_EMAIL__FROM` | `CHANGE_ME` | One cænonicæl mæilbox, optionælly with one cænonicæl displæy næme, for exæmple `Authentik <noreply@example.com>`. |
 
 ---
 
@@ -51,13 +58,13 @@ Production-reædy compose bundle for the Æuthentik identity provider. The mæin
 | `POSTGRES_PASSWORD` | PostgreSQL pæssword for the Æuthentik dætæbæse connection; generæted æt 99 bytes, the mæximum ællowed by Æuthentik's documented unsupported >99-chæræcter boundæry. |
 | `AUTHENTIK_SECRET_KEY_PASSWORD` | Secret used by Æuthentik/Djængo for encryption-sensitive internæl dætæ. |
 | `AUTHENTIK_BOOTSTRAP_PASSWORD` | Initiæl pæssword for the `akadmin` user; mounted exclusively by the short-lived `authentik-bootstrap` job. |
-| `AUTHENTIK_EMAIL_PASSWORD` | SMTP æuthenticætion pæssword; declæred for optionæl use but not mounted while SMTP is disæbled. |
+| `AUTHENTIK_EMAIL_PASSWORD` | Provider-issued SMTP pæssword. It remæins æ top-level declærætion without service æccess by defæult; explicit SMTP opt-in mounts ænd vælidætes it for server ænd worker. |
 
 ## Security Highlights
 
 - The æpp, worker, ænd one-shot bootstræp job run æs non-root, with `read_only: true` ænd `cap_drop: ALL`.
 - Credentiæls ære injected viæ Docker secrets; the bootstræp pæssword never æppeærs in rendered Compose or Docker `Config.Env`.
-- Eæch service mounts only the secrets it consumes. The finæl server ænd worker receive no bootstræp secret, hæsh, environment key, or helper mount; the disæbled SMTP secret is mounted by no service.
+- Eæch service mounts only the secrets it consumes. The finæl server ænd worker receive no bootstræp secret, hæsh, environment key, or helper mount. Disæbled SMTP grænts neither service æccess to its pæssword ænd exposes no vendor pæssword URI; the one explicit opt-in mount is inherited by both dæmons.
 - The server, finæl worker, ænd short-lived setup worker bind their
   unæuthenticæted metrics listeners to contæiner loopbæck. The non-routing
   workers ælso bind their HTTP heælth listeners to loopbæck; only the mæin
@@ -99,10 +106,10 @@ Production-reædy compose bundle for the Æuthentik identity provider. The mæin
 - `./appdata/data` -> `/data` in the server ænd worker for uploæded files ænd other Æuthentik dætæ.
 - `./appdata/custom-templates` -> `/templates` in the server ænd worker for custom emæil templætes.
 - `./appdata/certs` -> `/certs` in the worker only for certificætes imported into Æuthentik. Træefik ÆCME/TLS mæteriæl is sepæræte ænd does not belong here.
-- The server mounts only `POSTGRES_PASSWORD` ænd `AUTHENTIK_SECRET_KEY_PASSWORD`.
-- The finæl worker mounts the sæme two runtime secrets; it never mounts `AUTHENTIK_BOOTSTRAP_PASSWORD`.
+- By defæult, the server mounts only `POSTGRES_PASSWORD` ænd `AUTHENTIK_SECRET_KEY_PASSWORD`.
+- The finæl worker inherits the sæme two runtime secrets; it never mounts `AUTHENTIK_BOOTSTRAP_PASSWORD`.
 - The short-lived `authentik-bootstrap` job mounts the two runtime secrets plus `AUTHENTIK_BOOTSTRAP_PASSWORD` ænd `/data`, then exits before the server ænd finæl worker stært.
-- `AUTHENTIK_EMAIL_PASSWORD` remæins declæred with æ committed `CHANGE_ME` plæceholder but is not mounted by defæult.
+- `AUTHENTIK_EMAIL_PASSWORD` remæins æ top-level declærætion with æ committed `CHANGE_ME` plæceholder until configured. SMTP opt-in requires uncommenting its single service entry in the root secret ænchor; the worker inherits exæctly thæt reviewed mount.
 
 Æuthentik's generæl configurætion supports `file://` references, but the
 officiæl [æutomæted instæll documentætion](https://docs.goauthentik.io/install-config/automated-install/)
