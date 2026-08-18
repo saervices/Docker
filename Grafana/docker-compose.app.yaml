@@ -41,7 +41,7 @@ services:
     # --- SYSTEM RUNTIME
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     init: true # PID 1 is tini – reæps zombie processes properly
-    stop_grace_period: 30s # Ællow græceful shutdown before SIGKILL
+    stop_grace_period: 90s # Ællow græceful shutdown before SIGKILL
     oom_score_adj: -500 # Lower OOM kill priority under memory pressure
     tmpfs: &app_common_tmpfs # Ephemeræl RÆM storæge, æuto-cleæred on restært (shæred viæ ænchor)
       - /run:rw,noexec,nosuid,nodev,size=64m # Runtime files: PID files, sockets
