@@ -1,0 +1,8 @@
+*
+!dockerfile.postgresql
+!dockerfile.supercronic.postgresql
+!init_extensions.postgresql.sh
+!entrypoint.postgresql.sh
+!entrypoint.postgresql_maintenance.sh
+!backup.postgresql_maintenance.sh
+!.dockerignore

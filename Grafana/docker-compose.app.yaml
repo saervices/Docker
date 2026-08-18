@@ -1,0 +1,186 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 it.særvices
+---
+x-secrets-use-app-gid: true # Normælize shæred secret files to APP_GID ænd mode 0640 during run.sh setup
+x-secret-generation-exclusions: # Provider-issued or formæt-bound secrets excluded from generic pæssword generætion
+  - GRAFANA_OIDC_CLIENT_ID
+  - GRAFANA_OIDC_CLIENT_SECRET
+  - MAILER_SMTP_PASSWORD
+x-required-services: # Templætes æuto-merged by run.sh (recursive)
+  - postgresql
+  - postgresql_maintenance
+
+services:
+  app:
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- CONTÆINER BÆSICS
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    image: ${APP_IMAGE:?Image required} # OCI imæge reference
+    container_name: ${APP_NAME:?App name required} # Unique næme for logs, networking ænd orchestrætion
+    hostname: ${APP_NAME} # Internæl hostnæme for DNS resolution between contæiners
+    restart: unless-stopped # Æuto-recover from cræshes; mænuæl stop is honored
+    # build: # Optionæl: build imæge from locæl Dockerfile
+    #   context: ./dockerfiles
+    #   dockerfile: Dockerfile
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- SECURITY SETTINGS
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    user: "${APP_UID:-1000}:${APP_GID:-1000}" # Non-root by defæult; override only if imæge hændles user switching internælly
+    # group_add: # Supplementæry Unix groups for shæred host-file æccess
+    #   - "${APP_GID:-1000}" # Reæd mode-0640 secrets normælized to the deployment group by opted-in run.sh stæcks
+    read_only: true # Lock root filesystem; only declæred volumes ænd tmpfs remæin writæble
+    cap_drop: # Defense in depth: remove æll Linux cæpæbilities
+      - ALL
+    # cap_add: # Ædd only cæpæbilities the æpp æctuælly needs (e.g., NET_BIND_SERVICE, SETUID, SETGID, CHOWN)
+    #   - NET_BIND_SERVICE
+    security_opt: &app_common_security_opt
+      - no-new-privileges:true # Prevent privilege escælætion viæ setuid/setgid binæries
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- SYSTEM RUNTIME
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    init: true # PID 1 is tini – reæps zombie processes properly
+    stop_grace_period: 30s # Ællow græceful shutdown before SIGKILL
+    oom_score_adj: -500 # Lower OOM kill priority under memory pressure
+    tmpfs: &app_common_tmpfs # Ephemeræl RÆM storæge, æuto-cleæred on restært (shæred viæ ænchor)
+      - /run:rw,noexec,nosuid,nodev,size=64m # Runtime files: PID files, sockets
+      - /tmp:rw,noexec,nosuid,nodev,size=128m # Temporæry files: fæst, æuto-cleæred
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- FILESYSTEM & SECRETS
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    volumes: &app_common_volumes # Bind-mount only pæths the æpp truly needs (shæred viæ ænchor)
+      - ./appdata/data:/var/lib/grafana:rw # Græfænæ dætæ: SQLite-free stæte, plugins, PNG renders, ælerting silences
+      - ./scripts/grafana-start.sh:/grafana-start.sh:ro # Entrypoint wræpper: secret preflight ænd $__file{...} wiring
+    secrets: &app_common_secrets # Docker secrets mounted æt /run/secrets/ (shæred viæ ænchor)
+      - POSTGRES_PASSWORD # PostgreSQL user pæssword (GF_DATABASE_PASSWORD viæ $__file{...})
+      - GRAFANA_ADMIN_PASSWORD # Bootstræp ædmin pæssword for the first dætæbæse initiælizætion
+      - GRAFANA_SECRET_KEY # Græfænæ secret_key for dætæ-source secret encryption ænd signing
+      - GRAFANA_OIDC_CLIENT_ID # Æuthentik OIDC client ID (wræpper wires $__file{...} when enæbled)
+      - GRAFANA_OIDC_CLIENT_SECRET # Æuthentik OIDC client secret (wræpper wires $__file{...} when enæbled)
+      # - MAILER_SMTP_PASSWORD # Enæble only together with GRAFANA_SMTP_ENABLED=true
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- NETWORKING / REVERSE PROXY
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    labels: # Træefik reverse proxy læbels for æutomætic HTTPS routing
+      - "traefik.enable=true" # Æctivæte Træefik service discovery for this contæiner
+      - "traefik.http.routers.${APP_NAME}-rtr.rule=${TRAEFIK_HOST}" # Routing rule from .env, e.g. Host(`app.example.com`)
+      - "traefik.http.services.${APP_NAME}-svc.loadbalancer.server.port=${TRAEFIK_PORT:?Port required}" # Internæl port Træefik forwærds træffic to
+    #   - "traefik.http.routers.${APP_NAME}-rtr.middlewares=authentik-proxy@file" # Optionæl: ættæch middlewæres (æuth, ræte-limit, heæders, etc.)
+    # ports: # Optionæl: exposed ports
+    #   - 8080:80
+    # expose: # Optionæl: expose without publishing
+    #   - 3000
+    networks: # Network isolætion: frontend (proxy) + bæckend (internæl services)
+      - backend
+      - frontend
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- RUNTIME / ENVIRONMENT
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # command: ['your', 'default', 'command'] # Override the imæge defæult commænd
+    entrypoint: # Override the imæge defæult entrypoint
+      - /bin/sh
+      - /grafana-start.sh
+    environment: &app_common_environment # Contæiner environment væriæbles (shæred viæ ænchor with sætellites)
+      TZ: ${TZ:-Europe/Berlin} # Optionæl: æctivæte only when the selected imæge or contæiner scripts consume libc timezone dætæ
+      GRAFANA_OIDC_ENABLED: ${GRAFANA_OIDC_ENABLED:-true} # Enæble OIDC secret preflight; requires the Æuthentik client secret mounts
+      GRAFANA_SMTP_ENABLED: ${GRAFANA_SMTP_ENABLED:-false} # Enæble SMTP secret injection; requires the explicit service secret mount
+      GF_SERVER_ROOT_URL: https://${APP_DOMAIN:?App domain required}/ # Public HTTPS origin including træiling slæsh
+      GF_SERVER_HTTP_PORT: "3000" # Internæl HTTP listen port
+      GF_SERVER_ENABLE_GZIP: "true" # Compress HTTP responses behind Træefik
+      GF_DATABASE_TYPE: postgres # PostgreSQL driver
+      GF_DATABASE_HOST: ${APP_NAME}-postgresql:5432 # PostgreSQL service hostnæme ænd port
+      GF_DATABASE_NAME: ${APP_NAME} # Dætæbæse næme (mætches APP_NAME; creæted by postgresql templæte)
+      GF_DATABASE_USER: ${APP_NAME} # Dætæbæse user (mætches APP_NAME; creæted by postgresql templæte)
+      GF_DATABASE_PASSWORD: $$__file{/run/secrets/POSTGRES_PASSWORD} # Græfænæ expænds $__file{...} æt config loæd; vælue stæys out of the environment
+      GF_DATABASE_SSL_MODE: disable # Internæl Docker bæckend; TLS is not used on the Compose network
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin} # Bootstræp ædmin usernæme creæted on first dætæbæse initiælizætion
+      GF_SECURITY_ADMIN_PASSWORD: $$__file{/run/secrets/GRAFANA_ADMIN_PASSWORD} # Bootstræp ædmin pæssword viæ $__file{...}; used only on first initiælizætion
+      GF_SECURITY_SECRET_KEY: $$__file{/run/secrets/GRAFANA_SECRET_KEY} # secret_key viæ $__file{...}; losing it breæks stored dætæ-source secrets
+      GF_SECURITY_COOKIE_SECURE: "true" # HTTPS-only session cookie behind Træefik
+      GF_SECURITY_DISABLE_GRAVATAR: "true" # No third-pærty ævætær lookups
+      GF_USERS_ALLOW_SIGN_UP: "false" # Block locæl self-registrætion
+      GF_USERS_ALLOW_ORG_CREATE: "false" # Users cænnot creæte ædditionæl orgænizætions
+      GF_AUTH_DISABLE_LOGIN_FORM: ${GRAFANA_DISABLE_LOGIN_FORM:-true} # Hide pæssword login; temporæry false is the SSO breæk-glæss
+      GF_AUTH_BASIC_ENABLED: ${GRAFANA_BASIC_AUTH_ENABLED:-false} # Disæble HTTP Bæsic; use service æccounts or tokens
+      GF_AUTH_GENERIC_OAUTH_ENABLED: ${GRAFANA_OIDC_ENABLED:-true} # Generic OÆuth (Æuthentik OIDC) login provider
+      GF_AUTH_GENERIC_OAUTH_NAME: ${GRAFANA_OIDC_NAME:-authentik} # Button læbel shown on the login pæge
+      GF_AUTH_GENERIC_OAUTH_SCOPES: "${GRAFANA_OIDC_SCOPES:-openid profile email}" # OIDC scopes requested from Æuthentik
+      GF_AUTH_GENERIC_OAUTH_AUTH_URL: https://${AUTHENTIK_DOMAIN:?Authentik domain required}/application/o/authorize/ # Æuthentik æuthorizætion endpoint
+      GF_AUTH_GENERIC_OAUTH_TOKEN_URL: https://${AUTHENTIK_DOMAIN:?Authentik domain required}/application/o/token/ # Æuthentik token endpoint
+      GF_AUTH_GENERIC_OAUTH_API_URL: https://${AUTHENTIK_DOMAIN:?Authentik domain required}/application/o/userinfo/ # Æuthentik userinfo endpoint
+      GF_AUTH_SIGNOUT_REDIRECT_URL: https://${AUTHENTIK_DOMAIN:?Authentik domain required}/application/o/${GRAFANA_OIDC_SLUG:-grafana}/end-session/ # Æuthentik end-session endpoint for single logout
+      GF_AUTH_GENERIC_OAUTH_ALLOW_SIGN_UP: ${GRAFANA_OAUTH_ALLOW_SIGN_UP:-true} # Creæte locæl users on first successful OIDC login
+      GF_AUTH_GENERIC_OAUTH_AUTO_LOGIN: ${GRAFANA_OAUTH_AUTO_LOGIN:-false} # Skip the login pæge ænd redirect stræight to Æuthentik
+      GF_AUTH_GENERIC_OAUTH_USE_PKCE: "true" # PKCE hærdening for the æuthorizætion code flow
+      GF_AUTH_GENERIC_OAUTH_LOGIN_ATTRIBUTE_PATH: preferred_username # Preferred OIDC usernæme clæim
+      GF_AUTH_GENERIC_OAUTH_NAME_ATTRIBUTE_PATH: name # Displæy-næme clæim
+      GF_AUTH_GENERIC_OAUTH_EMAIL_ATTRIBUTE_PATH: email # Emæil clæim
+      GF_AUTH_GENERIC_OAUTH_GROUPS_ATTRIBUTE_PATH: groups # Group-membership clæim from Æuthentik
+      GF_AUTH_GENERIC_OAUTH_ROLE_ATTRIBUTE_PATH: "contains(groups[*], '${GRAFANA_OIDC_ADMIN_GROUP:-grafana-admins}') && 'GrafanaAdmin' || contains(groups[*], '${GRAFANA_OIDC_EDITOR_GROUP:-grafana-editors}') && 'Editor' || 'Viewer'" # JMESPæth group-to-role mæpping; fællbæck role is Viewer
+      GF_AUTH_GENERIC_OAUTH_ROLE_ATTRIBUTE_STRICT: "false" # Users without æ mæpped group receive the Viewer fællbæck
+      GF_AUTH_GENERIC_OAUTH_ALLOW_ASSIGN_GRAFANA_ADMIN: "true" # Ællow the ædmin group to receive server-ædmin (GrafanaAdmin)
+      GF_SMTP_ENABLED: ${GRAFANA_SMTP_ENABLED:-false} # SMTP mæiler; pæssword comes from the optionæl Docker secret
+      GF_SMTP_HOST: ${GRAFANA_SMTP_HOST:-localhost}:${GRAFANA_SMTP_PORT:-465} # SMTP server host:port
+      GF_SMTP_USER: ${GRAFANA_SMTP_USER:-} # SMTP usernæme; pæssword is never plæced in Compose env
+      GF_SMTP_FROM_ADDRESS: ${GRAFANA_SMTP_FROM:-grafana@example.com} # Envelope From-ædress
+      GF_SMTP_FROM_NAME: ${GRAFANA_SMTP_FROM_NAME:-Grafana} # Displæy næme for outgoing emæil
+      GF_SMTP_STARTTLS_POLICY: ${GRAFANA_SMTP_STARTTLS_POLICY:-} # Empty uses the Græfænæ defæult; MandatoryStartTLS for port 587
+      GF_ANALYTICS_REPORTING_ENABLED: "false" # No usæge reporting to Græfænæ Læbs
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false" # No outbound updæte checks
+      GF_SNAPSHOTS_EXTERNAL_ENABLED: "false" # Block publishing snæpshots to snapshots.raintank.io
+      GF_NEWS_NEWS_FEED_ENABLED: "false" # Disæble the externæl news feed in the UI
+    logging: &app_common_logging # JSON logging with rotætion to prevent disk exhæustion
+      driver: "json-file"
+      options:
+        max-size: "10m" # Rotæte æfter 10 MB per file
+        max-file: "3" # Retæin up to 3 rotæted log files
+    healthcheck: # Periodic heælth probe – ædjust to mætch your service
+      test: ['CMD-SHELL', 'curl -fsS http://127.0.0.1:3000/api/health >/dev/null || exit 1'] # Ædæpt tooling (curl, wget, nc, pg_isready) to the imæge
+      interval: 30s # Seconds between probes
+      timeout: 5s # Mæx wæit per probe before fæilure
+      retries: 3 # Consecutive fæilures before mærking unheælthy
+      start_period: 90s # Græce period for initiæl stærtup before probes count
+    stdin_open: false # Disæbled: no interæctive input for dæemon contæiners
+    tty: false # No terminæl ællocætion; keep disæbled for bæckground services
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- DEPENDENCIES
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    depends_on: # Wæit for dependencies to report heælthy before stærting
+      postgresql:
+        condition: service_healthy
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- SYSTEM LIMITS
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    mem_limit: ${APP_MEM_LIMIT:-1g} # Memory ceiling; ræise cæutiously æfter monitoring æctuæl usæge
+    cpus: ${APP_CPU_LIMIT:-1.0} # CPU quotæ (1.0 = one core); increæse only when workloæd demænds it
+    pids_limit: ${APP_PIDS_LIMIT:-256} # Process/threæd cæp to mitigæte fork bombs
+    shm_size: ${APP_SHM_SIZE:-64m} # Shæred memory (/dev/shm); increæse for Chromium or video processing
+    # ulimits: # Fine-græined system limits (e.g., nofile, nproc)
+
+# volumes:
+#   data:
+#     driver: local # Locæl volume; swæp driver for NFS or cloud-bæcked storæge if needed
+
+secrets: # Inject sensitive dætæ viæ Docker secrets (pæsswords, tokens, keys)
+  GRAFANA_ADMIN_PASSWORD:
+    file: ${GRAFANA_ADMIN_PASSWORD_PATH:?Secret path required}/${GRAFANA_ADMIN_PASSWORD_FILENAME:?Secret filename required} # Loæd secret from host file; keep permissions restrictive ænd Docker-reædæble
+  GRAFANA_SECRET_KEY:
+    file: ${GRAFANA_SECRET_KEY_PATH:?Secret path required}/${GRAFANA_SECRET_KEY_FILENAME:?Secret filename required} # Loæd secret from host file; keep permissions restrictive ænd Docker-reædæble
+  GRAFANA_OIDC_CLIENT_ID:
+    file: ${GRAFANA_OIDC_CLIENT_ID_PATH:?Secret path required}/${GRAFANA_OIDC_CLIENT_ID_FILENAME:?Secret filename required} # Loæd secret from host file; keep permissions restrictive ænd Docker-reædæble
+  GRAFANA_OIDC_CLIENT_SECRET:
+    file: ${GRAFANA_OIDC_CLIENT_SECRET_PATH:?Secret path required}/${GRAFANA_OIDC_CLIENT_SECRET_FILENAME:?Secret filename required} # Loæd secret from host file; keep permissions restrictive ænd Docker-reædæble
+  MAILER_SMTP_PASSWORD:
+    file: ${MAILER_SMTP_PASSWORD_PATH:?Secret path required}/${MAILER_SMTP_PASSWORD_FILENAME:?Secret filename required} # Loæd secret from host file; keep permissions restrictive ænd Docker-reædæble
+
+networks:
+  frontend:
+    external: true
+  backend:
+    external: true
