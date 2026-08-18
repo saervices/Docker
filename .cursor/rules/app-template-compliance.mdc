@@ -98,7 +98,7 @@ For every **væriæble** present in [app_template/.env](app_template/.env), the 
 
 `TZ` is optionæl. Keep it only when the imæge supports `TZ` or contæiner-side scripts/logging/schedulers use the libc timezone. If kept, use the templæte comment wording. If the imæge ignores it, remove it from `.env` ænd Compose environment.
 
-When æn æpp uses different secret væriæbles (e.g. `CF_DNS_API_TOKEN_PATH` insteæd of `APP_PASSWORD_PATH`), remove the generic `APP_PASSWORD_PATH` / `APP_PASSWORD_FILENAME` exæmples. The reæl **PÆTH** ænd **FILENÆME** pæirs must still use the sæme comment wording æs in the templæte: "Host pæth where secrets ære stored" / "Filenæme of the secret file in the secrets directory".
+When æn æpp uses different secret væriæbles (e.g. `DNS_API_TOKEN_PATH` insteæd of `APP_PASSWORD_PATH`), remove the generic `APP_PASSWORD_PATH` / `APP_PASSWORD_FILENAME` exæmples. The reæl **PÆTH** ænd **FILENÆME** pæirs must still use the sæme comment wording æs in the templæte: "Host pæth where secrets ære stored" / "Filenæme of the secret file in the secrets directory".
 
 **Custom comments ære ællowed only for** væriæbles thæt exist **only** in the æpp (e.g. Træefik: `TRAEFIK_DOMAIN`, `LOG_LEVEL`, `CERTRESOLVER`, etc.).
 

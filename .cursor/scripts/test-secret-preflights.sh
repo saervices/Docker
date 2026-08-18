@@ -27,9 +27,11 @@ readonly VAULTWARDEN_SCRIPT="${TEST_REPO_ROOT}/Vaultwarden/scripts/vaultwarden.d
 readonly VAULTWARDEN_COMPOSE="${TEST_REPO_ROOT}/Vaultwarden/docker-compose.app.yaml"
 readonly VAULTWARDEN_IMMUTABLE_CONFIG_FILE='/etc/vaultwarden.d/config.json'
 readonly N8N_SCRIPT="${TEST_REPO_ROOT}/n8n/dockerfiles/entrypoint.sh"
-readonly TRAEFIK_SCRIPT="${TEST_REPO_ROOT}/Traefik/scripts/traefik-start.sh"
+readonly TRAEFIK_SCRIPT_SOURCE="${TEST_REPO_ROOT}/Traefik/scripts/traefik-start.sh"
+readonly TRAEFIK_SCRIPT="${TEST_ROOT}/traefik-start.fixture.sh"
 readonly TRAEFIK_DEV_FORWARD_TEMPLATE="${TEST_REPO_ROOT}/Traefik/appdata/config/conf.d/dev-traefik-forward.yaml.template"
 readonly CERTS_DUMPER_SCRIPT="${TEST_REPO_ROOT}/templates/traefik_certs-dumper/dockerfiles/entrypoint.traefik_certs-dumper.sh"
+readonly CERTS_DUMPER_HOOK="${TEST_REPO_ROOT}/templates/traefik_certs-dumper/scripts/post-hook.sh"
 readonly VIKUNJA_SCRIPT="${TEST_REPO_ROOT}/Vikunja/dockerfiles/entrypoint.sh"
 readonly GITEA_SCRIPT="${TEST_REPO_ROOT}/Gitea/scripts/gitea-start.sh"
 readonly GITEA_OIDC_SCRIPT="${TEST_REPO_ROOT}/Gitea/scripts/gitea-register-oidc.sh"
@@ -147,6 +149,671 @@ exercise_secret_matrix() {
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 mkdir -p -- "$TEST_BIN" "$TEST_CRYPTO"
 
+# The production helper is stætic Go built inside the custom imæge. This
+# descriptor-bæsed Python test double keeps the shell integrætion suite
+# independent of æ host Go toolchæin while the Dockerfile runs the reæl Go
+# unit/negætive tests ænd deterministic compile.
+cat >"${TEST_BIN}/traefik-secret-reader" <<'PY'
+#!/usr/bin/env python3
+import ipaddress
+import os
+import stat
+import sys
+
+if len(sys.argv) == 3 and sys.argv[1] == "--validate-forwarded-source":
+    value = sys.argv[2]
+    if not value or value != value.strip() or any(character.isspace() for character in value):
+        raise SystemExit(1)
+    try:
+        if "/" in value:
+            parsed = ipaddress.ip_network(value, strict=True)
+            if parsed.prefixlen == 0 or str(parsed) != value:
+                raise SystemExit(1)
+        else:
+            parsed = ipaddress.ip_address(value)
+            if str(parsed) != value:
+                raise SystemExit(1)
+    except ValueError:
+        raise SystemExit(1)
+    raise SystemExit(0)
+
+if len(sys.argv) != 3 or sys.argv[1] not in ("--source", "--acme-store") or not sys.argv[2]:
+    raise SystemExit(2)
+if sys.argv[1] == "--acme-store":
+    path = sys.argv[2]
+    parent, basename = os.path.split(path)
+    if not parent or not basename or basename in (".", ".."):
+        raise SystemExit(2)
+    identity = lambda value: (
+        value.st_dev, value.st_ino, value.st_mode, value.st_nlink,
+        value.st_size, value.st_uid, value.st_gid,
+        value.st_mtime_ns, value.st_ctime_ns,
+    )
+    parent_before = os.lstat(parent)
+    if (
+        not stat.S_ISDIR(parent_before.st_mode)
+        or parent_before.st_uid != os.geteuid()
+        or parent_before.st_gid != os.getegid()
+    ):
+        raise SystemExit(1)
+    parent_descriptor = os.open(
+        parent,
+        os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC,
+    )
+    try:
+        parent_opened = os.fstat(parent_descriptor)
+        if identity(parent_opened) != identity(parent_before):
+            raise SystemExit(1)
+        try:
+            before = os.stat(basename, dir_fd=parent_descriptor, follow_symlinks=False)
+        except FileNotFoundError:
+            descriptor = os.open(
+                basename,
+                os.O_RDWR | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW
+                | os.O_NONBLOCK | os.O_CLOEXEC,
+                0o600,
+                dir_fd=parent_descriptor,
+            )
+            before = os.fstat(descriptor)
+        else:
+            if (
+                not stat.S_ISREG(before.st_mode)
+                or before.st_nlink != 1
+                or before.st_uid != os.geteuid()
+                or before.st_gid != os.getegid()
+            ):
+                raise SystemExit(1)
+            hook = os.environ.get("TRAEFIK_TEST_ACME_HOOK", "")
+            if hook == "same-size":
+                with open(path, "r+b", buffering=0) as mutation:
+                    mutation.write(b"X" * before.st_size)
+                    mutation.flush()
+                    os.fsync(mutation.fileno())
+            elif hook == "path-race":
+                original = path + ".original"
+                replacement = path + ".replacement"
+                os.rename(path, original)
+                os.rename(replacement, path)
+            elif hook == "parent-race":
+                original_parent = parent + ".original"
+                os.rename(parent, original_parent)
+                os.mkdir(parent, 0o700)
+                with open(path, "wb") as replacement_output:
+                    replacement_output.write(b"outside")
+                os.chmod(path, 0o640)
+            descriptor = os.open(
+                basename,
+                os.O_RDWR | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC,
+                dir_fd=parent_descriptor,
+            )
+        try:
+            opened = os.fstat(descriptor)
+            if identity(opened) != identity(before):
+                raise SystemExit(1)
+            os.fchmod(descriptor, 0o600)
+            os.fsync(descriptor)
+            after_descriptor = os.fstat(descriptor)
+            after_path = os.stat(basename, dir_fd=parent_descriptor, follow_symlinks=False)
+            if identity(after_descriptor) != identity(after_path):
+                raise SystemExit(1)
+            if (
+                not stat.S_ISREG(after_descriptor.st_mode)
+                or after_descriptor.st_nlink != 1
+                or stat.S_IMODE(after_descriptor.st_mode) != 0o600
+            ):
+                raise SystemExit(1)
+            if (
+                after_descriptor.st_dev != before.st_dev
+                or after_descriptor.st_ino != before.st_ino
+                or after_descriptor.st_size != before.st_size
+                or after_descriptor.st_mtime_ns != before.st_mtime_ns
+            ):
+                raise SystemExit(1)
+        finally:
+            os.close(descriptor)
+        parent_after = os.lstat(parent)
+        parent_descriptor_after = os.fstat(parent_descriptor)
+        if (
+            identity(parent_after) != identity(parent_descriptor_after)
+            or (parent_after.st_dev, parent_after.st_ino, parent_after.st_mode,
+                parent_after.st_uid, parent_after.st_gid)
+            != (parent_before.st_dev, parent_before.st_ino, parent_before.st_mode,
+                parent_before.st_uid, parent_before.st_gid)
+        ):
+            raise SystemExit(1)
+    finally:
+        os.close(parent_descriptor)
+    raise SystemExit(0)
+
+source = sys.argv[2]
+maximum = 4096
+
+before = os.lstat(source)
+if not stat.S_ISREG(before.st_mode) or before.st_nlink != 1 or not 1 <= before.st_size <= maximum:
+    raise SystemExit(1)
+descriptor = os.open(source, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
+try:
+    opened = os.fstat(descriptor)
+    identity = lambda value: (
+        value.st_dev, value.st_ino, value.st_mode, value.st_nlink,
+        value.st_size, value.st_uid, value.st_gid,
+        value.st_mtime_ns, value.st_ctime_ns,
+    )
+    if identity(opened) != identity(before):
+        raise SystemExit(1)
+    hook = os.environ.get("TRAEFIK_TEST_READER_HOOK", "")
+    if hook == "same-size":
+        with open(source, "r+b", buffering=0) as mutation:
+            mutation.write(b"other-tok")
+            mutation.flush()
+            os.fsync(mutation.fileno())
+    elif hook == "path-race":
+        original = source + ".original"
+        replacement = source + ".replacement"
+        os.rename(source, original)
+        os.rename(replacement, source)
+    content = b""
+    while len(content) <= maximum:
+        chunk = os.read(descriptor, maximum + 1 - len(content))
+        if not chunk:
+            break
+        content += chunk
+    after_descriptor = os.fstat(descriptor)
+    after_path = os.lstat(source)
+    if identity(after_descriptor) != identity(opened) or identity(after_path) != identity(opened):
+        raise SystemExit(1)
+finally:
+    os.close(descriptor)
+
+if len(content) != opened.st_size or content == b"CHANGE_ME":
+    raise SystemExit(1)
+try:
+    content.decode("utf-8")
+except UnicodeDecodeError:
+    raise SystemExit(1)
+if any(character < 0x21 or character > 0x7e for character in content):
+    raise SystemExit(1)
+
+runtime_file = source.split("/secrets/", 1)[0] + "/runtime/DNS_API_TOKEN"
+runtime_directory = os.path.dirname(runtime_file)
+directory = os.lstat(runtime_directory)
+if not stat.S_ISDIR(directory.st_mode) or stat.S_IMODE(directory.st_mode) != 0o700:
+    raise SystemExit(1)
+output = os.open(
+    runtime_file,
+    os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC,
+    0o600,
+)
+try:
+    os.write(output, content)
+    os.fsync(output)
+    published = os.fstat(output)
+    if not stat.S_ISREG(published.st_mode) or stat.S_IMODE(published.st_mode) != 0o600:
+        raise SystemExit(1)
+    if published.st_nlink != 1 or published.st_size != len(content):
+        raise SystemExit(1)
+finally:
+    os.close(output)
+PY
+
+cat >"${TEST_BIN}/certs-dumper-safe-reader" <<'PY'
+#!/usr/bin/env python3
+import argparse
+import fcntl
+import hashlib
+import os
+import stat
+import sys
+
+if sys.argv[1:] == ["--preflight-dumper"]:
+    marker = os.environ.get("CERTS_DUMPER_PREFLIGHT_MARKER", "")
+    if marker:
+        with open(marker, "wb"):
+            pass
+    raise SystemExit(0)
+if len(sys.argv) == 3 and sys.argv[1] == "--supervise-dumper-source" and sys.argv[2]:
+    marker = os.environ.get("CERTS_DUMPER_MARKER", "")
+    if marker:
+        with open(marker, "wb"):
+            pass
+    raise SystemExit(0)
+
+parser = argparse.ArgumentParser(add_help=False)
+parser.add_argument("--kind", choices=("dns-token", "ssh-key", "known-hosts"))
+parser.add_argument("--source")
+parser.add_argument("--destination")
+parser.add_argument("--destination-identity")
+parser.add_argument("--digest", action="store_true")
+parser.add_argument("--emit", action="store_true")
+parser.add_argument("--harden-directory")
+parser.add_argument("--harden-state-file")
+parser.add_argument("--remove-private-file")
+parser.add_argument("--remove-private-identity")
+parser.add_argument("--remove-private-parent-identity")
+parser.add_argument("--with-state-lock")
+parser.add_argument("--validate-state-lock")
+parser.add_argument("--prepare-ssh-state")
+arguments, trailing_arguments = parser.parse_known_args()
+if trailing_arguments[:1] == ["--"]:
+    trailing_arguments = trailing_arguments[1:]
+
+def metadata(value):
+    return (
+        value.st_dev, value.st_ino, value.st_mode, value.st_nlink,
+        value.st_size, value.st_uid, value.st_gid,
+        value.st_mtime_ns, value.st_ctime_ns,
+    )
+
+def directory_binding(value):
+    return value.st_dev, value.st_ino, value.st_mode, value.st_uid, value.st_gid
+
+state_lock_actions = tuple(
+    value
+    for value in (
+        arguments.with_state_lock,
+        arguments.validate_state_lock,
+        arguments.prepare_ssh_state,
+    )
+    if value
+)
+if state_lock_actions:
+    if (
+        len(state_lock_actions) != 1
+        or arguments.kind or arguments.source or arguments.destination
+        or arguments.destination_identity or arguments.digest or arguments.emit
+        or arguments.harden_directory or arguments.harden_state_file
+        or arguments.remove_private_file or arguments.remove_private_identity
+        or arguments.remove_private_parent_identity
+    ):
+        raise SystemExit(2)
+    state_path = state_lock_actions[0]
+    if arguments.with_state_lock:
+        if len(trailing_arguments) != 3 or trailing_arguments[0] != "/bin/sh" or trailing_arguments[2] != "--mailcow-locked":
+            raise SystemExit(2)
+        state_root, lock_name = os.path.split(state_path)
+        try:
+            os.mkdir(state_root, 0o700)
+        except FileExistsError:
+            pass
+        root_before = os.lstat(state_root)
+        if not stat.S_ISDIR(root_before.st_mode) or root_before.st_uid != os.geteuid():
+            raise SystemExit(1)
+        root_descriptor = os.open(
+            state_root,
+            os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_NONBLOCK,
+        )
+        os.fchmod(root_descriptor, 0o700)
+        try:
+            lock_descriptor = os.open(
+                lock_name,
+                os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_NONBLOCK,
+                0o600,
+                dir_fd=root_descriptor,
+            )
+            lock_state = os.fstat(lock_descriptor)
+            lock_path_state = os.stat(lock_name, dir_fd=root_descriptor, follow_symlinks=False)
+            if (
+                metadata(lock_state) != metadata(lock_path_state)
+                or not stat.S_ISREG(lock_state.st_mode)
+                or lock_state.st_nlink != 1
+                or lock_state.st_uid != os.geteuid()
+            ):
+                raise SystemExit(1)
+            os.fchmod(lock_descriptor, 0o600)
+            fcntl.flock(lock_descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            os.dup2(root_descriptor, 3)
+            os.dup2(lock_descriptor, 4)
+            os.set_inheritable(3, True)
+            os.set_inheritable(4, True)
+            os.execve(trailing_arguments[0], trailing_arguments, os.environ)
+        finally:
+            os.close(root_descriptor)
+    if trailing_arguments:
+        raise SystemExit(2)
+    root_descriptor = 3
+    root_state = os.fstat(root_descriptor)
+    state_root_path = os.path.dirname(state_path) if arguments.validate_state_lock else state_path
+    root_path_state = os.lstat(state_root_path)
+    if (
+        directory_binding(root_state) != directory_binding(root_path_state)
+        or not stat.S_ISDIR(root_state.st_mode)
+        or stat.S_IMODE(root_state.st_mode) != 0o700
+    ):
+        raise SystemExit(1)
+    if arguments.validate_state_lock:
+        lock_state = os.fstat(4)
+        lock_name = os.path.basename(state_path)
+        lock_path_state = os.stat(lock_name, dir_fd=3, follow_symlinks=False)
+        if (
+            metadata(lock_state) != metadata(lock_path_state)
+            or not stat.S_ISREG(lock_state.st_mode)
+            or lock_state.st_nlink != 1
+            or stat.S_IMODE(lock_state.st_mode) != 0o600
+        ):
+            raise SystemExit(1)
+        fcntl.flock(4, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        raise SystemExit(0)
+    try:
+        os.mkdir(".ssh", 0o700, dir_fd=3)
+    except FileExistsError:
+        pass
+    ssh_descriptor = os.open(
+        ".ssh",
+        os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC,
+        dir_fd=3,
+    )
+    try:
+        os.fchmod(ssh_descriptor, 0o700)
+        ssh_state = os.fstat(ssh_descriptor)
+        ssh_path_state = os.stat(".ssh", dir_fd=3, follow_symlinks=False)
+        if metadata(ssh_state) != metadata(ssh_path_state):
+            raise SystemExit(1)
+        try:
+            known_hosts_descriptor = os.open(
+                "known_hosts",
+                os.O_RDWR | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW
+                | os.O_NONBLOCK | os.O_CLOEXEC,
+                0o600,
+                dir_fd=ssh_descriptor,
+            )
+        except FileExistsError:
+            known_hosts_descriptor = os.open(
+                "known_hosts",
+                os.O_RDWR | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC,
+                dir_fd=ssh_descriptor,
+            )
+        try:
+            known_hosts_state = os.fstat(known_hosts_descriptor)
+            known_hosts_path_state = os.stat(
+                "known_hosts", dir_fd=ssh_descriptor, follow_symlinks=False
+            )
+            if (
+                metadata(known_hosts_state) != metadata(known_hosts_path_state)
+                or not stat.S_ISREG(known_hosts_state.st_mode)
+                or known_hosts_state.st_nlink != 1
+            ):
+                raise SystemExit(1)
+            os.fchmod(known_hosts_descriptor, 0o600)
+        finally:
+            os.close(known_hosts_descriptor)
+    finally:
+        os.close(ssh_descriptor)
+    raise SystemExit(0)
+
+state_actions = tuple(
+    value for value in (arguments.harden_directory, arguments.harden_state_file) if value
+)
+if (
+    arguments.remove_private_file
+    or arguments.remove_private_identity
+    or arguments.remove_private_parent_identity
+):
+    if (
+        not arguments.remove_private_file or not arguments.remove_private_identity
+        or not arguments.remove_private_parent_identity
+        or state_actions or arguments.kind or arguments.source or arguments.destination
+        or arguments.destination_identity or arguments.digest or arguments.emit
+    ):
+        raise SystemExit(2)
+    device_text, separator, inode_text = arguments.remove_private_identity.partition(":")
+    if not separator or not device_text.isdecimal() or not inode_text.isdecimal():
+        raise SystemExit(2)
+    expected = (int(device_text), int(inode_text))
+    parent_device_text, parent_separator, parent_inode_text = (
+        arguments.remove_private_parent_identity.partition(":")
+    )
+    if (
+        not parent_separator
+        or not parent_device_text.isdecimal()
+        or not parent_inode_text.isdecimal()
+    ):
+        raise SystemExit(2)
+    expected_parent = (int(parent_device_text), int(parent_inode_text))
+    parent, basename = os.path.split(arguments.remove_private_file)
+    if not parent or not basename or basename in (".", ".."):
+        raise SystemExit(2)
+    parent_before = os.lstat(parent)
+    if not stat.S_ISDIR(parent_before.st_mode):
+        raise SystemExit(1)
+    if (parent_before.st_dev, parent_before.st_ino) != expected_parent:
+        raise SystemExit(1)
+    parent_descriptor = os.open(
+        parent,
+        os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC,
+    )
+    try:
+        parent_opened = os.fstat(parent_descriptor)
+        parent_binding = lambda value: (
+            value.st_dev, value.st_ino, value.st_mode, value.st_uid, value.st_gid
+        )
+        if parent_binding(parent_opened) != parent_binding(parent_before):
+            raise SystemExit(1)
+        file_descriptor = os.open(
+            basename,
+            os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC,
+            dir_fd=parent_descriptor,
+        )
+        try:
+            opened = os.fstat(file_descriptor)
+            path_state = os.stat(basename, dir_fd=parent_descriptor, follow_symlinks=False)
+            if (
+                metadata(opened) != metadata(path_state)
+                or (opened.st_dev, opened.st_ino) != expected
+                or not stat.S_ISREG(opened.st_mode)
+                or opened.st_nlink != 1
+                or stat.S_IMODE(opened.st_mode) != 0o600
+                or opened.st_uid != os.geteuid() or opened.st_gid != os.getegid()
+            ):
+                raise SystemExit(1)
+            if parent_binding(os.fstat(parent_descriptor)) != parent_binding(parent_before):
+                raise SystemExit(1)
+            if parent_binding(os.lstat(parent)) != parent_binding(parent_before):
+                raise SystemExit(1)
+            if metadata(os.fstat(file_descriptor)) != metadata(opened):
+                raise SystemExit(1)
+            os.unlink(basename, dir_fd=parent_descriptor)
+            if os.fstat(file_descriptor).st_nlink != 0:
+                raise SystemExit(1)
+        finally:
+            os.close(file_descriptor)
+    finally:
+        os.close(parent_descriptor)
+    raise SystemExit(0)
+
+if state_actions:
+    if (
+        len(state_actions) != 1
+        or trailing_arguments or arguments.kind or arguments.source or arguments.destination
+        or arguments.destination_identity or arguments.digest or arguments.emit
+    ):
+        raise SystemExit(2)
+    path = state_actions[0]
+    is_directory = bool(arguments.harden_directory)
+    if is_directory:
+        try:
+            os.mkdir(path, 0o700)
+        except FileExistsError:
+            pass
+    else:
+        try:
+            created = os.open(
+                path,
+                os.O_RDWR | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW
+                | os.O_NONBLOCK | os.O_CLOEXEC,
+                0o600,
+            )
+        except FileExistsError:
+            created = None
+        if created is not None:
+            os.close(created)
+    before = os.lstat(path)
+    expected_type = stat.S_ISDIR if is_directory else stat.S_ISREG
+    if not expected_type(before.st_mode) or before.st_uid != os.geteuid() or before.st_gid != os.getegid():
+        raise SystemExit(1)
+    if not is_directory and before.st_nlink != 1:
+        raise SystemExit(1)
+    hook = os.environ.get("CERTS_DUMPER_TEST_STATE_HOOK", "")
+    if hook == ("directory-fifo-swap" if is_directory else "file-symlink-swap"):
+        original = path + ".original"
+        os.rename(path, original)
+        if is_directory:
+            os.mkfifo(path, 0o600)
+        else:
+            target = path + ".outside"
+            with open(target, "wb") as output:
+                output.write(b"outside")
+            os.symlink(target, path)
+    flags = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC
+    if is_directory:
+        flags |= os.O_DIRECTORY
+    else:
+        flags = os.O_RDWR | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC
+    descriptor = os.open(path, flags)
+    try:
+        opened = os.fstat(descriptor)
+        if metadata(opened) != metadata(before):
+            raise SystemExit(1)
+        os.fchmod(descriptor, 0o700 if is_directory else 0o600)
+        after_descriptor = os.fstat(descriptor)
+        after_path = os.lstat(path)
+        if metadata(after_descriptor) != metadata(after_path):
+            raise SystemExit(1)
+        if (after_descriptor.st_dev, after_descriptor.st_ino) != (before.st_dev, before.st_ino):
+            raise SystemExit(1)
+    finally:
+        os.close(descriptor)
+    raise SystemExit(0)
+
+if not arguments.kind or not arguments.source:
+    raise SystemExit(2)
+if trailing_arguments:
+    raise SystemExit(2)
+
+reader_calls = os.environ.get("CERTS_DUMPER_TEST_READER_CALLS", "")
+if reader_calls:
+    with open(reader_calls, "a", encoding="utf-8") as calls:
+        calls.write(f"{arguments.kind}|{arguments.source}\n")
+
+maximum = {"dns-token": 4096, "ssh-key": 65536, "known-hosts": 1048576}[arguments.kind]
+allow_empty = arguments.kind == "known-hosts"
+if arguments.digest and arguments.emit:
+    raise SystemExit(2)
+if arguments.digest:
+    if arguments.kind != "known-hosts" or arguments.destination or arguments.destination_identity:
+        raise SystemExit(2)
+elif arguments.emit:
+    if arguments.kind != "dns-token" or arguments.destination or arguments.destination_identity:
+        raise SystemExit(2)
+elif not arguments.destination or not arguments.destination_identity:
+    raise SystemExit(2)
+
+identity = metadata
+source_before = os.lstat(arguments.source)
+minimum = 0 if allow_empty else 1
+if (
+    not stat.S_ISREG(source_before.st_mode)
+    or source_before.st_nlink != 1
+    or not minimum <= source_before.st_size <= maximum
+):
+    raise SystemExit(1)
+source_descriptor = os.open(
+    arguments.source,
+    os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC,
+)
+try:
+    source_opened = os.fstat(source_descriptor)
+    if identity(source_opened) != identity(source_before):
+        raise SystemExit(1)
+    hook = os.environ.get("CERTS_DUMPER_TEST_READER_HOOK", "")
+    if hook == "same-size":
+        replacement = b"X" * source_opened.st_size
+        with open(arguments.source, "r+b", buffering=0) as mutation:
+            mutation.write(replacement)
+            mutation.flush()
+            os.fsync(mutation.fileno())
+    elif hook == "path-race":
+        original = arguments.source + ".original"
+        replacement = arguments.source + ".replacement"
+        os.rename(arguments.source, original)
+        os.rename(replacement, arguments.source)
+    content = b""
+    while len(content) <= maximum:
+        chunk = os.read(source_descriptor, maximum + 1 - len(content))
+        if not chunk:
+            break
+        content += chunk
+    source_after = os.fstat(source_descriptor)
+    path_after = os.lstat(arguments.source)
+    if identity(source_after) != identity(source_opened) or identity(path_after) != identity(source_opened):
+        raise SystemExit(1)
+finally:
+    os.close(source_descriptor)
+if len(content) != source_opened.st_size:
+    raise SystemExit(1)
+if arguments.kind == "dns-token":
+    if content == b"CHANGE_ME":
+        raise SystemExit(1)
+    try:
+        content.decode("utf-8")
+    except UnicodeDecodeError:
+        raise SystemExit(1)
+    if any(character < 0x21 or character > 0x7e for character in content):
+        raise SystemExit(1)
+
+if arguments.digest:
+    print(hashlib.sha256(content).hexdigest())
+    raise SystemExit(0)
+if arguments.emit:
+    sys.stdout.buffer.write(content)
+    raise SystemExit(0)
+
+device_text, separator, inode_text = arguments.destination_identity.partition(":")
+if not separator or not device_text.isdecimal() or not inode_text.isdecimal():
+    raise SystemExit(2)
+expected_identity = (int(device_text), int(inode_text))
+destination_before = os.lstat(arguments.destination)
+if (
+    (destination_before.st_dev, destination_before.st_ino) != expected_identity
+    or not stat.S_ISREG(destination_before.st_mode)
+    or destination_before.st_nlink != 1
+    or stat.S_IMODE(destination_before.st_mode) != 0o600
+    or destination_before.st_uid != os.geteuid()
+    or destination_before.st_gid != os.getegid()
+):
+    raise SystemExit(1)
+destination_descriptor = os.open(
+    arguments.destination,
+    os.O_WRONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC,
+)
+try:
+    destination_opened = os.fstat(destination_descriptor)
+    if identity(destination_opened) != identity(destination_before):
+        raise SystemExit(1)
+    os.ftruncate(destination_descriptor, 0)
+    written = 0
+    while written < len(content):
+        written += os.write(destination_descriptor, content[written:])
+    os.fsync(destination_descriptor)
+    destination_after = os.fstat(destination_descriptor)
+    destination_path_after = os.lstat(arguments.destination)
+    if identity(destination_after) != identity(destination_path_after):
+        raise SystemExit(1)
+    if (
+        (destination_after.st_dev, destination_after.st_ino) != expected_identity
+        or destination_after.st_nlink != 1
+        or stat.S_IMODE(destination_after.st_mode) != 0o600
+        or destination_after.st_size != len(content)
+    ):
+        raise SystemExit(1)
+finally:
+    os.close(destination_descriptor)
+PY
+
+sed \
+  -e "s|^readonly TRAEFIK_SECRET_READER=.*$|readonly TRAEFIK_SECRET_READER=${TEST_BIN}/traefik-secret-reader|" \
+  -e 's|^readonly TRAEFIK_DNS_TOKEN_RUNTIME_FILE=.*$|readonly TRAEFIK_DNS_TOKEN_RUNTIME_FILE="${DNS_API_TOKEN_FILE%/secrets/*}/runtime/DNS_API_TOKEN"|' \
+  "$TRAEFIK_SCRIPT_SOURCE" >"$TRAEFIK_SCRIPT"
+
 printf '%s\n' '#!/bin/sh' 'exit 0' >"${TEST_BIN}/n8n"
 printf '%s\n' \
   '#!/bin/sh' \
@@ -160,6 +827,13 @@ printf '%s\n' \
   '    printf "TRAEFIK_ROUTE_DOMAIN_3=%s\n" "${TRAEFIK_ROUTE_DOMAIN_3:-}"' \
   '    printf "TRAEFIK_ROUTE_DOMAIN_4=%s\n" "${TRAEFIK_ROUTE_DOMAIN_4:-}"' \
   '  } >"$TRAEFIK_ROUTE_MARKER"' \
+  'fi' \
+  'if [ -n "${TRAEFIK_DNS_MARKER:-}" ]; then' \
+  '  {' \
+    '    printf "CF_DNS_API_TOKEN_FILE=%s\n" "${CF_DNS_API_TOKEN_FILE:-}"' \
+    '    printf "DESEC_TOKEN_FILE=%s\n" "${DESEC_TOKEN_FILE:-}"' \
+    '    printf "SOURCE_DNS_API_TOKEN_FILE=%s\n" "${DNS_API_TOKEN_FILE:-}"' \
+  '  } >"$TRAEFIK_DNS_MARKER"' \
   'fi' \
   'exit 0' >"${TEST_BIN}/traefik"
 printf '%s\n' '#!/bin/sh' '[ -z "${CERTS_DUMPER_MARKER:-}" ] || : >"$CERTS_DUMPER_MARKER"' 'exit 0' >"${TEST_BIN}/traefik-certs-dumper"
@@ -201,6 +875,8 @@ printf '%s\n' \
 chmod 0700 \
   "${TEST_BIN}/n8n" \
   "${TEST_BIN}/traefik" \
+  "${TEST_BIN}/traefik-secret-reader" \
+  "${TEST_BIN}/certs-dumper-safe-reader" \
   "${TEST_BIN}/traefik-certs-dumper" \
   "${TEST_BIN}/wget" \
   "${TEST_BIN}/authentik-bootstrap-python" \
@@ -327,6 +1003,14 @@ case_authentik_bootstrap_symlink_password() {
   run_authentik_bootstrap_secret_preflight "$fixture"
 }
 
+case_authentik_bootstrap_hardlink_password() {
+  local fixture="${TEST_ROOT}/authentik-bootstrap-hardlink"
+  prepare_authentik_bootstrap "$fixture"
+  mv -- "${fixture}/secrets/AUTHENTIK_BOOTSTRAP_PASSWORD" "${fixture}/bootstrap-target"
+  ln -- "${fixture}/bootstrap-target" "${fixture}/secrets/AUTHENTIK_BOOTSTRAP_PASSWORD"
+  run_authentik_bootstrap_secret_preflight "$fixture"
+}
+
 case_authentik_bootstrap_fifo_password() {
   local fixture="${TEST_ROOT}/authentik-bootstrap-fifo"
   prepare_authentik_bootstrap "$fixture"
@@ -340,6 +1024,72 @@ case_authentik_bootstrap_invalid_utf8_password() {
   prepare_authentik_bootstrap "$fixture"
   printf '\377abcdefghijk' >"${fixture}/secrets/AUTHENTIK_BOOTSTRAP_PASSWORD"
   run_authentik_bootstrap_secret_preflight "$fixture"
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: case_authentik_bootstrap_nonprintable_password
+#   Proves Unicode controls ænd sepærætors fæil before bootstræp hændoff.
+#   Ærguments:
+#     $1 - fixture root
+#     $2 - Unicode code point in hex
+#ææææææææææææææææææææææææææææææææææ
+case_authentik_bootstrap_nonprintable_password() {
+  local fixture="$1"
+  local code_point="$2"
+
+  prepare_authentik_bootstrap "$fixture"
+  python3 - "${fixture}/secrets/AUTHENTIK_BOOTSTRAP_PASSWORD" "$code_point" <<'PY'
+from pathlib import Path
+import sys
+
+Path(sys.argv[1]).write_text(
+    f"strong-bootstrap-{chr(int(sys.argv[2], 16))}-password",
+    encoding="utf-8",
+)
+PY
+  run_authentik_bootstrap_secret_preflight "$fixture"
+}
+
+case_authentik_bootstrap_same_size_race() {
+  local fixture="${TEST_ROOT}/authentik-bootstrap-same-size-race"
+  prepare_authentik_bootstrap "$fixture"
+  python3 - "$AUTHENTIK_BOOTSTRAP_HELPER_SCRIPT" \
+    "${fixture}/secrets/AUTHENTIK_BOOTSTRAP_PASSWORD" <<'PY'
+import importlib.util
+import os
+import sys
+from pathlib import Path
+
+helper_path = Path(sys.argv[1])
+secret_path = Path(sys.argv[2])
+spec = importlib.util.spec_from_file_location("authentik_bootstrap_race", helper_path)
+if spec is None or spec.loader is None:
+    raise SystemExit(1)
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+
+initial = secret_path.stat()
+original_read = module.os.read
+race_injected = False
+
+
+def racing_read(descriptor, byte_count):
+    global race_injected
+    payload = original_read(descriptor, byte_count)
+    if payload and not race_injected:
+        race_injected = True
+        replacement = b"x" * initial.st_size
+        secret_path.write_bytes(replacement)
+        os.utime(
+            secret_path,
+            ns=(initial.st_atime_ns, initial.st_mtime_ns + 2_000_000_000),
+        )
+    return payload
+
+
+module.os.read = racing_read
+module.read_password(secret_path)
+PY
 }
 
 case_authentik_bootstrap_entrypoint_handoff() {
@@ -753,8 +1503,13 @@ exercise_secret_matrix authentik-bootstrap-password prepare_authentik_bootstrap 
 expect_failure authentik-bootstrap-password-short case_authentik_bootstrap_short_password
 expect_failure authentik-bootstrap-password-oversized case_authentik_bootstrap_oversized_password
 expect_failure authentik-bootstrap-password-symlink case_authentik_bootstrap_symlink_password
+expect_failure authentik-bootstrap-password-hardlink case_authentik_bootstrap_hardlink_password
 expect_failure authentik-bootstrap-password-fifo case_authentik_bootstrap_fifo_password
 expect_failure authentik-bootstrap-password-invalid-utf8 case_authentik_bootstrap_invalid_utf8_password
+expect_failure authentik-bootstrap-password-u0085 case_authentik_bootstrap_nonprintable_password "${TEST_ROOT}/authentik-bootstrap-u0085" 0085
+expect_failure authentik-bootstrap-password-u2028 case_authentik_bootstrap_nonprintable_password "${TEST_ROOT}/authentik-bootstrap-u2028" 2028
+expect_failure authentik-bootstrap-password-u2029 case_authentik_bootstrap_nonprintable_password "${TEST_ROOT}/authentik-bootstrap-u2029" 2029
+expect_failure authentik-bootstrap-password-same-size-race case_authentik_bootstrap_same_size_race
 expect_success authentik-bootstrap-entrypoint-handoff case_authentik_bootstrap_entrypoint_handoff
 expect_failure authentik-bootstrap-entrypoint-failure case_authentik_bootstrap_entrypoint_failure
 expect_success authentik-bootstrap-orchestration case_authentik_bootstrap_orchestration
@@ -1610,9 +2365,11 @@ exercise_secret_matrix n8n-smtp prepare_n8n run_n8n N8N_SMTP_PASS
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 prepare_traefik() {
   local fixture="$1"
-  mkdir -p -- "${fixture}/secrets" "${fixture}/acme" "${fixture}/dynamic"
+  mkdir -p -- \
+    "${fixture}/secrets" "${fixture}/acme" "${fixture}/dynamic" "${fixture}/runtime"
+  chmod 0700 "${fixture}/runtime"
   cp -- "$TRAEFIK_DEV_FORWARD_TEMPLATE" "${fixture}/dynamic/dev-traefik-forward.yaml.template"
-  printf 'cloudflare-token' >"${fixture}/secrets/CF_DNS_API_TOKEN"
+  printf 'dns-token' >"${fixture}/secrets/DNS_API_TOKEN"
   printf '{"store":"production"}' >"${fixture}/acme/cloudflare-acme.json"
   printf '{"store":"staging"}' >"${fixture}/acme/cloudflare-staging-acme.json"
   chmod 0660 "${fixture}/acme/cloudflare-acme.json" "${fixture}/acme/cloudflare-staging-acme.json"
@@ -1623,7 +2380,7 @@ invoke_traefik() {
   PATH="${TEST_BIN}:${PATH}" TRAEFIK_MARKER="${fixture}/traefik-started" \
     TRAEFIK_ACME_STORAGE_DIR="${fixture}/acme" \
     TRAEFIK_DYNAMIC_CONFIG_DIR="${fixture}/dynamic" \
-    CERTRESOLVER=cloudflare CF_DNS_API_TOKEN_FILE="${fixture}/secrets/CF_DNS_API_TOKEN" \
+    CERTRESOLVER=cloudflare DNS_API_TOKEN_FILE="${fixture}/secrets/DNS_API_TOKEN" \
     TRAEFIK_ROUTE_SUBDOMAIN= TRAEFIK_DOMAIN=example.com \
     TRAEFIK_DOMAIN_1= TRAEFIK_DOMAIN_2= TRAEFIK_DOMAIN_3= TRAEFIK_DOMAIN_4= \
     /bin/sh "$TRAEFIK_SCRIPT" --version
@@ -1644,7 +2401,7 @@ case_traefik_unsafe_resolver() {
   prepare_traefik "$fixture"
   PATH="${TEST_BIN}:${PATH}" TRAEFIK_ACME_STORAGE_DIR="${fixture}/acme" \
     TRAEFIK_DYNAMIC_CONFIG_DIR="${fixture}/dynamic" \
-    CERTRESOLVER='../cloudflare' CF_DNS_API_TOKEN_FILE="${fixture}/secrets/CF_DNS_API_TOKEN" \
+    CERTRESOLVER='../cloudflare' DNS_API_TOKEN_FILE="${fixture}/secrets/DNS_API_TOKEN" \
     TRAEFIK_ROUTE_SUBDOMAIN= TRAEFIK_DOMAIN=example.com \
     TRAEFIK_DOMAIN_1= TRAEFIK_DOMAIN_2= TRAEFIK_DOMAIN_3= TRAEFIK_DOMAIN_4= \
     /bin/sh "$TRAEFIK_SCRIPT" --version
@@ -1657,10 +2414,46 @@ case_traefik_acme_symlink() {
   ln -s -- "${fixture}/outside-acme.json" "${fixture}/acme/cloudflare-acme.json"
   PATH="${TEST_BIN}:${PATH}" TRAEFIK_ACME_STORAGE_DIR="${fixture}/acme" \
     TRAEFIK_DYNAMIC_CONFIG_DIR="${fixture}/dynamic" \
-    CERTRESOLVER=cloudflare CF_DNS_API_TOKEN_FILE="${fixture}/secrets/CF_DNS_API_TOKEN" \
+    CERTRESOLVER=cloudflare DNS_API_TOKEN_FILE="${fixture}/secrets/DNS_API_TOKEN" \
     TRAEFIK_ROUTE_SUBDOMAIN= TRAEFIK_DOMAIN=example.com \
     TRAEFIK_DOMAIN_1= TRAEFIK_DOMAIN_2= TRAEFIK_DOMAIN_3= TRAEFIK_DOMAIN_4= \
     /bin/sh "$TRAEFIK_SCRIPT" --version
+}
+
+case_traefik_acme_hardlink() {
+  local fixture="${TEST_ROOT}/traefik-acme-hardlink"
+  prepare_traefik "$fixture"
+  mv -- "${fixture}/acme/cloudflare-acme.json" "${fixture}/outside-acme.json"
+  ln -- "${fixture}/outside-acme.json" "${fixture}/acme/cloudflare-acme.json"
+  invoke_traefik "$fixture"
+}
+
+case_traefik_acme_fifo_is_bounded() {
+  local fixture="${TEST_ROOT}/traefik-acme-fifo"
+  prepare_traefik "$fixture"
+  rm -f -- "${fixture}/acme/cloudflare-acme.json"
+  mkfifo -- "${fixture}/acme/cloudflare-acme.json"
+  invoke_traefik "$fixture"
+}
+
+case_traefik_acme_same_size_race() {
+  local fixture="${TEST_ROOT}/traefik-acme-same-size-race"
+  prepare_traefik "$fixture"
+  TRAEFIK_TEST_ACME_HOOK=same-size invoke_traefik "$fixture"
+}
+
+case_traefik_acme_path_race() {
+  local fixture="${TEST_ROOT}/traefik-acme-path-race"
+  prepare_traefik "$fixture"
+  printf '{"store":"replacement"}' >"${fixture}/acme/cloudflare-acme.json.replacement"
+  chmod 0660 "${fixture}/acme/cloudflare-acme.json.replacement"
+  TRAEFIK_TEST_ACME_HOOK=path-race invoke_traefik "$fixture"
+}
+
+case_traefik_acme_parent_race() {
+  local fixture="${TEST_ROOT}/traefik-acme-parent-race"
+  prepare_traefik "$fixture"
+  TRAEFIK_TEST_ACME_HOOK=parent-race invoke_traefik "$fixture"
 }
 
 case_traefik_missing_acme_stores() {
@@ -1674,6 +2467,142 @@ case_traefik_missing_acme_stores() {
   [[ "$(stat -c '%a' "${fixture}/acme/cloudflare-staging-acme.json")" == 600 ]]
   [[ ! -s "${fixture}/acme/cloudflare-acme.json" ]]
   [[ ! -s "${fixture}/acme/cloudflare-staging-acme.json" ]]
+}
+
+case_traefik_dns_token_symlink() {
+  local fixture="${TEST_ROOT}/traefik-dns-token-symlink"
+  prepare_traefik "$fixture"
+  mv -- "${fixture}/secrets/DNS_API_TOKEN" "${fixture}/dns-token-target"
+  ln -s -- ../dns-token-target "${fixture}/secrets/DNS_API_TOKEN"
+  invoke_traefik "$fixture"
+}
+
+case_traefik_dns_token_hardlink() {
+  local fixture="${TEST_ROOT}/traefik-dns-token-hardlink"
+  prepare_traefik "$fixture"
+  mv -- "${fixture}/secrets/DNS_API_TOKEN" "${fixture}/dns-token-target"
+  ln -- "${fixture}/dns-token-target" "${fixture}/secrets/DNS_API_TOKEN"
+  invoke_traefik "$fixture"
+}
+
+case_traefik_dns_token_whitespace() {
+  local fixture="${TEST_ROOT}/traefik-dns-token-whitespace"
+  prepare_traefik "$fixture"
+  printf '   ' >"${fixture}/secrets/DNS_API_TOKEN"
+  invoke_traefik "$fixture"
+}
+
+case_traefik_dns_token_fifo_swap_is_bounded() {
+  local fixture="${TEST_ROOT}/traefik-dns-token-fifo-swap"
+  local status
+  prepare_traefik "$fixture"
+  rm -f -- "${fixture}/secrets/DNS_API_TOKEN"
+  mkfifo -- "${fixture}/secrets/DNS_API_TOKEN"
+
+  set +e
+  timeout 3 env \
+    PATH="${TEST_BIN}:${PATH}" \
+    TRAEFIK_MARKER="${fixture}/traefik-started" \
+    TRAEFIK_ACME_STORAGE_DIR="${fixture}/acme" \
+    TRAEFIK_DYNAMIC_CONFIG_DIR="${fixture}/dynamic" \
+    CERTRESOLVER=cloudflare \
+    DNS_API_TOKEN_FILE="${fixture}/secrets/DNS_API_TOKEN" \
+    TRAEFIK_ROUTE_SUBDOMAIN= TRAEFIK_DOMAIN=example.com \
+    TRAEFIK_DOMAIN_1= TRAEFIK_DOMAIN_2= TRAEFIK_DOMAIN_3= TRAEFIK_DOMAIN_4= \
+    /bin/sh "$TRAEFIK_SCRIPT" --version
+  status=$?
+  set -e
+
+  [[ "$status" -ne 0 && "$status" -ne 124 ]]
+  [[ ! -e "${fixture}/traefik-started" ]]
+}
+
+case_traefik_dns_token_unicode() {
+  local fixture="${TEST_ROOT}/traefik-dns-token-unicode"
+  prepare_traefik "$fixture"
+  printf 'tökén' >"${fixture}/secrets/DNS_API_TOKEN"
+  invoke_traefik "$fixture"
+}
+
+case_traefik_dns_token_same_size_race() {
+  local fixture="${TEST_ROOT}/traefik-dns-token-same-size-race"
+  prepare_traefik "$fixture"
+  TRAEFIK_TEST_READER_HOOK=same-size invoke_traefik "$fixture"
+}
+
+case_traefik_dns_token_path_race() {
+  local fixture="${TEST_ROOT}/traefik-dns-token-path-race"
+  prepare_traefik "$fixture"
+  printf 'other-tok' >"${fixture}/secrets/DNS_API_TOKEN.replacement"
+  TRAEFIK_TEST_READER_HOOK=path-race invoke_traefik "$fixture"
+}
+
+case_traefik_dns_token_private_copy() {
+  local fixture="${TEST_ROOT}/traefik-dns-token-private-copy"
+  local runtime_file="${fixture}/runtime/DNS_API_TOKEN"
+
+  prepare_traefik "$fixture"
+  PATH="${TEST_BIN}:${PATH}" TRAEFIK_MARKER="${fixture}/traefik-started" \
+    TRAEFIK_ACME_STORAGE_DIR="${fixture}/acme" \
+    TRAEFIK_DYNAMIC_CONFIG_DIR="${fixture}/dynamic" \
+    TRAEFIK_DNS_MARKER="${fixture}/dns-mapping" \
+    CERTRESOLVER=cloudflare DNS_API_TOKEN_FILE="${fixture}/secrets/DNS_API_TOKEN" \
+    TRAEFIK_ROUTE_SUBDOMAIN= TRAEFIK_DOMAIN=example.com \
+    TRAEFIK_DOMAIN_1= TRAEFIK_DOMAIN_2= TRAEFIK_DOMAIN_3= TRAEFIK_DOMAIN_4= \
+    /bin/sh "$TRAEFIK_SCRIPT" --version
+
+  [[ ! -L "$runtime_file" && -f "$runtime_file" ]]
+  [[ "$(stat -c '%a:%h' -- "$runtime_file")" == 600:1 ]]
+  [[ "$(stat -c '%d:%i' -- "$runtime_file")" != \
+    "$(stat -c '%d:%i' -- "${fixture}/secrets/DNS_API_TOKEN")" ]]
+  cmp -s -- "${fixture}/secrets/DNS_API_TOKEN" "$runtime_file"
+  grep -qx -- "CF_DNS_API_TOKEN_FILE=${runtime_file}" "${fixture}/dns-mapping"
+  grep -qx -- 'SOURCE_DNS_API_TOKEN_FILE=' "${fixture}/dns-mapping"
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: run_traefik_resolver_mapping
+#   Runs the Træefik wræpper with one CERTRESOLVER ænd cæptures the exported
+#   lego token pæths.
+#   Ærguments:
+#     $1 - Fixture root
+#     $2 - CERTRESOLVER vælue
+#ææææææææææææææææææææææææææææææææææ
+run_traefik_resolver_mapping() {
+  local fixture="$1"
+  local resolver="$2"
+  prepare_traefik "$fixture"
+  PATH="${TEST_BIN}:${PATH}" TRAEFIK_MARKER="${fixture}/traefik-started" \
+    TRAEFIK_ACME_STORAGE_DIR="${fixture}/acme" \
+    TRAEFIK_DYNAMIC_CONFIG_DIR="${fixture}/dynamic" \
+    TRAEFIK_DNS_MARKER="${fixture}/dns-mapping" \
+    CERTRESOLVER="$resolver" DNS_API_TOKEN_FILE="${fixture}/secrets/DNS_API_TOKEN" \
+    TRAEFIK_ROUTE_SUBDOMAIN= TRAEFIK_DOMAIN=example.com \
+    TRAEFIK_DOMAIN_1= TRAEFIK_DOMAIN_2= TRAEFIK_DOMAIN_3= TRAEFIK_DOMAIN_4= \
+    /bin/sh "$TRAEFIK_SCRIPT" --version
+}
+
+case_traefik_cloudflare_dns_mapping() {
+  local fixture="${TEST_ROOT}/traefik-cloudflare-dns-mapping"
+  run_traefik_resolver_mapping "$fixture" cloudflare
+  grep -qx -- "CF_DNS_API_TOKEN_FILE=${fixture}/runtime/DNS_API_TOKEN" "${fixture}/dns-mapping"
+  grep -qx -- "DESEC_TOKEN_FILE=" "${fixture}/dns-mapping"
+  grep -qx -- 'SOURCE_DNS_API_TOKEN_FILE=' "${fixture}/dns-mapping"
+}
+
+case_traefik_desec_dns_mapping() {
+  local fixture="${TEST_ROOT}/traefik-desec-dns-mapping"
+  run_traefik_resolver_mapping "$fixture" desec
+  grep -qx -- "CF_DNS_API_TOKEN_FILE=" "${fixture}/dns-mapping"
+  grep -qx -- "DESEC_TOKEN_FILE=${fixture}/runtime/DNS_API_TOKEN" "${fixture}/dns-mapping"
+  grep -qx -- 'SOURCE_DNS_API_TOKEN_FILE=' "${fixture}/dns-mapping"
+  [[ -f "${fixture}/acme/desec-acme.json" ]]
+  [[ -f "${fixture}/acme/desec-staging-acme.json" ]]
+}
+
+case_traefik_unsupported_resolver() {
+  local fixture="${TEST_ROOT}/traefik-unsupported-resolver"
+  run_traefik_resolver_mapping "$fixture" route53
 }
 
 #ææææææææææææææææææææææææææææææææææ
@@ -1703,7 +2632,7 @@ run_traefik_forward_settings() {
   PATH="${TEST_BIN}:${PATH}" TRAEFIK_MARKER="${fixture}/traefik-started" \
     TRAEFIK_ACME_STORAGE_DIR="${fixture}/acme" \
     TRAEFIK_DYNAMIC_CONFIG_DIR="${fixture}/dynamic" \
-    CERTRESOLVER=cloudflare CF_DNS_API_TOKEN_FILE="${fixture}/secrets/CF_DNS_API_TOKEN" \
+    CERTRESOLVER=cloudflare DNS_API_TOKEN_FILE="${fixture}/secrets/DNS_API_TOKEN" \
     TRAEFIK_DEV_FORWARD_ENABLED="$enabled" TRAEFIK_DOMAIN="$domain" \
     TRAEFIK_DOMAIN_1= TRAEFIK_DOMAIN_2= TRAEFIK_DOMAIN_3= TRAEFIK_DOMAIN_4= \
     TRAEFIK_DEV_FORWARD_PREFIX="$prefix" \
@@ -1740,7 +2669,7 @@ run_traefik_route_subdomain_settings() {
     TRAEFIK_ROUTE_MARKER="${fixture}/traefik-route-environment" \
     TRAEFIK_ACME_STORAGE_DIR="${fixture}/acme" \
     TRAEFIK_DYNAMIC_CONFIG_DIR="${fixture}/dynamic" \
-    CERTRESOLVER=cloudflare CF_DNS_API_TOKEN_FILE="${fixture}/secrets/CF_DNS_API_TOKEN" \
+    CERTRESOLVER=cloudflare DNS_API_TOKEN_FILE="${fixture}/secrets/DNS_API_TOKEN" \
     TRAEFIK_ROUTE_SUBDOMAIN="$route_subdomain" TRAEFIK_DOMAIN="$domain" \
     TRAEFIK_DOMAIN_1="$domain_1" TRAEFIK_DOMAIN_2="$domain_2" \
     TRAEFIK_DOMAIN_3="$domain_3" TRAEFIK_DOMAIN_4="$domain_4" \
@@ -1869,7 +2798,7 @@ case_traefik_dev_forward_missing_live_file() {
   prepare_traefik "$fixture"
   PATH="${TEST_BIN}:${PATH}" TRAEFIK_ACME_STORAGE_DIR="${fixture}/acme" \
     TRAEFIK_DYNAMIC_CONFIG_DIR="${fixture}/dynamic" \
-    CERTRESOLVER=cloudflare CF_DNS_API_TOKEN_FILE="${fixture}/secrets/CF_DNS_API_TOKEN" \
+    CERTRESOLVER=cloudflare DNS_API_TOKEN_FILE="${fixture}/secrets/DNS_API_TOKEN" \
     TRAEFIK_DEV_FORWARD_ENABLED=true TRAEFIK_DOMAIN=it.saervices.de \
     TRAEFIK_DOMAIN_1= TRAEFIK_DOMAIN_2= TRAEFIK_DOMAIN_3= TRAEFIK_DOMAIN_4= \
     TRAEFIK_DEV_FORWARD_PREFIX=dev TRAEFIK_DEV_FORWARD_TARGET_ADDRESS=192.168.10.100:443 \
@@ -1899,7 +2828,7 @@ case_traefik_dev_forward_stale_live_file() {
   printf '\n# stale\n' >>"${fixture}/dynamic/dev-traefik-forward.yaml"
   PATH="${TEST_BIN}:${PATH}" TRAEFIK_ACME_STORAGE_DIR="${fixture}/acme" \
     TRAEFIK_DYNAMIC_CONFIG_DIR="${fixture}/dynamic" \
-    CERTRESOLVER=cloudflare CF_DNS_API_TOKEN_FILE="${fixture}/secrets/CF_DNS_API_TOKEN" \
+    CERTRESOLVER=cloudflare DNS_API_TOKEN_FILE="${fixture}/secrets/DNS_API_TOKEN" \
     TRAEFIK_DEV_FORWARD_ENABLED=true TRAEFIK_DOMAIN=it.saervices.de \
     TRAEFIK_DOMAIN_1= TRAEFIK_DOMAIN_2= TRAEFIK_DOMAIN_3= TRAEFIK_DOMAIN_4= \
     TRAEFIK_DEV_FORWARD_PREFIX=dev TRAEFIK_DEV_FORWARD_TARGET_ADDRESS=192.168.10.100:443 \
@@ -1944,7 +2873,7 @@ run_traefik_forwarded_header_settings() {
   PATH="${TEST_BIN}:${PATH}" TRAEFIK_MARKER="${fixture}/traefik-started" \
     TRAEFIK_ACME_STORAGE_DIR="${fixture}/acme" \
     TRAEFIK_DYNAMIC_CONFIG_DIR="${fixture}/dynamic" \
-    CERTRESOLVER=cloudflare CF_DNS_API_TOKEN_FILE="${fixture}/secrets/CF_DNS_API_TOKEN" \
+    CERTRESOLVER=cloudflare DNS_API_TOKEN_FILE="${fixture}/secrets/DNS_API_TOKEN" \
     TRAEFIK_ROUTE_SUBDOMAIN= TRAEFIK_DOMAIN=example.com \
     TRAEFIK_DOMAIN_1= TRAEFIK_DOMAIN_2= TRAEFIK_DOMAIN_3= TRAEFIK_DOMAIN_4= \
     LOCAL_IPS="$local_ips" CLOUDFLARE_IPS="$cloudflare_ips" \
@@ -2008,7 +2937,7 @@ run_traefik_cloudflare_switch() {
   PATH="${TEST_BIN}:${PATH}" TRAEFIK_MARKER="${fixture}/traefik-started" \
     TRAEFIK_ACME_STORAGE_DIR="${fixture}/acme" \
     TRAEFIK_DYNAMIC_CONFIG_DIR="${fixture}/dynamic" \
-    CERTRESOLVER=cloudflare CF_DNS_API_TOKEN_FILE="${fixture}/secrets/CF_DNS_API_TOKEN" \
+    CERTRESOLVER=cloudflare DNS_API_TOKEN_FILE="${fixture}/secrets/DNS_API_TOKEN" \
     TRAEFIK_ROUTE_SUBDOMAIN= TRAEFIK_DOMAIN=example.com \
     TRAEFIK_DOMAIN_1= TRAEFIK_DOMAIN_2= TRAEFIK_DOMAIN_3= TRAEFIK_DOMAIN_4= \
     LOCAL_IPS=127.0.0.1/32 CLOUDFLARE_IPS="$switch" \
@@ -2075,7 +3004,8 @@ case_traefik_cloudflare_switch_pinned() {
 
 #ææææææææææææææææææææææææææææææææææ
 # FUNCTION: case_traefik_dev_forward_rejects_before_mutation
-#   Proves invælid forwærding stops before ÆCME file mode normælisætion.
+#   Proves invælid forwærding stops before token stæging, ÆCME file
+#   mode normælisætion, or dæemon stært.
 #ææææææææææææææææææææææææææææææææææ
 case_traefik_dev_forward_rejects_before_mutation() {
   local fixture="${TEST_ROOT}/traefik-dev-forward-rejects-before-mutation"
@@ -2084,7 +3014,7 @@ case_traefik_dev_forward_rejects_before_mutation() {
   if PATH="${TEST_BIN}:${PATH}" TRAEFIK_MARKER="${fixture}/traefik-started" \
     TRAEFIK_ACME_STORAGE_DIR="${fixture}/acme" \
     TRAEFIK_DYNAMIC_CONFIG_DIR="${fixture}/dynamic" \
-    CERTRESOLVER=cloudflare CF_DNS_API_TOKEN_FILE="${fixture}/secrets/CF_DNS_API_TOKEN" \
+    CERTRESOLVER=cloudflare DNS_API_TOKEN_FILE="${fixture}/secrets/DNS_API_TOKEN" \
     TRAEFIK_DEV_FORWARD_ENABLED=true TRAEFIK_DOMAIN=example.com \
     TRAEFIK_DOMAIN_1= TRAEFIK_DOMAIN_2= TRAEFIK_DOMAIN_3= TRAEFIK_DOMAIN_4= \
     TRAEFIK_DEV_FORWARD_TARGET_ADDRESS=CHANGE_ME:443 \
@@ -2094,6 +3024,31 @@ case_traefik_dev_forward_rejects_before_mutation() {
   fi
   [[ "$(stat -c '%a' "${fixture}/acme/cloudflare-acme.json")" == 660 ]]
   [[ "$(stat -c '%a' "${fixture}/acme/cloudflare-staging-acme.json")" == 660 ]]
+  [[ ! -e "${fixture}/runtime/DNS_API_TOKEN" ]]
+  [[ ! -e "${fixture}/traefik-started" ]]
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: case_traefik_forwarded_header_rejects_before_mutation
+#   Proves an invælid IPv6 trust source stops before token stæging, ÆCME
+#   mode normælisætion, or dæemon stært.
+#ææææææææææææææææææææææææææææææææææ
+case_traefik_forwarded_header_rejects_before_mutation() {
+  local fixture="${TEST_ROOT}/traefik-forwarded-header-rejects-before-mutation"
+  prepare_traefik "$fixture"
+  if PATH="${TEST_BIN}:${PATH}" TRAEFIK_MARKER="${fixture}/traefik-started" \
+    TRAEFIK_ACME_STORAGE_DIR="${fixture}/acme" \
+    TRAEFIK_DYNAMIC_CONFIG_DIR="${fixture}/dynamic" \
+    CERTRESOLVER=cloudflare DNS_API_TOKEN_FILE="${fixture}/secrets/DNS_API_TOKEN" \
+    TRAEFIK_ROUTE_SUBDOMAIN= TRAEFIK_DOMAIN=example.com \
+    TRAEFIK_DOMAIN_1= TRAEFIK_DOMAIN_2= TRAEFIK_DOMAIN_3= TRAEFIK_DOMAIN_4= \
+    LOCAL_IPS='1:2' CLOUDFLARE_IPS= \
+    /bin/sh "$TRAEFIK_SCRIPT" --version; then
+    return 1
+  fi
+  [[ "$(stat -c '%a' "${fixture}/acme/cloudflare-acme.json")" == 660 ]]
+  [[ "$(stat -c '%a' "${fixture}/acme/cloudflare-staging-acme.json")" == 660 ]]
+  [[ ! -e "${fixture}/runtime/DNS_API_TOKEN" ]]
   [[ ! -e "${fixture}/traefik-started" ]]
 }
 
@@ -2118,7 +3073,7 @@ run_traefik_canonical_settings() {
   prepare_traefik "$fixture"
   PATH="${TEST_BIN}:${PATH}" TRAEFIK_MARKER="${fixture}/traefik-started" \
     TRAEFIK_ACME_STORAGE_DIR="${fixture}/acme" TRAEFIK_DYNAMIC_CONFIG_DIR="${fixture}/dynamic" \
-    CERTRESOLVER=cloudflare CF_DNS_API_TOKEN_FILE="${fixture}/secrets/CF_DNS_API_TOKEN" \
+    CERTRESOLVER=cloudflare DNS_API_TOKEN_FILE="${fixture}/secrets/DNS_API_TOKEN" \
     TRAEFIK_CANONICAL_REDIRECT_CATCH_ALL=true TRAEFIK_DOMAIN="$internal_domain" \
     TRAEFIK_DOMAIN_1="$target_domain" TRAEFIK_DOMAIN_2="$source_domain_2" \
     TRAEFIK_DOMAIN_3="$source_domain_3" TRAEFIK_DOMAIN_4="$source_domain_4" \
@@ -2430,7 +3385,7 @@ run_traefik_forward_auth_address() {
   prepare_traefik "$fixture"
   PATH="${TEST_BIN}:${PATH}" TRAEFIK_MARKER="${fixture}/traefik-started" \
     TRAEFIK_ACME_STORAGE_DIR="${fixture}/acme" TRAEFIK_DYNAMIC_CONFIG_DIR="${fixture}/dynamic" \
-    CERTRESOLVER=cloudflare CF_DNS_API_TOKEN_FILE="${fixture}/secrets/CF_DNS_API_TOKEN" \
+    CERTRESOLVER=cloudflare DNS_API_TOKEN_FILE="${fixture}/secrets/DNS_API_TOKEN" \
     AUTHENTIK_FORWARD_AUTH_ADDRESS="$address" \
     TRAEFIK_ROUTE_SUBDOMAIN= TRAEFIK_DOMAIN=example.com \
     TRAEFIK_DOMAIN_1= TRAEFIK_DOMAIN_2= TRAEFIK_DOMAIN_3= TRAEFIK_DOMAIN_4= \
@@ -2439,8 +3394,31 @@ run_traefik_forward_auth_address() {
 
 prepare_certs_dumper() {
   local fixture="$1"
-  mkdir -p -- "${fixture}/data"
+  mkdir -p -- "${fixture}/config" "${fixture}/data"
   printf '{"cloudflare":{"Account":{},"Certificates":[{"domain":{"main":"example.test"}}]}}' >"${fixture}/data/acme.json"
+  python3 - \
+    "$CERTS_DUMPER_SCRIPT" \
+    "$CERTS_DUMPER_HOOK" \
+    "${fixture}/entrypoint.sh" \
+    "${fixture}/config/post-hook.sh" \
+    "$TEST_BIN" <<'PY'
+from pathlib import Path
+import sys
+
+entrypoint_source = Path(sys.argv[1])
+hook_source = Path(sys.argv[2])
+entrypoint_target = Path(sys.argv[3])
+hook_target = Path(sys.argv[4])
+test_bin = Path(sys.argv[5])
+entrypoint_text = entrypoint_source.read_text(encoding="utf-8")
+helper = "/usr/local/bin/certs-dumper-safe-reader"
+if entrypoint_text.count(helper) != 2:
+    raise SystemExit("certs-dumper direct supervisor helper contract changed")
+entrypoint_target.write_text(entrypoint_text.replace(helper, str(test_bin / "certs-dumper-safe-reader")), encoding="utf-8")
+hook_target.write_bytes(hook_source.read_bytes())
+entrypoint_target.chmod(0o700)
+hook_target.chmod(0o600)
+PY
 }
 
 run_certs_dumper() {
@@ -2453,8 +3431,8 @@ run_certs_dumper() {
   fi
   PATH="${TEST_BIN}:${PATH}" \
     CERTS_DUMPER_MARKER="${fixture}/dumper-started" \
-    ACME_DIR="${fixture}/data" ACME_FILENAME=acme.json \
-    "${shell_runner[@]}" "$CERTS_DUMPER_SCRIPT"
+    ACME_DIR="${fixture}/data" ACME_FILENAME=acme.json MAILCOW_ENABLED=false \
+    "${shell_runner[@]}" "${fixture}/entrypoint.sh"
 }
 
 run_certs_dumper_with_filename() {
@@ -2467,7 +3445,317 @@ run_certs_dumper_with_filename() {
     shell_runner=(busybox sh)
   fi
   PATH="${TEST_BIN}:${PATH}" ACME_DIR="${fixture}/data" ACME_FILENAME="$filename" \
-    "${shell_runner[@]}" "$CERTS_DUMPER_SCRIPT"
+    MAILCOW_ENABLED=false \
+    "${shell_runner[@]}" "${fixture}/entrypoint.sh"
+}
+
+case_certs_dumper_preflight_delegates() {
+  local fixture="${TEST_ROOT}/certs-dumper-preflight-delegates"
+  prepare_certs_dumper "$fixture"
+  PATH="${TEST_BIN}:${PATH}" \
+    CERTS_DUMPER_PREFLIGHT_MARKER="${fixture}/preflight-called" \
+    CERTS_DUMPER_MARKER="${fixture}/supervisor-called" \
+    ACME_DIR="${fixture}/data" ACME_FILENAME=acme.json MAILCOW_ENABLED=false \
+    /bin/sh "${fixture}/entrypoint.sh" --preflight
+  [[ -f "${fixture}/preflight-called" ]]
+  [[ ! -e "${fixture}/supervisor-called" ]]
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: prepare_certs_dumper_mailcow
+#   Creætes one isolæted æctive or disæbled Mæilcow entrypoint fixture with
+#   reæl unencrypted SSH-key mæteriæl.
+#   Ærguments:
+#     $1 - Fixture root
+#     $2 - Hook mode: æctive or disæbled
+#ææææææææææææææææææææææææææææææææææ
+prepare_certs_dumper_mailcow() {
+  local fixture="$1"
+  local hook_mode="$2"
+
+  prepare_certs_dumper "$fixture"
+  mkdir -p -- \
+    "${fixture}/config" \
+    "${fixture}/runtime" \
+    "${fixture}/secrets" \
+    "${fixture}/state"
+  ssh-keygen -q -t ed25519 -N '' -C mailcow-regression \
+    -f "${fixture}/secrets/TRAEFIK_CERTS_DUMPER_PASSWORD"
+  printf '%s' 'valid_dns-token_123' >"${fixture}/secrets/DNS_API_TOKEN"
+
+  python3 - \
+    "$CERTS_DUMPER_SCRIPT" \
+    "$CERTS_DUMPER_HOOK" \
+    "${fixture}/entrypoint.sh" \
+    "${fixture}/config/post-hook.sh" \
+    "$fixture" \
+    "$hook_mode" \
+    "$TEST_BIN" <<'PY'
+from pathlib import Path
+import sys
+
+entrypoint_source = Path(sys.argv[1])
+hook_source = Path(sys.argv[2])
+entrypoint_target = Path(sys.argv[3])
+hook_target = Path(sys.argv[4])
+fixture = Path(sys.argv[5])
+hook_mode = sys.argv[6]
+test_bin = Path(sys.argv[7])
+
+entrypoint_text = entrypoint_source.read_text(encoding="utf-8")
+hook_text = hook_source.read_text(encoding="utf-8")
+
+entrypoint_marker = "readonly CERTS_DUMPER_POST_HOOK='/config/post-hook.sh'"
+if entrypoint_text.count(entrypoint_marker) != 1:
+    raise SystemExit("certs-dumper entrypoint post-hook path contract changed")
+entrypoint_text = entrypoint_text.replace(
+    entrypoint_marker,
+    f"readonly CERTS_DUMPER_POST_HOOK='{hook_target}'",
+    1,
+)
+
+replacements = {
+    'readonly CERTS_DUMPER_SSH_SECRET="/run/secrets/TRAEFIK_CERTS_DUMPER_PASSWORD"': (
+        f'readonly CERTS_DUMPER_SSH_SECRET="{fixture}/secrets/'
+        'TRAEFIK_CERTS_DUMPER_PASSWORD"'
+    ),
+    'readonly CERTS_DUMPER_SSH_IDENTITY_FILE="/tmp/.ssh/certs_dumper_identity"': (
+        f'readonly CERTS_DUMPER_SSH_IDENTITY_FILE="{fixture}/runtime/.ssh/'
+        'certs_dumper_identity"'
+    ),
+    'readonly CERTS_DUMPER_SSH_STATE_ROOT="/state"': (
+        f'readonly CERTS_DUMPER_SSH_STATE_ROOT="{fixture}/state"'
+    ),
+    'readonly CERTS_DUMPER_SAFE_READER="/usr/local/bin/certs-dumper-safe-reader"': (
+        f'readonly CERTS_DUMPER_SAFE_READER="{test_bin}/certs-dumper-safe-reader"'
+    ),
+    "harden_directory_no_follow /tmp/.ssh": (
+        f'harden_directory_no_follow "{fixture}/runtime/.ssh"'
+    ),
+}
+for old, new in replacements.items():
+    if hook_text.count(old) != 1:
+        raise SystemExit(f"certs-dumper hook fixture marker changed: {old}")
+    hook_text = hook_text.replace(old, new, 1)
+
+if hook_mode == "active":
+    marker = "# if true; then mailcow; fi"
+    if hook_text.count(marker) != 1:
+        raise SystemExit("certs-dumper commented Mailcow marker changed")
+    hook_text = hook_text.replace(marker, "if true; then mailcow; fi", 1)
+elif hook_mode != "disabled":
+    raise SystemExit(f"unsupported Mailcow fixture mode: {hook_mode}")
+
+entrypoint_target.write_text(entrypoint_text, encoding="utf-8")
+hook_target.write_text(hook_text, encoding="utf-8")
+entrypoint_target.chmod(0o700)
+hook_target.chmod(0o600)
+PY
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: certs_dumper_fixture_path_fingerprint
+#   Returns one no-follow type, mode, link-count, ænd content fingerprint.
+#   Ærguments:
+#     $1 - Fixture pæth
+#ææææææææææææææææææææææææææææææææææ
+certs_dumper_fixture_path_fingerprint() {
+  python3 - "$1" <<'PY'
+from pathlib import Path
+import hashlib
+import os
+import stat
+import sys
+
+path = Path(sys.argv[1])
+try:
+    metadata = path.lstat()
+except FileNotFoundError:
+    print("missing")
+    raise SystemExit(0)
+
+mode = stat.S_IMODE(metadata.st_mode)
+identity = f"{stat.S_IFMT(metadata.st_mode)}:{mode:o}:{metadata.st_nlink}"
+if stat.S_ISREG(metadata.st_mode):
+    digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    print(f"{identity}:{digest}")
+elif stat.S_ISLNK(metadata.st_mode):
+    print(f"{identity}:{os.readlink(path)}")
+else:
+    print(identity)
+PY
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: run_certs_dumper_mailcow
+#   Runs one isolæted Mæilcow-aware certs-dumper entrypoint fixture.
+#   Ærguments:
+#     $1 - Fixture root
+#     $2 - Mæilcow toggle
+#     $@ - Optionæl entrypoint ærguments
+#ææææææææææææææææææææææææææææææææææ
+run_certs_dumper_mailcow() {
+  local fixture="$1"
+  local enabled="$2"
+  local -a shell_runner=(/bin/sh)
+  shift 2
+  if [[ -x /usr/lib/initcpio/busybox ]]; then
+    shell_runner=(/usr/lib/initcpio/busybox sh)
+  elif command -v busybox >/dev/null 2>&1; then
+    shell_runner=(busybox sh)
+  fi
+  PATH="${TEST_BIN}:${PATH}" \
+    CERTS_DUMPER_MARKER="${fixture}/dumper-started" \
+    ACME_DIR="${fixture}/data" ACME_FILENAME=acme.json \
+    MAILCOW_ENABLED="$enabled" \
+    TRAEFIK_DOMAIN=example.com \
+    TRAEFIK_DOMAIN_1= TRAEFIK_DOMAIN_2= TRAEFIK_DOMAIN_3= TRAEFIK_DOMAIN_4= \
+    TRAEFIK_ROUTE_SUBDOMAIN= CERTRESOLVER=cloudflare \
+    MAILCOW_SMTP_HOSTNAME=mail.example.com \
+    MAILCOW_DNS_ZONE=example.com \
+    MAILCOW_SSH_HOST=192.168.20.120 \
+    MAILCOW_SSH_USER=root \
+    MAILCOW_PROJECT_PATH=/opt/mailcow-dockerized \
+    MAILCOW_DANE_TTL_SECONDS=300 \
+    MAILCOW_DANE_TTL_SAFETY_SECONDS=60 \
+    MAILCOW_DANE_VALIDATING_RESOLVER=1.1.1.1 \
+    DNS_API_TOKEN_FILE="${fixture}/secrets/DNS_API_TOKEN" \
+    timeout 5 "${shell_runner[@]}" "${fixture}/entrypoint.sh" "$@"
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: assert_certs_dumper_mailcow_read_only
+#   Proves the contæiner preflight left secrets ænd runtime/state trees untouched.
+#   Ærguments:
+#     $1 - Fixture root
+#     $2 - SSH-key fingerprint before execution
+#     $3 - DNS-token fingerprint before execution
+#ææææææææææææææææææææææææææææææææææ
+assert_certs_dumper_mailcow_read_only() {
+  local fixture="$1"
+  local expected_key_fingerprint="$2"
+  local expected_token_fingerprint="$3"
+
+  [[ "$(certs_dumper_fixture_path_fingerprint "${fixture}/secrets/TRAEFIK_CERTS_DUMPER_PASSWORD")" == "$expected_key_fingerprint" ]]
+  [[ "$(certs_dumper_fixture_path_fingerprint "${fixture}/secrets/DNS_API_TOKEN")" == "$expected_token_fingerprint" ]]
+  [[ -z "$(find "${fixture}/runtime" -mindepth 1 -print -quit)" ]]
+  [[ -z "$(find "${fixture}/state" -mindepth 1 -print -quit)" ]]
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: case_certs_dumper_mailcow_invalid_secret
+#   Requires one invælid enæbled Mæilcow secret to fæil before mutation or watcher stært.
+#   Ærguments:
+#     $1 - Secret kind: ssh or dns
+#     $2 - Invælid fixture væriænt
+#ææææææææææææææææææææææææææææææææææ
+case_certs_dumper_mailcow_invalid_secret() {
+  local secret_kind="$1"
+  local variant="$2"
+  local fixture="${TEST_ROOT}/certs-dumper-mailcow-${secret_kind}-${variant}"
+  local key_path="${fixture}/secrets/TRAEFIK_CERTS_DUMPER_PASSWORD"
+  local token_path="${fixture}/secrets/DNS_API_TOKEN"
+  local target_path
+  local key_fingerprint
+  local token_fingerprint
+
+  prepare_certs_dumper_mailcow "$fixture" active
+  case "$secret_kind" in
+    ssh) target_path="$key_path" ;;
+    dns) target_path="$token_path" ;;
+    *) return 64 ;;
+  esac
+  case "$variant" in
+    missing) rm -f -- "$target_path" ;;
+    empty) : >"$target_path" ;;
+    change-me) printf '%s' 'CHANGE_ME' >"$target_path" ;;
+    multiline) printf 'line-one\nline-two\n' >"$target_path" ;;
+    malformed)
+      if [[ "$secret_kind" == ssh ]]; then
+        printf '%s' 'not-an-ssh-private-key' >"$target_path"
+      else
+        printf '%s' 'token with whitespace' >"$target_path"
+      fi
+      ;;
+    encrypted)
+      [[ "$secret_kind" == ssh ]] || return 64
+      rm -f -- "$target_path" "${target_path}.pub"
+      ssh-keygen -q -t ed25519 -N 'regression-passphrase' \
+        -C mailcow-encrypted-regression -f "$target_path"
+      ;;
+    symlink)
+      mv -- "$target_path" "${target_path}.outside"
+      ln -s -- "${target_path}.outside" "$target_path"
+      ;;
+    hardlink)
+      mv -- "$target_path" "${target_path}.outside"
+      ln -- "${target_path}.outside" "$target_path"
+      ;;
+    fifo)
+      rm -f -- "$target_path"
+      mkfifo -- "$target_path"
+      ;;
+    *) return 64 ;;
+  esac
+
+  key_fingerprint="$(certs_dumper_fixture_path_fingerprint "$key_path")"
+  token_fingerprint="$(certs_dumper_fixture_path_fingerprint "$token_path")"
+  if run_certs_dumper_mailcow "$fixture" true; then
+    return 1
+  fi
+  [[ ! -e "${fixture}/dumper-started" ]]
+  assert_certs_dumper_mailcow_read_only \
+    "$fixture" "$key_fingerprint" "$token_fingerprint"
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: case_certs_dumper_mailcow_valid_preflight
+#   Accepts reæl unencrypted SSH-key mæteriæl without mutæting runtime stæte.
+#ææææææææææææææææææææææææææææææææææ
+case_certs_dumper_mailcow_valid_preflight() {
+  local fixture="${TEST_ROOT}/certs-dumper-mailcow-valid-preflight"
+  local key_fingerprint
+  local token_fingerprint
+
+  prepare_certs_dumper_mailcow "$fixture" active
+  key_fingerprint="$(certs_dumper_fixture_path_fingerprint "${fixture}/secrets/TRAEFIK_CERTS_DUMPER_PASSWORD")"
+  token_fingerprint="$(certs_dumper_fixture_path_fingerprint "${fixture}/secrets/DNS_API_TOKEN")"
+  run_certs_dumper_mailcow "$fixture" true --preflight
+  [[ ! -e "${fixture}/dumper-started" ]]
+  assert_certs_dumper_mailcow_read_only \
+    "$fixture" "$key_fingerprint" "$token_fingerprint"
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: case_certs_dumper_mailcow_valid_watcher
+#   Proves the vælid enæbled contæiner preflight completes before watcher stært.
+#ææææææææææææææææææææææææææææææææææ
+case_certs_dumper_mailcow_valid_watcher() {
+  local fixture="${TEST_ROOT}/certs-dumper-mailcow-valid-watcher"
+
+  prepare_certs_dumper_mailcow "$fixture" active
+  run_certs_dumper_mailcow "$fixture" true
+  [[ -f "${fixture}/dumper-started" ]]
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: case_certs_dumper_mailcow_disabled_no_secret_read
+#   Proves disæbled Mæilcow does not inspect or reæd its FIFO secret pæths.
+#ææææææææææææææææææææææææææææææææææ
+case_certs_dumper_mailcow_disabled_no_secret_read() {
+  local fixture="${TEST_ROOT}/certs-dumper-mailcow-disabled-no-secret-read"
+
+  prepare_certs_dumper_mailcow "$fixture" disabled
+  rm -f -- \
+    "${fixture}/secrets/TRAEFIK_CERTS_DUMPER_PASSWORD" \
+    "${fixture}/secrets/DNS_API_TOKEN"
+  mkfifo -- \
+    "${fixture}/secrets/TRAEFIK_CERTS_DUMPER_PASSWORD" \
+    "${fixture}/secrets/DNS_API_TOKEN"
+  run_certs_dumper_mailcow "$fixture" false
+  [[ -f "${fixture}/dumper-started" ]]
+  [[ -z "$(find "${fixture}/runtime" -mindepth 1 -print -quit)" ]]
+  [[ -z "$(find "${fixture}/state" -mindepth 1 -print -quit)" ]]
 }
 
 case_certs_dumper_waits_for_valid_store() {
@@ -2510,9 +3798,25 @@ case_certs_dumper_waits_for_valid_store() {
 
 prepare_traefik "${TEST_ROOT}/traefik-valid"
 expect_success traefik-valid run_traefik "${TEST_ROOT}/traefik-valid"
-exercise_secret_matrix traefik-token prepare_traefik run_traefik CF_DNS_API_TOKEN
+exercise_secret_matrix traefik-token prepare_traefik run_traefik DNS_API_TOKEN
+expect_failure traefik-token-symlink case_traefik_dns_token_symlink
+expect_failure traefik-token-hardlink case_traefik_dns_token_hardlink
+expect_failure traefik-token-whitespace case_traefik_dns_token_whitespace
+expect_success traefik-token-fifo-swap-bounded case_traefik_dns_token_fifo_swap_is_bounded
+expect_failure traefik-token-unicode case_traefik_dns_token_unicode
+expect_failure traefik-token-same-size-race case_traefik_dns_token_same_size_race
+expect_failure traefik-token-path-race case_traefik_dns_token_path_race
+expect_success traefik-token-private-copy case_traefik_dns_token_private_copy
+expect_success traefik-cloudflare-dns-mapping case_traefik_cloudflare_dns_mapping
+expect_success traefik-desec-dns-mapping case_traefik_desec_dns_mapping
+expect_failure traefik-unsupported-resolver case_traefik_unsupported_resolver
 expect_failure traefik-unsafe-resolver case_traefik_unsafe_resolver
 expect_failure traefik-acme-symlink case_traefik_acme_symlink
+expect_failure traefik-acme-hardlink case_traefik_acme_hardlink
+expect_failure traefik-acme-fifo-bounded case_traefik_acme_fifo_is_bounded
+expect_failure traefik-acme-same-size-race case_traefik_acme_same_size_race
+expect_failure traefik-acme-path-race case_traefik_acme_path_race
+expect_failure traefik-acme-parent-race case_traefik_acme_parent_race
 expect_success traefik-missing-acme-stores case_traefik_missing_acme_stores
 expect_success traefik-route-subdomain-empty case_traefik_route_subdomain_empty
 expect_success traefik-route-subdomain-it case_traefik_route_subdomain_it
@@ -2538,6 +3842,7 @@ expect_failure traefik-dev-forward-disabled-live-file case_traefik_dev_forward_d
 expect_failure traefik-dev-forward-stale-live-file case_traefik_dev_forward_stale_live_file
 expect_success traefik-proxy-protocol-trust case_traefik_proxy_protocol_trust
 expect_success traefik-dev-forward-rejects-before-mutation case_traefik_dev_forward_rejects_before_mutation
+expect_success traefik-forwarded-header-rejects-before-mutation case_traefik_forwarded_header_rejects_before_mutation
 expect_failure traefik-dev-forward-invalid-boolean run_traefik_forward_settings "${TEST_ROOT}/traefik-dev-forward-invalid-boolean" TRUE it.saervices.de 192.168.10.100:443 ''
 expect_failure traefik-dev-forward-empty-target run_traefik_forward_settings "${TEST_ROOT}/traefik-dev-forward-empty-target" true it.saervices.de '' ''
 expect_failure traefik-dev-forward-placeholder-target run_traefik_forward_settings "${TEST_ROOT}/traefik-dev-forward-placeholder-target" true it.saervices.de CHANGE_ME:443 ''
@@ -2598,7 +3903,7 @@ expect_failure traefik-forward-auth-wrong-path run_traefik_forward_auth_address 
 expect_failure traefik-forward-auth-query run_traefik_forward_auth_address "${TEST_ROOT}/traefik-forward-auth-query" 'https://authentik.internal.example:9443/outpost.goauthentik.io/auth/traefik?unsafe=1'
 prepare_certs_dumper "${TEST_ROOT}/certs-dumper-valid"
 expect_success certs-dumper-valid run_certs_dumper "${TEST_ROOT}/certs-dumper-valid"
-expect_success certs-dumper-waits-for-valid-store case_certs_dumper_waits_for_valid_store
+expect_success certs-dumper-preflight-delegates case_certs_dumper_preflight_delegates
 expect_failure certs-dumper-filename-empty run_certs_dumper_with_filename "${TEST_ROOT}/certs-dumper-valid" ''
 expect_failure certs-dumper-filename-dot run_certs_dumper_with_filename "${TEST_ROOT}/certs-dumper-valid" '.'
 expect_failure certs-dumper-filename-dotdot run_certs_dumper_with_filename "${TEST_ROOT}/certs-dumper-valid" '..'
@@ -3115,24 +4420,28 @@ expect_failure seasearch-password-short case_seasearch_short_password
 expect_failure seasearch-password-oversized case_seasearch_oversized_password
 
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
-# --- DISÆBLED-FEÆTURE COMPOSE POLICY
+# --- FEÆTURE SECRET MOUNT CONTRÆCTS
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
-check_disabled_feature_mounts() {
-  python3 - "$TEST_REPO_ROOT" <<'PY'
+check_feature_secret_mount_contracts() {
+  python3 - "$TEST_REPO_ROOT" "$TEST_BIN" <<'PY'
 from pathlib import Path
 from collections import Counter
 import contextlib
+import fcntl
+import hashlib
 import importlib.util
 import io
 import json
 import os
 import re
+import socket
 import subprocess
 import sys
 import tempfile
 import yaml
 
 root = Path(sys.argv[1])
+test_bin = Path(sys.argv[2])
 
 checks = (
     (
@@ -3199,9 +4508,7 @@ authentik_app_mounts = {
     for item in authentik_app.get("secrets", [])
 }
 if authentik_secret in authentik_app_mounts:
-    raise SystemExit(f"{authentik_path}: disabled {authentik_secret} is mounted into services.app")
-if any(str(key).startswith("AUTHENTIK_EMAIL__") for key in authentik_app.get("environment", {})):
-    raise SystemExit(f"{authentik_path}: disabled Authentik SMTP environment is active")
+    raise SystemExit(f"{authentik_path}: disabled SMTP secret must not be mounted into the server")
 
 worker_path = root / "templates/authentik-worker/docker-compose.authentik-worker.yaml"
 worker_document = yaml.safe_load(worker_path.read_text(encoding="utf-8"))
@@ -3214,9 +4521,40 @@ worker_mounts = (
     authentik_app_mounts if worker_raw_mounts == {"secrets"} else worker_raw_mounts
 )
 if authentik_secret in worker_mounts:
-    raise SystemExit(f"{worker_path}: disabled {authentik_secret} is mounted into services.authentik-worker")
-if any(str(key).startswith("AUTHENTIK_EMAIL__") for key in worker_service.get("environment", {})):
-    raise SystemExit(f"{worker_path}: disabled Authentik SMTP environment is active")
+    raise SystemExit(f"{worker_path}: disabled SMTP secret must not be mounted into the worker")
+
+expected_authentik_email_environment = {
+    "AUTHENTIK_EMAIL_ENABLED": "${AUTHENTIK_EMAIL_ENABLED:-false}",
+    "AUTHENTIK_SMTP_HOST": "${AUTHENTIK_EMAIL__HOST:-CHANGE_ME}",
+    "AUTHENTIK_SMTP_PORT": "${AUTHENTIK_EMAIL__PORT:-465}",
+    "AUTHENTIK_SMTP_USERNAME": "${AUTHENTIK_EMAIL__USERNAME:-CHANGE_ME}",
+    "AUTHENTIK_SMTP_USE_TLS": "${AUTHENTIK_EMAIL__USE_TLS:-false}",
+    "AUTHENTIK_SMTP_USE_SSL": "${AUTHENTIK_EMAIL__USE_SSL:-true}",
+    "AUTHENTIK_SMTP_TIMEOUT": "${AUTHENTIK_EMAIL__TIMEOUT:-10}",
+    "AUTHENTIK_SMTP_FROM": "${AUTHENTIK_EMAIL__FROM:-CHANGE_ME}",
+}
+for path, service in (
+    (authentik_path, authentik_app),
+    (worker_path, worker_service),
+):
+    actual_authentik_email_environment = {
+        str(key): value
+        for key, value in (service.get("environment") or {}).items()
+        if str(key) == "AUTHENTIK_EMAIL_ENABLED"
+        or str(key).startswith("AUTHENTIK_SMTP_")
+        or str(key).startswith("AUTHENTIK_EMAIL__")
+    }
+    if actual_authentik_email_environment != expected_authentik_email_environment:
+        raise SystemExit(
+            f"{path}: Authentik local SMTP inputs must stay exact on server and worker"
+        )
+    if any(
+        str(key).startswith("AUTHENTIK_EMAIL__")
+        for key in (service.get("environment") or {})
+    ):
+        raise SystemExit(
+            f"{path}: disabled Compose config must expose no vendor AUTHENTIK_EMAIL__ settings"
+        )
 
 bootstrap_path = root / "templates/authentik-bootstrap/docker-compose.authentik-bootstrap.yaml"
 bootstrap_document = yaml.safe_load(bootstrap_path.read_text(encoding="utf-8"))
@@ -3227,7 +4565,12 @@ bootstrap_mounts = {
 }
 if authentik_secret in bootstrap_mounts:
     raise SystemExit(f"{bootstrap_path}: disabled {authentik_secret} is mounted into bootstrap")
-if any(str(key).startswith("AUTHENTIK_EMAIL__") for key in bootstrap_service.get("environment", {})):
+if any(
+    str(key) == "AUTHENTIK_EMAIL_ENABLED"
+    or str(key).startswith("AUTHENTIK_SMTP_")
+    or str(key).startswith("AUTHENTIK_EMAIL__")
+    for key in bootstrap_service.get("environment", {})
+):
     raise SystemExit(f"{bootstrap_path}: disabled Authentik SMTP environment is active")
 
 for path, document, service in (
@@ -3386,31 +4729,487 @@ for invalid_proxy_cidrs in (
         f"{server_wrapper_path}: unsafe trusted proxy fixture was accepted"
     )
 
-exec_calls = []
-original_execvp = server_wrapper.os.execvp
-original_proxy_value = server_wrapper.os.environ.get(trusted_proxy_key)
-try:
-    server_wrapper.os.environ[trusted_proxy_key] = valid_proxy_cidrs
-    server_wrapper.os.execvp = lambda executable, argv: exec_calls.append(
-        (executable, list(argv))
+with tempfile.TemporaryDirectory(prefix="authentik-email-preflight.", dir="/tmp") as raw_dir:
+    email_fixture_root = Path(raw_dir)
+    smtp_password_path = email_fixture_root / "AUTHENTIK_EMAIL_PASSWORD"
+    smtp_password_path.write_text("valid-provider-password", encoding="utf-8")
+    valid_email_environment = {
+        "AUTHENTIK_EMAIL_ENABLED": "true",
+        "AUTHENTIK_SMTP_HOST": "smtp.example.com",
+        "AUTHENTIK_SMTP_PORT": "465",
+        "AUTHENTIK_SMTP_USERNAME": "authentik@example.com",
+        "AUTHENTIK_SMTP_USE_TLS": "false",
+        "AUTHENTIK_SMTP_USE_SSL": "true",
+        "AUTHENTIK_SMTP_TIMEOUT": "10",
+        "AUTHENTIK_SMTP_FROM": "Authentik <noreply@example.com>",
+    }
+    expected_vendor_email_environment = {
+        "AUTHENTIK_EMAIL__HOST": "smtp.example.com",
+        "AUTHENTIK_EMAIL__PORT": "465",
+        "AUTHENTIK_EMAIL__USERNAME": "authentik@example.com",
+        "AUTHENTIK_EMAIL__PASSWORD": "file:///run/secrets/AUTHENTIK_EMAIL_PASSWORD",
+        "AUTHENTIK_EMAIL__USE_TLS": "false",
+        "AUTHENTIK_EMAIL__USE_SSL": "true",
+        "AUTHENTIK_EMAIL__TIMEOUT": "10",
+        "AUTHENTIK_EMAIL__FROM": "Authentik <noreply@example.com>",
+    }
+    enabled_email_environment = dict(valid_email_environment)
+    if not server_wrapper.validate_email_configuration(
+        enabled_email_environment, smtp_password_path
+    ):
+        raise SystemExit(f"{server_wrapper_path}: valid SMTP configuration was rejected")
+    if enabled_email_environment != expected_vendor_email_environment:
+        raise SystemExit(
+            f"{server_wrapper_path}: SMTP wrapper did not consume local inputs and inject the exact vendor settings"
+        )
+
+    valid_smtp_hosts = (
+        "smtp.example.com",
+        "mail",
+        "localhost",
+        "192.0.2.1",
+        "2001:db8::1",
     )
-    if server_wrapper.main(["server"]) != 127:
-        raise SystemExit(f"{server_wrapper_path}: valid handoff did not reach vendor exec")
-    if exec_calls != [("ak", ["ak", "server"])]:
-        raise SystemExit(f"{server_wrapper_path}: vendor handoff contract changed")
-    exec_calls.clear()
-    server_wrapper.os.environ[trusted_proxy_key] = "CHANGE_ME"
-    with contextlib.redirect_stderr(io.StringIO()):
-        if server_wrapper.main(["server"]) != 78 or exec_calls:
-            raise SystemExit(f"{server_wrapper_path}: placeholder did not fail before vendor exec")
-        if server_wrapper.main(["worker"]) != 64 or exec_calls:
-            raise SystemExit(f"{server_wrapper_path}: unexpected command did not fail closed")
-finally:
-    server_wrapper.os.execvp = original_execvp
-    if original_proxy_value is None:
-        server_wrapper.os.environ.pop(trusted_proxy_key, None)
-    else:
-        server_wrapper.os.environ[trusted_proxy_key] = original_proxy_value
+    for smtp_host in valid_smtp_hosts:
+        fixture = dict(valid_email_environment)
+        fixture["AUTHENTIK_SMTP_HOST"] = smtp_host
+        if not server_wrapper.validate_email_configuration(
+            fixture, smtp_password_path
+        ):
+            raise SystemExit(
+                f"{server_wrapper_path}: valid canonical SMTP host was rejected: {smtp_host!r}"
+            )
+        if fixture.get("AUTHENTIK_EMAIL__HOST") != smtp_host:
+            raise SystemExit(
+                f"{server_wrapper_path}: canonical SMTP host was not retained exactly: {smtp_host!r}"
+            )
+
+    valid_smtp_from_values = (
+        "noreply@example.com",
+        "Authentik <noreply@example.com>",
+        "Authentik Notifications <noreply@example.com>",
+        '"Authentik, IAM" <noreply@example.com>',
+        "Æuthentik <noreply@example.com>",
+    )
+    for smtp_from in valid_smtp_from_values:
+        fixture = dict(valid_email_environment)
+        fixture["AUTHENTIK_SMTP_FROM"] = smtp_from
+        if not server_wrapper.validate_email_configuration(
+            fixture, smtp_password_path
+        ):
+            raise SystemExit(
+                f"{server_wrapper_path}: valid SMTP sender was rejected: {smtp_from!r}"
+            )
+        if fixture.get("AUTHENTIK_EMAIL__FROM") != smtp_from:
+            raise SystemExit(
+                f"{server_wrapper_path}: SMTP sender was not retained exactly: {smtp_from!r}"
+            )
+
+    disabled_email_environment = dict(valid_email_environment)
+    disabled_email_environment["AUTHENTIK_EMAIL_ENABLED"] = "false"
+    disabled_email_environment.update(
+        {name: "stale-vendor-value" for name in server_wrapper.EMAIL_VENDOR_ENVIRONMENTS}
+    )
+    if server_wrapper.validate_email_configuration(
+        disabled_email_environment,
+        email_fixture_root / "missing",
+    ):
+        raise SystemExit(f"{server_wrapper_path}: disabled SMTP was reported enabled")
+    if disabled_email_environment:
+        raise SystemExit(
+            f"{server_wrapper_path}: disabled SMTP did not scrub local and stale vendor settings"
+        )
+
+    invalid_email_fixtures = (
+        ("uppercase toggle", "AUTHENTIK_EMAIL_ENABLED", "TRUE"),
+        ("padded toggle", "AUTHENTIK_EMAIL_ENABLED", " true"),
+        ("numeric toggle", "AUTHENTIK_EMAIL_ENABLED", "1"),
+        ("word toggle", "AUTHENTIK_EMAIL_ENABLED", "yes"),
+        ("placeholder host", "AUTHENTIK_SMTP_HOST", "CHANGE_ME"),
+        ("whitespace host", "AUTHENTIK_SMTP_HOST", "smtp example.com"),
+        ("scheme host", "AUTHENTIK_SMTP_HOST", "smtp://smtp.example.com"),
+        ("host with port", "AUTHENTIK_SMTP_HOST", "smtp.example.com:465"),
+        ("bracketed IPv6 host", "AUTHENTIK_SMTP_HOST", "[2001:db8::1]"),
+        ("IPv6 host with port", "AUTHENTIK_SMTP_HOST", "[2001:db8::1]:465"),
+        ("uppercase DNS host", "AUTHENTIK_SMTP_HOST", "SMTP.example.com"),
+        ("trailing-dot host", "AUTHENTIK_SMTP_HOST", "smtp.example.com."),
+        ("leading-dot host", "AUTHENTIK_SMTP_HOST", ".smtp.example.com"),
+        ("empty DNS label", "AUTHENTIK_SMTP_HOST", "smtp..example.com"),
+        ("leading-hyphen label", "AUTHENTIK_SMTP_HOST", "-smtp.example.com"),
+        ("trailing-hyphen label", "AUTHENTIK_SMTP_HOST", "smtp-.example.com"),
+        ("underscore host", "AUTHENTIK_SMTP_HOST", "smtp_server.example.com"),
+        ("punctuation host", "AUTHENTIK_SMTP_HOST", "smtp!example.com"),
+        ("non-ASCII host", "AUTHENTIK_SMTP_HOST", "smptä.example.com"),
+        ("overlong DNS label", "AUTHENTIK_SMTP_HOST", f"{'a' * 64}.example.com"),
+        (
+            "overlong DNS host",
+            "AUTHENTIK_SMTP_HOST",
+            ".".join(("a" * 63,) * 4),
+        ),
+        ("non-canonical IPv4", "AUTHENTIK_SMTP_HOST", "192.168.001.1"),
+        (
+            "non-canonical expanded IPv6",
+            "AUTHENTIK_SMTP_HOST",
+            "2001:0db8:0:0:0:0:0:1",
+        ),
+        ("uppercase IPv6", "AUTHENTIK_SMTP_HOST", "2001:DB8::1"),
+        ("placeholder username", "AUTHENTIK_SMTP_USERNAME", "CHANGE_ME"),
+        ("whitespace username", "AUTHENTIK_SMTP_USERNAME", "authentik user"),
+        ("non-integer port", "AUTHENTIK_SMTP_PORT", "smtp"),
+        ("leading-space port", "AUTHENTIK_SMTP_PORT", " 465"),
+        ("trailing-space port", "AUTHENTIK_SMTP_PORT", "465 "),
+        ("signed port", "AUTHENTIK_SMTP_PORT", "+465"),
+        ("leading-zero port", "AUTHENTIK_SMTP_PORT", "01"),
+        ("zero port", "AUTHENTIK_SMTP_PORT", "0"),
+        ("high port", "AUTHENTIK_SMTP_PORT", "65536"),
+        ("non-integer timeout", "AUTHENTIK_SMTP_TIMEOUT", "ten"),
+        ("leading-space timeout", "AUTHENTIK_SMTP_TIMEOUT", " 10"),
+        ("trailing-space timeout", "AUTHENTIK_SMTP_TIMEOUT", "10 "),
+        ("signed timeout", "AUTHENTIK_SMTP_TIMEOUT", "+10"),
+        ("leading-zero timeout", "AUTHENTIK_SMTP_TIMEOUT", "01"),
+        ("zero timeout", "AUTHENTIK_SMTP_TIMEOUT", "0"),
+        ("high timeout", "AUTHENTIK_SMTP_TIMEOUT", "121"),
+        ("uppercase TLS", "AUTHENTIK_SMTP_USE_TLS", "TRUE"),
+        ("uppercase SSL", "AUTHENTIK_SMTP_USE_SSL", "FALSE"),
+        ("both transport modes", "AUTHENTIK_SMTP_USE_TLS", "true"),
+        ("no transport mode", "AUTHENTIK_SMTP_USE_SSL", "false"),
+        ("invalid sender", "AUTHENTIK_SMTP_FROM", "not-an-address"),
+        ("missing sender local part", "AUTHENTIK_SMTP_FROM", "@b"),
+        ("sender trailing garbage", "AUTHENTIK_SMTP_FROM", "a@b garbage"),
+        ("sender single-label domain", "AUTHENTIK_SMTP_FROM", "a@b"),
+        ("sender double at", "AUTHENTIK_SMTP_FROM", "a@@example.com"),
+        ("sender missing domain", "AUTHENTIK_SMTP_FROM", "a@"),
+        ("sender leading local dot", "AUTHENTIK_SMTP_FROM", ".a@example.com"),
+        ("sender trailing local dot", "AUTHENTIK_SMTP_FROM", "a.@example.com"),
+        ("sender double local dot", "AUTHENTIK_SMTP_FROM", "a..b@example.com"),
+        ("sender local whitespace", "AUTHENTIK_SMTP_FROM", "a b@example.com"),
+        ("sender empty domain label", "AUTHENTIK_SMTP_FROM", "a@example..com"),
+        ("sender leading domain hyphen", "AUTHENTIK_SMTP_FROM", "a@-example.com"),
+        ("sender trailing domain hyphen", "AUTHENTIK_SMTP_FROM", "a@example-.com"),
+        ("sender uppercase domain", "AUTHENTIK_SMTP_FROM", "a@EXAMPLE.com"),
+        (
+            "sender overlong local part",
+            "AUTHENTIK_SMTP_FROM",
+            f"{'a' * 65}@example.com",
+        ),
+        (
+            "sender overlong address",
+            "AUTHENTIK_SMTP_FROM",
+            f"a@{'.'.join(('b' * 63,) * 4)}",
+        ),
+        ("sender display trailing garbage", "AUTHENTIK_SMTP_FROM", "Name <a@example.com> garbage"),
+        ("sender comment", "AUTHENTIK_SMTP_FROM", "Name (comment) <a@example.com>"),
+        ("sender address list", "AUTHENTIK_SMTP_FROM", "Name <a@example.com>, Other <b@example.com>"),
+        ("sender noncanonical display spacing", "AUTHENTIK_SMTP_FROM", "Name  <a@example.com>"),
+        ("sender bare angle address", "AUTHENTIK_SMTP_FROM", "<a@example.com>"),
+        ("sender Unicode local part", "AUTHENTIK_SMTP_FROM", "ä@example.com"),
+        ("multiline sender", "AUTHENTIK_SMTP_FROM", "sender@example.com\nother"),
+    )
+    for label, key, value in invalid_email_fixtures:
+        fixture = dict(valid_email_environment)
+        fixture[key] = value
+        try:
+            server_wrapper.validate_email_configuration(fixture, smtp_password_path)
+        except ValueError:
+            continue
+        raise SystemExit(
+            f"{server_wrapper_path}: invalid SMTP fixture was accepted: {label}"
+        )
+
+    for vendor_name in server_wrapper.EMAIL_VENDOR_ENVIRONMENTS:
+        fixture = dict(valid_email_environment)
+        fixture[vendor_name] = "operator-bypass"
+        try:
+            server_wrapper.validate_email_configuration(fixture, smtp_password_path)
+        except ValueError:
+            continue
+        raise SystemExit(
+            f"{server_wrapper_path}: wrapper-managed vendor setting was accepted: {vendor_name}"
+        )
+
+    def expect_invalid_email_secret(label, path):
+        try:
+            server_wrapper.validate_email_configuration(
+                dict(valid_email_environment), path
+            )
+        except ValueError as error:
+            if "do-not-log-this-secret" in str(error):
+                raise SystemExit(
+                    f"{server_wrapper_path}: invalid {label} secret leaked into an error"
+                ) from error
+            return
+        raise SystemExit(
+            f"{server_wrapper_path}: invalid SMTP password fixture was accepted: {label}"
+        )
+
+    secret_byte_fixtures = (
+        ("empty", b""),
+        ("placeholder", b"CHANGE_ME"),
+        ("line feed", b"do-not-log-this-secret\n"),
+        ("CRLF", b"do-not-log-this-secret\r\n"),
+        ("multiline", b"do-not-log-this-secret\nsecond"),
+        ("leading whitespace", b" do-not-log-this-secret"),
+        ("trailing whitespace", b"do-not-log-this-secret "),
+        ("control character", b"do-not-log-this-secret\x00"),
+        ("invalid UTF-8", b"do-not-log-this-secret\xff"),
+        ("oversized", b"x" * 4097),
+    )
+    for label, payload in secret_byte_fixtures:
+        secret_path = email_fixture_root / f"invalid-{label.replace(' ', '-')}"
+        secret_path.write_bytes(payload)
+        expect_invalid_email_secret(label, secret_path)
+
+    for label, payload in (("one byte", b"x"), ("maximum length", b"x" * 4096)):
+        secret_path = email_fixture_root / f"valid-{label.replace(' ', '-')}"
+        secret_path.write_bytes(payload)
+        fixture = dict(valid_email_environment)
+        if not server_wrapper.validate_email_configuration(fixture, secret_path):
+            raise SystemExit(
+                f"{server_wrapper_path}: valid SMTP password fixture was rejected: {label}"
+            )
+
+    expect_invalid_email_secret("missing", email_fixture_root / "missing")
+    directory_secret = email_fixture_root / "directory-secret"
+    directory_secret.mkdir()
+    expect_invalid_email_secret("directory", directory_secret)
+
+    symlink_secret = email_fixture_root / "symlink-secret"
+    symlink_secret.symlink_to(smtp_password_path)
+    expect_invalid_email_secret("symlink", symlink_secret)
+
+    hardlink_source = email_fixture_root / "hardlink-source"
+    hardlink_secret = email_fixture_root / "hardlink-secret"
+    hardlink_source.write_text("do-not-log-this-secret", encoding="utf-8")
+    os.link(hardlink_source, hardlink_secret)
+    expect_invalid_email_secret("hard link", hardlink_secret)
+
+    fifo_secret = email_fixture_root / "fifo-secret"
+    os.mkfifo(fifo_secret)
+    fifo_reader_program = r'''
+import importlib.util
+import sys
+from pathlib import Path
+
+wrapper_path = Path(sys.argv[1])
+wrapper_spec = importlib.util.spec_from_file_location(
+    "authentik_fifo_secret_reader", wrapper_path
+)
+if wrapper_spec is None or wrapper_spec.loader is None:
+    raise SystemExit(2)
+wrapper = importlib.util.module_from_spec(wrapper_spec)
+wrapper_spec.loader.exec_module(wrapper)
+try:
+    wrapper.read_bounded_regular_secret("AUTHENTIK_EMAIL_PASSWORD", Path(sys.argv[2]))
+except ValueError:
+    raise SystemExit(0)
+raise SystemExit(1)
+'''
+    try:
+        fifo_case = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                fifo_reader_program,
+                str(server_wrapper_path),
+                str(fifo_secret),
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+    except subprocess.TimeoutExpired as error:
+        raise SystemExit(
+            f"{server_wrapper_path}: FIFO reader blocked instead of failing non-blocking"
+        ) from error
+    if fifo_case.returncode != 0:
+        raise SystemExit(f"{server_wrapper_path}: FIFO secret was not rejected")
+
+    socket_secret = email_fixture_root / "socket-secret"
+    unix_socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    try:
+        unix_socket.bind(str(socket_secret))
+        expect_invalid_email_secret("Unix socket", socket_secret)
+    finally:
+        unix_socket.close()
+
+    original_read = server_wrapper.os.read
+    race_secret = email_fixture_root / "race-secret"
+    race_secret.write_text("do-not-log-this-secret", encoding="utf-8")
+    race_mutated = [False]
+
+    def mutate_secret_during_read(descriptor, byte_count):
+        payload = original_read(descriptor, byte_count)
+        if not race_mutated[0]:
+            race_mutated[0] = True
+            race_secret.write_text("changed-secret-material", encoding="utf-8")
+        return payload
+
+    try:
+        server_wrapper.os.read = mutate_secret_during_read
+        expect_invalid_email_secret("concurrent change", race_secret)
+    finally:
+        server_wrapper.os.read = original_read
+
+    exec_calls = []
+    original_execvp = server_wrapper.os.execvp
+    original_validate_email = server_wrapper.validate_email_configuration
+    original_environment = dict(server_wrapper.os.environ)
+    email_runtime_names = {
+        server_wrapper.EMAIL_ENABLED_ENV,
+        *server_wrapper.EMAIL_INPUT_ENVIRONMENTS,
+        *server_wrapper.EMAIL_VENDOR_ENVIRONMENTS,
+    }
+
+    class CapturedExec(Exception):
+        pass
+
+    def capture_exec(executable, argv):
+        exec_calls.append(
+            (
+                executable,
+                list(argv),
+                {
+                    name: server_wrapper.os.environ[name]
+                    for name in email_runtime_names
+                    if name in server_wrapper.os.environ
+                },
+            )
+        )
+        raise CapturedExec
+
+    def invoke_wrapper(arguments):
+        try:
+            return server_wrapper.main(arguments)
+        except CapturedExec:
+            return 127
+
+    def set_runtime_environment(values):
+        server_wrapper.os.environ.clear()
+        server_wrapper.os.environ.update(values)
+
+    try:
+        server_wrapper.os.execvp = capture_exec
+        server_wrapper.validate_email_configuration = (
+            lambda environment: original_validate_email(environment, smtp_password_path)
+        )
+
+        for daemon_command in ("server", "worker"):
+            exec_calls.clear()
+            daemon_environment = dict(valid_email_environment)
+            if daemon_command == "server":
+                daemon_environment[trusted_proxy_key] = valid_proxy_cidrs
+            set_runtime_environment(daemon_environment)
+            if invoke_wrapper([daemon_command]) != 127:
+                raise SystemExit(
+                    f"{server_wrapper_path}: valid {daemon_command} handoff did not reach vendor exec"
+                )
+            expected_call = (
+                "ak",
+                ["ak", daemon_command],
+                expected_vendor_email_environment,
+            )
+            if exec_calls != [expected_call]:
+                raise SystemExit(
+                    f"{server_wrapper_path}: {daemon_command} SMTP handoff contract changed"
+                )
+
+        for recipient in (
+            "recipient@example.com",
+            "alerts+authentik@example.com",
+            "Admin@example.com",
+        ):
+            exec_calls.clear()
+            set_runtime_environment(dict(valid_email_environment))
+            if invoke_wrapper(["test-email", recipient]) != 127:
+                raise SystemExit(
+                    f"{server_wrapper_path}: valid test-email recipient did not reach vendor exec: {recipient!r}"
+                )
+            if exec_calls != [(
+                "ak",
+                ["ak", "test_email", recipient],
+                expected_vendor_email_environment,
+            )]:
+                raise SystemExit(
+                    f"{server_wrapper_path}: test-email handoff contract changed: {exec_calls!r}"
+                )
+
+        exec_calls.clear()
+        set_runtime_environment(
+            {
+                trusted_proxy_key: valid_proxy_cidrs,
+                server_wrapper.EMAIL_ENABLED_ENV: "false",
+                **{
+                    name: "stale-vendor-value"
+                    for name in server_wrapper.EMAIL_VENDOR_ENVIRONMENTS
+                },
+            }
+        )
+        if invoke_wrapper(["server"]) != 127:
+            raise SystemExit(f"{server_wrapper_path}: disabled SMTP blocked the server")
+        if exec_calls != [("ak", ["ak", "server"], {})]:
+            raise SystemExit(f"{server_wrapper_path}: disabled SMTP reached vendor exec")
+
+        invalid_main_fixtures = (
+            ("placeholder trusted proxy", ["server"], {
+                **valid_email_environment,
+                trusted_proxy_key: "CHANGE_ME",
+            }, 78),
+            ("disabled test-email", ["test-email", "recipient@example.com"], {
+                server_wrapper.EMAIL_ENABLED_ENV: "false",
+            }, 78),
+            ("display-name recipient", ["test-email", "Name <recipient@example.com>"], dict(valid_email_environment), 78),
+            ("stale vendor override", ["worker"], {
+                **valid_email_environment,
+                "AUTHENTIK_EMAIL__HOST": "bypass.example.com",
+            }, 78),
+            ("missing test-email recipient", ["test-email"], dict(valid_email_environment), 64),
+            ("unexpected command", ["shell"], dict(valid_email_environment), 64),
+        )
+        with contextlib.redirect_stderr(io.StringIO()):
+            for label, argv, environment, expected_status in invalid_main_fixtures:
+                exec_calls.clear()
+                set_runtime_environment(environment)
+                if invoke_wrapper(argv) != expected_status or exec_calls:
+                    raise SystemExit(
+                        f"{server_wrapper_path}: invalid operator fixture did not fail closed: {label}"
+                    )
+
+            invalid_test_email_recipients = (
+                "@b",
+                "a@b garbage",
+                "a@b",
+                "a@@example.com",
+                "a@",
+                ".a@example.com",
+                "a.@example.com",
+                "a..b@example.com",
+                "a b@example.com",
+                "a@example..com",
+                "a@-example.com",
+                "a@example-.com",
+                "a@EXAMPLE.com",
+                "Name <a@example.com>",
+                "a@example.com, b@example.com",
+                "ä@example.com",
+                f"{'a' * 65}@example.com",
+                f"a@{'.'.join(('b' * 63,) * 4)}",
+            )
+            for recipient in invalid_test_email_recipients:
+                exec_calls.clear()
+                set_runtime_environment(dict(valid_email_environment))
+                if (
+                    invoke_wrapper(["test-email", recipient]) != 78
+                    or exec_calls
+                ):
+                    raise SystemExit(
+                        f"{server_wrapper_path}: invalid test-email recipient reached vendor exec: {recipient!r}"
+                    )
+    finally:
+        server_wrapper.os.execvp = original_execvp
+        server_wrapper.validate_email_configuration = original_validate_email
+        server_wrapper.os.environ.clear()
+        server_wrapper.os.environ.update(original_environment)
 
 def volume_targets(service):
     targets = set()
@@ -3426,8 +5225,12 @@ def volume_targets(service):
 server_wrapper_target = "/usr/local/lib/authentik-server-entrypoint.py"
 if server_wrapper_target not in volume_targets(authentik_app):
     raise SystemExit(f"{authentik_path}: trusted-proxy preflight helper is not mounted")
-if server_wrapper_target in volume_targets(worker_service):
-    raise SystemExit(f"{worker_path}: non-routing worker must not mount the server preflight")
+if server_wrapper_target not in volume_targets(worker_service):
+    raise SystemExit(f"{worker_path}: shared SMTP preflight helper is not mounted")
+if worker_service.get("entrypoint") != expected_server_entrypoint:
+    raise SystemExit(f"{worker_path}: worker SMTP preflight entrypoint is missing")
+if worker_service.get("command") != ["worker"]:
+    raise SystemExit(f"{worker_path}: worker command contract changed")
 
 if "/certs" in volume_targets(authentik_app):
     raise SystemExit(f"{authentik_path}: /certs belongs only on the Authentik worker")
@@ -3601,6 +5404,10 @@ if traefik_environment.get("TRAEFIK_BASE_WILDCARD_CERT_ENABLED") != "${TRAEFIK_B
     raise SystemExit(
         f"{traefik_path}: raw-base wildcard certificate opt-in must default to false"
     )
+if traefik_environment.get("DNS_API_TOKEN_FILE") != "/run/secrets/DNS_API_TOKEN":
+    raise SystemExit(f"{traefik_path}: Traefik must mount the generic DNS_API_TOKEN secret")
+if traefik_environment.get("CERTRESOLVER") != "${CERTRESOLVER}":
+    raise SystemExit(f"{traefik_path}: CERTRESOLVER must pass through to the start wrapper")
 expected_dev_forward_environment = {
     "TRAEFIK_DEV_FORWARD_ENABLED": "${TRAEFIK_DEV_FORWARD_ENABLED:-false}",
     "TRAEFIK_DEV_FORWARD_PREFIX": "${TRAEFIK_DEV_FORWARD_PREFIX:-dev}",
@@ -4124,14 +5931,113 @@ certs_document = yaml.safe_load(certs_text)
 certs_service = certs_document["services"]["traefik_certs-dumper"]
 if set(certs_document.get("secrets") or {}) != {"TRAEFIK_CERTS_DUMPER_PASSWORD"}:
     raise SystemExit(f"{certs_path}: certs-dumper must declare only its existing SSH-key secret")
-expected_certs_secrets = {"TRAEFIK_CERTS_DUMPER_PASSWORD", "CF_DNS_API_TOKEN"}
-if set(certs_service.get("secrets") or []) != expected_certs_secrets:
-    raise SystemExit(f"{certs_path}: integrated post-hook must mount SSH key plus existing Cloudflare token")
-certs_volumes = set(certs_service.get("volumes") or [])
-if "./scripts/post-hook.sh:/config/post-hook.sh:ro" not in certs_volumes:
+if certs_service.get("secrets"):
+    raise SystemExit(f"{certs_path}: default certs-dumper must not mount optional Mailcow secrets")
+if certs_service.get("group_add"):
+    raise SystemExit(f"{certs_path}: default certs-dumper must not join the optional secret group")
+for commented_opt_in_fragment in (
+    "# group_add:",
+    '#   - "${APP_GID:-1000}"',
+    "# secrets:",
+    "#   - TRAEFIK_CERTS_DUMPER_PASSWORD",
+    "#   - DNS_API_TOKEN",
+    "# MAILCOW_ENABLED: ${TRAEFIK_CERTS_DUMPER_MAILCOW_ENABLED:-false}",
+    "# DNS_API_TOKEN_FILE: /run/secrets/DNS_API_TOKEN",
+):
+    if commented_opt_in_fragment not in certs_text:
+        raise SystemExit(
+            f"{certs_path}: optional Mailcow opt-in scaffold is incomplete: {commented_opt_in_fragment!r}"
+        )
+if certs_text.count('${APP_GID:-1000}') != 1:
+    raise SystemExit(
+        f"{certs_path}: Mailcow opt-in must expose exactly one commented APP_GID group_add value"
+    )
+
+mailcow_opt_in_text = certs_text
+for commented_fragment, active_fragment in (
+    ("    # group_add:", "    group_add:"),
+    ('    #   - "${APP_GID:-1000}"', '      - "${APP_GID:-1000}"'),
+    ("    # secrets:", "    secrets:"),
+    (
+        "    #   - TRAEFIK_CERTS_DUMPER_PASSWORD",
+        "      - TRAEFIK_CERTS_DUMPER_PASSWORD",
+    ),
+    ("    #   - DNS_API_TOKEN", "      - DNS_API_TOKEN"),
+):
+    if mailcow_opt_in_text.count(commented_fragment) != 1:
+        raise SystemExit(
+            f"{certs_path}: Mailcow access opt-in must contain exactly one {commented_fragment.strip()!r}"
+        )
+    mailcow_opt_in_text = mailcow_opt_in_text.replace(
+        commented_fragment,
+        active_fragment,
+        1,
+    )
+mailcow_opt_in_document = yaml.safe_load(mailcow_opt_in_text)
+mailcow_opt_in_service = mailcow_opt_in_document["services"]["traefik_certs-dumper"]
+if mailcow_opt_in_service.get("group_add") != ["${APP_GID:-1000}"]:
+    raise SystemExit(
+        f"{certs_path}: enabled Mailcow secret access must join exactly the APP_GID deployment group"
+    )
+if mailcow_opt_in_service.get("secrets") != [
+    "TRAEFIK_CERTS_DUMPER_PASSWORD",
+    "DNS_API_TOKEN",
+]:
+    raise SystemExit(
+        f"{certs_path}: enabled Mailcow access must mount exactly the SSH key and DNS token together"
+    )
+
+for mailcow_readme_path in (
+    root / "Traefik/README.md",
+    certs_path.parent / "README.md",
+):
+    mailcow_readme_text = mailcow_readme_path.read_text(encoding="utf-8")
+    group_add_fragment = '`group_add: ["${APP_GID:-1000}"]`'
+    if mailcow_readme_text.count(group_add_fragment) != 1:
+        raise SystemExit(
+            f"{mailcow_readme_path}: Mailcow opt-in must document the exact APP_GID group_add once"
+        )
+    group_add_position = mailcow_readme_text.index(group_add_fragment)
+    group_add_context = mailcow_readme_text[
+        max(0, group_add_position - 400):group_add_position + 300
+    ]
+    if not all(
+        fragment in group_add_context
+        for fragment in (
+            "TRAEFIK_CERTS_DUMPER_PASSWORD",
+            "DNS_API_TOKEN",
+            "æt the sæme time",
+            "mode-`0640` secrets",
+        )
+    ):
+        raise SystemExit(
+            f"{mailcow_readme_path}: Mailcow docs must couple APP_GID with both mode-0640 secret mounts"
+        )
+certs_volumes = certs_service.get("volumes") or []
+certs_short_volumes = {volume for volume in certs_volumes if isinstance(volume, str)}
+certs_long_volumes = {
+    volume.get("target"): volume for volume in certs_volumes if isinstance(volume, dict)
+}
+if "./scripts/post-hook.sh:/config/post-hook.sh:ro" not in certs_short_volumes:
     raise SystemExit(f"{certs_path}: existing certs-dumper post-hook mount is missing")
-if "./appdata/certs-dumper-state:/state:rw" not in certs_volumes:
+if "./appdata/certs-dumper-state:/state:rw" not in certs_short_volumes:
     raise SystemExit(f"{certs_path}: persistent SSH host-key state bind is missing")
+certs_data_mount = certs_long_volumes.get("/data") or {}
+certs_files_mount = certs_long_volumes.get("/data/files") or {}
+if (
+    certs_data_mount.get("type") != "bind"
+    or certs_data_mount.get("source") != "./appdata/config/certs"
+    or certs_data_mount.get("read_only") is not True
+    or (certs_data_mount.get("bind") or {}).get("create_host_path") is not False
+):
+    raise SystemExit(f"{certs_path}: ACME source parent must be a no-create read-only bind")
+if (
+    certs_files_mount.get("type") != "bind"
+    or certs_files_mount.get("source") != "./appdata/config/certs/files"
+    or certs_files_mount.get("read_only") is not False
+    or (certs_files_mount.get("bind") or {}).get("create_host_path") is not False
+):
+    raise SystemExit(f"{certs_path}: only /data/files may be a no-create writable bind")
 certs_env_path = certs_path.parent / ".env"
 certs_env_text = certs_env_path.read_text(encoding="utf-8")
 certs_directories_match = re.search(
@@ -4142,39 +6048,95 @@ certs_directories_match = re.search(
 certs_directories = (
     certs_directories_match.group(1).strip() if certs_directories_match else ""
 )
-if certs_directories != "appdata/certs-dumper-state":
+if certs_directories != "appdata/certs-dumper-state,appdata/config/certs/files":
     raise SystemExit(
-        f"{certs_env_path}: run.sh must create only the dedicated certs-dumper state directory"
+        f"{certs_env_path}: run.sh must create state plus the exact PEM-output writer leaf"
     )
 certs_environment = certs_service.get("environment") or {}
+if set(certs_environment) != {"TZ", "ACME_FILENAME"}:
+    raise SystemExit(
+        f"{certs_path}: default certs-dumper environment must contain only TZ and ACME_FILENAME"
+    )
 if certs_service.get("stop_grace_period") != "180s":
     raise SystemExit(
-        f"{certs_path}: certs-dumper needs 180s for bounded Mailcow rollback before SIGKILL"
+        f"{certs_path}: certs-dumper needs 180s for the cooperative bounded Mailcow rollback"
     )
-if certs_environment.get("CF_DNS_API_TOKEN_FILE") != "/run/secrets/CF_DNS_API_TOKEN":
-    raise SystemExit(f"{certs_path}: certs-dumper must reuse the existing Cloudflare token secret")
-expected_mailcow_environment = {
-    "TRAEFIK_DOMAIN": "${TRAEFIK_DOMAIN:?Traefik domæin required}",
-    "TRAEFIK_DOMAIN_1": "${TRAEFIK_DOMAIN_1:-}",
-    "TRAEFIK_DOMAIN_2": "${TRAEFIK_DOMAIN_2:-}",
-    "TRAEFIK_DOMAIN_3": "${TRAEFIK_DOMAIN_3:-}",
-    "TRAEFIK_DOMAIN_4": "${TRAEFIK_DOMAIN_4:-}",
-    "TRAEFIK_ROUTE_SUBDOMAIN": "${TRAEFIK_ROUTE_SUBDOMAIN:-}",
-    "MAILCOW_SMTP_HOSTNAME": "${TRAEFIK_CERTS_DUMPER_MAILCOW_SMTP_HOSTNAME:-CHANGE_ME}",
-    "MAILCOW_CLOUDFLARE_ZONE": "${TRAEFIK_CERTS_DUMPER_MAILCOW_CLOUDFLARE_ZONE:-CHANGE_ME}",
-    "MAILCOW_DANE_TTL_SECONDS": "${TRAEFIK_CERTS_DUMPER_MAILCOW_DANE_TTL_SECONDS:-300}",
-    "MAILCOW_DANE_TTL_SAFETY_SECONDS": "${TRAEFIK_CERTS_DUMPER_MAILCOW_DANE_TTL_SAFETY_SECONDS:-60}",
-    "MAILCOW_DANE_VALIDATING_RESOLVER": "${TRAEFIK_CERTS_DUMPER_MAILCOW_DANE_VALIDATING_RESOLVER:-1.1.1.1}",
+if certs_environment.get("ACME_FILENAME") != "${CERTRESOLVER}-acme.json":
+    raise SystemExit(f"{certs_path}: ACME store basename must follow CERTRESOLVER")
+optional_mailcow_environment = {
+    "TRAEFIK_DOMAIN",
+    "TRAEFIK_DOMAIN_1",
+    "TRAEFIK_DOMAIN_2",
+    "TRAEFIK_DOMAIN_3",
+    "TRAEFIK_DOMAIN_4",
+    "TRAEFIK_ROUTE_SUBDOMAIN",
+    "CERTRESOLVER",
+    "MAILCOW_ENABLED",
+    "MAILCOW_SMTP_HOSTNAME",
+    "MAILCOW_DNS_ZONE",
+    "MAILCOW_SSH_HOST",
+    "MAILCOW_SSH_USER",
+    "MAILCOW_PROJECT_PATH",
+    "MAILCOW_DANE_TTL_SECONDS",
+    "MAILCOW_DANE_TTL_SAFETY_SECONDS",
+    "MAILCOW_DANE_VALIDATING_RESOLVER",
+    "DNS_API_TOKEN_FILE",
 }
-for environment_name, expected_value in expected_mailcow_environment.items():
-    if certs_environment.get(environment_name) != expected_value:
-        raise SystemExit(
-            f"{certs_path}: invalid Mailcow environment wiring for {environment_name}"
-        )
+active_optional_mailcow_environment = optional_mailcow_environment.intersection(
+    certs_environment
+)
+if active_optional_mailcow_environment:
+    raise SystemExit(
+        f"{certs_path}: default certs-dumper exposes optional Mailcow settings: "
+        f"{sorted(active_optional_mailcow_environment)}"
+    )
 if re.search(r"(?:SSH_)?KNOWN_HOSTS", certs_text, flags=re.IGNORECASE):
     raise SystemExit(
         f"{certs_path}: known_hosts content must stay file-backed, not become a Compose secret or environment value"
     )
+
+certs_build_args = (certs_service.get("build") or {}).get("args") or {}
+for build_identity_name in (
+    "TRAEFIK_CERTS_DUMPER_UID",
+    "TRAEFIK_CERTS_DUMPER_GID",
+):
+    expected_build_identity = f"${{{build_identity_name}:-1000}}"
+    if certs_build_args.get(build_identity_name) != expected_build_identity:
+        raise SystemExit(
+            f"{certs_path}: {build_identity_name} must align the built passwd identity with the runtime user"
+        )
+
+def tmpfs_targets(service):
+    return {
+        str(entry).split(":", 1)[0]
+        for entry in (service.get("tmpfs") or [])
+    }
+
+certs_tmpfs_targets = tmpfs_targets(certs_service)
+if "/run/certs-dumper" not in certs_tmpfs_targets or "/run/traefik-secrets" in certs_tmpfs_targets:
+    raise SystemExit(
+        f"{certs_path}: certs-dumper must own only its dedicated private /run subtree"
+    )
+traefik_app_service = traefik_document["services"]["app"]
+traefik_tmpfs_targets = tmpfs_targets(traefik_app_service)
+if "/run/traefik-secrets" not in traefik_tmpfs_targets or "/run/certs-dumper" in traefik_tmpfs_targets:
+    raise SystemExit(
+        f"{traefik_path}: Traefik must own only its dedicated private /run subtree"
+    )
+for isolated_template, service_name in (
+    (root / "templates/socketproxy/docker-compose.socketproxy.yaml", "socketproxy"),
+    (root / "templates/crowdsec_agent/docker-compose.crowdsec_agent.yaml", "crowdsec_agent"),
+):
+    isolated_service = yaml.safe_load(
+        isolated_template.read_text(encoding="utf-8")
+    )["services"][service_name]
+    inherited_private_targets = tmpfs_targets(isolated_service).intersection(
+        {"/run/traefik-secrets", "/run/certs-dumper"}
+    )
+    if inherited_private_targets:
+        raise SystemExit(
+            f"{isolated_template}: {service_name} inherited foreign private tmpfs targets {sorted(inherited_private_targets)}"
+        )
 
 exporter_spellings = (
     "TRAEFIK_CERTS_" + "EXPORTER",
@@ -4201,47 +6163,92 @@ for production_directory in (root / "Traefik", certs_path.parent):
 
 certs_entrypoint_path = root / "templates/traefik_certs-dumper/dockerfiles/entrypoint.traefik_certs-dumper.sh"
 certs_entrypoint = certs_entrypoint_path.read_text(encoding="utf-8")
-if '--post-hook "sh /config/post-hook.sh"' not in certs_entrypoint:
-    raise SystemExit(f"{certs_entrypoint_path}: existing post-hook must be enabled on the dumper watcher")
+for required_entrypoint_fragment in (
+    "PREFLIGHT_ONLY=false",
+    "--preflight)",
+    "exec /usr/local/bin/certs-dumper-safe-reader --preflight-dumper",
+    'ACME="${ACME_DIR:-/data}/${ACME_FILENAME}"',
+    'exec /usr/local/bin/certs-dumper-safe-reader --supervise-dumper-source "$ACME"',
+):
+    if required_entrypoint_fragment not in certs_entrypoint:
+        raise SystemExit(
+            f"{certs_entrypoint_path}: missing direct descriptor-safe supervisor fragment "
+            f"{required_entrypoint_fragment!r}"
+        )
+if any(fragment in certs_entrypoint for fragment in ("--watch", "--post-hook", "jq ")):
+    raise SystemExit(
+        f"{certs_entrypoint_path}: entrypoint must not restore the vendor watcher, its bounded post-hook, or a plain live-ACME reader"
+    )
 
 certs_hook_path = root / "templates/traefik_certs-dumper/scripts/post-hook.sh"
 certs_hook = certs_hook_path.read_text(encoding="utf-8")
+if certs_hook.count('local zone_name="$2"') != 1:
+    raise SystemExit(
+        f"{certs_hook_path}: desec_tlsa_subname must declare its zone argument exactly once"
+    )
+certs_reader_path = root / "templates/traefik_certs-dumper/dockerfiles/certs-dumper-safe-reader.go"
+certs_reader = certs_reader_path.read_text(encoding="utf-8")
+if 'return "", false, err\n\t\treturn "", false, err' in certs_reader:
+    raise SystemExit(
+        f"{certs_reader_path}: publishGeneration contains a duplicated unreachable error return"
+    )
 for required_fragment in (
     'CERTS_DUMPER_SSH_SECRET="/run/secrets/TRAEFIK_CERTS_DUMPER_PASSWORD"',
     'CERTS_DUMPER_SSH_STATE_ROOT="/state"',
     'CERTS_DUMPER_SSH_STATE_DIR="${CERTS_DUMPER_SSH_STATE_ROOT}/.ssh"',
     'CERTS_DUMPER_SSH_KNOWN_HOSTS_FILE="${CERTS_DUMPER_SSH_STATE_DIR}/known_hosts"',
-    'CERTS_DUMPER_CF_TOKEN_FILE="${CF_DNS_API_TOKEN_FILE:-/run/secrets/CF_DNS_API_TOKEN}"',
+    'CERTS_DUMPER_SAFE_READER="/usr/local/bin/certs-dumper-safe-reader"',
+    'CERTS_DUMPER_DNS_TOKEN_FILE="${DNS_API_TOKEN_FILE:-/run/secrets/DNS_API_TOKEN}"',
+    'CERTS_DUMPER_DNS_CONNECT_TIMEOUT_SECONDS=5',
+    'CERTS_DUMPER_DNS_MAX_TIME_SECONDS=30',
+    'MAILCOW_ENABLED_INPUT="${MAILCOW_ENABLED:-false}"',
     'MAILCOW_SMTP_HOSTNAME_INPUT="${MAILCOW_SMTP_HOSTNAME:-}"',
-    'MAILCOW_CLOUDFLARE_ZONE_INPUT="${MAILCOW_CLOUDFLARE_ZONE:-}"',
+    'MAILCOW_DNS_ZONE_INPUT="${MAILCOW_DNS_ZONE:-}"',
     'MAILCOW_DANE_TTL_SECONDS_INPUT="${MAILCOW_DANE_TTL_SECONDS:-300}"',
     'MAILCOW_DANE_TTL_SAFETY_SECONDS_INPUT="${MAILCOW_DANE_TTL_SAFETY_SECONDS:-60}"',
     'MAILCOW_DANE_VALIDATING_RESOLVER_INPUT="${MAILCOW_DANE_VALIDATING_RESOLVER:-1.1.1.1}"',
     'MAILCOW_TLSA_RECORD_NAME="_25._tcp.${MAILCOW_SMTP_HOSTNAME}"',
     'CERTS_DUMPER_MAILCOW_LOCK_FILE="${CERTS_DUMPER_SSH_STATE_ROOT}/mailcow-rollover.lock"',
-    'flock -n 7 || log_error "Another Mailcow/DANE certificate roll-over is already active"',
-    'read_cloudflare_token >/dev/null',
+    '--with-state-lock "$CERTS_DUMPER_MAILCOW_LOCK_FILE"',
+    '--validate-state-lock "$CERTS_DUMPER_MAILCOW_LOCK_FILE"',
+    '--prepare-ssh-state "$CERTS_DUMPER_SSH_STATE_ROOT"',
+    '--remove-private-file "$stage_path"',
+    'prepare_dns_api_token_from_secret',
+    'read_dns_api_token >/dev/null',
     'timeout 20 delv \\',
     '+noall +comments +trust +ttl +class "$record_name" TLSA',
     'CERTS_DUMPER_SMTP_ATTEMPT_SECONDS=5',
+    'CERTS_DUMPER_SSH_SECRET_MAX_BYTES=65536',
+    'CERTS_DUMPER_SSH_KNOWN_HOSTS_MAX_BYTES=1048576',
+    'CERTS_DUMPER_DNS_TOKEN_MAX_BYTES=4096',
+    'validate_mailcow_ssh_private_key_secret() (',
+    'preflight_mailcow_container() {',
+    'ssh-keygen -y -P \'\' -f "$stage_path"',
+    'run_bounded_ssh() {',
+    'run_bounded_scp() {',
+    'validate_accept_new_known_hosts_delta() (',
+    'require_cloudflare_tlsa_snapshot_unchanged() {',
     '--data-urlencode "type=TLSA"',
     '--data-urlencode "name=${record_name}"',
     '(.type | ascii_upcase) == "TLSA"',
     'select_mailcow_tlsa_records() {',
-    'require_cloudflare_dnssec_active "$zone_id"',
+    'require_mailcow_enabled',
+    'prepare_mailcow_runtime',
+    'dns_require_dnssec "$dns_zone_handle"',
     'require_certificate_key_pair "$local_cert" "$local_key"',
     'require_certificate_hostname "$local_cert" "$MAILCOW_SMTP_HOSTNAME"',
-    'create_cloudflare_tlsa_record \\',
+    'dns_create_tlsa_record \\',
     'deploy_mailcow_certificate_pair \\',
     'wait_for_dane_window "post-deployment overlap" "$overlap_wait"',
-    'delete_cloudflare_tlsa_record "$zone_id" "$old_record_id"',
-    'verify_remote_smtp_identity "$dest_host" "$MAILCOW_SMTP_HOSTNAME" "$local_spki" "$local_leaf"',
+    'dns_delete_tlsa_record "$dns_zone_handle" "$old_record_id" "$records_response"',
+    'verify_remote_smtp_identity "$MAILCOW_SSH_RESOLVED_ADDRESS" "$MAILCOW_SMTP_HOSTNAME" "$local_spki" "$local_leaf"',
     "StrictHostKeyChecking=accept-new",
     "UpdateHostKeys=no",
     'UserKnownHostsFile=${CERTS_DUMPER_SSH_KNOWN_HOSTS_FILE}',
-    "stat -Lc '%d:%i' -- /proc/self/fd/9",
-    "stat -Lc '%d:%i' -- /proc/self/fd/8",
-    'local_cert="/data/files/${MAILCOW_CERT_MAIN_DOMAIN}/certificate.pem"',
+    'local_cert="${CERTS_DUMPER_OUTPUT_GENERATION}/${MAILCOW_CERT_MAIN_DOMAIN}/certificate.pem"',
+    'revalidate_mailcow_pre_activation_state \\',
+    'establish_mailcow_host_trust',
+    '--sync-known-hosts "$CERTS_DUMPER_SSH_KNOWN_HOSTS_FILE"',
     'rollback_remote_mailcow_certificate \\',
     "postfix-mailcow dovecot-mailcow nginx-mailcow",
     "# if true; then mailcow; fi",
@@ -4251,59 +6258,168 @@ for required_fragment in (
 if "/tmp/.ssh/known_hosts" in certs_hook:
     raise SystemExit(f"{certs_hook_path}: known_hosts must persist under /state, never tmpfs")
 ssh_transfer_count = len(
-    re.findall(r"^[ \t]*(?:if ! )?(?:scp|ssh) -i ", certs_hook, flags=re.MULTILINE)
+    re.findall(r"^[ \t]+(?:scp|ssh) -F /dev/null ", certs_hook, flags=re.MULTILINE)
 )
 for ssh_option in (
-    "ConnectTimeout=10",
+    'ConnectTimeout=${CERTS_DUMPER_SSH_CONNECT_TIMEOUT_SECONDS}',
     "ConnectionAttempts=1",
     "StrictHostKeyChecking=accept-new",
     "UpdateHostKeys=no",
+    "BatchMode=yes",
+    'HostKeyAlias=${MAILCOW_SSH_HOST_KEY_ALIAS}',
     'UserKnownHostsFile=${CERTS_DUMPER_SSH_KNOWN_HOSTS_FILE}',
 ):
-    if ssh_transfer_count == 0 or certs_hook.count(ssh_option) != ssh_transfer_count:
+    if ssh_transfer_count != 2 or certs_hook.count(ssh_option) != ssh_transfer_count:
         raise SystemExit(
             f"{certs_hook_path}: every SSH/SCP transfer must use the persistent fail-closed host-key options"
         )
+if "StrictHostKeyChecking=yes" in certs_hook:
+    raise SystemExit(
+        f"{certs_hook_path}: every SSH/SCP transfer must retain the required accept-new mode"
+    )
 if len(re.findall(r"^# if true; then mailcow; fi$", certs_hook, flags=re.MULTILINE)) != 1:
     raise SystemExit(f"{certs_hook_path}: Mailcow must have exactly one commented upstream call")
 if re.search(r"^[ \t]*(?!#)(?:if[ ;].*[ ;]then[ ;]+)?mailcow(?:[ ;]|$)", certs_hook, flags=re.MULTILINE):
     raise SystemExit(f"{certs_hook_path}: Mailcow must not be active upstream")
-mailcow_body_match = re.search(r"^mailcow\(\) \{\n(?P<body>.*?)^\}$", certs_hook, flags=re.MULTILINE | re.DOTALL)
-if not mailcow_body_match:
-    raise SystemExit(f"{certs_hook_path}: integrated mailcow function is missing")
-mailcow_body = mailcow_body_match.group("body")
+curl_calls = re.findall(
+    r"curl -sS \\\n(?P<body>(?:[^\n]*\\\n)+[^\n]*)",
+    certs_hook,
+)
+if len(curl_calls) != 8:
+    raise SystemExit(f"{certs_hook_path}: expected exactly eight DNS API curl call sites")
+for curl_index, curl_body in enumerate(curl_calls, start=1):
+    if (
+        curl_body.count(
+            '--connect-timeout "$CERTS_DUMPER_DNS_CONNECT_TIMEOUT_SECONDS"'
+        ) != 1
+        or curl_body.count('--max-time "$CERTS_DUMPER_DNS_MAX_TIME_SECONDS"') != 1
+    ):
+        raise SystemExit(
+            f"{certs_hook_path}: DNS API curl call {curl_index}/8 is not bounded by both timeouts"
+        )
+mailcow_wrapper_match = re.search(
+    r"^mailcow\(\) \{\n(?P<body>.*?)^\}$",
+    certs_hook,
+    flags=re.MULTILINE | re.DOTALL,
+)
+mailcow_locked_match = re.search(
+    r"^mailcow_locked\(\) \{\n(?P<body>.*?)^\}$",
+    certs_hook,
+    flags=re.MULTILINE | re.DOTALL,
+)
+if not mailcow_wrapper_match or not mailcow_locked_match:
+    raise SystemExit(f"{certs_hook_path}: integrated locked Mailcow functions are missing")
+mailcow_wrapper_body = mailcow_wrapper_match.group("body")
+if (
+    "require_mailcow_enabled" not in mailcow_wrapper_body
+    or "run_mailcow_with_lock" not in mailcow_wrapper_body
+    or "prepare_mailcow_runtime" in mailcow_wrapper_body
+):
+    raise SystemExit(
+        f"{certs_hook_path}: public Mailcow entry must cross the helper-owned lock before runtime preparation"
+    )
+mailcow_body = mailcow_locked_match.group("body")
 ordered_mailcow_steps = (
-    "acquire_mailcow_lock",
-    "resolve_mailcow_configuration",
+    "require_mailcow_enabled",
+    "validate_mailcow_lock_context",
+    "install_mailcow_transaction_traps",
+    "prepare_mailcow_runtime",
     "wait_for_certificate_files",
     "require_certificate_key_pair",
     "require_certificate_hostname",
     "calculate_tlsa_spki_sha256",
     "calculate_certificate_sha256",
-    "read_cloudflare_token",
-    "cloudflare_find_zone_id",
-    "require_cloudflare_dnssec_active",
-    "cloudflare_get_tlsa_records",
+    "read_dns_api_token",
+    "dns_require_zone",
+    "dns_require_dnssec",
+    "dns_get_tlsa_records",
     "get_remote_smtp_identity",
 )
 positions = [mailcow_body.find(step) for step in ordered_mailcow_steps]
 if any(position < 0 for position in positions) or positions != sorted(positions):
     raise SystemExit(
-        f"{certs_hook_path}: Mailcow must preflight certificate, zone, DNSSEC, exact TLSA RRset, then SMTP identity"
+        f"{certs_hook_path}: Mailcow must lock and preflight before certificate, zone, DNSSEC, exact TLSA RRset, and SMTP identity work"
+    )
+prepare_runtime_match = re.search(
+    r"^prepare_mailcow_runtime\(\) \{\n(?P<body>.*?)^\}",
+    certs_hook,
+    flags=re.MULTILINE | re.DOTALL,
+)
+if prepare_runtime_match is None:
+    raise SystemExit(f"{certs_hook_path}: Mailcow runtime preparation function is missing")
+prepare_runtime_body = prepare_runtime_match.group("body")
+ordered_runtime_steps = (
+    "preflight_mailcow_static_configuration",
+    "validate_mailcow_lock_context",
+    "prepare_ssh_directory",
+    "prepare_dns_api_token_from_secret",
+    "prepare_ssh_identity_from_secret",
+    "pin_ssh_runtime_state",
+)
+runtime_positions = [prepare_runtime_body.find(step) for step in ordered_runtime_steps]
+if any(position < 0 for position in runtime_positions) or runtime_positions != sorted(
+    runtime_positions
+):
+    raise SystemExit(
+        f"{certs_hook_path}: read-only Mailcow preflight must finish before SSH state or identity mutation"
     )
 if "COPY_ONLY" in certs_hook or "TLSA_ENABLED" in certs_hook or "DANE_ENABLED" in certs_hook:
     raise SystemExit(f"{certs_hook_path}: integrated Mailcow hook must not expose a copy-only switch")
 if "--request PATCH" in certs_hook:
     raise SystemExit(f"{certs_hook_path}: Mailcow DANE rollover must add/delete exact records, never PATCH in place")
 
-hook_main_matches = list(
-    re.finditer(r"^check_dependencies [^\n]+$", certs_hook, flags=re.MULTILINE)
-)
-if len(hook_main_matches) != 1:
+hook_main_marker = 'if [ "${CERTS_DUMPER_POST_HOOK_LIBRARY_ONLY:-false}" != true ]; then\n'
+hook_main_offset = certs_hook.rfind(hook_main_marker)
+if hook_main_offset < 0:
     raise SystemExit(f"{certs_hook_path}: unable to isolate the post-hook function library")
-hook_library = certs_hook[:hook_main_matches[0].start()]
+hook_library = certs_hook[:hook_main_offset]
+hook_main = certs_hook[hook_main_offset:]
+for required_main_fragment in (
+    'case "${1:-}" in',
+    "# if true; then mailcow; fi",
+    "--mailcow-locked)",
+    "mailcow_locked",
+):
+    if required_main_fragment not in hook_main:
+        raise SystemExit(
+            f"{certs_hook_path}: post-hook main is missing {required_main_fragment!r}"
+        )
+hook_library = hook_library.replace(
+    'readonly CERTS_DUMPER_SAFE_READER="/usr/local/bin/certs-dumper-safe-reader"',
+    f'readonly CERTS_DUMPER_SAFE_READER="{test_bin / "certs-dumper-safe-reader"}"',
+    1,
+)
+if '/usr/local/bin/certs-dumper-safe-reader' in hook_library:
+    raise SystemExit(f"{certs_hook_path}: unable to isolate the bounded-reader test double")
+if any(
+    forbidden_default_action in hook_main
+    for forbidden_default_action in (
+        "prepare_mailcow_runtime",
+        "prepare_ssh_identity_from_secret",
+        "read_dns_api_token",
+    )
+):
+    raise SystemExit(f"{certs_hook_path}: default post-hook main prepares optional Mailcow secrets")
+default_post_hook_case = subprocess.run(
+    ["/bin/bash", str(certs_hook_path)],
+    cwd=certs_hook_path.parent,
+    env={"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "LC_ALL": "C"},
+    check=False,
+    capture_output=True,
+    text=True,
+    timeout=5,
+)
+if default_post_hook_case.returncode != 0:
+    raise SystemExit(
+        f"{certs_hook_path}: default commented hook must be a no-op: "
+        f"{default_post_hook_case.stderr.strip()}"
+    )
 
-def run_ssh_state_hook_fixture(state_root, body="prepare_ssh_directory"):
+def run_ssh_state_hook_fixture(
+    state_root,
+    body="prepare_ssh_directory",
+    environment=None,
+):
     state_library = hook_library.replace(
         'readonly CERTS_DUMPER_SSH_STATE_ROOT="/state"',
         f'readonly CERTS_DUMPER_SSH_STATE_ROOT="{state_root}"',
@@ -4322,11 +6438,23 @@ def run_ssh_state_hook_fixture(state_root, body="prepare_ssh_directory"):
     with tempfile.TemporaryDirectory(prefix="certs-dumper-ssh-state-script.") as fixture_name:
         fixture = Path(fixture_name)
         fixture_script = fixture / "post-hook-fixture.sh"
-        fixture_script.write_text(f"{state_library}\n{body}\n", encoding="utf-8")
+        fixture_script.write_text(
+            f'''{state_library}
+harden_directory_no_follow "$CERTS_DUMPER_SSH_STATE_ROOT"
+exec 3<"$CERTS_DUMPER_SSH_STATE_ROOT"
+{body}
+''',
+            encoding="utf-8",
+        )
+        fixture_environment = {
+            "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
+            "LC_ALL": "C",
+            **(environment or {}),
+        }
         return subprocess.run(
             ["/bin/bash", str(fixture_script)],
             cwd=fixture,
-            env={"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "LC_ALL": "C"},
+            env=fixture_environment,
             check=False,
             capture_output=True,
             text=True,
@@ -4435,39 +6563,267 @@ with tempfile.TemporaryDirectory(prefix="certs-dumper-ssh-state-hardlink.") as s
     ):
         raise SystemExit(f"{certs_hook_path}: multiply linked known_hosts must fail without mutation")
 
-with tempfile.TemporaryDirectory(prefix="certs-dumper-mailcow-lock.") as state_fixture_name:
+with tempfile.TemporaryDirectory(prefix="certs-dumper-ssh-state-same-size.") as state_fixture_name:
     state_root = Path(state_fixture_name) / "state"
-    state_root.mkdir(mode=0o700)
-    lock_case = run_ssh_state_hook_fixture(
+    state_directory = state_root / ".ssh"
+    state_directory.mkdir(parents=True, mode=0o700)
+    known_hosts_file = state_directory / "known_hosts"
+    known_hosts_file.write_bytes(b"mail.internal ssh-ed25519 AAAATEST\n")
+    known_hosts_file.chmod(0o600)
+    same_size_case = run_ssh_state_hook_fixture(
         state_root,
-        r'''prepare_ssh_directory
-acquire_mailcow_lock
-if flock -n "$CERTS_DUMPER_MAILCOW_LOCK_FILE" -c true; then
-  exit 1
-fi''',
+        "prepare_ssh_directory\nsnapshot_ssh_known_hosts >/dev/null",
+        {"CERTS_DUMPER_TEST_READER_HOOK": "same-size"},
     )
-    if lock_case.returncode != 0:
+    if same_size_case.returncode == 0:
         raise SystemExit(
-            f"{certs_hook_path}: Mailcow kernel lock must reject a concurrent holder without stale-lock files"
+            f"{certs_hook_path}: same-size known_hosts mutation escaped descriptor validation"
         )
 
-def run_mailcow_hook_fixture(body, environment):
+with tempfile.TemporaryDirectory(prefix="certs-dumper-ssh-state-oversized.") as state_fixture_name:
+    state_root = Path(state_fixture_name) / "state"
+    state_directory = state_root / ".ssh"
+    state_directory.mkdir(parents=True, mode=0o700)
+    known_hosts_file = state_directory / "known_hosts"
+    known_hosts_file.write_bytes(b"x" * (1048576 + 1))
+    known_hosts_file.chmod(0o600)
+    oversized_case = run_ssh_state_hook_fixture(
+        state_root,
+        "prepare_ssh_directory\nsnapshot_ssh_known_hosts >/dev/null",
+    )
+    if oversized_case.returncode == 0:
+        raise SystemExit(f"{certs_hook_path}: oversized known_hosts must fail before digest")
+
+with tempfile.TemporaryDirectory(prefix="certs-dumper-mailcow-contention.") as state_fixture_name:
+    contention_fixture = Path(state_fixture_name)
+    state_root = contention_fixture / "state"
+    state_root.mkdir(mode=0o700)
+    lock_path = state_root / "mailcow-rollover.lock"
+    lock_path.write_bytes(b"stable-lock-sentinel")
+    lock_path.chmod(0o600)
+    runtime_marker = contention_fixture / "runtime-mutated"
+    locked_hook = contention_fixture / "locked-hook.sh"
+    locked_hook.write_text(
+        '#!/bin/sh\n[ "$1" = --mailcow-locked ] || exit 64\n: >"$MAILCOW_RUNTIME_MARKER"\n',
+        encoding="utf-8",
+    )
+    locked_hook.chmod(0o700)
+    with lock_path.open("r+b", buffering=0) as first_holder:
+        fcntl.flock(first_holder.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        contention_case = subprocess.run(
+            [
+                str(test_bin / "certs-dumper-safe-reader"),
+                "--with-state-lock",
+                str(lock_path),
+                "--",
+                "/bin/sh",
+                str(locked_hook),
+                "--mailcow-locked",
+            ],
+            env={
+                "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
+                "MAILCOW_RUNTIME_MARKER": str(runtime_marker),
+            },
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    if (
+        contention_case.returncode == 0
+        or runtime_marker.exists()
+        or lock_path.read_bytes() != b"stable-lock-sentinel"
+        or (lock_path.stat().st_mode & 0o777) != 0o600
+    ):
+        raise SystemExit(
+            f"{certs_hook_path}: concurrent Mailcow flow reached runtime before taking the helper-owned whole-flow lock"
+        )
+
+def run_mailcow_hook_fixture(body, environment, library_replacements=None):
     with tempfile.TemporaryDirectory(prefix="mailcow-post-hook.") as fixture_name:
         fixture = Path(fixture_name)
+        private_ssh_directory = fixture / ".ssh"
+        private_ssh_directory.mkdir(mode=0o700)
         fixture_script = fixture / "post-hook-fixture.sh"
-        fixture_script.write_text(f"{hook_library}\n{body}\n", encoding="utf-8")
+        fixture_library = hook_library.replace(
+            "/tmp/.ssh",
+            str(private_ssh_directory),
+        )
+        fixture_library = fixture_library.replace(
+            "/tmp/cloudflare-",
+            str(private_ssh_directory / "cloudflare-"),
+        ).replace(
+            "/tmp/desec-",
+            str(private_ssh_directory / "desec-"),
+        ).replace(
+            "/tmp/certs-dumper-key-preflight.",
+            str(private_ssh_directory / "certs-dumper-key-preflight."),
+        )
+        for old, new in (library_replacements or {}).items():
+            if fixture_library.count(old) != 1:
+                raise SystemExit(
+                    f"{certs_hook_path}: fixture replacement marker changed: {old}"
+                )
+            fixture_library = fixture_library.replace(old, new, 1)
+        fixture_script.write_text(f"{fixture_library}\n{body}\n", encoding="utf-8")
         fixture_environment = {
             "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
             "LC_ALL": "C",
             **environment,
         }
-        return subprocess.run(
+        result = subprocess.run(
             ["/bin/bash", str(fixture_script)],
             cwd=fixture,
             env=fixture_environment,
             check=False,
             capture_output=True,
             text=True,
+            timeout=10,
+        )
+        temporary_patterns = (
+            "cloudflare-*",
+            "desec-*",
+            "known-hosts.*",
+            "dns-api-token.*",
+            "certs-dumper-key-preflight.*",
+            "certs_dumper_identity.tmp.*",
+        )
+        leftovers = sorted(
+            path.name
+            for pattern in temporary_patterns
+            for path in private_ssh_directory.glob(pattern)
+        )
+        if leftovers:
+            raise SystemExit(
+                f"{certs_hook_path}: identity-pinned temporary files leaked: {leftovers}"
+            )
+        return result
+
+with tempfile.TemporaryDirectory(prefix="mailcow-secret-races.") as race_fixture_name:
+    race_fixture = Path(race_fixture_name)
+    dns_token_path = race_fixture / "dns-token"
+    dns_token_path.write_bytes(b"valid-token")
+    dns_race_case = run_mailcow_hook_fixture(
+        "install_mailcow_transaction_traps\nprepare_dns_api_token_from_secret\nread_dns_api_token >/dev/null",
+        {
+            "DNS_API_TOKEN_FILE": str(dns_token_path),
+            "CERTS_DUMPER_TEST_READER_HOOK": "same-size",
+        },
+    )
+    if dns_race_case.returncode == 0:
+        raise SystemExit(
+            f"{certs_hook_path}: same-size DNS-token mutation escaped descriptor validation"
+        )
+
+    ssh_key_path = race_fixture / "ssh-key"
+    generated_key = subprocess.run(
+        ["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", str(ssh_key_path)],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if generated_key.returncode != 0:
+        raise SystemExit(f"{certs_hook_path}: could not create SSH-key race fixture")
+    key_race_case = run_mailcow_hook_fixture(
+        "validate_mailcow_ssh_private_key_secret",
+        {"CERTS_DUMPER_TEST_READER_HOOK": "same-size"},
+        {
+            'readonly CERTS_DUMPER_SSH_SECRET="/run/secrets/TRAEFIK_CERTS_DUMPER_PASSWORD"': (
+                f'readonly CERTS_DUMPER_SSH_SECRET="{ssh_key_path}"'
+            ),
+        },
+    )
+    if key_race_case.returncode == 0:
+        raise SystemExit(
+            f"{certs_hook_path}: same-size SSH-key mutation escaped descriptor validation"
+        )
+
+with tempfile.TemporaryDirectory(prefix="mailcow-dns-transaction.") as token_fixture_name:
+    token_fixture = Path(token_fixture_name)
+    token_path = token_fixture / "dns-token"
+    calls_path = token_fixture / "reader.calls"
+    token_path.write_bytes(b"valid-token")
+    snapshot_case = run_mailcow_hook_fixture(
+        r'''(
+  install_mailcow_transaction_traps
+  prepare_dns_api_token_from_secret
+  rm -- "$CERTS_DUMPER_DNS_TOKEN_FILE"
+  [ "$(read_dns_api_token)" = valid-token ]
+  [ "$(read_dns_api_token)" = valid-token ]
+)
+[ ! -e "$CERTS_DUMPER_DNS_TOKEN_FILE" ]
+[ -z "$(find "${CERTS_DUMPER_DNS_TOKEN_RUNTIME_PREFIX%/dns-api-token.}" -maxdepth 1 -name 'dns-api-token.*' -print -quit)" ]''',
+        {
+            "DNS_API_TOKEN_FILE": str(token_path),
+            "CERTS_DUMPER_TEST_READER_CALLS": str(calls_path),
+        },
+    )
+    if snapshot_case.returncode != 0:
+        raise SystemExit(
+            f"{certs_hook_path}: DNS transaction did not remain bound to its one private token snapshot"
+        )
+    source_reads = [
+        line for line in calls_path.read_text(encoding="utf-8").splitlines()
+        if line == f"dns-token|{token_path}"
+    ]
+    if len(source_reads) != 1:
+        raise SystemExit(
+            f"{certs_hook_path}: DNS transaction source was opened {len(source_reads)} times instead of exactly once"
+        )
+
+    token_path.write_bytes(b"valid-token")
+    stage_drift_case = run_mailcow_hook_fixture(
+        r'''if (
+  install_mailcow_transaction_traps
+  prepare_dns_api_token_from_secret
+  printf 'other-token' >"$CERTS_DUMPER_DNS_TOKEN_RUNTIME_FILE"
+  read_dns_api_token >/dev/null
+); then
+  exit 1
+fi
+[ -z "$(find "${CERTS_DUMPER_DNS_TOKEN_RUNTIME_PREFIX%/dns-api-token.}" -maxdepth 1 -name 'dns-api-token.*' -print -quit)" ]''',
+        {"DNS_API_TOKEN_FILE": str(token_path)},
+    )
+    if stage_drift_case.returncode != 0:
+        raise SystemExit(
+            f"{certs_hook_path}: DNS transaction-stage drift was accepted or leaked its private snapshot"
+        )
+
+mailcow_toggle_body = r'''run_mailcow_with_lock() {
+  : >"$MAILCOW_RUNTIME_MARKER"
+  exit 23
+}
+mailcow'''
+with tempfile.TemporaryDirectory(prefix="mailcow-strict-toggle.") as toggle_fixture_name:
+    toggle_fixture = Path(toggle_fixture_name)
+    for toggle_label, toggle_environment in (
+        ("unset", {}),
+        ("false", {"MAILCOW_ENABLED": "false"}),
+        ("uppercase", {"MAILCOW_ENABLED": "TRUE"}),
+        ("numeric", {"MAILCOW_ENABLED": "1"}),
+        ("padded", {"MAILCOW_ENABLED": " true"}),
+    ):
+        runtime_marker = toggle_fixture / f"{toggle_label}.runtime"
+        toggle_case = run_mailcow_hook_fixture(
+            mailcow_toggle_body,
+            {**toggle_environment, "MAILCOW_RUNTIME_MARKER": str(runtime_marker)},
+        )
+        if toggle_case.returncode == 0 or runtime_marker.exists():
+            raise SystemExit(
+                f"{certs_hook_path}: Mailcow toggle fixture did not fail before secret preparation: {toggle_label}"
+            )
+
+    enabled_runtime_marker = toggle_fixture / "enabled.runtime"
+    enabled_toggle_case = run_mailcow_hook_fixture(
+        mailcow_toggle_body,
+        {
+            "MAILCOW_ENABLED": "true",
+            "MAILCOW_RUNTIME_MARKER": str(enabled_runtime_marker),
+        },
+    )
+    if enabled_toggle_case.returncode != 23 or not enabled_runtime_marker.is_file():
+        raise SystemExit(
+            f"{certs_hook_path}: exact MAILCOW_ENABLED=true did not enter opt-in runtime preparation"
         )
 
 mailcow_route_environment = {
@@ -4478,17 +6834,302 @@ mailcow_route_environment = {
     "TRAEFIK_DOMAIN_4": "itsaervices.de",
     "TRAEFIK_ROUTE_SUBDOMAIN": "it",
     "MAILCOW_SMTP_HOSTNAME": "mail.it.saervices.de",
-    "MAILCOW_CLOUDFLARE_ZONE": "saervices.de",
+    "MAILCOW_DNS_ZONE": "saervices.de",
     "MAILCOW_DANE_TTL_SECONDS": "300",
     "MAILCOW_DANE_TTL_SAFETY_SECONDS": "60",
     "MAILCOW_DANE_VALIDATING_RESOLVER": "1.1.1.1",
+    "MAILCOW_SSH_HOST": "192.168.20.120",
+    "MAILCOW_SSH_USER": "root",
+    "MAILCOW_PROJECT_PATH": "/opt/mailcow-dockerized",
+    "CERTRESOLVER": "cloudflare",
+    "MAILCOW_ENABLED": "true",
 }
+
+with tempfile.TemporaryDirectory(prefix="mailcow-accept-new-delta.") as delta_fixture_name:
+    delta_fixture = Path(delta_fixture_name)
+    host_key_path = delta_fixture / "host-key"
+    generated_host_key = subprocess.run(
+        ["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", str(host_key_path)],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if generated_host_key.returncode != 0:
+        raise SystemExit(f"{certs_hook_path}: could not create accept-new host-key fixture")
+    public_key_fields = (host_key_path.with_suffix(".pub")).read_text(
+        encoding="utf-8"
+    ).split()
+    accepted_alias = "mailcow.internal.example"
+    accepted_line = (
+        f"{accepted_alias} {public_key_fields[0]} {public_key_fields[1]}\n"
+    ).encode("ascii")
+
+    def run_accept_new_delta(label, before_content, after_content, expected_success):
+        before_path = delta_fixture / f"{label}.before"
+        after_path = delta_fixture / f"{label}.after"
+        before_path.write_bytes(before_content)
+        after_path.write_bytes(after_content)
+        before_path.chmod(0o600)
+        after_path.chmod(0o600)
+        delta_case = run_mailcow_hook_fixture(
+            r'''validate_accept_new_known_hosts_delta \
+  "$DELTA_BEFORE" "$(stat -c '%d:%i' -- "$DELTA_BEFORE")" \
+  "$DELTA_AFTER" "$(stat -c '%d:%i' -- "$DELTA_AFTER")" \
+  "$DELTA_ALIAS"''',
+            {
+                "DELTA_BEFORE": str(before_path),
+                "DELTA_AFTER": str(after_path),
+                "DELTA_ALIAS": accepted_alias,
+            },
+        )
+        if (delta_case.returncode == 0) != expected_success:
+            raise SystemExit(
+                f"{certs_hook_path}: accept-new exact-delta contract failed for {label}"
+            )
+
+    run_accept_new_delta("exact", b"", accepted_line, True)
+    run_accept_new_delta(
+        "wrong-alias",
+        b"",
+        accepted_line.replace(accepted_alias.encode("ascii"), b"other.internal.example"),
+        False,
+    )
+    run_accept_new_delta("extra-line", b"", accepted_line + accepted_line, False)
+    run_accept_new_delta(
+        "prefix-drift",
+        b"existing.example ssh-ed25519 AAAAOLD\n",
+        b"changed0.example ssh-ed25519 AAAAOLD\n" + accepted_line,
+        False,
+    )
+
+    second_host_key_path = delta_fixture / "host-key-second"
+    generated_second_host_key = subprocess.run(
+        ["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", str(second_host_key_path)],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if generated_second_host_key.returncode != 0:
+        raise SystemExit(f"{certs_hook_path}: could not create duplicate-alias host-key fixture")
+    second_key_fields = second_host_key_path.with_suffix(".pub").read_text(
+        encoding="utf-8"
+    ).split()
+    second_alias_line = (
+        f"{accepted_alias} {second_key_fields[0]} {second_key_fields[1]}\n"
+    ).encode("ascii")
+    other_alias_line = accepted_line.replace(
+        accepted_alias.encode("ascii"), b"other.internal.example", 1
+    )
+
+    def hashed_known_hosts_line(label, content):
+      unhashed_path = delta_fixture / f"{label}.unhashed"
+      unhashed_path.write_bytes(content)
+      unhashed_path.chmod(0o600)
+      hashed = subprocess.run(
+          ["ssh-keygen", "-q", "-H", "-f", str(unhashed_path)],
+          check=False,
+          capture_output=True,
+          text=True,
+      )
+      if hashed.returncode != 0:
+        raise SystemExit(
+            f"{certs_hook_path}: could not create hashed known_hosts fixture {label}"
+        )
+      hashed_content = unhashed_path.read_bytes()
+      old_path = Path(f"{unhashed_path}.old")
+      if old_path.exists():
+        old_path.unlink()
+      return hashed_content
+
+    hashed_same_alias_line = hashed_known_hosts_line(
+        "hashed-same-alias", second_alias_line
+    )
+    hashed_other_alias_line = hashed_known_hosts_line(
+        "hashed-other-alias", other_alias_line
+    )
+    for label, known_hosts_content, expected_success in (
+        ("one-exact-alias", other_alias_line + accepted_line, True),
+        ("duplicate-exact-alias", accepted_line + second_alias_line, False),
+        ("hashed-duplicate-alias", accepted_line + hashed_same_alias_line, False),
+        ("hashed-unrelated-alias", accepted_line + hashed_other_alias_line, True),
+        ("missing-exact-alias", other_alias_line, False),
+    ):
+      known_hosts_path = delta_fixture / f"{label}.known-hosts"
+      known_hosts_path.write_bytes(known_hosts_content)
+      known_hosts_path.chmod(0o600)
+      unique_binding_case = run_mailcow_hook_fixture(
+          r'''copy_known_hosts_to_private_snapshot() {
+  cp -- "$KNOWN_HOSTS_FIXTURE" "$2"
+  chmod 0600 -- "$2"
+}
+CERTS_DUMPER_SSH_KNOWN_HOSTS_SNAPSHOT=fixture-snapshot
+known_host_binding_exists "$DELTA_ALIAS"''',
+          {
+              "KNOWN_HOSTS_FIXTURE": str(known_hosts_path),
+              "DELTA_ALIAS": accepted_alias,
+          },
+      )
+      if (unique_binding_case.returncode == 0) != expected_success:
+        raise SystemExit(
+            f"{certs_hook_path}: known_hosts exact-alias uniqueness failed for {label}"
+        )
+
+for endpoint_label, endpoint_host, endpoint_user, expected_success in (
+    ("private-ip", "192.168.20.120", "root", True),
+    ("private-dns", "mailcow.internal.example", "cert_deploy", True),
+    ("public-ip", "203.0.113.20", "root", False),
+    ("leading-underscore-user", "192.168.20.120", "_certdeploy", False),
+    ("trailing-hyphen-user", "192.168.20.120", "certdeploy-", False),
+    ("option-host", "-oProxyCommand=evil", "root", False),
+):
+    endpoint_case = run_mailcow_hook_fixture(
+        'validate_mailcow_ssh_endpoint "$ENDPOINT_HOST" "$ENDPOINT_USER"',
+        {"ENDPOINT_HOST": endpoint_host, "ENDPOINT_USER": endpoint_user},
+    )
+    if (endpoint_case.returncode == 0) != expected_success:
+        raise SystemExit(
+            f"{certs_hook_path}: SSH endpoint contract failed for {endpoint_label}"
+        )
+
+for resolution_label, resolver_output, expected_success in (
+    ("single-private", "10.20.30.40", True),
+    ("single-public", "203.0.113.20", False),
+    ("multiple", "10.20.30.40\n10.20.30.41", False),
+):
+    resolution_case = run_mailcow_hook_fixture(
+        r'''dig() { printf '%s\n' "$RESOLVER_OUTPUT"; }
+resolve_mailcow_ssh_endpoint mailcow.internal.example
+printf '%s|%s\n' "$MAILCOW_SSH_RESOLVED_ADDRESS" "$MAILCOW_SSH_HOST_KEY_ALIAS"''',
+        {"RESOLVER_OUTPUT": resolver_output},
+    )
+    if (resolution_case.returncode == 0) != expected_success:
+        raise SystemExit(
+            f"{certs_hook_path}: one-shot private SSH DNS resolution failed for {resolution_label}"
+        )
+    if expected_success and resolution_case.stdout != (
+        "10.20.30.40|mailcow.internal.example\n"
+    ):
+        raise SystemExit(f"{certs_hook_path}: resolved SSH address/HostKeyAlias were not pinned")
+
+with tempfile.TemporaryDirectory(prefix="mailcow-first-contact.") as trust_fixture_name:
+    trust_fixture = Path(trust_fixture_name)
+    trace_path = trust_fixture / "trace"
+    binding_path = trust_fixture / "binding"
+    durable_path = trust_fixture / "durable"
+    mutation_path = trust_fixture / "mutation"
+    first_contact_body = r'''trace_event() { printf '%s\n' "$1" >>"$MAILCOW_TEST_TRACE"; }
+known_host_binding_exists() { [ -f "$MAILCOW_TEST_BINDING" ]; }
+require_known_host_binding() { known_host_binding_exists "$1"; }
+run_bounded_ssh() {
+  trace_event "handshake|$*"
+  [ "$5" = true ] || return 70
+  [ "$MAILCOW_TEST_MODE" != handshake-fail ] || return 71
+  : >"$MAILCOW_TEST_BINDING"
+  : >"$MAILCOW_TEST_DURABLE"
+}
+MAILCOW_SSH_HOST_KEY_ALIAS=mailcow.internal.example
+MAILCOW_SSH_RESOLVED_ADDRESS=192.168.20.120
+establish_mailcow_host_trust
+[ -f "$MAILCOW_TEST_DURABLE" ]
+: >"$MAILCOW_TEST_MUTATION"'''
+    for mode, expected_success in (("success", True), ("handshake-fail", False)):
+      for path in (trace_path, binding_path, durable_path, mutation_path):
+        path.unlink(missing_ok=True)
+      trust_case = run_mailcow_hook_fixture(
+          first_contact_body,
+          {
+              "MAILCOW_TEST_MODE": mode,
+              "MAILCOW_TEST_TRACE": str(trace_path),
+              "MAILCOW_TEST_BINDING": str(binding_path),
+              "MAILCOW_TEST_DURABLE": str(durable_path),
+              "MAILCOW_TEST_MUTATION": str(mutation_path),
+          },
+      )
+      trace = trace_path.read_text(encoding="utf-8").splitlines() if trace_path.exists() else []
+      if (trust_case.returncode == 0) != expected_success:
+        raise SystemExit(f"{certs_hook_path}: {mode} first-contact trust result was wrong: {trace}")
+      if not trace or not trace[0].endswith(" mailcow.internal.example true"):
+        raise SystemExit(f"{certs_hook_path}: first contact was not an exact read-only remote true handshake: {trace}")
+      if mutation_path.exists() != expected_success:
+        raise SystemExit(f"{certs_hook_path}: {mode} first-contact path violated the pre-mutation trust barrier")
+
+    sync_reader = trust_fixture / "certs-dumper-safe-reader"
+    sync_reader.write_text(
+        "#!/bin/sh\nprintf '%s\\n' \"$*\" >>\"$MAILCOW_TEST_TRACE\"\n"
+        "[ \"$MAILCOW_TEST_MODE\" != sync-fail ]\n",
+        encoding="utf-8",
+    )
+    sync_reader.chmod(0o700)
+    existing_binding_body = r'''known_host_binding_exists() { return 0; }
+require_known_host_binding() { return 0; }
+snapshot_ssh_known_hosts() { printf '%s' stable-snapshot; }
+CERTS_DUMPER_SSH_KNOWN_HOSTS_SNAPSHOT=stable-snapshot
+MAILCOW_SSH_HOST_KEY_ALIAS=mailcow.internal.example
+establish_mailcow_host_trust
+: >"$MAILCOW_TEST_MUTATION"'''
+    for mode, expected_success in (("sync-success", True), ("sync-fail", False)):
+      trace_path.unlink(missing_ok=True)
+      mutation_path.unlink(missing_ok=True)
+      trust_case = run_mailcow_hook_fixture(
+          existing_binding_body,
+          {
+              "MAILCOW_TEST_MODE": mode,
+              "MAILCOW_TEST_TRACE": str(trace_path),
+              "MAILCOW_TEST_MUTATION": str(mutation_path),
+          },
+          {
+              f'readonly CERTS_DUMPER_SAFE_READER="{test_bin / "certs-dumper-safe-reader"}"':
+                  f'readonly CERTS_DUMPER_SAFE_READER="{sync_reader}"',
+          },
+      )
+      trace = trace_path.read_text(encoding="utf-8").splitlines() if trace_path.exists() else []
+      if (trust_case.returncode == 0) != expected_success or mutation_path.exists() != expected_success:
+        raise SystemExit(f"{certs_hook_path}: {mode} known_hosts durability barrier failed closed incorrectly: {trace}")
+      if trace != ["--sync-known-hosts /state/.ssh/known_hosts"]:
+        raise SystemExit(f"{certs_hook_path}: existing host trust did not use the exact durable helper barrier: {trace}")
+
+deadline_contract_case = run_mailcow_hook_fixture(
+    "validate_mailcow_deadline_contract",
+    {},
+)
+if deadline_contract_case.returncode != 0:
+    raise SystemExit(f"{certs_hook_path}: emergency rollback deadlines exceed stop grace")
+
+with tempfile.TemporaryDirectory(prefix="mailcow-ssh-deadline.") as deadline_fixture_name:
+    deadline_fixture = Path(deadline_fixture_name)
+    deadline_bin = deadline_fixture / "bin"
+    deadline_bin.mkdir()
+    ssh_stub = deadline_bin / "ssh"
+    ssh_stub.write_text("#!/bin/sh\nexec sleep 30\n", encoding="utf-8")
+    ssh_stub.chmod(0o700)
+    deadline_started = __import__("time").monotonic()
+    ssh_deadline_case = run_mailcow_hook_fixture(
+        r'''validate_mailcow_ssh_endpoint() { :; }
+validate_ssh_runtime_state() { :; }
+known_host_binding_exists() { return 0; }
+revalidate_ssh_runtime_state_after_call() { :; }
+MAILCOW_SSH_RESOLVED_ADDRESS=192.168.20.120
+MAILCOW_SSH_HOST_KEY_ALIAS=mailcow.internal.example
+PATH="$SSH_DEADLINE_BIN:$PATH"
+set +e
+run_bounded_ssh 1 /unused/key certdeploy mailcow.internal.example true
+deadline_status=$?
+set -e
+[ "$deadline_status" -eq 124 ]''',
+        {"SSH_DEADLINE_BIN": str(deadline_bin)},
+    )
+    deadline_elapsed = __import__("time").monotonic() - deadline_started
+    if ssh_deadline_case.returncode != 0 or deadline_elapsed >= 8:
+        raise SystemExit(
+            f"{certs_hook_path}: hung SSH command escaped its hard total deadline"
+        )
+
 mailcow_resolver_case = run_mailcow_hook_fixture(
     r'''resolve_mailcow_configuration
 printf '%s\n' \
   "$MAILCOW_CERT_MAIN_DOMAIN" \
   "$MAILCOW_SMTP_HOSTNAME" \
-  "$MAILCOW_CLOUDFLARE_ZONE_NAME" \
+  "$MAILCOW_DNS_ZONE_NAME" \
   "$MAILCOW_TLSA_RECORD_NAME"''',
     mailcow_route_environment,
 )
@@ -4506,7 +7147,7 @@ if (
     or mailcow_resolver_case.stdout != expected_mailcow_resolution
 ):
     raise SystemExit(
-        f"{certs_hook_path}: SMTP, explicit Cloudflare zone, TLSA owner, or certificate main resolved incorrectly"
+        f"{certs_hook_path}: SMTP, explicit DNS zone, TLSA owner, or certificate main resolved incorrectly"
     )
 
 unprefixed_smtp_environment = {
@@ -4524,11 +7165,46 @@ if unprefixed_smtp_case.returncode == 0:
 
 placeholder_zone_case = run_mailcow_hook_fixture(
     "resolve_mailcow_configuration",
-    {**mailcow_route_environment, "MAILCOW_CLOUDFLARE_ZONE": "CHANGE_ME"},
+    {**mailcow_route_environment, "MAILCOW_DNS_ZONE": "CHANGE_ME"},
 )
 if placeholder_zone_case.returncode == 0:
     raise SystemExit(
-        f"{certs_hook_path}: active Mailcow hook must reject an unconfigured Cloudflare zone"
+        f"{certs_hook_path}: active Mailcow hook must reject an unconfigured DNS zone"
+    )
+
+unsupported_resolver_case = run_mailcow_hook_fixture(
+    "resolve_mailcow_configuration",
+    {**mailcow_route_environment, "CERTRESOLVER": "route53"},
+)
+if unsupported_resolver_case.returncode == 0:
+    raise SystemExit(
+        f"{certs_hook_path}: Mailcow must reject an unsupported CERTRESOLVER"
+    )
+
+desec_low_ttl_case = run_mailcow_hook_fixture(
+    "resolve_mailcow_configuration",
+    {
+        **mailcow_route_environment,
+        "CERTRESOLVER": "desec",
+        "MAILCOW_DANE_TTL_SECONDS": "300",
+    },
+)
+if desec_low_ttl_case.returncode == 0:
+    raise SystemExit(
+        f"{certs_hook_path}: deSEC Mailcow TTL below 3600 must fail closed"
+    )
+
+desec_valid_ttl_case = run_mailcow_hook_fixture(
+    "resolve_mailcow_configuration",
+    {
+        **mailcow_route_environment,
+        "CERTRESOLVER": "desec",
+        "MAILCOW_DANE_TTL_SECONDS": "3600",
+    },
+)
+if desec_valid_ttl_case.returncode != 0:
+    raise SystemExit(
+        f"{certs_hook_path}: deSEC Mailcow TTL 3600 must be accepted"
     )
 
 if True:
@@ -4572,8 +7248,117 @@ if True:
         "ttl": 300,
         "proxied": False,
         "content": f"3 1 1 {new_spki}",
-    }],
+      }],
   }
+
+  cloudflare_drift_rrset = {
+      "success": True,
+      "result": [tlsa_record("3" * 32, "e" * 64)],
+  }
+  cloudflare_delete_drift_rrset = {
+      "success": True,
+      "result": [
+          tlsa_record(old_record_id, old_spki),
+          tlsa_record("3" * 32, "e" * 64),
+      ],
+  }
+  cloudflare_fixture_library = r'''cloudflare_get_tlsa_records() {
+  printf '%s' "$CF_FINAL_RESPONSE"
+}
+cloudflare_mutate_record() {
+  printf '%s' "$1" >"$CF_MUTATION_MARKER"
+}'''
+
+  cloudflare_create_operation = (
+      'create_cloudflare_tlsa_record "11111111111111111111111111111111" '
+      '"$TLSA_OWNER" 300 "$TLSA_NEW_HASH" "$CF_EXPECTED_RESPONSE"'
+  )
+  cloudflare_delete_operation = (
+      'MAILCOW_TLSA_RECORD_NAME="$TLSA_OWNER"; '
+      'MAILCOW_DANE_TTL_SECONDS=300; '
+      'delete_cloudflare_tlsa_record "11111111111111111111111111111111" '
+      '"11111111111111111111111111111111" "$CF_EXPECTED_RESPONSE"'
+  )
+  cloudflare_environment = {
+      "TLSA_OWNER": tlsa_owner,
+      "TLSA_NEW_HASH": new_spki,
+  }
+  for cloudflare_label, operation, expected_response, final_response, method, success in (
+      (
+          "create-stable",
+          cloudflare_create_operation,
+          stable_rrset,
+          stable_rrset,
+          "POST",
+          True,
+      ),
+      (
+          "create-drift",
+          cloudflare_create_operation,
+          stable_rrset,
+          cloudflare_drift_rrset,
+          "POST",
+          False,
+      ),
+      (
+          "delete-stable",
+          cloudflare_delete_operation,
+          transitional_rrset,
+          transitional_rrset,
+          "DELETE",
+          True,
+      ),
+      (
+          "delete-order-only",
+          cloudflare_delete_operation,
+          transitional_rrset,
+          {"success": True, "result": list(reversed(transitional_rrset["result"]))},
+          "DELETE",
+          True,
+      ),
+      (
+          "delete-drift",
+          cloudflare_delete_operation,
+          transitional_rrset,
+          cloudflare_delete_drift_rrset,
+          "DELETE",
+          False,
+      ),
+  ):
+    with tempfile.TemporaryDirectory(prefix=f"cloudflare-{cloudflare_label}.") as fixture_name:
+      fixture = Path(fixture_name)
+      mutation_marker = fixture / "mutation.called"
+      result = run_mailcow_hook_fixture(
+          f"{cloudflare_fixture_library}\n{operation}",
+          {
+              **cloudflare_environment,
+              "CF_EXPECTED_RESPONSE": json.dumps(
+                  expected_response, separators=(",", ":")
+              ),
+              "CF_FINAL_RESPONSE": json.dumps(
+                  final_response, separators=(",", ":")
+              ),
+              "CF_MUTATION_MARKER": str(mutation_marker),
+          },
+      )
+      mutation_method = (
+          mutation_marker.read_text(encoding="utf-8")
+          if mutation_marker.is_file()
+          else ""
+      )
+      if (result.returncode == 0) != success:
+        raise SystemExit(
+            f"{certs_hook_path}: Cloudflare {cloudflare_label} snapshot decision was incorrect"
+        )
+      if success and mutation_method != method:
+        raise SystemExit(
+            f"{certs_hook_path}: Cloudflare {cloudflare_label} did not reach the exact mutation"
+        )
+      if not success and mutation_marker.exists():
+        raise SystemExit(
+            f"{certs_hook_path}: Cloudflare {cloudflare_label} drift reached DNS mutation"
+        )
+
   for rrset_name, rrset, expected_count in (
     ("stable", stable_rrset, 1),
     ("transitional", transitional_rrset, 2),
@@ -4590,6 +7375,421 @@ if True:
       raise SystemExit(
           f"{certs_hook_path}: valid {rrset_name} Mailcow TLSA RRset was rejected"
       )
+
+  for proxied_label, proxied_value in (
+      ("missing", "__missing__"),
+      ("null", None),
+      ("string", "false"),
+      ("true", True),
+  ):
+    proxied_rrset = json.loads(json.dumps(stable_rrset))
+    if proxied_value == "__missing__":
+      proxied_rrset["result"][0].pop("proxied")
+    else:
+      proxied_rrset["result"][0]["proxied"] = proxied_value
+    proxied_case = run_mailcow_hook_fixture(
+        'select_mailcow_tlsa_records "$TLSA_RECORDS" "$TLSA_OWNER" 300 >/dev/null',
+        {
+            "TLSA_RECORDS": json.dumps(proxied_rrset, separators=(",", ":")),
+            "TLSA_OWNER": tlsa_owner,
+        },
+    )
+    if proxied_case.returncode == 0:
+      raise SystemExit(
+          f"{certs_hook_path}: Cloudflare proxied={proxied_label} schema drift was accepted"
+      )
+
+  desec_id_rrset = {
+    "success": True,
+    "result": [tlsa_record(old_spki, old_spki, ttl=3600)],
+  }
+  desec_id_case = run_mailcow_hook_fixture(
+      'select_mailcow_tlsa_records "$TLSA_RECORDS" "$TLSA_OWNER" 3600 | jq -er "length"',
+      {
+          "TLSA_RECORDS": json.dumps(desec_id_rrset, separators=(",", ":")),
+          "TLSA_OWNER": tlsa_owner,
+      },
+  )
+  if desec_id_case.returncode != 0 or desec_id_case.stdout != "1\n":
+    raise SystemExit(
+        f"{certs_hook_path}: deSEC-shaped 64-hex TLSA record IDs must be accepted"
+    )
+
+  desec_normalize_case = run_mailcow_hook_fixture(
+      r'''desec_normalize_tlsa_rrset "$DESEC_RRSET" "$TLSA_OWNER" "$DESEC_SUBNAME" | jq -cer --arg hash "$TLSA_HASH" --arg subname "$DESEC_SUBNAME" '
+        (.success == true)
+        and (.identity == {exists:true,subname:$subname,type:"TLSA",name:"_25._tcp.mail.it.saervices.de"})
+        and (.result | length == 1)
+        and (.result[0].id == $hash)
+        and (.result[0].ttl == 3600)
+        and (.result[0].type == "TLSA")
+      ' >/dev/null''',
+      {
+          "DESEC_RRSET": json.dumps(
+              {
+                  "subname": "_25._tcp.mail.it",
+                  "name": f"{tlsa_owner}.",
+                  "type": "TLSA",
+                  "ttl": 3600,
+                  "records": [f"3 1 1 {old_spki}"],
+              },
+              separators=(",", ":"),
+          ),
+          "TLSA_OWNER": tlsa_owner,
+          "TLSA_HASH": old_spki,
+          "DESEC_SUBNAME": "_25._tcp.mail.it",
+      },
+  )
+  if desec_normalize_case.returncode != 0:
+    raise SystemExit(
+        f"{certs_hook_path}: deSEC TLSA RRset normalisation must emit the shared Mailcow JSON shape"
+    )
+
+  def normalized_desec_record(certificate_hash, *, ttl=3600):
+    return {
+        "id": certificate_hash,
+        "type": "TLSA",
+        "name": tlsa_owner,
+        "ttl": ttl,
+        "proxied": False,
+        "content": f"3 1 1 {certificate_hash}",
+        "data": {
+            "usage": 3,
+            "selector": 1,
+            "matching_type": 1,
+            "certificate": certificate_hash,
+        },
+    }
+
+  stable_desec_response = {
+      "success": True,
+      "identity": {
+          "exists": True,
+          "subname": "_25._tcp.mail.it",
+          "type": "TLSA",
+          "name": tlsa_owner,
+      },
+      "result": [normalized_desec_record(old_spki)],
+  }
+  transitional_desec_response = {
+      "success": True,
+      "identity": {
+          "exists": True,
+          "subname": "_25._tcp.mail.it",
+          "type": "TLSA",
+          "name": tlsa_owner,
+      },
+      "result": [
+          normalized_desec_record(old_spki),
+          normalized_desec_record(new_spki),
+      ],
+  }
+  def provider_desec_response(*certificate_hashes, ttl=3600):
+    return {
+        "subname": "_25._tcp.mail.it",
+        "name": f"{tlsa_owner}.",
+        "type": "TLSA",
+        "ttl": ttl,
+        "records": [f"3 1 1 {value}" for value in certificate_hashes],
+    }
+
+  stable_desec_provider_response = provider_desec_response(old_spki)
+  transitional_desec_provider_response = provider_desec_response(
+      old_spki, new_spki
+  )
+  reversed_desec_provider_response = provider_desec_response(
+      new_spki, old_spki
+  )
+
+  desec_fixture_library = r'''read_dns_api_token() { printf '%s' 'fixture-token'; }
+curl() {
+  local output_file=''
+  local method='GET'
+  local payload=''
+  local connect_timeout=''
+  local max_time=''
+  local request_url=''
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      -sS) shift ;;
+      --connect-timeout) connect_timeout="$2"; shift 2 ;;
+      --max-time) max_time="$2"; shift 2 ;;
+      -o) output_file="$2"; shift 2 ;;
+      -w) shift 2 ;;
+      --request) method="$2"; shift 2 ;;
+      --header) shift 2 ;;
+      --data) payload="$2"; shift 2 ;;
+      *) request_url="$1"; shift ;;
+    esac
+  done
+  if [ "$method" = GET ]; then
+    [ -z "$output_file" ] || printf '%s' "$DESEC_PROVIDER_RESPONSE" >"$output_file"
+    printf '%s' '200'
+    return 0
+  fi
+  : >"$DESEC_CURL_MARKER"
+  printf '%s' "$payload" >"$DESEC_PAYLOAD_MARKER"
+  printf 'method=%s\nconnect_timeout=%s\nmax_time=%s\nurl=%s\n' \
+    "$method" "$connect_timeout" "$max_time" "$request_url" \
+    >"$DESEC_CURL_META_MARKER"
+  [ -z "$output_file" ] || printf '%s' '{"fixture":true}' >"$output_file"
+  if [ "${DESEC_TRANSPORT_FAILURE:-false}" = true ]; then
+    return 7
+  fi
+  printf '%s' "${DESEC_HTTP_STATUS:-200}"
+}'''
+
+  def run_desec_mutation_fixture(
+      label,
+      operation,
+      expected_response,
+      provider_response,
+      *,
+      http_status="200",
+      transport_failure=False,
+  ):
+    with tempfile.TemporaryDirectory(prefix=f"desec-{label}.") as mutation_fixture_name:
+      mutation_fixture = Path(mutation_fixture_name)
+      curl_marker = mutation_fixture / "curl.called"
+      payload_marker = mutation_fixture / "payload.json"
+      curl_meta_marker = mutation_fixture / "curl.meta"
+      result = run_mailcow_hook_fixture(
+          f"{desec_fixture_library}\n{operation}",
+          {
+              "DESEC_ZONE": "saervices.de",
+              "DESEC_OWNER": tlsa_owner,
+              "DESEC_OLD_HASH": old_spki,
+              "DESEC_NEW_HASH": new_spki,
+              "DESEC_EXPECTED_RESPONSE": json.dumps(
+                  expected_response, separators=(",", ":")
+              ),
+              "DESEC_PROVIDER_RESPONSE": json.dumps(
+                  provider_response, separators=(",", ":")
+              ),
+              "DESEC_HTTP_STATUS": http_status,
+              "DESEC_TRANSPORT_FAILURE": (
+                  "true" if transport_failure else "false"
+              ),
+              "DESEC_CURL_MARKER": str(curl_marker),
+              "DESEC_PAYLOAD_MARKER": str(payload_marker),
+              "DESEC_CURL_META_MARKER": str(curl_meta_marker),
+          },
+      )
+      payload = (
+          json.loads(payload_marker.read_text(encoding="utf-8"))
+          if payload_marker.is_file() and payload_marker.stat().st_size
+          else None
+      )
+      curl_meta = {}
+      if curl_meta_marker.is_file():
+        for line in curl_meta_marker.read_text(encoding="utf-8").splitlines():
+          name, separator, value = line.partition("=")
+          if separator:
+            curl_meta[name] = value
+      return {
+          "result": result,
+          "curl_called": curl_marker.is_file(),
+          "payload": payload,
+          "curl_meta": curl_meta,
+      }
+
+  desec_create_operation = (
+      'create_desec_tlsa_record "$DESEC_ZONE" "$DESEC_OWNER" 3600 '
+      '"$DESEC_NEW_HASH" "$DESEC_EXPECTED_RESPONSE"'
+  )
+  desec_delete_operation = (
+      'delete_desec_tlsa_record "$DESEC_ZONE" "$DESEC_OLD_HASH" '
+      '"$DESEC_OWNER" 3600 "$DESEC_EXPECTED_RESPONSE"'
+  )
+  expected_desec_url = (
+      "https://desec.io/api/v1/domains/saervices.de/rrsets/"
+      "_25._tcp.mail.it/TLSA/"
+  )
+  expected_desec_payloads = {
+      "create": {
+          "subname": "_25._tcp.mail.it",
+          "type": "TLSA",
+          "ttl": 3600,
+          "records": [
+              f"3 1 1 {old_spki}",
+              f"3 1 1 {new_spki}",
+          ],
+      },
+      "delete": {
+          "subname": "_25._tcp.mail.it",
+          "type": "TLSA",
+          "ttl": 3600,
+          "records": [f"3 1 1 {new_spki}"],
+      },
+  }
+  for mutation_name, operation, expected_response in (
+      ("create", desec_create_operation, stable_desec_response),
+      ("delete", desec_delete_operation, transitional_desec_response),
+  ):
+    provider_response = (
+        stable_desec_provider_response
+        if mutation_name == "create"
+        else transitional_desec_provider_response
+    )
+    mutation_case = run_desec_mutation_fixture(
+        f"{mutation_name}-put",
+        operation,
+        expected_response,
+        provider_response,
+    )
+    if mutation_case["result"].returncode != 0 or not mutation_case["curl_called"]:
+      raise SystemExit(
+          f"{certs_hook_path}: direct deSEC {mutation_name} full-PUT fixture failed: "
+          f"{mutation_case['result'].stderr.strip()}"
+      )
+    if mutation_case["payload"] != expected_desec_payloads[mutation_name]:
+      raise SystemExit(
+          f"{certs_hook_path}: deSEC {mutation_name} did not send the complete exact RRset payload"
+      )
+    if mutation_case["curl_meta"] != {
+        "method": "PUT",
+        "connect_timeout": "5",
+        "max_time": "30",
+        "url": expected_desec_url,
+    }:
+      raise SystemExit(
+          f"{certs_hook_path}: deSEC {mutation_name} PUT method, URL, or timeouts changed"
+      )
+
+  order_only_case = run_desec_mutation_fixture(
+      "delete-order-only",
+      desec_delete_operation,
+      transitional_desec_response,
+      reversed_desec_provider_response,
+  )
+  if (
+      order_only_case["result"].returncode != 0
+      or not order_only_case["curl_called"]
+      or order_only_case["payload"] != expected_desec_payloads["delete"]
+  ):
+    raise SystemExit(
+        f"{certs_hook_path}: deSEC order-only snapshot change must remain safe and accepted"
+    )
+
+  invalid_provider_metadata = {}
+  for field_name in ("subname", "type", "name"):
+    missing_field_response = dict(stable_desec_provider_response)
+    missing_field_response.pop(field_name)
+    invalid_provider_metadata[f"missing {field_name}"] = missing_field_response
+    wrong_field_response = dict(stable_desec_provider_response)
+    wrong_field_response[field_name] = {
+        "subname": "_25._tcp.wrong",
+        "type": "A",
+        "name": "_25._tcp.wrong.saervices.de.",
+    }[field_name]
+    invalid_provider_metadata[f"wrong {field_name}"] = wrong_field_response
+  missing_records_response = dict(stable_desec_provider_response)
+  missing_records_response.pop("records")
+  invalid_provider_metadata["missing records"] = missing_records_response
+  malformed_records_response = dict(stable_desec_provider_response)
+  malformed_records_response["records"] = {"not": "an array"}
+  invalid_provider_metadata["malformed records"] = malformed_records_response
+  for metadata_label, provider_response in invalid_provider_metadata.items():
+    metadata_case = run_desec_mutation_fixture(
+        f"metadata-{metadata_label.replace(' ', '-')}",
+        desec_create_operation,
+        stable_desec_response,
+        provider_response,
+    )
+    if metadata_case["result"].returncode == 0 or metadata_case["curl_called"]:
+      raise SystemExit(
+          f"{certs_hook_path}: deSEC immediate GET accepted {metadata_label} before PUT"
+      )
+
+  drift_scenarios = (
+      (
+          "create addition",
+          desec_create_operation,
+          stable_desec_response,
+          provider_desec_response(old_spki, "e" * 64),
+      ),
+      (
+          "delete addition",
+          desec_delete_operation,
+          transitional_desec_response,
+          provider_desec_response(old_spki, new_spki, "e" * 64),
+      ),
+      (
+          "create TTL",
+          desec_create_operation,
+          stable_desec_response,
+          provider_desec_response(old_spki, ttl=7200),
+      ),
+      (
+          "delete TTL",
+          desec_delete_operation,
+          transitional_desec_response,
+          provider_desec_response(old_spki, new_spki, ttl=7200),
+      ),
+      (
+          "create same-count hash",
+          desec_create_operation,
+          stable_desec_response,
+          provider_desec_response("f" * 64),
+      ),
+      (
+          "delete same-count hash",
+          desec_delete_operation,
+          transitional_desec_response,
+          provider_desec_response(old_spki, "f" * 64),
+      ),
+      (
+          "create removal",
+          desec_create_operation,
+          stable_desec_response,
+          provider_desec_response(),
+      ),
+      (
+          "delete removal",
+          desec_delete_operation,
+          transitional_desec_response,
+          provider_desec_response(new_spki),
+      ),
+  )
+  for drift_label, operation, expected_response, drift_response in drift_scenarios:
+    drift_case = run_desec_mutation_fixture(
+        f"{drift_label.replace(' ', '-')}-drift",
+        operation,
+        expected_response,
+        drift_response,
+    )
+    if drift_case["result"].returncode == 0 or drift_case["curl_called"]:
+      raise SystemExit(
+          f"{certs_hook_path}: deSEC {drift_label} accepted snapshot drift before full PUT"
+      )
+
+  for mutation_name, operation, expected_response in (
+      ("create", desec_create_operation, stable_desec_response),
+      ("delete", desec_delete_operation, transitional_desec_response),
+  ):
+    provider_response = (
+        stable_desec_provider_response
+        if mutation_name == "create"
+        else transitional_desec_provider_response
+    )
+    for failure_label, http_status, transport_failure in (
+        ("HTTP 400", "400", False),
+        ("HTTP 409", "409", False),
+        ("HTTP 500", "500", False),
+        ("transport", "000", True),
+    ):
+      failure_case = run_desec_mutation_fixture(
+          f"{mutation_name}-{failure_label.replace(' ', '-').lower()}",
+          operation,
+          expected_response,
+          provider_response,
+          http_status=http_status,
+          transport_failure=transport_failure,
+      )
+      if failure_case["result"].returncode == 0 or not failure_case["curl_called"]:
+        raise SystemExit(
+            f"{certs_hook_path}: deSEC {mutation_name} did not fail closed on {failure_label}"
+        )
 
   invalid_rrsets = {
     "automatic TTL": {"success": True, "result": [tlsa_record(old_record_id, old_spki, ttl=1)]},
@@ -4688,21 +7888,26 @@ dnssec_tlsa_rrset_matches _25._tcp.mail.it.saervices.de 300 "$TLSA_HASH"''',
     token_fixture = Path(token_fixture_name)
     token_path = token_fixture / "token"
     for token_name, token_bytes, expected_success in (
-        ("valid", b"valid_token-123\n", True),
+        ("valid", b"valid_token-123", True),
         ("empty", b"", False),
         ("placeholder", b"CHANGE_ME", False),
+        ("trailing LF", b"valid_token-123\n", False),
+        ("trailing CRLF", b"valid_token-123\r\n", False),
         ("multiline", b"first\nsecond\n", False),
         ("CRLF multiline", b"first\r\nsecond\r\n", False),
-        ("whitespace", b"token value\n", False),
+        ("whitespace", b"token value", False),
+        ("Unicode", "tökén".encode("utf-8"), False),
+        ("invalid UTF-8", b"token-\xff", False),
+        ("DEL control", b"token-\x7f", False),
     ):
       token_path.write_bytes(token_bytes)
       token_case = run_mailcow_hook_fixture(
-          "read_cloudflare_token",
-          {"CF_DNS_API_TOKEN_FILE": str(token_path)},
+          "install_mailcow_transaction_traps\nprepare_dns_api_token_from_secret\nread_dns_api_token",
+          {"DNS_API_TOKEN_FILE": str(token_path)},
       )
       if (token_case.returncode == 0) != expected_success:
         raise SystemExit(
-            f"{certs_hook_path}: Cloudflare token {token_name} line contract is incorrect"
+            f"{certs_hook_path}: DNS API token {token_name} line contract is incorrect"
         )
 
 with tempfile.TemporaryDirectory(prefix="mailcow-key-pair.") as key_pair_fixture_name:
@@ -4740,10 +7945,137 @@ with tempfile.TemporaryDirectory(prefix="mailcow-key-pair.") as key_pair_fixture
     if mismatched_key_pair_case.returncode == 0:
         raise SystemExit(f"{certs_hook_path}: mismatched certificate/private-key pair was accepted")
 
+    remote_activate_marker = "<<'REMOTE_ACTIVATE'\n"
+    if hook_library.count(remote_activate_marker) != 1:
+        raise SystemExit(
+            f"{certs_hook_path}: remote activation transaction marker changed"
+        )
+    remote_activate_script = hook_library.split(
+        remote_activate_marker, 1
+    )[1].split("\nREMOTE_ACTIVATE", 1)[0]
+    for required_signal_trap in (
+        "trap 'rollback_pair' EXIT",
+        "trap 'trap - EXIT; rollback_pair; exit 129' HUP",
+        "trap 'trap - EXIT; rollback_pair; exit 130' INT",
+        "trap 'trap - EXIT; rollback_pair; exit 143' TERM",
+    ):
+        if required_signal_trap not in remote_activate_script:
+            raise SystemExit(
+                f"{certs_hook_path}: remote activation signal rollback contract lost "
+                f"{required_signal_trap!r}"
+            )
+
+    def openssl_output(arguments, *, input_bytes=None):
+        result = subprocess.run(
+            ["openssl", *arguments],
+            input=input_bytes,
+            check=False,
+            capture_output=True,
+        )
+        if result.returncode != 0:
+            raise SystemExit(
+                f"{certs_hook_path}: local OpenSSL activation fixture failed: "
+                f"{result.stderr.decode(errors='replace').strip()}"
+            )
+        return result.stdout
+
+    def certificate_identity(cert_path):
+        public_key = openssl_output(
+            ["x509", "-in", str(cert_path), "-noout", "-pubkey"]
+        )
+        public_der = openssl_output(
+            ["pkey", "-pubin", "-outform", "DER"], input_bytes=public_key
+        )
+        certificate_der = openssl_output(
+            ["x509", "-in", str(cert_path), "-outform", "DER"]
+        )
+        return (
+            hashlib.sha256(public_der).hexdigest(),
+            hashlib.sha256(certificate_der).hexdigest(),
+        )
+
+    prior_spki, prior_leaf = certificate_identity(other_cert)
+    new_spki, new_leaf = certificate_identity(matching_cert)
+    activation_root = key_pair_fixture / "activation"
+    ssl_path = activation_root / "data/assets/ssl"
+    transaction_path = ssl_path / f".certs-dumper-rollover-{new_leaf}"
+    transaction_path.mkdir(parents=True, mode=0o700)
+    for source, target in (
+        (other_cert, ssl_path / "cert.pem"),
+        (other_key, ssl_path / "key.pem"),
+        (other_cert, transaction_path / "backup-cert.pem"),
+        (other_key, transaction_path / "backup-key.pem"),
+        (matching_cert, transaction_path / "incoming-cert.pem"),
+        (matching_key, transaction_path / "incoming-key.pem"),
+    ):
+        target.write_bytes(source.read_bytes())
+        target.chmod(0o600)
+
+    activation_bin = key_pair_fixture / "activation-bin"
+    activation_bin.mkdir(mode=0o700)
+    activation_mv_count = key_pair_fixture / "activation-mv-count"
+    activation_mv_trace = key_pair_fixture / "activation-mv-trace"
+    activation_mv = activation_bin / "mv"
+    activation_mv.write_text(
+        "#!/bin/sh\n"
+        "set -eu\n"
+        "count=0\n"
+        "[ ! -f \"$ACTIVATION_MV_COUNT\" ] || count=$(cat \"$ACTIVATION_MV_COUNT\")\n"
+        "count=$((count + 1))\n"
+        "printf '%s' \"$count\" >\"$ACTIVATION_MV_COUNT\"\n"
+        "printf 'mv-%s\\n' \"$count\" >>\"$ACTIVATION_MV_TRACE\"\n"
+        "/bin/mv \"$@\"\n"
+        "if [ \"$count\" -eq 1 ]; then kill -TERM \"$PPID\"; fi\n",
+        encoding="utf-8",
+    )
+    activation_mv.chmod(0o700)
+    activation_case = subprocess.run(
+        [
+            "/bin/sh", "-s", "--", str(activation_root), new_leaf, new_spki,
+            prior_spki, prior_leaf,
+        ],
+        input=remote_activate_script,
+        env={
+            "PATH": f"{activation_bin}:{os.environ.get('PATH', '/usr/bin:/bin')}",
+            "ACTIVATION_MV_COUNT": str(activation_mv_count),
+            "ACTIVATION_MV_TRACE": str(activation_mv_trace),
+        },
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    if activation_case.returncode != 143:
+        raise SystemExit(
+            f"{certs_hook_path}: TERM between remote activation moves must exit 143, "
+            f"got {activation_case.returncode}: {activation_case.stderr.strip()}"
+        )
+    restored_spki, restored_leaf = certificate_identity(ssl_path / "cert.pem")
+    restored_key_spki = hashlib.sha256(
+        openssl_output(
+            ["pkey", "-pubout", "-outform", "DER"],
+            input_bytes=(ssl_path / "key.pem").read_bytes(),
+        )
+    ).hexdigest()
+    activation_trace = activation_mv_trace.read_text(encoding="utf-8").splitlines()
+    if (
+        (restored_spki, restored_leaf, restored_key_spki)
+        != (prior_spki, prior_leaf, prior_spki)
+        or activation_trace != ["mv-1", "mv-2", "mv-3"]
+        or not (transaction_path / "activate-key.pem").is_file()
+    ):
+        raise SystemExit(
+            f"{certs_hook_path}: TERM during remote activation did not leave the exact "
+            f"prior pair or continued after rollback: {activation_trace}"
+        )
+
 if True:
   mailcow_flow_body = r'''trace_event() { printf '%s\n' "$1" >>"$MAILCOW_TEST_TRACE"; }
-acquire_mailcow_lock() { trace_event "lock"; }
-read_cloudflare_token() { trace_event "token"; printf 'test-token'; }
+validate_mailcow_lock_context() { trace_event "lock"; }
+install_mailcow_transaction_traps() { :; }
+preflight_mailcow_container() { trace_event "preflight"; resolve_mailcow_configuration; }
+prepare_mailcow_runtime() { preflight_mailcow_container; trace_event "runtime"; }
+read_dns_api_token() { trace_event "token"; printf 'test-token'; }
 wait_for_certificate_files() { trace_event "cert-files|$1|$2"; }
 require_certificate_key_pair() { trace_event "cert-key|$1|$2"; }
 require_certificate_hostname() { trace_event "cert-host|$1|$2"; }
@@ -4788,7 +8120,7 @@ verify_remote_smtp_identity() {
   [ "$actual_spki" = "$3" ] && [ "$actual_leaf" = "$4" ]
 }
 cleanup_remote_mailcow_transaction() { trace_event "cleanup|$5"; }
-mailcow'''
+mailcow_locked'''
 
   def assert_trace_order(trace, required_steps, scenario):
     position = -1
@@ -4819,6 +8151,7 @@ mailcow'''
             "MAILCOW_TEST_OLD_SPKI": old_spki,
             "MAILCOW_TEST_NEW_SPKI": new_spki,
             "MAILCOW_TEST_NEW_LEAF": new_leaf,
+            "CERTS_DUMPER_OUTPUT_GENERATION": "/run/certs-dumper/vendor-output",
         },
     )
     trace = trace_path.read_text(encoding="utf-8").splitlines() if trace_path.is_file() else []
@@ -4835,7 +8168,10 @@ mailcow'''
     )
     assert_trace_order(
         same_spki_trace,
-        ("lock", "token", "dnssec|", "dns-view|", "deploy|", "cleanup|"),
+        (
+            "lock", "preflight", "runtime", "token", "dnssec|", "dns-view|",
+            "deploy|", "cleanup|",
+        ),
         "same-SPKI renewal",
     )
     if (
@@ -4889,6 +8225,138 @@ mailcow'''
     ):
       raise SystemExit(f"{certs_hook_path}: post-deployment resume repeated publication or deployment")
 
+  with tempfile.TemporaryDirectory(prefix="mailcow-pre-activation.") as activation_fixture_name:
+    activation_fixture = Path(activation_fixture_name)
+    expected_records = {
+        "success": True,
+        "result": [
+            {
+                "id": "1" * 32,
+                "type": "TLSA",
+                "name": "_25._tcp.mail.it.saervices.de",
+                "ttl": 300,
+                "proxied": False,
+                "data": {"usage": 3, "selector": 1, "matching_type": 1, "certificate": old_spki},
+            },
+            {
+                "id": "2" * 32,
+                "type": "TLSA",
+                "name": "_25._tcp.mail.it.saervices.de",
+                "ttl": 300,
+                "proxied": False,
+                "data": {"usage": 3, "selector": 1, "matching_type": 1, "certificate": new_spki},
+            },
+        ],
+    }
+    expected_path = activation_fixture / "expected.json"
+    expected_path.write_text(json.dumps(expected_records, separators=(",", ":")), encoding="utf-8")
+    drift_records = {
+        "add": {**expected_records, "result": [*expected_records["result"], {
+            "id": "3" * 32,
+            "type": "TLSA",
+            "name": "_25._tcp.mail.it.saervices.de",
+            "ttl": 300,
+            "proxied": False,
+            "data": {"usage": 3, "selector": 1, "matching_type": 1, "certificate": "c" * 64},
+        }]},
+        "remove": {**expected_records, "result": expected_records["result"][:1]},
+        "ttl": {**expected_records, "result": [
+            {**record, "ttl": 301} for record in expected_records["result"]
+        ]},
+        "late-rrset": {**expected_records, "result": expected_records["result"][:1]},
+    }
+    drift_paths = {}
+    for drift_name, drift_value in drift_records.items():
+      drift_path = activation_fixture / f"{drift_name}.json"
+      drift_path.write_text(json.dumps(drift_value, separators=(",", ":")), encoding="utf-8")
+      drift_paths[drift_name] = drift_path
+
+    activation_body = r'''trace_event() { printf '%s\n' "$1" >>"$MAILCOW_TEST_TRACE"; }
+stage_remote_mailcow_certificate() { trace_event "stage"; }
+dns_require_zone() {
+  trace_event "zone"
+  if [ "$MAILCOW_TEST_MODE" = zone ]; then printf '%s' wrong-zone; else printf '%s' zone-id; fi
+}
+dns_require_dnssec() {
+  trace_event "zone-dnssec"
+  [ "$MAILCOW_TEST_MODE" != zone-dnssec ] || log_error "injected zone DNSSEC drift"
+}
+dns_get_tlsa_records() {
+  count=0
+  [ ! -f "$MAILCOW_TEST_GET_COUNT" ] || count="$(cat "$MAILCOW_TEST_GET_COUNT")"
+  count=$((count + 1))
+  printf '%s' "$count" >"$MAILCOW_TEST_GET_COUNT"
+  trace_event "provider-get|$count"
+  case "$MAILCOW_TEST_MODE" in
+    add|remove|ttl) cat "$MAILCOW_TEST_DRIFT" ;;
+    late-rrset) if [ "$count" -eq 2 ]; then cat "$MAILCOW_TEST_DRIFT"; else cat "$MAILCOW_TEST_EXPECTED"; fi ;;
+    *) cat "$MAILCOW_TEST_EXPECTED" ;;
+  esac
+}
+dnssec_tlsa_rrset_matches() {
+  trace_event "resolver-dnssec"
+  [ "$MAILCOW_TEST_MODE" != resolver-dnssec ]
+}
+verify_remote_smtp_identity() {
+  trace_event "smtp-verify|$3|$4"
+  if [ "$MAILCOW_TEST_MODE" = remote-identity ] && [ "$3" = "$MAILCOW_TEST_OLD_SPKI" ]; then return 1; fi
+  return 0
+}
+arm_mailcow_rollback() { trace_event "arm"; }
+activate_remote_mailcow_certificate() { trace_event "activate"; : >"$MAILCOW_TEST_ACTIVATED"; }
+restart_remote_mailcow_services() { trace_event "restart"; }
+disarm_mailcow_rollback() { trace_event "disarm"; }
+MAILCOW_SSH_RESOLVED_ADDRESS=192.168.20.120
+MAILCOW_SMTP_HOSTNAME=mail.it.saervices.de
+MAILCOW_DNS_ZONE_NAME=it.saervices.de
+MAILCOW_TLSA_RECORD_NAME=_25._tcp.mail.it.saervices.de
+MAILCOW_DANE_TTL_SECONDS=300
+expected_response="$(cat "$MAILCOW_TEST_EXPECTED")"
+deploy_mailcow_certificate_pair cert key 192.168.20.120 deploy /opt/mailcow key \
+  "$MAILCOW_TEST_NEW_SPKI" "$MAILCOW_TEST_NEW_LEAF" \
+  "$MAILCOW_TEST_OLD_SPKI" "$MAILCOW_TEST_OLD_LEAF" \
+  true zone-id "$expected_response" "$MAILCOW_TEST_OLD_SPKI"'''
+
+    for mode in ("success", "add", "remove", "ttl", "late-rrset", "zone", "zone-dnssec", "resolver-dnssec", "remote-identity"):
+      trace_path = activation_fixture / f"{mode}.trace"
+      activated_path = activation_fixture / f"{mode}.activated"
+      get_count_path = activation_fixture / f"{mode}.get-count"
+      drift_path = drift_paths.get(mode, expected_path)
+      activation_case = run_mailcow_hook_fixture(
+          activation_body,
+          {
+              "CERTRESOLVER": "cloudflare",
+              "MAILCOW_TEST_MODE": mode,
+              "MAILCOW_TEST_TRACE": str(trace_path),
+              "MAILCOW_TEST_ACTIVATED": str(activated_path),
+              "MAILCOW_TEST_GET_COUNT": str(get_count_path),
+              "MAILCOW_TEST_EXPECTED": str(expected_path),
+              "MAILCOW_TEST_DRIFT": str(drift_path),
+              "MAILCOW_TEST_OLD_SPKI": old_spki,
+              "MAILCOW_TEST_OLD_LEAF": old_leaf,
+              "MAILCOW_TEST_NEW_SPKI": new_spki,
+              "MAILCOW_TEST_NEW_LEAF": new_leaf,
+          },
+      )
+      trace = trace_path.read_text(encoding="utf-8").splitlines() if trace_path.is_file() else []
+      if not trace or trace[0] != "stage":
+        raise SystemExit(f"{certs_hook_path}: {mode} pre-activation fixture did not stage first: {trace}")
+      if mode == "success":
+        if activation_case.returncode != 0 or not activated_path.is_file():
+          raise SystemExit(
+              f"{certs_hook_path}: stable post-staging DANE state did not activate: "
+              f"{activation_case.stderr.strip()} trace={trace}"
+          )
+        assert_trace_order(
+            trace,
+            ("stage", "smtp-verify|", "zone", "zone-dnssec", "provider-get|1", "resolver-dnssec", "smtp-verify|", "provider-get|2", "arm", "activate"),
+            "post-staging pre-activation revalidation",
+        )
+      elif activation_case.returncode == 0 or activated_path.exists() or any(event in ("arm", "activate") for event in trace):
+        raise SystemExit(
+            f"{certs_hook_path}: {mode} drift after staging reached remote certificate activation: {trace}"
+        )
+
   with tempfile.TemporaryDirectory(prefix="mailcow-dane-rollback.") as rollback_fixture_name:
     rollback_fixture = Path(rollback_fixture_name)
     rollback_trace_path = rollback_fixture / "trace"
@@ -4898,6 +8366,7 @@ mailcow'''
     rollback_case = run_mailcow_hook_fixture(
         r'''trace_event() { printf '%s\n' "$1" >>"$MAILCOW_TEST_TRACE"; }
 stage_remote_mailcow_certificate() { trace_event "stage"; }
+revalidate_mailcow_pre_activation_state() { trace_event "pre-activate"; }
 activate_remote_mailcow_certificate() {
   trace_event "activate"
   printf '%s\n%s\n' "$6" "$5" >"$MAILCOW_TEST_IDENTITY"
@@ -4917,9 +8386,11 @@ verify_remote_smtp_identity() {
     [ "$(sed -n '2p' "$MAILCOW_TEST_IDENTITY")" = "$4" ]
 }
 MAILCOW_SMTP_HOSTNAME=mail.it.saervices.de
+install_mailcow_transaction_traps
 deploy_mailcow_certificate_pair cert key 192.168.20.120 root /opt/mailcow-dockerized key \
   "$MAILCOW_TEST_NEW_SPKI" "$MAILCOW_TEST_NEW_LEAF" \
-  "$MAILCOW_TEST_OLD_SPKI" "$MAILCOW_TEST_OLD_LEAF"''',
+  "$MAILCOW_TEST_OLD_SPKI" "$MAILCOW_TEST_OLD_LEAF" \
+  false unused-zone unused-response "$MAILCOW_TEST_OLD_SPKI"''',
         {
             "MAILCOW_TEST_TRACE": str(rollback_trace_path),
             "MAILCOW_TEST_IDENTITY": str(rollback_identity_path),
@@ -4933,7 +8404,7 @@ deploy_mailcow_certificate_pair cert key 192.168.20.120 root /opt/mailcow-docker
     rollback_trace = rollback_trace_path.read_text(encoding="utf-8").splitlines()
     assert_trace_order(
         rollback_trace,
-        ("stage", "activate", "restart", f"verify|{new_spki}|{new_leaf}", "rollback", "restart", f"verify|{old_spki}|{old_leaf}"),
+        ("stage", "pre-activate", "activate", "restart", f"verify|{new_spki}|{new_leaf}", "rollback", "restart", f"verify|{old_spki}|{old_leaf}"),
         "post-activation rollback",
     )
     if rollback_case.returncode == 0:
@@ -4957,7 +8428,7 @@ if "TRAEFIK_CERTS_DUMPER_PASSWORD" not in set(traefik_document.get("x-secret-gen
 PY
 }
 
-expect_success compose-disabled-features-have-no-secret-mount check_disabled_feature_mounts
+expect_success compose-feature-secret-mount-contracts check_feature_secret_mount_contracts
 
 printf '\nSecret preflight tests: %d passed, %d failed\n' "$PASS" "$FAIL"
 (( FAIL == 0 ))

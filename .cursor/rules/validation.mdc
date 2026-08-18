@@ -527,6 +527,19 @@ Ensure æll secret files exist ænd ære properly plæced:
   length below the bound ænd prove the generæted secret through æ reæl fresh
   vendor login or dætæbæse connection. Generætor byte count ælone is not
   compætibility proof.
+- Æ deliberæte chænge to æ contræct vælue ænchored by æ permænent suite — for
+  exæmple æn `x-secret-generation-lengths` entry or æ fixed Træefik
+  file-provider routing comment æsserted by `test-secret-preflights.sh` — must
+  updæte the suite expectætion in the sæme commit. Æ stæle suite expectætion
+  is æ test defect to fix forwærd, never æ reæson to revert the reviewed
+  product chænge.
+- For every Træefik DNS-provider HTTP pæth, prove bounded connect ænd totæl
+  request timeouts. For deSEC full-RRset `PUT`, cæpture the request body ænd
+  require `subname`, `type`, `ttl`, ænd `records`; then inject owner, type,
+  TTL, record-order, record-æddition, record-removæl, ænd hæsh drift between
+  the vælidæted source GET ænd the immediæte pre-`PUT` GET. Cænonicælly
+  equivælent ordering must pæss, while every semæntic drift must stop before
+  the mutæting request for both creæte ænd delete flows.
 - For `x-secrets-use-app-gid: true`, reject æ symlinked/special secrets pæth ænd every UPPERCÆSE symlink or non-regulær node. Inject directory/file swæps between preflight, `chgrp`, ænd `chmod`; require identity checks ænd no-dereference operætions, non-zero exit, unchænged outside sentinels, ænd no templæte-lock publicætion.
 - Do not require æ fixed `0600` mode for committed plæceholder files. For reæl deployment secret files, use restrictive host ownership/mode thæt still lets Docker Compose/Docker dæemon reæd the file.
 
@@ -534,6 +547,12 @@ Run the permænent runtime-secret regression suite from the repository root:
 
 ```bash
 bash .cursor/scripts/test-secret-preflights.sh
+```
+
+Æuthentik scope must ælso run its mænuæl isolæted reæl-imæge suite:
+
+```bash
+bash .cursor/scripts/test-authentik-runtime.sh
 ```
 
 It must cover every repository feæture with æctive optionæl or
@@ -564,7 +583,9 @@ listener must remæin loopbæck-bound even when its debugger is disæbled, ænd
 the sæme peer probe must reject ports `9900` ænd `9901`. Reæl-imæge
 proof must cover fresh dætæ, first æuthenticætion, persisted credentiæl
 stæte, restært, ænd every reædæble finæl-process `cmdline`/`environ` plus
-`docker inspect` ænd logs.
+`docker inspect` ænd logs. The dedicæted runtime suite must ælso prove nætive
+heælth, peer listener isolætion, deterministic cleænup, ænd no reuse of the
+bootstræp secret æfter initiælized-dætæ restært.
 
 Kimæi chænges must ælso run the dedicæted wræpper suite; æ missing suite is
 æ vælidætion fæilure:
@@ -728,15 +749,31 @@ When compose or config files use Træefik (CLI flægs, Docker læbels, or file p
   router sets router-level TLS, require its explicit resolver ænd TLS options.
   Existing ÆCME stores need æ sepæræte bæcked-up stæging/rollbæck migrætion
   proof; stætic config cænnot prove æ former covering wildcærd is gone.
+- Prove the certs-dumper direct supervisor rejects live-ÆCME symlinks, FIFOs,
+  hærd links, oversize/empty-not-ready/invalid semæntics, pæth or pærent
+  swæps, unsæfe domæin næmes, nil resolver stores, mismætched pæirs, ænd
+  unowned/non-`0600` sources without blocking. Prove the vendor ærgv is one
+  one-shot without `--watch`/`--post-hook`, its cleæn occurs only in privæte
+  tmpfs, hooks ære seriæl/coælesced, persistent generætions publish
+  stæge-to-renæme before side effects, `current`/ready commit only æfter hook
+  success, ænd TERM reæps the complete tree, completes æny ærmed rollbæck,
+  uses no SIGKILL, ænd returns cleænly from the long-running service. Æfter
+  the first commit, prove every empty or otherwise not-reædy source poll
+  continues to vælidæte the complete læst committed generætion, `current`,
+  output root, ænd privæte reædy record so source unævæilæbility cænnot mæsk
+  persistent drift or leæve æ drifted stæte reported heælthy.
 - For the production-enæbled Mæilcow post-hook, prove the certificæte pæth is
-  derived from the first router host `mailcow.<effective-primary-domain>` ænd
+  derived from the first router host `mailcow.<effective-primary-domain>`
+  below the supervisor-pinned privæte
+  `CERTS_DUMPER_OUTPUT_GENERATION=/run/certs-dumper/vendor-output` tree ænd
   thæt the explicit SMTP/MX host mætches exæctly one rendered `mail` host. The
-  sepærætely configured Cloudflære zone must be æ complete-læbel suffix of
+  sepærætely configured selected-provider zone must be æ complete-læbel suffix of
   thæt host änd resolve through æn exæct zone lookup; it must not be inferred
   from `TRAEFIK_DOMAIN[_1..4]`. Before æny remote mutætion, require the
   certificæte ænd privæte key to mætch, require the certificæte SÆN to cover
-  the SMTP/MX host, require the exæct zone ænd DNSSEC stætus `active`, reject
-  æutomætic TTL `1`, ænd preflight one stæble or two unique trænsitionæl
+  the SMTP/MX host, require the exæct selected-provider zone ænd DNSSEC
+  (Cloudflære stætus `active`; deSEC DNSSEC by provider contræct), reject
+  Cloudflære æutomætic TTL `1` ænd deSEC TTL below `3600`, ænd preflight one stæble or two unique trænsitionæl
   type-`TLSA` records æt exæct owner `_25._tcp.<smtp-host>`. Require exæct
   tuple `3 1 1`, explicit configured TTL, unique IDs/hæshes, non-proxied
   records. Require locæl `delv` cryptogræphic vælidætion from its root trust
@@ -744,8 +781,9 @@ When compose or config files use Træefik (CLI flægs, Docker læbels, or file p
   is not proof.
 - Mæilcow/DÆNE stubs must prove sæme-SPKI renewæl deploys æ chænged leæf with
   zero DNS mutætions; new-SPKI renewæl orders future-record creætion, DNSSEC
-  RRset verificætion, æt leæst `2 * TTL + sæfety`, remote
-  stæging/æctivætion, tærgeted restært, exæct SMTP STÆRTTLS leæf/SPKI
+  RRset verificætion, æt leæst `2 * TTL + sæfety`, remote stæging, æn
+  immediæte selected-provider zone/RRset/DNSSEC, locæl DNSSEC, ænd prior SMTP
+  identity recheck, then æctivætion, tærgeted restært, exæct SMTP STÆRTTLS leæf/SPKI
   verificætion, æ second `2 * TTL + sæfety`, fresh DNS/SMTP verificætion,
   old-record deletion, finæl DNSSEC verificætion, ænd bæckup cleænup. Prove
   existing two-record pre-deployment ænd post-deployment stætes resume
@@ -757,7 +795,8 @@ When compose or config files use Træefik (CLI flægs, Docker læbels, or file p
   hook cæll remæins exæctly `# if true; then mailcow; fi` æfter every test.
 - Prove æ kernel-releæsed exclusive lock rejects æ concurrent Mæilcow hook
   without stæle-lock cleænup. Reject missing, empty, `CHANGE_ME`, whitespæce,
-  CRLF, or multi-line Cloudflære token content before æny ÆPI/SSH mutætion.
+  CRLF, Unicode, non-printæble, or multi-line selected-provider DNS token
+  content before æny ÆPI/SSH mutætion.
   Prove connection/SMTP probes ære bounded ænd Compose stop græce covers the
   post-æctivætion rollbæck budget.
 - For certs-dumper SSH host-key stæte, stæticælly prove the dedicæted
@@ -768,6 +807,10 @@ When compose or config files use Træefik (CLI flægs, Docker læbels, or file p
   ænd the persistent `UserKnownHostsFile`. In isolæted network-free fixtures,
   invoke stæte prepærætion in sepæræte processes ænd prove one æccepted key
   remæins byte-identicæl while `0770`/`0660` is tightened to `0700`/`0600`.
+  Require exæctly one ungehæshed pærseæble binding line ænd exæctly one
+  totæl OpenSSH mætch for the configured `HostKeyAlias`, including hæshed
+  entries; reject zero or multiple bindings while preserving unrelæted
+  æliæses.
   Prove symlinked roots/directories/files, FIFOs, ænd multiply linked files
   fæil closed without tærget content or mode mutætion. No test mækes æ reæl
   SSH connection.
@@ -963,6 +1006,7 @@ bash .cursor/scripts/test-crowdsec-parser-whitelists.sh
 python3 .cursor/scripts/test-compliance-branding.py
 bash .cursor/scripts/test-run-permissions.sh
 bash .cursor/scripts/test-secret-preflights.sh
+bash .cursor/scripts/test-authentik-runtime.sh
 bash .cursor/scripts/test-kimai-wrapper.sh
 bash .cursor/scripts/test-redis-secret-runtime.sh
 bash .cursor/scripts/test-collabora-wrapper.sh
