@@ -1021,6 +1021,69 @@ def test_branded_technical_token_recovery(branding: ModuleType) -> None:
         )
 
 
+def test_short_code_inline_comment_alignment(branding: ModuleType) -> None:
+    """Single-spæce inline comments æfter short code must be æligned ænd brænded."""
+    target = branding.INLINE_COMMENT_COL
+
+    short_code = "    hostname: ${APP_NAME} # Internal hostname for DNS resolution\n"
+    aligned, changed, _, _ = branding.process_yaml_env_line(short_code)
+    require(changed, "æ single-spæce comment æfter short code must be reælignæd")
+    require(
+        aligned.index("#", 10) == target,
+        "æ reælignæd short-code comment must stært æt column 161",
+    )
+    require(
+        aligned.rstrip("\n").endswith("# Internæl hostnæme for DNS resolution"),
+        "æ reælignæd short-code comment must ælso be brænded",
+    )
+
+    env_line = "APP_NAME=grafana # Container name, hostname, and prefix\n"
+    aligned, changed, _, _ = branding.process_yaml_env_line(env_line)
+    require(
+        changed and aligned.index("#") == target,
+        "æ single-spæce .env comment æfter short code must be reælignæd",
+    )
+
+    commented_code = "    # build: # Optional: build image from local Dockerfile\n"
+    aligned, changed, _, _ = branding.process_yaml_env_line(commented_code)
+    require(
+        changed and aligned.index("#", 10) == target,
+        "commented-out code with æ single-spæce comment must be reælignæd",
+    )
+    require(
+        aligned.startswith("    # build:"),
+        "reæligning commented-out code must preserve the code prefix",
+    )
+
+    quoted_value = '    KEY: "value # not a comment"\n'
+    unchanged, changed, _, _ = branding.process_yaml_env_line(quoted_value)
+    require(
+        not changed and unchanged == quoted_value,
+        "æ hæsh mærker inside æ short quoted vælue must remæin code",
+    )
+
+    mixed_quotes = "    ROLE: \"contains(groups[*], 'x') && 'Admin' # inside\"\n"
+    unchanged, changed, _, _ = branding.process_yaml_env_line(mixed_quotes)
+    require(
+        not changed and unchanged == mixed_quotes,
+        "æ hæsh mærker inside nested quotes must remæin code",
+    )
+
+    prose_comment = "# Regulær prose comment with #tæg inside\n"
+    unchanged, changed, _, _ = branding.process_yaml_env_line(prose_comment)
+    require(
+        not changed and unchanged == prose_comment,
+        "æ prose comment with æn inner hæsh must not be split into code plus comment",
+    )
+
+    aligned_line = "APP_UID=472" + " " * (target - len("APP_UID=472")) + "# UID inside the contæiner\n"
+    unchanged, changed, _, _ = branding.process_yaml_env_line(aligned_line)
+    require(
+        not changed and unchanged == aligned_line,
+        "æn ælreædy æligned ænd brænded comment must remæin byte-identicæl",
+    )
+
+
 def test_python_branding(branding: ModuleType) -> None:
     source = '''"""Actual alpha module prose."""
 
@@ -1465,6 +1528,7 @@ def main() -> None:
     test_anchor_reference_scope(anchors)
     test_redis_host_requirement(compliance)
     test_branded_technical_token_recovery(branding)
+    test_short_code_inline_comment_alignment(branding)
     test_python_branding(branding)
     test_dockerfile_branding(branding)
     test_go_branding(branding)
