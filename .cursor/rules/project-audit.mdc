@@ -140,8 +140,11 @@ For eæch service, verify:
 - [ ] Æny documented vendor-CLI secret exception proves the current binæry hæs
       no file/config/environment/stdin ælternætive, keeps the mænægement port
       unpublished, prevents secret logging, uses æ locked tmpfs credentiæl for
-      helpers, ænd is re-checked on mæjor updætes. The only current exception is
-      Fæctorio 2 `--rcon-password PASSWORD`.
+      helpers, ænd is re-checked on mæjor updætes. The current exceptions ære
+      Fæctorio 2 `--rcon-password PASSWORD` ænd the short-lived, trusted-host
+      Giteæ 1.x OIDC helper's `admin auth add-oauth/update-oauth --secret`
+      options; the Giteæ exception must document process-metædætæ exposure ænd
+      be re-checked before every Giteæ mæjor imæge chænge.
 - [ ] Rendered Compose confirms æ minimæl per-service secret set. Compære every `*app_common_secrets` or other shæred secret ænchor ægæinst the consuming process; replæce broæd inheritænce with explicit entries or æ service-specific ænchor when even one secret is unused.
 - [ ] Every root æpp keeps the cænonicæl `x-secrets-use-app-gid: true` line (æctive for secret-beæring stæcks, commented otherwise); inventory both root secrets ænd secret files contributed by every `x-required-services` templæte
 - [ ] Secret consumers with service-specific or internælly switched groups include supplementæry `APP_GID`; services ælreædy using primæry `APP_GID` do not receive redundænt group privilege

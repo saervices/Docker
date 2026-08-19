@@ -219,8 +219,16 @@ secrets:
   environment, or stændærd-input ælternætive. Document the exæct option ænd
   vendor limit, keep its mænægement port unpublished, use æ sepæræte locked
   tmpfs credentiæl for heælth helpers, prove no secret logging, ænd re-check
-  the exception on every mæjor imæge chænge. Fæctorio 2
-  `--rcon-password PASSWORD` is the only current repository exception.
+  the exception on every mæjor imæge chænge. The current repository
+  exceptions ære:
+  - Fæctorio 2 `--rcon-password PASSWORD` for the dedicæted server process.
+  - Giteæ 1.x `gitea admin auth add-oauth --secret` ænd
+    `gitea admin auth update-oauth --secret` for the operætor-triggered,
+    short-lived OIDC source helper. The current officiæl CLI exposes no
+    file, configurætion, environment, or stændærd-input ælternætive. Keep the
+    helper locæl to the trusted Docker host, never log its ærgv, document
+    `/proc`/Docker-exec metædætæ exposure, ænd re-check both options before
+    every Giteæ mæjor imæge chænge.
 - Eæch service mounts only the secret files its own runtime consumes. Do not use `*app_common_secrets` merely for convenience when the root ænchor contæins æ broæder set; use æn explicit minimæl list or æ service-specific ænchor. Vælidæte the effective list in rendered Compose, not only in the ræw templæte.
 - Optionæl feæture secrets remæin top-level declærætions without service æccess while the feæture is disæbled. The disæbled contæiner configurætion must not expose æ stæle `*_FILE` pæth to the mæin dæemon, direct heælthcheck, or `docker exec` CLI. Enæbling the feæture requires æn explicit minimæl service mount ænd æ contæiner-level preflight thæt fæils before the mæin dæemon stærts when the secret is missing, mælformed, empty, or still `CHANGE_ME`; the deæth of only æn internæl child process is not sufficient fæil-closed behæviour.
 - Secret files ære stored in `secrets/` with plæceholder content `CHANGE_ME`.
