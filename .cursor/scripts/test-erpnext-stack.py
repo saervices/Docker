@@ -232,6 +232,7 @@ PRIVATE_FRAPPE_CONFIG_TMPFS = (
 
 RESTORE_ROLLBACK_FIXTURE_CACHE: dict[str, tuple[bool, str]] = {}
 OIDC_RESERVED_DOMAIN_FIXTURE_CACHE: dict[str, tuple[bool, str]] = {}
+OIDC_LOGIN_POLICY_FIXTURE_CACHE: dict[str, tuple[bool, str]] = {}
 ARCHIVE_VALIDATION_FIXTURE_CACHE: dict[str, tuple[bool, str]] = {}
 SCHEDULE_ERREXIT_FIXTURE_CACHE: dict[str, tuple[bool, str]] = {}
 SITE_DOMAIN_GUARD_FIXTURE_CACHE: dict[str, tuple[bool, str]] = {}
@@ -239,6 +240,7 @@ MARIADB_BINLOG_GUARD_FIXTURE_CACHE: dict[str, tuple[bool, str]] = {}
 MARIADB_VENDOR_BRIDGE_FIXTURE_CACHE: dict[str, tuple[bool, str]] = {}
 CREDENTIAL_ROTATION_FIXTURE_CACHE: dict[str, tuple[bool, str]] = {}
 SITE_BOOTSTRAP_CWD_FIXTURE_CACHE: dict[str, tuple[bool, str]] = {}
+FRONTEND_PROXY_FIXTURE_CACHE: dict[str, tuple[bool, str]] = {}
 
 
 class UniqueKeyLoader(yaml.SafeLoader):
@@ -1835,6 +1837,11 @@ with TemporaryDirectory(prefix="erpnext-existing-site-cwd.", dir="/tmp") as raw_
     frappe.__path__ = []
     frappe_events = []
 
+    class AuthenticationError(Exception):
+        pass
+
+    frappe.AuthenticationError = AuthenticationError
+
     print_settings_state = {"pdf_generator": "wkhtmltopdf"}
 
     class FakeDatabase:
@@ -1887,17 +1894,38 @@ with TemporaryDirectory(prefix="erpnext-existing-site-cwd.", dir="/tmp") as raw_
     utils = types.ModuleType("frappe.utils")
     utils.__path__ = []
     logger = types.ModuleType("frappe.utils.logger")
+    password = types.ModuleType("frappe.utils.password")
     scheduler = types.ModuleType("frappe.utils.scheduler")
 
     def set_log_level(level):
         frappe_events.append(("set_log_level", Path.cwd(), level))
 
     logger.set_log_level = set_log_level
+
+    def check_password(user, candidate, delete_tracker_cache=True):
+        frappe_events.append(
+            (
+                "check_password",
+                Path.cwd(),
+                user,
+                candidate,
+                delete_tracker_cache,
+            )
+        )
+        assert (user, candidate, delete_tracker_cache) == (
+            "Administrator",
+            "existing-admin-password",
+            False,
+        )
+        return user
+
+    password.check_password = check_password
     scheduler.is_scheduler_inactive = lambda verbose=False: False
     scheduler.enable_scheduler = lambda: (_ for _ in ()).throw(
         AssertionError("existing-site fixture unexpectedly enabled scheduler")
     )
     utils.logger = logger
+    utils.password = password
     utils.scheduler = scheduler
     frappe.utils = utils
     sys.modules.update(
@@ -1905,6 +1933,7 @@ with TemporaryDirectory(prefix="erpnext-existing-site-cwd.", dir="/tmp") as raw_
             "frappe": frappe,
             "frappe.utils": utils,
             "frappe.utils.logger": logger,
+            "frappe.utils.password": password,
             "frappe.utils.scheduler": scheduler,
         }
     )
@@ -1948,6 +1977,7 @@ with TemporaryDirectory(prefix="erpnext-existing-site-cwd.", dir="/tmp") as raw_
         "set_log_level",
         "connect",
         "db.exists",
+        "check_password",
         "db.get_single_value",
         "db.get_single_value",
         "db.set_single_value",
@@ -2112,6 +2142,361 @@ def _run_oidc_reserved_domain_fixture(
             diagnostic,
         )
     OIDC_RESERVED_DOMAIN_FIXTURE_CACHE[source_digest] = result
+    return result
+
+
+def _run_oidc_login_policy_fixture(
+    script_path: Path,
+    script_source: str,
+) -> tuple[bool, str]:
+    source_digest = hashlib.sha256(script_source.encode("utf-8")).hexdigest()
+    cached = OIDC_LOGIN_POLICY_FIXTURE_CACHE.get(source_digest)
+    if cached is not None:
+        return cached
+    harness_source = r'''#!/usr/bin/env python3
+import importlib.util
+import os
+import sys
+import types
+from pathlib import Path
+from tempfile import TemporaryDirectory
+
+
+script_path = Path(sys.argv[1])
+spec = importlib.util.spec_from_file_location("erpnext_sso_policy_fixture", script_path)
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+
+
+class FakeDocument:
+    def __init__(self, state, name=None, values=None, secret=None):
+        self.state = state
+        self.name = name
+        self.values = dict(values or {})
+        self.client_secret = secret
+
+    def get(self, key):
+        return self.values.get(key)
+
+    def update(self, values):
+        self.values.update(values)
+
+    def save(self, ignore_permissions=False):
+        assert ignore_permissions is True
+        self.name = "authentik"
+        self.state["keys"][self.name] = self
+        self.state["events"].append(("save", self.name))
+
+    def get_password(self, field, raise_exception=False):
+        assert (field, raise_exception) == ("client_secret", False)
+        return self.client_secret
+
+
+def install_frappe(state):
+    frappe = types.ModuleType("frappe")
+    frappe.__path__ = []
+    frappe.local = types.SimpleNamespace(db=object())
+
+    class FakeDatabase:
+        def exists(self, doctype, name):
+            assert doctype == "Social Login Key"
+            return name in state["keys"]
+
+        def get_single_value(self, doctype, field):
+            return state["settings"][(doctype, field)]
+
+        def set_single_value(self, doctype, field, value):
+            state["events"].append(("set", doctype, field, value))
+            state["settings"][(doctype, field)] = value
+
+        def commit(self):
+            state["events"].append(("commit",))
+
+        def rollback(self):
+            state["events"].append(("rollback",))
+
+    frappe.db = FakeDatabase()
+
+    class FakeCache:
+        def delete_keys(self, prefix):
+            assert prefix == "one_time_login_key:"
+            state["events"].append(("delete_keys", prefix))
+            state["cache_keys"] = {
+                key for key in state["cache_keys"] if not key.startswith(prefix)
+            }
+
+        def get_keys(self, prefix):
+            assert prefix == "one_time_login_key:"
+            return sorted(
+                key for key in state["cache_keys"] if key.startswith(prefix)
+            )
+
+    frappe.cache = FakeCache()
+    frappe.init = lambda site, sites_path: state["events"].append(
+        ("init", site, sites_path)
+    )
+    frappe.connect = lambda: state["events"].append(("connect",))
+    frappe.destroy = lambda: state["events"].append(("destroy",))
+    frappe.get_all = lambda doctype, pluck=None: (
+        list(state["keys"]) if (doctype, pluck) == ("Social Login Key", "name") else None
+    )
+    frappe.get_doc = lambda doctype, name: state["keys"][name]
+    frappe.new_doc = lambda doctype: FakeDocument(state)
+    frappe.clear_cache = lambda doctype=None: state["events"].append(
+        ("clear_cache", doctype)
+    )
+
+    utils = types.ModuleType("frappe.utils")
+    utils.__path__ = []
+    password = types.ModuleType("frappe.utils.password")
+
+    def get_decrypted_password(doctype, name, field, raise_exception=False):
+        assert (doctype, field, raise_exception) == (
+            "Social Login Key",
+            "client_secret",
+            False,
+        )
+        return state["keys"][name].client_secret
+
+    password.get_decrypted_password = get_decrypted_password
+    utils.password = password
+    frappe.utils = utils
+    sys.modules.update(
+        {
+            "frappe": frappe,
+            "frappe.utils": utils,
+            "frappe.utils.password": password,
+        }
+    )
+
+
+def new_state(password_login_disabled):
+    return {
+        "settings": {
+            ("System Settings", "disable_user_pass_login"): password_login_disabled,
+            ("System Settings", "login_with_email_link"): 1,
+            ("Website Settings", "disable_signup"): 0,
+            ("LDAP Settings", "enabled"): 1,
+        },
+        "keys": {},
+        "cache_keys": {"one_time_login_key:stale-fixture-token"},
+        "events": [],
+    }
+
+
+with TemporaryDirectory(prefix="erpnext-sso-policy.", dir="/tmp") as raw_root:
+    sites_root = Path(raw_root) / "sites"
+    sites_root.mkdir(mode=0o700)
+    module.SITES_ROOT = sites_root
+    module.read_secret = lambda path, label: {
+        "OIDC client ID": "fixture-client-id",
+        "OIDC client secret": "fixture-client-secret",
+    }[label]
+    original_environment = dict(os.environ)
+    os.environ.clear()
+    os.environ.update(
+        {
+            "ERPNEXT_SITE_NAME": "erpnext.production.internal",
+            "ERPNEXT_AUTHENTIK_DOMAIN": "authentik.production.internal",
+            "ERPNEXT_SSO_SIGNUPS": "Deny",
+        }
+    )
+    original_cwd = Path.cwd()
+    try:
+        onboarding = new_state(0)
+        install_frappe(onboarding)
+        module.main()
+        assert onboarding["settings"] == {
+            ("System Settings", "disable_user_pass_login"): 0,
+            ("System Settings", "login_with_email_link"): 0,
+            ("Website Settings", "disable_signup"): 1,
+            ("LDAP Settings", "enabled"): 0,
+        }
+        assert set(onboarding["keys"]) == {"authentik"}
+        assert onboarding["keys"]["authentik"].client_secret == "fixture-client-secret"
+        assert onboarding["cache_keys"] == set()
+        assert onboarding["events"].count(("commit",)) == 1
+        assert onboarding["events"].index(("commit",)) < onboarding["events"].index(
+            ("clear_cache", "System Settings")
+        )
+        assert onboarding["events"].index(("commit",)) < onboarding["events"].index(
+            ("delete_keys", "one_time_login_key:")
+        )
+        assert not [event for event in onboarding["events"] if event[0] == "rollback"]
+        assert {
+            event for event in onboarding["events"] if event[0] == "clear_cache"
+        } == {
+            ("clear_cache", "System Settings"),
+            ("clear_cache", "Website Settings"),
+            ("clear_cache", "LDAP Settings"),
+        }
+
+        onboarding["settings"][("System Settings", "disable_user_pass_login")] = 1
+        onboarding["settings"][("System Settings", "login_with_email_link")] = 1
+        onboarding["settings"][("Website Settings", "disable_signup")] = 0
+        onboarding["settings"][("LDAP Settings", "enabled")] = 1
+        event_count = len(onboarding["events"])
+        install_frappe(onboarding)
+        module.main()
+        second_events = onboarding["events"][event_count:]
+        assert onboarding["settings"][("System Settings", "disable_user_pass_login")] == 1
+        assert onboarding["settings"][("System Settings", "login_with_email_link")] == 0
+        assert onboarding["settings"][("Website Settings", "disable_signup")] == 1
+        assert onboarding["settings"][("LDAP Settings", "enabled")] == 0
+        assert second_events.count(("commit",)) == 1
+
+        alternative = new_state(1)
+        alternative["keys"]["github"] = FakeDocument(
+            alternative,
+            name="github",
+            values={"enable_social_login": 0},
+            secret="disabled-but-still-routable",
+        )
+        before_settings = dict(alternative["settings"])
+        install_frappe(alternative)
+        try:
+            module.main()
+        except RuntimeError as error:
+            assert "alternative Social Login Key records" in str(error)
+        else:
+            raise AssertionError("alternative Social Login Key was accepted")
+        assert alternative["settings"] == before_settings
+        assert set(alternative["keys"]) == {"github"}
+        assert alternative["cache_keys"] == {"one_time_login_key:stale-fixture-token"}
+        assert not [
+            event
+            for event in alternative["events"]
+            if event[0] in {"set", "save", "delete_keys", "commit"}
+        ]
+        assert alternative["events"].count(("rollback",)) == 1
+    finally:
+        os.chdir(original_cwd)
+        os.environ.clear()
+        os.environ.update(original_environment)
+
+print("PASS SSO policy hardening, onboarding preservation, and alternative-provider rejection")
+'''
+    try:
+        with tempfile.TemporaryDirectory(
+            prefix="erpnext-sso-policy-harness.", dir="/tmp"
+        ) as raw_harness_root:
+            harness_root = Path(raw_harness_root)
+            harness = harness_root / "test-sso-policy.py"
+            harness.write_text(harness_source, encoding="utf-8")
+            completed = subprocess.run(
+                [sys.executable, str(harness), str(script_path)],
+                cwd=harness_root,
+                env={
+                    "LC_ALL": "C.UTF-8",
+                    "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
+                    "PYTHONDONTWRITEBYTECODE": "1",
+                },
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+                timeout=20,
+            )
+    except (OSError, subprocess.SubprocessError) as error:
+        result = (False, f"fixture execution failed: {error}")
+    else:
+        diagnostic = (completed.stderr or completed.stdout).decode(
+            "utf-8", errors="replace"
+        )[-4000:].strip()
+        result = (completed.returncode == 0, diagnostic)
+    OIDC_LOGIN_POLICY_FIXTURE_CACHE[source_digest] = result
+    return result
+
+
+def _run_frontend_proxy_fixture(
+    script_path: Path,
+    script_source: str,
+    template_path: Path,
+    template_source: str,
+) -> tuple[bool, str]:
+    source_digest = hashlib.sha256(
+        (script_source + "\0" + template_source).encode("utf-8")
+    ).hexdigest()
+    cached = FRONTEND_PROXY_FIXTURE_CACHE.get(source_digest)
+    if cached is not None:
+        return cached
+
+    valid_cidrs = (
+        "10.23.0.0/16",
+        "10.23.45.0/24",
+        "10.23.45.67/32",
+        "172.16.0.0/16",
+        "172.31.255.255/32",
+        "192.168.50.0/24",
+    )
+    invalid_cidrs = (
+        "8.8.8.8/32",
+        "100.64.0.0/16",
+        "127.0.0.1/32",
+        "169.254.0.0/16",
+        "192.0.2.0/24",
+        "198.18.0.0/16",
+        "224.0.0.0/24",
+        "0.0.0.0/32",
+        "172.32.0.0/16",
+        "192.168.1.1/24",
+        "10.0.0.0/15",
+    )
+    diagnostics: list[str] = []
+    try:
+        with tempfile.TemporaryDirectory(
+            prefix="erpnext-frontend-proxy.", dir="/tmp"
+        ) as raw_fixture_root:
+            fixture_root = Path(raw_fixture_root)
+            assets_root = fixture_root / "assets"
+            assets_root.mkdir(mode=0o700)
+            base_environment = {
+                "APP_NAME": "erpnext",
+                "BACKEND": "erpnext-erpnext-backend:8000",
+                "SOCKETIO": "erpnext-erpnext-websocket:9000",
+                "FRAPPE_SITE_NAME_HEADER": "erpnext.production.internal",
+                "UPSTREAM_REAL_IP_HEADER": "X-Forwarded-For",
+                "UPSTREAM_REAL_IP_RECURSIVE": "off",
+                "PROXY_READ_TIMEOUT": "120",
+                "CLIENT_MAX_BODY_SIZE": "50m",
+                "ERPNEXT_BAKED_ASSETS_ROOT": str(assets_root),
+                "ERPNEXT_NGINX_TEMPLATE": str(template_path),
+                "LC_ALL": "C.UTF-8",
+                "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
+            }
+            for cidr, should_pass in (
+                *((cidr, True) for cidr in valid_cidrs),
+                *((cidr, False) for cidr in invalid_cidrs),
+            ):
+                completed = subprocess.run(
+                    ["/usr/bin/env", "bash", str(script_path), "--preflight-only"],
+                    cwd=fixture_root,
+                    env={**base_environment, "UPSTREAM_REAL_IP_ADDRESS": cidr},
+                    stdin=subprocess.DEVNULL,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    check=False,
+                    timeout=10,
+                )
+                diagnostic = (completed.stderr or completed.stdout).decode(
+                    "utf-8", errors="replace"
+                ).strip()
+                diagnostics.append(f"{cidr}: rc={completed.returncode}: {diagnostic}")
+                if (completed.returncode == 0) != should_pass:
+                    result = (False, diagnostics[-1])
+                    FRONTEND_PROXY_FIXTURE_CACHE[source_digest] = result
+                    return result
+    except (OSError, subprocess.SubprocessError) as error:
+        result = (False, f"fixture execution failed: {error}")
+    else:
+        result = (
+            True,
+            "PASS private="
+            + ",".join(valid_cidrs)
+            + "; rejected="
+            + ",".join(invalid_cidrs),
+        )
+    FRONTEND_PROXY_FIXTURE_CACHE[source_digest] = result
     return result
 
 
@@ -2800,6 +3185,88 @@ def _check_site_bootstrap(root: Path, contract: Contract) -> None:
         "inside that repair branch, then re-read and fail closed on postcondition drift",
     )
 
+    administrator_secret_contract_ok = False
+    main_function = bootstrap_functions.get("main")
+    if verify_function is not None and main_function is not None:
+        password_imports = [
+            statement
+            for statement in verify_function.body
+            if isinstance(statement, ast.ImportFrom)
+            and statement.module == "frappe.utils.password"
+            and len(statement.names) == 1
+            and statement.names[0].name == "check_password"
+            and statement.names[0].asname is None
+        ]
+        password_calls = [
+            node
+            for node in ast.walk(verify_function)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "check_password"
+        ]
+        exact_password_call = (
+            len(password_calls) == 1
+            and len(password_calls[0].args) == 2
+            and isinstance(password_calls[0].args[0], ast.Constant)
+            and password_calls[0].args[0].value == "Administrator"
+            and isinstance(password_calls[0].args[1], ast.Name)
+            and password_calls[0].args[1].id == "expected_admin_password"
+            and len(password_calls[0].keywords) == 1
+            and password_calls[0].keywords[0].arg == "delete_tracker_cache"
+            and isinstance(password_calls[0].keywords[0].value, ast.Constant)
+            and password_calls[0].keywords[0].value.value is False
+        )
+        auth_handlers = [
+            handler
+            for node in ast.walk(verify_function)
+            if isinstance(node, ast.Try)
+            for handler in node.handlers
+            if isinstance(handler.type, ast.Attribute)
+            and isinstance(handler.type.value, ast.Name)
+            and handler.type.value.id == "frappe"
+            and handler.type.attr == "AuthenticationError"
+        ]
+        exact_auth_handler = (
+            len(auth_handlers) == 1
+            and len(auth_handlers[0].body) == 1
+            and isinstance(auth_handlers[0].body[0], ast.Expr)
+            and isinstance(auth_handlers[0].body[0].value, ast.Call)
+            and isinstance(auth_handlers[0].body[0].value.func, ast.Name)
+            and auth_handlers[0].body[0].value.func.id == "fail"
+            and len(auth_handlers[0].body[0].value.args) == 1
+            and isinstance(auth_handlers[0].body[0].value.args[0], ast.Constant)
+            and auth_handlers[0].body[0].value.args[0].value
+            == "ERPNext Administrator password does not match the deployment secret"
+        )
+        verify_calls = [
+            node
+            for node in ast.walk(main_function)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "verify_frappe_state"
+        ]
+        administrator_secret_contract_ok = (
+            [argument.arg for argument in verify_function.args.args]
+            == ["site_name", "expected_timezone", "expected_admin_password"]
+            and len(password_imports) == 1
+            and exact_password_call
+            and exact_auth_handler
+            and len(verify_calls) == 2
+            and all(
+                len(call.args) == 3
+                and isinstance(call.args[2], ast.Name)
+                and call.args[2].id == "admin_password"
+                and not call.keywords
+                for call in verify_calls
+            )
+        )
+    contract.expect(
+        administrator_secret_contract_ok,
+        "[bootstrap] existing and fresh sites must verify the Administrator "
+        "password against the deployment secret without mutating the login-failure "
+        "tracker and must fail with a generic non-secret diagnostic on drift",
+    )
+
     def logger_guard_precedes_target(function_name: str, target_name: str) -> bool:
         function = bootstrap_functions.get(function_name)
         if function is None:
@@ -2944,6 +3411,36 @@ def _check_oidc(root: Path, env: dict[str, str], contract: Contract) -> None:
         "[oidc] isolated Authentik reserved-domain fixture must fail closed before "
         "secret access"
         + (f": {reserved_diagnostic}" if reserved_diagnostic else ""),
+    )
+    login_policy_ok, login_policy_diagnostic = _run_oidc_login_policy_fixture(
+        path, source
+    )
+    contract.expect(
+        login_policy_ok,
+        "[oidc] isolated login-policy fixture must disable email-link login, "
+        "revoke outstanding email-link tokens, disable website signup and LDAP, "
+        "preserve the staged username/password setting, "
+        "enforce exactly the Authentik Social Login Key, commit verified state, "
+        "and reject an alternative key before mutation"
+        + (f": {login_policy_diagnostic}" if login_policy_diagnostic else ""),
+    )
+    contract.expect(
+        'frappe.db.set_single_value("System Settings", "login_with_email_link", 0)'
+        in source
+        and 'frappe.db.set_single_value("Website Settings", "disable_signup", 1)'
+        in source
+        and 'frappe.db.set_single_value("LDAP Settings", "enabled", 0)' in source
+        and 'frappe.cache.delete_keys("one_time_login_key:")' in source
+        and 'frappe.cache.get_keys("one_time_login_key:")' in source
+        and "frappe.db.commit()" in source
+        and source.find("frappe.db.commit()")
+        < source.find('frappe.clear_cache(doctype=doctype)')
+        < source.find('frappe.cache.delete_keys("one_time_login_key:")')
+        and 'frappe.get_all("Social Login Key", pluck="name")' in source
+        and 'social_login_keys - {PROVIDER_KEY}' in source,
+        "[oidc] login-policy persistence must keep the exact fail-closed Frappe "
+        "singleton fields, post-commit cache invalidation, one-time-link "
+        "revocation, and exclusive Social Login Key inventory",
     )
     contract.expect(
         _literal(assignments.get("redirect_url"), assignments)
@@ -4569,7 +5066,7 @@ def validate_stack(root: Path) -> ValidationResult:
     )
     contract.expect(
         root_env.get("MARIADB_IMAGE") == "mariadb:11.8",
-        "[versions] ERPNext compatibility override must remain mariadb:11.8",
+        "[versions] ERPNext must use Frappe v16's newest supported MariaDB LTS channel",
     )
     contract.expect(
         root_env.get("MARIADB_INNODB_FLUSH_LOG_AT_TRX_COMMIT") == "1"
@@ -4687,6 +5184,10 @@ def validate_stack(root: Path) -> ValidationResult:
     frontend_source = _regular_text(
         root / "ERPNext/scripts/erpnext-frontend.sh", contract, "entrypoint"
     )
+    frontend_template_path = root / "ERPNext/config/nginx-frappe.conf.template"
+    frontend_template_source = _regular_text(
+        frontend_template_path, contract, "frontend"
+    )
     dangerous_file_location = (
         "location ~* ^/(?:private/)?files/.*\\."
         "(?:htm|html|xht|xhtml|svg|svgz|xml)$ {"
@@ -4700,6 +5201,33 @@ def validate_stack(root: Path) -> ValidationResult:
         "[entrypoint] frontend wrapper must reject vendor drift, render the "
         "vendor-equivalent configuration, exec Nginx directly for a zero-status "
         "SIGTERM shutdown, and pin the full browser-active download regex",
+    )
+    contract.expect(
+        "geo $realip_remote_addr $erpnext_trusted_proxy_peer {"
+        in frontend_template_source
+        and "${UPSTREAM_REAL_IP_ADDRESS} 1;" in frontend_template_source
+        and "map $http_x_forwarded_proto $erpnext_forwarded_proto_candidate {"
+        in frontend_template_source
+        and "map $erpnext_trusted_proxy_peer $proxy_x_forwarded_proto {"
+        in frontend_template_source
+        and "map $http_x_forwarded_proto $proxy_x_forwarded_proto {"
+        not in frontend_template_source,
+        "[frontend] X-Forwarded-Proto must be accepted only from the original "
+        "reviewed proxy peer via $realip_remote_addr",
+    )
+    proxy_fixture_ok, proxy_fixture_diagnostic = _run_frontend_proxy_fixture(
+        root / "ERPNext/scripts/erpnext-frontend.sh",
+        frontend_source,
+        frontend_template_path,
+        frontend_template_source,
+    )
+    contract.expect(
+        proxy_fixture_ok,
+        "[frontend] executable proxy preflight must accept only canonical "
+        "RFC1918 IPv4 networks from /16 through /32 and reject public, shared, "
+        "loopback, link-local, documentation, benchmark, multicast, unspecified, "
+        "non-canonical, and overly broad ranges"
+        + (f": {proxy_fixture_diagnostic}" if proxy_fixture_diagnostic else ""),
     )
     frontend_volumes = set(_volume_sources(app_service))
     contract.expect(
@@ -5501,7 +6029,10 @@ def _move_bootstrap_chdir(path: Path, destination: str) -> None:
         marker = "    import frappe\n"
         replacement = chdir_line + marker
     elif destination == "after-existing-verify":
-        marker = "        verify_frappe_state(site_name, site_timezone)\n"
+        marker = (
+            "        verify_frappe_state("
+            "site_name, site_timezone, admin_password)\n"
+        )
         replacement = marker + "        os.chdir(SITES_ROOT)\n"
     else:
         raise AssertionError(f"unsupported bootstrap chdir fixture: {destination}")
@@ -6114,6 +6645,30 @@ def _negative_cases() -> tuple[NegativeCase, ...]:
                 ),
             ),
             NegativeCase(
+                "site-bootstrap-admin-secret-verification-removed",
+                "[bootstrap] existing and fresh sites must verify",
+                lambda root: _replace_once(
+                    root
+                    / "templates/erpnext-site-bootstrap/scripts/erpnext-site-bootstrap.py",
+                    '            check_password(\n'
+                    '                "Administrator",\n'
+                    '                expected_admin_password,\n'
+                    '                delete_tracker_cache=False,\n'
+                    '            )',
+                    "            pass  # Administrator secret verification removed",
+                ),
+            ),
+            NegativeCase(
+                "site-bootstrap-admin-secret-mutates-failure-tracker",
+                "[bootstrap] existing and fresh sites must verify",
+                lambda root: _replace_once(
+                    root
+                    / "templates/erpnext-site-bootstrap/scripts/erpnext-site-bootstrap.py",
+                    "delete_tracker_cache=False",
+                    "delete_tracker_cache=True",
+                ),
+            ),
+            NegativeCase(
                 "site-bootstrap-new-site-init-removed",
                 "[bootstrap]",
                 lambda root: _replace_once(
@@ -6244,6 +6799,56 @@ def _negative_cases() -> tuple[NegativeCase, ...]:
                 ),
             ),
             NegativeCase(
+                "email-link-login-reenabled",
+                "[oidc]",
+                lambda root: _replace_once(
+                    root
+                    / "templates/erpnext-sso-bootstrap/scripts/erpnext-sso-bootstrap.py",
+                    'frappe.db.set_single_value("System Settings", "login_with_email_link", 0)',
+                    'frappe.db.set_single_value("System Settings", "login_with_email_link", 1)',
+                ),
+            ),
+            NegativeCase(
+                "email-link-tokens-not-revoked",
+                "[oidc]",
+                lambda root: _replace_once(
+                    root
+                    / "templates/erpnext-sso-bootstrap/scripts/erpnext-sso-bootstrap.py",
+                    'frappe.cache.delete_keys("one_time_login_key:")',
+                    "pass  # outstanding email-link token revocation removed",
+                ),
+            ),
+            NegativeCase(
+                "website-signup-reenabled",
+                "[oidc]",
+                lambda root: _replace_once(
+                    root
+                    / "templates/erpnext-sso-bootstrap/scripts/erpnext-sso-bootstrap.py",
+                    'frappe.db.set_single_value("Website Settings", "disable_signup", 1)',
+                    'frappe.db.set_single_value("Website Settings", "disable_signup", 0)',
+                ),
+            ),
+            NegativeCase(
+                "ldap-login-reenabled",
+                "[oidc]",
+                lambda root: _replace_once(
+                    root
+                    / "templates/erpnext-sso-bootstrap/scripts/erpnext-sso-bootstrap.py",
+                    'frappe.db.set_single_value("LDAP Settings", "enabled", 0)',
+                    'frappe.db.set_single_value("LDAP Settings", "enabled", 1)',
+                ),
+            ),
+            NegativeCase(
+                "alternative-social-login-key-accepted",
+                "[oidc]",
+                lambda root: _replace_once(
+                    root
+                    / "templates/erpnext-sso-bootstrap/scripts/erpnext-sso-bootstrap.py",
+                    "if social_login_keys - {PROVIDER_KEY}:",
+                    "if False:",
+                ),
+            ),
+            NegativeCase(
                 "signups-allow",
                 "[oidc]",
                 lambda root: _set_env(
@@ -6276,7 +6881,7 @@ def _negative_cases() -> tuple[NegativeCase, ...]:
                 ),
             ),
             NegativeCase(
-                "mariadb-exception-lost",
+                "mariadb-v16-unsupported-major",
                 "[versions]",
                 lambda root: _set_env(
                     _source_env_path(root), "MARIADB_IMAGE", "mariadb:12"
@@ -6969,6 +7574,24 @@ def _negative_cases() -> tuple[NegativeCase, ...]:
                     "proxy_set_header X-Forwarded-For $remote_addr;",
                     "proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;",
                     3,
+                ),
+            ),
+            NegativeCase(
+                "frontend-accepts-public-proxy-cidr",
+                "[frontend]",
+                lambda root: _replace_once(
+                    root / "ERPNext/scripts/erpnext-frontend.sh",
+                    "(address_integer & 0xffff0000) == 0xc0a80000",
+                    "(address_integer & 0x00000000) == 0",
+                ),
+            ),
+            NegativeCase(
+                "frontend-gates-forwarded-proto-on-rewritten-client",
+                "[frontend]",
+                lambda root: _replace_once(
+                    root / "ERPNext/config/nginx-frappe.conf.template",
+                    "geo $realip_remote_addr $erpnext_trusted_proxy_peer {",
+                    "geo $remote_addr $erpnext_trusted_proxy_peer {",
                 ),
             ),
             NegativeCase(

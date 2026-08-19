@@ -125,9 +125,10 @@ def validate_site_config(site_name, database_name, database_host, database_passw
     os.chmod(config_path, 0o600, follow_symlinks=False)
 
 
-def verify_frappe_state(site_name, expected_timezone):
+def verify_frappe_state(site_name, expected_timezone, expected_admin_password):
     import frappe
     from frappe.utils.logger import set_log_level
+    from frappe.utils.password import check_password
     from frappe.utils.scheduler import enable_scheduler, is_scheduler_inactive
 
     try:
@@ -139,6 +140,14 @@ def verify_frappe_state(site_name, expected_timezone):
             fail("required Frappe applications are not installed")
         if not frappe.db.exists("User", "Administrator"):
             fail("Administrator postcondition is missing")
+        try:
+            check_password(
+                "Administrator",
+                expected_admin_password,
+                delete_tracker_cache=False,
+            )
+        except frappe.AuthenticationError:
+            fail("ERPNext Administrator password does not match the deployment secret")
         if (
             frappe.db.get_single_value("System Settings", "time_zone")
             != expected_timezone
@@ -208,7 +217,7 @@ def main():
     site_path = SITES_ROOT / site_name
     if site_path.exists():
         validate_site_config(site_name, database_name, database_host, database_password)
-        verify_frappe_state(site_name, site_timezone)
+        verify_frappe_state(site_name, site_timezone, admin_password)
         print("[OK] ERPNext site is already initialized")
         return
     import frappe
@@ -243,7 +252,7 @@ def main():
         frappe.destroy()
     initialize_site_timezone(site_name, site_timezone)
     validate_site_config(site_name, database_name, database_host, database_password)
-    verify_frappe_state(site_name, site_timezone)
+    verify_frappe_state(site_name, site_timezone, admin_password)
     if existing_sites() != [site_name]:
         fail("single-site postcondition failed")
     print("[OK] ERPNext site bootstrap completed")

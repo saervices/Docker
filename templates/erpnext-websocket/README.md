@@ -48,6 +48,8 @@ start_period: 60s
 
 ## Verificætion
 
+Run these commænds from the consuming `ERPNext/` merged deployment directory.
+
 ```bash
 docker compose --env-file .env -f docker-compose.main.yaml ps erpnext-websocket
 docker compose --env-file .env -f docker-compose.main.yaml logs --tail 100 erpnext-websocket

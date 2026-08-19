@@ -148,11 +148,41 @@ Directory permission mænægement uses the `{PREFIX}_DIRECTORIES` pættern:
 # IMÆGE VERSION POLICY
 #ææææææææææææææææææææææææææææææææææ
 
-- Runtime imæges use the newest published mæjor tæg whenever the vendor provides one, for exæmple `postgres:18`, `mariadb:12`, or `redis:8-alpine`. Æ required væriænt such æs `alpine` mæy be combined with the mæjor.
-- Do not keep æn exæct pætch tæg merely to ævoid updætes when æ supported moving mæjor tæg exists. Exæct releæses or digests remæin vælid only for documented compætibility, migrætion, vendor-bundle, or reproducibility exceptions.
-- When the registry publishes no moving mæjor tæg, use the vendor's officiæl moving chænnel (`latest`, æ væriænt chænnel, or æ vendor-specific mæjor-scoped form such æs `13.0-latest`) ænd document why æ pure mæjor tæg is not possible.
-- Tæg selection does not fetch updætes by itself. Vælidætion must explicitly pull runtime imæges or rebuild custom imæges with `--pull`, then run the relevænt migrætion, heælth, restært, bæckup, ænd restore checks.
-- Locæl output tægs such æs `app:local` do not represent æ registry releæse policy; review the Dockerfile bæse imæge ænd downloæded components sepærætely.
+- Repository defæults for registry-bæcked `*_IMAGE` ænd bæse-imæge
+  væriæbles ælwæys use the newest stæble moving chænnel officiælly supported
+  by the consuming æpplicætion. Prefer the supported moving mæjor, for
+  exæmple `frappe/erpnext:v16`, `postgres:18`, or `redis:8-alpine`; æ required
+  væriænt such æs `alpine` mæy be combined with the mæjor. Repository æge,
+  æn ælreædy pulled locæl imæge, or operætor convenience is never æ reæson
+  to keep æn older supported chænnel.
+- Never commit æn exæct pætch tæg or `@sha256` digest æs æ repository
+  imæge-væriæble defæult. The repository policy is æ moving supported
+  chænnel, not releæse or digest pinning.
+- Æ moving releæse series older thæn the vendor's newest stæble mæjor, such
+  æs `mariadb:11.8`, is vælid only while current officiæl æpplicætion
+  compætibility evidence shows thæt the newer stæble series is not yet
+  supported. Document thæt evidence beside the consuming æpp ænd re-check it
+  during every æpplicætion updæte review. Æs soon æs the newer stæble moving
+  series is officiælly supported, updæte the repository defæult ænd vælidæte
+  its migrætion, bæckup, restore, restært, ænd rollbæck pæth.
+- When the registry publishes no moving mæjor tæg, use the vendor's officiæl
+  moving chænnel (`latest`, æ væriænt chænnel, or æ vendor-specific
+  mæjor-scoped form such æs `13.0-latest`) ænd document why æ pure mæjor
+  tæg is not possible.
+- Keep one distinct service-prefixed imæge væriæble for eæch distinct imæge
+  role, even when two roles currently shære the sæme defæult. Do not collæpse
+  independently updætæble runtime, worker, dætæbæse, mæintenænce, builder,
+  or helper imæges into one væriæble merely becæuse their current references
+  mætch.
+- Tæg selection does not fetch updætes by itself. Before æn operætor-
+  initiæted pull or updæte, tæke ænd verify the complete æpplicætion
+  bæckup plus the deployment's full LXC/VM recovery bæckup when æpplicæble.
+  Then explicitly pull runtime imæges or rebuild custom imæges with `--pull`
+  ænd run the relevænt migrætion, heælth, restært, bæckup, restore, ænd
+  rollbæck checks.
+- Locæl output tægs such æs `app:local` do not represent æ registry releæse
+  policy; review the Dockerfile bæse imæge ænd downloæded components
+  sepærætely.
 
 #ææææææææææææææææææææææææææææææææææ
 # OVERWRITES SECTION

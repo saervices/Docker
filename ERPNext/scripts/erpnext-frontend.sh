@@ -53,18 +53,11 @@ require_proxy_cidr() {
 
   [[ -n "${cidr}" && "${cidr}" != 'CHANGE_ME' && "${cidr}" == */* ]] || \
     fatal 'ERPNEXT_TRUSTED_PROXY_CIDR must be replaced with an explicit IPv4 CIDR.'
-  case "${cidr}" in
-    10.0.0.0/8|172.16.0.0/12|192.168.0.0/16)
-      fatal 'ERPNEXT_TRUSTED_PROXY_CIDR must not use a vendor-default broad private range.'
-      ;;
-  esac
   address="${cidr%/*}"
   prefix="${cidr##*/}"
   is_valid_ipv4 "${address}" || fatal 'ERPNEXT_TRUSTED_PROXY_CIDR contains an invalid IPv4 address.'
   [[ "${prefix}" =~ ^(1[6-9]|2[0-9]|3[0-2])$ ]] || \
     fatal 'ERPNEXT_TRUSTED_PROXY_CIDR must use a prefix length from /16 through /32.'
-  [[ "${address}" != '0.0.0.0' && "${address}" != '255.255.255.255' && "${address}" != 127.* ]] || \
-    fatal 'ERPNEXT_TRUSTED_PROXY_CIDR must identify the real non-loopback Traefik source network.'
 
   IFS='.' read -r -a octets <<<"${address}"
   address_integer=$((
@@ -73,6 +66,13 @@ require_proxy_cidr() {
     (10#${octets[2]} << 8) |
     10#${octets[3]}
   ))
+  if ! ((
+    (address_integer & 0xff000000) == 0x0a000000 ||
+    (address_integer & 0xfff00000) == 0xac100000 ||
+    (address_integer & 0xffff0000) == 0xc0a80000
+  )); then
+    fatal 'ERPNEXT_TRUSTED_PROXY_CIDR must be an RFC1918 private IPv4 network.'
+  fi
   if (( 10#${prefix} == 32 )); then
     host_mask=0
   else
@@ -171,6 +171,7 @@ require_template_marker() {
 #   Requires the reviewed custom template and image-baked public assets only.
 #ææææææææææææææææææææææææææææææææææ
 validate_frontend_state() {
+  local forwarded_proto_count guarded_forwarded_proto_count
   local template_metadata
   local template_type template_size
 
@@ -193,15 +194,26 @@ validate_frontend_state() {
   require_template_marker 'proxy_pass http://socketio-server;'
   require_template_marker "proxy_set_header Host \${FRAPPE_SITE_NAME_HEADER};"
   require_template_marker 'proxy_set_header X-Forwarded-For $remote_addr;'
+  require_template_marker 'proxy_set_header X-Forwarded-Proto $proxy_x_forwarded_proto;'
+  require_template_marker 'geo $realip_remote_addr $erpnext_trusted_proxy_peer {'
+  require_template_marker '${UPSTREAM_REAL_IP_ADDRESS} 1;'
+  require_template_marker 'map $http_x_forwarded_proto $erpnext_forwarded_proto_candidate {'
+  require_template_marker 'map $erpnext_trusted_proxy_peer $proxy_x_forwarded_proto {'
   require_template_marker 'location ~* ^/(?:private/)?files/.*\.(?:htm|html|xht|xhtml|svg|svgz|xml)$ {'
   require_template_marker 'proxy_hide_header Content-Disposition;'
   require_template_marker 'server_tokens off;'
   require_template_marker 'include /etc/nginx/snippets/security_headers.conf;'
+  forwarded_proto_count=$(grep -Fc -- 'proxy_set_header X-Forwarded-Proto ' "${ERPNEXT_NGINX_TEMPLATE}")
+  guarded_forwarded_proto_count=$(grep -Fc -- \
+    'proxy_set_header X-Forwarded-Proto $proxy_x_forwarded_proto;' "${ERPNEXT_NGINX_TEMPLATE}")
+  [[ "${forwarded_proto_count}" == '3' && "${guarded_forwarded_proto_count}" == '3' ]] || \
+    fatal 'Every proxied ERPNext route must use the peer-gated X-Forwarded-Proto value.'
   if grep -Fq -- 'X-Use-X-Accel-Redirect' "${ERPNEXT_NGINX_TEMPLATE}" || \
       grep -Fq -- '/home/frappe/frappe-bench/sites' "${ERPNEXT_NGINX_TEMPLATE}" || \
       grep -Fq -- 'proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;' "${ERPNEXT_NGINX_TEMPLATE}" || \
+      grep -Fq -- 'map $http_x_forwarded_proto $proxy_x_forwarded_proto {' "${ERPNEXT_NGINX_TEMPLATE}" || \
       grep -Fq -- "proxy_set_header Host \$host;" "${ERPNEXT_NGINX_TEMPLATE}"; then
-    fatal 'The mounted Nginx template attempts to use site-volume file serving.'
+    fatal 'The mounted Nginx template contains an unsafe forwarding, host, or site-volume directive.'
   fi
 }
 

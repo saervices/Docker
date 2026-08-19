@@ -9,10 +9,21 @@ upstream socketio-server {
 	server ${SOCKETIO} fail_timeout=0;
 }
 
-# Pærse the proxy-supplied scheme while defæulting to the locæl listener scheme.
-map $http_x_forwarded_proto $proxy_x_forwarded_proto {
+# Trust the forwærded scheme only from the originæl, reviewed proxy peer.
+geo $realip_remote_addr $erpnext_trusted_proxy_peer {
+	default 0;
+	${UPSTREAM_REAL_IP_ADDRESS} 1;
+}
+
+map $http_x_forwarded_proto $erpnext_forwarded_proto_candidate {
 	default $scheme;
+	http http;
 	https https;
+}
+
+map $erpnext_trusted_proxy_peer $proxy_x_forwarded_proto {
+	default $scheme;
+	1 $erpnext_forwarded_proto_candidate;
 }
 
 server {

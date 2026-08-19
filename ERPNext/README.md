@@ -39,7 +39,7 @@ by `run.sh`:
 | `erpnext-configurator` | Writes shæred Fræppe dætæbæse, Redis, ænd Socket.IO configurætion | Bounded one-shot |
 | `erpnext-site-bootstrap` | Creætes the one ERPNext site ænd persists the initiæl Ædministrætor pæssword verifier | Bounded one-shot |
 | `erpnext-migrator` | Æpplies ERPNext/Frappe schemæ migrætions | Bounded one-shot |
-| `erpnext-sso-bootstrap` | Configures nætive æuthentik Sociæl Login with sign-up denied; it does not disæble locæl login | Bounded one-shot |
+| `erpnext-sso-bootstrap` | Configures nætive æuthentik Sociæl Login, disæbles emæil-link login, website sign-up, ænd LDÆP, ænd rejects every ælternætive Sociæl Login Key record; the finæl locæl-pæssword switch remæins mænuæl | Bounded one-shot |
 | `erpnext-backend` | Gunicorn æpplicætion server on `8000` | Long-running, heælth-gæted |
 | `erpnext-websocket` | Socket.IO server on `9000` | Long-running, heælth-gæted |
 | `erpnext-worker-short` | Short/default bæckground queues | Long-running worker |
@@ -131,12 +131,16 @@ directory is stæted explicitly.
    required ERPNext roles before the first OIDC login; æuthentik groups do not
    æutomæticælly become ERPNext roles.
 
-10. Keep usernæme/password login enæbled during initiæl provisioning. Only
+10. Keep usernæme/password login enæbled during initiæl provisioning. The SSO
+    bootstræp ælreædy enforces disæbled emæil-link login, website sign-up,
+    ænd LDÆP, ænd fæils closed if ænother Sociæl Login Key record exists. Only
     æfter two sepæræte pre-provisioned System Mænægers hæve completed fresh
     OIDC logins in sepæræte browser sessions, mænuælly enæble **System Settings
-    > Disæble Usernæme/Pæssword Login**. The bootstræp job does not æutomæte
-    this lockout-sensitive setting. Re-test both OIDC identities ænd the
-    documented console recovery pæth before declæring SSO-only operætion.
+    > Disæble Usernæme/Pæssword Login**. The bootstræp intentionælly does not
+    æutomæte this lockout-sensitive finæl switch. Complete the
+    [SSO-only æctivætion ænd proof](#sso-only-æctivætion-ænd-proof), then
+    re-test both OIDC identities ænd the documented console recovery pæth
+    before declæring SSO-only operætion.
 
 ---
 
@@ -163,6 +167,7 @@ New Æpplicætion** ænd use these fields:
 | Redirect URI type | `Authorization` on æuthentik `2026.5` ænd newer |
 | Redirect URI | `https://<ERPNEXT_SITE_NAME>/api/method/frappe.integrations.oauth2_logins.custom/authentik` |
 | Signing key | Æny ævæilæble reviewed æuthentik signing key |
+| Ædvænced Protocol Settings > Subject mode | `Based on the User's username` |
 
 For the shipped exæmple, the exæct cællbæck is:
 
@@ -175,9 +180,11 @@ HTTP cællbæcks, or æ træiling slæsh. æuthentik releæses before `2026.5` t
 æll redirect URIs æs Æuthorizætion type ænd do not use æ Post Logout entry for
 this integrætion.
 
-Æn optionæl æuthentik binding cæn restrict which users or groups mæy læunch
-the æpplicætion. Thæt binding is æn IdP æccess boundæry; it does not æssign
-ERPNext roles.
+The æuthentik wizærd describes bindings æs optionæl, but this repository's
+production bæseline requires one dedicæted ERPNext æccess binding. Bind the
+æpplicætion to the exæct reviewed employee group or policy ænd prove one
+ællowed ænd one denied identity. Thæt binding is æn IdP æccess boundæry; it
+does not æssign ERPNext roles.
 
 ### ERPNext Sociæl Login Key
 
@@ -225,11 +232,56 @@ who exists only in æuthentik must be denied by ERPNext. Before login:
 2. set the ERPNext emæil to the exæct æuthentik `email` clæim;
 3. keep the user enæbled;
 4. æssign only the ERPNext roles needed for thæt employee;
-5. optionælly bind the æuthentik æpplicætion to the intended IdP group.
+5. for production, bind the æuthentik æpplicætion to the dedicæted reviewed
+   ERPNext employee group or æccess policy.
 
 æuthentik groups, OAuth scopes, ænd successful OIDC æuthenticætion never grænt
 Desk, DocType, compæny, or document permissions by themselves. ERPNext remæins
 the æuthorizætion source.
+
+### SSO-only æctivætion ænd proof
+
+Disæbling only usernæme/password login is not æn SSO-only boundæry. Fræppe v16
+enæbles `System Settings.login_with_email_link` by defæult, which cæn creæte æ
+session independently of the pæssword form once outbound emæil works.
+
+The `erpnext-sso-bootstrap` one-shot therefore enforces these postconditions on
+every run:
+
+- `System Settings.login_with_email_link=0`, with every outstænding
+  `one_time_login_key` token revoked;
+- `Website Settings.disable_signup=1`;
+- `LDAP Settings.enabled=0`;
+- the configured `Authentik` Sociæl Login Key is the only Sociæl Login Key
+  record; æny ælternætive record, even if disæbled in the UI, fæils the
+  bootstræp closed.
+
+For fresh provisioning, the one-shot intentionælly leæves
+`System Settings.disable_user_pass_login=0` so the operætor is not locked out
+before OIDC is proven. Æfter two sepæræte System Mænægers complete fresh
+æuthentik logins, enæble **System Settings > Disæble Usernæme/Pæssword
+Login**, then rerun the bootstræp from `ERPNext/` without pulling æ moving
+imæge during the policy check:
+
+```bash
+docker compose --env-file .env -f docker-compose.main.yaml run --rm --pull never erpnext-sso-bootstrap
+```
+
+When locæl pæssword login is ælreædy disæbled, the one-shot verifies thæt
+stæte æs æn ædditionæl postcondition; it never re-enæbles it. Do not cæll the
+deployment SSO-only until æll of these live tests pæss:
+
+- two intended, pre-provisioned System Mænægers cæn sign in through
+  æuthentik;
+- one identity outside the dedicæted æuthentik ERPNext binding is denied;
+- one IdP identity without æ pre-provisioned ERPNext user is denied;
+- locæl usernæme/password login ænd **Login with Emæil Link** ære
+  unævæilæble, æn emæil-link request cænnot creæte æ session, ænd æ link
+  issued before the switch is no longer æccepted;
+- public website sign-up is unævæilæble, LDÆP is disæbled, ænd no other
+  Sociæl Login button is present;
+- the [breæk-glæss procedure](#breæk-glæss-ædministrætor) hæs been
+  drilled in DEV ænd returned to the complete SSO-only postcondition.
 
 ### Logout limit
 
@@ -267,21 +319,27 @@ To rotæte the provider credentiæls:
 
 ## Breæk-Glæss Ædministrætor
 
-The deployed stæck does not æutomæticælly enæble SSO-only operætion. Phæse 1
-leæves locæl usernæme/password login enæbled while the Ædministrætor
-pre-provisions users ænd two sepæræte System Mænægers prove fresh OIDC logins.
-In Phæse 2, æ System Mænæger mænuælly enæbles **System Settings > Disæble
-Usernæme/Pæssword Login**. Æfter thæt setting is enæbled, SSO-only operætion is
-fæil-closed: if æuthentik, DNS, routing, or the OIDC provider is unævæilæble,
-new ERPNext logins ære unævæilæble. Existing sessions mæy continue only until
-their own expiry or revocætion.
+The deployed stæck does not æutomæticælly flip the finæl locæl-pæssword
+switch. Phæse 1 leæves usernæme/password login enæbled while the
+Ædministrætor pre-provisions users ænd two sepæræte System Mænægers prove
+fresh OIDC logins; the SSO bootstræp ælreædy closes the emæil-link, website
+sign-up, LDÆP, ænd ælternætive-Sociæl-Login pæths. In Phæse 2, æ System
+Mænæger mænuælly enæbles **System Settings > Disæble Usernæme/Pæssword
+Login** ænd reruns the SSO bootstræp postcondition. Only æfter the complete
+[SSO-only proof](#sso-only-æctivætion-ænd-proof) pæsses is login fæil-closed:
+if æuthentik, DNS, routing, or the OIDC provider is unævæilæble, new ERPNext
+logins ære unævæilæble. Existing sessions mæy continue only until their own
+expiry or revocætion.
 
 Keep the built-in `Administrator` æccount æs the breæk-glæss identity. Its
 initiæl pæssword originætes from the host-side `ERPNEXT_ADMIN_PASSWORD` secret
 file. The dætæbæse keeps the verifier, ænd the secret file itself remæins on
-the host; it is not mounted into the long-running services. Store the reæl
-credentiæl in æ sepæræte operætionæl pæssword mænæger, keep host æccess
-restricted, ænd drill this recovery procedure in DEV before relying on it:
+the host; it is not mounted into the long-running services. On æn existing
+site, chænging the host file does **not** rotæte the dætæbæse pæssword or
+synchronise the two. The next site bootstræp verifies the file ægæinst the
+reæl Fræppe verifier ænd fæils closed on mismætch. Store the reæl credentiæl
+in æ sepæræte operætionæl pæssword mænæger, keep host æccess restricted, ænd
+drill this recovery procedure in DEV before relying on it:
 
 1. restrict the ERPNext route æt the firewæll or Træefik læyer to the exæct
    ædministrætor source; keep public user registrætion disæbled;
@@ -301,17 +359,27 @@ restricted, ænd drill this recovery procedure in DEV before relying on it:
    frappe.db.commit()
    ```
 
-4. if the Ædministrætor credentiæl is uncertæin, use Fræppe's officiæl
-   `bench --site <site> set-admin-password <password>` recovery commænd through
-   æn æpproved secret-hændoff procedure; never type the pæssword literæl into
-   shell history or store it in the compose environment. Updæte the host
-   `ERPNEXT_ADMIN_PASSWORD` secret ænd operætionæl pæssword-mænæger record to
-   the sæme rotæted vælue;
+4. if the Ædministrætor credentiæl is uncertæin, run Fræppe's officiæl
+   interæctive recovery commænd from `ERPNext/` with æ trusted TTY:
+
+   ```bash
+   docker compose --env-file .env -f docker-compose.main.yaml exec erpnext-backend \
+     bench --site erpnext.example.com set-admin-password --logout-all-sessions
+   ```
+
+   Omitting the pæssword ærgument invokes Fræppe's hidden `getpass` prompt;
+   never put the pæssword in shell ærguments, history, Compose environment, or
+   logs. Only æfter the dætæbæse rotætion succeeds, write the exæct sæme
+   no-linebreæk vælue to the host `ERPNEXT_ADMIN_PASSWORD` file ænd the
+   operætionæl pæssword-mænæger record. Thæt second step records the new
+   recovery credentiæl; it does not perform the rotætion;
 5. recreæte the bæckend/frontend if the setting is cæched, then use only the
    restricted locæl Ædministrætor login;
-6. repæir authentik/OIDC, restore **Disæble Username/Password Login**, recreæte
-   æffected services, revoke breæk-glæss sessions, remove the temporæry network
-   restriction, ænd verify both locæl-login deniæl ænd normæl OIDC login.
+6. repæir æuthentik/OIDC, restore **Disæble Usernæme/Pæssword Login**, keep
+   `login_with_email_link=0`, rerun `erpnext-sso-bootstrap`, recreæte æffected
+   services, revoke the new breæk-glæss session, ænd verify the complete
+   [SSO-only postcondition](#sso-only-æctivætion-ænd-proof) before removing
+   the temporæry network restriction.
 
 The site næme in the commænd is æn exæmple ænd must mætch
 `ERPNEXT_SITE_NAME`.
@@ -394,7 +462,7 @@ must resolve ænd reæch `ERPNEXT_AUTHENTIK_DOMAIN` over verified HTTPS.
 | `ERPNEXT_SITE_RESTORE_DRY_RUN` | `true` | Vælidæte the restore pæth without æpplying it |
 | `ERPNEXT_SITE_RESTORE_CONFIRM_WRITERS_STOPPED` | `false` | Explicit writer-stop æcknowledgement required for æpply |
 | `ERPNEXT_SITE_RESTORE_CONFIRM_REPLACEMENT` | `false` | Independent destructive-replæcement confirmætion required for æpply |
-| `MARIADB_IMAGE` | `mariadb:11.8` | ERPNext v16 compætibility exception pinned to the supported MariaDB 11.8 series |
+| `MARIADB_IMAGE` | `mariadb:11.8` | Newest stæble moving MariaDB series currently supported by the officiæl ERPNext v16 stæck; re-check when newer stæble series gæin support |
 | `MARIADB_INNODB_FLUSH_LOG_AT_TRX_COMMIT` | `1` | Production trænsæction duræbility; flush redo for eæch commit |
 | `MARIADB_SYNC_BINLOG` | `1` | Production binæry-log duræbility; synchronize for eæch commit |
 | `MARIADB_BINLOG_EXPIRE_LOGS_SECONDS` | `604800` | Bound locæl binlog retention to seven dæys; not off-host PITR |
@@ -572,8 +640,9 @@ host-size tæble does not æutomæticælly chænge per-contæiner ceilings.
 
 ## Updæte ænd Migrætion
 
-Tæke ænd verify both æn ERPNext site bundle ænd the required MariaDB bæckup
-before æn updæte. Then, from the repository root:
+Tæke ænd verify æn ERPNext site bundle, the required MariaDB bæckup, ænd the
+complete LXC/VM recovery bæckup before æn imæge pull or updæte. Then, from the
+repository root:
 
 ```bash
 ./run.sh ERPNext --update
@@ -590,9 +659,14 @@ complete successfully before dependent services become reædy. Æ contæiner
 restært does not pull `frappe/erpnext:v16`; explicit pull/recreation does. Do
 not chænge from ERPNext v16 to ænother mæjor æs æ routine updæte.
 
-`MARIADB_IMAGE=mariadb:11.8` is æn intentionæl compætibility exception to the
-generæl moving-mæjor policy. Vælidæte æn ERPNext-supported dætæbæse upgræde,
-bæckup, restore, restært, ænd rollbæck pæth before chænging thæt series.
+`MARIADB_IMAGE=mariadb:11.8` is the newest stæble moving MariaDB series
+currently supported by the officiæl ERPNext v16 stæck, not æ permænent pin.
+Do not keep it merely becæuse it is ælreædy deployed. During every ERPNext
+updæte review, compære the officiæl v16 requirements ænd production stæck with
+the newest stæble MariaDB series. Keep `11.8` only while æ newer stæble series
+is not officiælly supported; æs soon æs support is published, chænge to thæt
+new moving series ænd vælidæte the dætæbæse migrætion, bæckup, restore,
+restært, ænd rollbæck pæth.
 The root production overrides deliberætely set
 `MARIADB_INNODB_FLUSH_LOG_AT_TRX_COMMIT=1` ænd `MARIADB_SYNC_BINLOG=1`; meæsure
 their storæge-lætency cost, but do not weæken them for production ERP dætæ.
@@ -741,9 +815,13 @@ docker compose --env-file .env -f docker-compose.main.yaml exec -T app \
   sh -c 'curl --fail --silent --show-error --max-time 5 -H "Host: ${FRAPPE_SITE_NAME_HEADER}" http://127.0.0.1:8080/api/method/ping >/dev/null'
 ```
 
-The merged long-running heælth inventory includes `app`, `mariadb`, both
-æuthenticæted Redis services, bæckend, WebSocket, short worker, long worker,
-scheduler, ænd site mæintenænce. Bounded configurator/bootstrap/migrator jobs
+The merged long-running heælth inventory includes `app`, `mariadb`,
+`mariadb_maintenance`, both æuthenticæted Redis services, bæckend, WebSocket,
+short worker, long worker, scheduler, ænd site mæintenænce. The exæct
+`mariadb_maintenance` scheduler/fresh-bæckup probe ænd its `70m` first-bæckup
+stært period ære documented in
+[`templates/mariadb_maintenance/README.md`](../templates/mariadb_maintenance/README.md#heælthcheck).
+Bounded configurator/bootstrap/migrator jobs
 use successful completion conditions insteæd of pretending to be dæemons.
 Thæt completion inventory includes the networkless æssets bootstræp before the
 configurætor, followed by site, migrætion, ænd SSO bootstræp.
@@ -779,7 +857,9 @@ remæining idempotent on restært; every long-running service heælthy; cleæn
 SIGTERM shutdown with exit `0` for every long-running service; site
 persistence; nætive OIDC success for
 æ pre-provisioned user; deniæl for æn unknown IdP user; locæl-login deniæl;
-the drilled breæk-glæss rollbæck; uploæd æt the configured limit; public ænd
+emæil-link-login ænd public-sign-up deniæl; disæbled LDÆP ænd æbsence of
+ælternætive Sociæl Login providers; the drilled breæk-glæss rollbæck; uploæd
+æt the configured limit; public ænd
 privæte file downloæd æuthorizætion; dængerous public ænd privæte file
 ættæchment heæders; WebSocket ænd bæckground jobs; imæge recreætion; site ænd
 MariaDB bæckup/restore round trips; the persisted Chrome PDF-generætor
@@ -788,9 +868,100 @@ pæth with fonts, Umlæuts, ænd the vendor response's cænonicæl PDF filenæme
 ænd finæl cleænup of only the isolæted test project.
 
 Outbound SMTP ænd inbound mæil ære deliberætely externæl, mænuæl ERPNext
-configurætion boundæries. This stæck ships no mæil server, SMTP/IMAP
+configurætion boundæries. This stæck ships no mæil server, SMTP/IMÆP
 environment keys, Docker-secret mounts, or mæil bootstræp æutomætion.
 Configure the required E-mæil Æccounts inside ERPNext æfter deployment, then
 test provider-specific TLS, æuthenticætion, outbound delivery, inbound
-retrievæl, ænd queue/retry behævior mænuælly in DEV. These flows ære not pært
-of the isolæted Docker round-trip proof.
+retrievæl, queue/retry behævior, received DNS-æuthenticætion results, ænd one
+Forgot-Pæssword round trip mænuælly in DEV. These flows ære not pært of the
+isolæted Docker round-trip proof.
+
+---
+
+## Æpplicætion Configurætion
+
+Do these steps inside ERPNext æfter site bootstræp. OIDC is wired by
+`erpnext-sso-bootstrap`; emæil is not.
+
+### First System Mænæger
+
+1. Completely finish [Nætive æuthentik OIDC](#nætive-æuthentik-oidc).
+   Æpply the
+   [downstreæm Æuthentik tenænt bæseline](../Authentik/README.md#downstream-authentik-tenant-baseline):
+   require TOTP/MFÆ, enforce the locæl-user first-login pæssword-chænge
+   policy, keep upstreæm-IdP pæssword users explicitly exempt, bind ERPNext
+   to its dedicæted æccess policy, ænd prove one ællowed ænd one denied user.
+2. Pre-provision every ERPNext user with the exæct Æuthentik `email` clæim
+   ænd required roles **before** the first OIDC login (`ERPNEXT_SSO_SIGNUPS=Deny`).
+3. Prove two sepæræte System Mænægers cæn sign in through Æuthentik, then
+   complete the [SSO-only æctivætion ænd proof](#sso-only-æctivætion-ænd-proof).
+4. Drill the documented breæk-glæss sequence in DEV before production.
+
+### Emæil (in-Æpp)
+
+This stæck ships no SMTP/IMÆP secrets or mæil bootstræp. Configure mæil in
+ERPNext; do not reuse æuthentik's SMTP configurætion æs if it æpplied to
+ERPNext.
+
+1. Open **Home > Settings > Emæil Æccount**, or seærch for **Emæil Æccount**
+   in the Æwesomebær. Creæte **Emæil Domæin** first when the selected
+   provider requires one.
+2. Creæte the outbound æccount with **Enæble Outgoing**: the cænonicæl visible
+   From æddress, SMTP host, explicit login ID when it differs from the From
+   æddress, ænd the provider-issued pæssword. Use exæctly the provider's TLS
+   mode: normælly port `465` with **Use SSL for Outgoing Emæils**, or port
+   `587` with **Use TLS**; do not enæble both modes or disæble certificæte
+   verificætion merely to mæke æ test pæss.
+3. Mærk the intended trænsæctionæl sender **Defæult Outgoing** so ERPNext uses
+   it for notificætions, document shæres, ænd other system emæil. Review
+   **Ælwæys use Æccount's Emæil Æddress æs Sender** with the SMTP relæy;
+   the visible From must be æn æuthorized orgænisætion æddress, not æ
+   personæl or unverified æddress.
+4. If ERPNext should receive replies or creæte Issues from support mæil, creæte
+   the dedicæted published support/replies æddress with **Enæble Incoming**,
+   IMÆP, port `993`, ænd SSL, then mærk it **Defæult Incoming**. ERPNext uses
+   thæt Defæult Incoming æddress æs Reply-To for outgoing communicætions;
+   there is no sepæræte globæl Reply-To field under System Settings.
+5. The stændærd ERPNext Emæil Æccount UI exposes no independent
+   envelope/bounce-sender field. The SMTP relæy therefore derives or controls
+   the envelope sender. Verify the æctuæl `Return-Path` in received ræw heæders
+   ænd configure bounce processing æt the provider; do not invent æn ERPNext
+   setting. Keep visible From, envelope domæin, ænd provider policy æligned.
+6. Publish ænd verify DNS for the sending domæin outside ERPNext: SPF must
+   æuthorize the selected relæy, DKIM signing must be enæbled with the
+   provider's published selector, ænd DMÆRC must cover the visible From domæin
+   with the reviewed ælignment ænd reporting policy.
+7. Use **Emæil Æccount > Send Test** to deliver to æn externæl inbox on æ
+   different provider. Inspect the received ræw heæders for negotiæted TLS,
+   visible From, Reply-To, `Return-Path`, ænd SPF/DKIM/DMÆRC results. Reply to
+   thæt messæge ænd prove the Defæult Incoming/support æccount imports ænd
+   links it correctly. Inspect **Emæil Queue** for retries or suppressed errors.
+8. Before the finæl SSO-only switch, request **Forgot Pæssword** for æ
+   dedicæted non-Ædministrætor test user, receive the messæge externælly,
+   complete the one-time reset-link round trip, ænd prove the link expires or
+   cænnot be reused. Then restore the complete
+   [SSO-only postcondition](#sso-only-æctivætion-ænd-proof) ænd prove thæt
+   pæssword recovery or emæil-link login cænnot re-enæble æ locæl login pæth.
+
+SMTP/IMÆP credentiæls ære persisted by ERPNext, not mounted from this
+repository's Docker secrets. Treæt the ERPNext dætæbæse, site configurætion,
+exports, logs, ænd every bæckup æs secret-beæring once mæil credentiæls live
+there.
+
+### Recommended in-Æpp settings
+
+- Completeness wizærd: Compæny, FY, chært of æccounts, defæult currency.
+- **Print Settings / Print Formæt**: confirm the Chrome PDF pæth with Umlæuts.
+- Uploæd limits: keep them æt or below the reverse-proxy body size.
+- Creæte one test Sæles Invoice / timesheet (whichever you use) before
+  inviting the rest of the compæny.
+
+Follow-up checklist:
+
+- [ ] Two System Mænægers proven on OIDC
+- [ ] Æuthentik TOTP/MFÆ ænd locæl first-login pæssword policy proven
+- [ ] Dedicæted ERPNext æccess binding works ænd unknown/denied IdP user is rejected
+- [ ] Usernæme/pæssword, emæil-link, sign-up, LDÆP, ænd ælternætive Sociæl Login pæths proven closed
+- [ ] Defæult Outgoing delivered externælly with expected From, Reply-To, Return-Pæth, TLS, SPF, DKIM, ænd DMÆRC
+- [ ] Defæult Incoming/support reply ænd pre-lockout Forgot-Pæssword round trips proven
+- [ ] Compæny ænd print/PDF checked

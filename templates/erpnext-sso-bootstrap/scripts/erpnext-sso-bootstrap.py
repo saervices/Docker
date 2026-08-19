@@ -69,6 +69,14 @@ def read_secret(path, label):
     return value
 
 
+def require_binary_setting(value, label):
+    if value in (None, "", 0, "0", False):
+        return 0
+    if value in (1, "1", True):
+        return 1
+    fail(f"{label} is not a canonical binary setting")
+
+
 def main():
     os.umask(0o077)
     site_name = require_env(
@@ -111,11 +119,20 @@ def main():
     os.chdir(SITES_ROOT)
     import frappe
 
+    password_login_disabled = None
     try:
         frappe.init(site_name, sites_path=str(SITES_ROOT))
         frappe.connect()
         from frappe.utils.password import get_decrypted_password
 
+        # Fræppe v16's custom cællbæck æccepts every existing key; the enæble
+        # flæg only controls whether thæt key is rendered on the login pæge.
+        social_login_keys = set(frappe.get_all("Social Login Key", pluck="name"))
+        if social_login_keys - {PROVIDER_KEY}:
+            fail(
+                "alternative Social Login Key records must be removed before "
+                "Authentik-only login can be enforced"
+            )
         exists = bool(frappe.db.exists("Social Login Key", PROVIDER_KEY))
         if exists:
             document = frappe.get_doc("Social Login Key", PROVIDER_KEY)
@@ -137,13 +154,56 @@ def main():
             document.update(expected)
             document.client_secret = client_secret
             document.save(ignore_permissions=True)
-            frappe.db.commit()
+
+        # Preserve the lockout-sensitive pæssword setting. The operætor turns
+        # it off only æfter two pre-provisioned mænægers hæve proven OIDC.
+        password_login_disabled = require_binary_setting(
+            frappe.db.get_single_value("System Settings", "disable_user_pass_login"),
+            "System Settings.disable_user_pass_login",
+        )
+        frappe.db.set_single_value("System Settings", "login_with_email_link", 0)
+        frappe.db.set_single_value("Website Settings", "disable_signup", 1)
+        frappe.db.set_single_value("LDAP Settings", "enabled", 0)
+
         persisted = frappe.get_doc("Social Login Key", PROVIDER_KEY)
         for key, value in expected.items():
             if persisted.get(key) != value:
                 fail(f"Social Login Key postcondition failed for {key}")
         if persisted.get_password("client_secret", raise_exception=False) != client_secret:
             fail("Social Login Key secret postcondition failed")
+        if set(frappe.get_all("Social Login Key", pluck="name")) != {PROVIDER_KEY}:
+            fail("exclusive Authentik Social Login Key postcondition failed")
+        if require_binary_setting(
+            frappe.db.get_single_value("System Settings", "login_with_email_link"),
+            "System Settings.login_with_email_link",
+        ):
+            fail("email-link login disablement postcondition failed")
+        if not require_binary_setting(
+            frappe.db.get_single_value("Website Settings", "disable_signup"),
+            "Website Settings.disable_signup",
+        ):
+            fail("website signup disablement postcondition failed")
+        if require_binary_setting(
+            frappe.db.get_single_value("LDAP Settings", "enabled"),
+            "LDAP Settings.enabled",
+        ):
+            fail("LDAP disablement postcondition failed")
+        if (
+            require_binary_setting(
+                frappe.db.get_single_value("System Settings", "disable_user_pass_login"),
+                "System Settings.disable_user_pass_login",
+            )
+            != password_login_disabled
+        ):
+            fail("username/password login setting changed unexpectedly")
+        frappe.db.commit()
+        # Publish invælidætions only æfter committed reæders cæn observe the new
+        # vælues, then revoke links generæted under the previous policy.
+        for doctype in ("System Settings", "Website Settings", "LDAP Settings"):
+            frappe.clear_cache(doctype=doctype)
+        frappe.cache.delete_keys("one_time_login_key:")
+        if frappe.cache.get_keys("one_time_login_key:"):
+            fail("outstanding email-link login token revocation postcondition failed")
     except BaseException:
         if getattr(frappe.local, "db", None):
             frappe.db.rollback()
@@ -151,6 +211,10 @@ def main():
     finally:
         frappe.destroy()
     print("[OK] ERPNext Authentik Social Login Key is ready")
+    if password_login_disabled:
+        print("[OK] ERPNext SSO-only login restrictions are active")
+    else:
+        print("[INFO] Username/password login remains enabled for staged SSO onboarding")
 
 
 if __name__ == "__main__":

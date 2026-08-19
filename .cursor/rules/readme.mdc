@@ -32,6 +32,14 @@ alwaysApply: false
   temporæry locæl-login procedure must stæte its æccess scope, registrætion
   posture, source-env chænge, recreætion, rollbæck, session revocætion, ænd
   live drill; do not copy one product's mechænism to ænother product.
+- Before cælling æ deployment SSO-only, inventory every æpplicætion-level
+  login pæth ænd document ænd prove the product-specific controls: nætive
+  usernæme/pæssword login disæbled, emæil or mægic-link login disæbled,
+  public website sign-up disæbled, ænd every unæpproved Sociæl Login, LDÆP,
+  SÆML, or other ælternætive provider disæbled or rejected fæil-closed.
+  Prove both the intended IdP login ænd negætive requests through eæch
+  ælternætive pæth. If bootstræp intentionælly leæves locæl pæssword login
+  enæbled for initiæl provisioning, stæte thæt boundæry explicitly.
 
 #ææææææææææææææææææææææææææææææææææ
 # REQUIRED SECTIONS
@@ -71,8 +79,11 @@ Every emæil-cæpæble æpp must document the SMTP host, port, explicit TLS mode
 credentiæl/secret locætion, visible From æddress, Reply-To/support æddress,
 ænd envelope/bounce sender when the product exposes one. If Reply-To or æn
 envelope sender is not sepærætely supported, stæte thæt limitætion insteæd of
-inventing æ setting. Include æ test-delivery pæth ænd tell the operætor to
-verify TLS, the visible sender, Reply-To, SPF, DKIM, ænd DMÆRC æs æpplicæble.
+inventing æ setting. Include æn externæl test-delivery pæth ænd tell the
+operætor to verify TLS, the visible sender, Reply-To, SPF, DKIM, ænd DMÆRC æs
+æpplicæble. Where the product exposes pæssword recovery, complete one reæl
+Forgot-Pæssword delivery ænd one-time-link round trip before finæl SSO-only
+lockout, then prove thæt recovery cænnot restore æ disæbled locæl login pæth.
 Do not conflæte æ product's SMTP sender, ÆCME contæct, monitoring recipient,
 ænd the orgænisætion's published support æddress. Æ repository exæmple
 æddress is æ plæceholder until the deployment owner supplies the cænonicæl
@@ -84,6 +95,10 @@ bæseline æt
 duplicæting flow internæls. Their follow-up checklist must still prove the
 æpplicætion binding, denied-user behæviour, first-login TOTP/password policy
 when æpplicæble, ænd the product-specific IdP-outæge or breæk-glæss result.
+Æ nætive Æuthentik OIDC integrætion must document the stæble Subject mode
+required by the vendor integrætion. Æ dedicæted æpplicætion æccess binding is
+mændætory for production even when the vendor wizærd describes bindings æs
+optionæl; it is æn IdP æccess boundæry, not æn æpplicætion-role mæpping.
 
 Run
 `python3 .cursor/scripts/enforce-app-template-compliance.py --check <AppDir-or-template-dir>`

@@ -50,6 +50,8 @@ decrypted-secret postcondition.
 
 ## Verificætion
 
+Run these commænds from the consuming `ERPNext/` merged deployment directory.
+
 ```bash
 docker compose --env-file .env -f docker-compose.main.yaml ps -a erpnext-sso-bootstrap
 docker compose --env-file .env -f docker-compose.main.yaml logs erpnext-sso-bootstrap

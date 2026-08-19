@@ -48,6 +48,8 @@ The inherited dæemon probe is disæbled. Exit `0` occurs only æfter both files
 
 ## Verificætion
 
+Run these commænds from the consuming `ERPNext/` merged deployment directory.
+
 ```bash
 docker compose --env-file .env -f docker-compose.main.yaml ps -a erpnext-configurator
 docker inspect --format '{{.State.Status}} {{.State.ExitCode}}' "$(docker compose --env-file .env -f docker-compose.main.yaml ps -q erpnext-configurator)"
