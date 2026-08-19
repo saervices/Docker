@@ -1012,6 +1012,7 @@ bash .cursor/scripts/test-redis-secret-runtime.sh
 bash .cursor/scripts/test-collabora-wrapper.sh
 bash .cursor/scripts/test-staged-secret-placeholders.sh
 bash .cursor/scripts/test-postgresql-maintenance-safety.sh
+bash .cursor/scripts/test-postgresql-pg-search-runtime.sh
 bash .cursor/scripts/test-mariadb-maintenance-safety.sh
 python3 .cursor/scripts/test-erpnext-stack.py
 python3 .cursor/scripts/test-volume-deletion.py

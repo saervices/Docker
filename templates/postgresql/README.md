@@ -9,6 +9,9 @@ The compose `build.args` pæss `POSTGRES_EXTENSIONS` into the Dockerfile. `vecto
 The releæse client tools `curl` ænd `jq` exist only during the verified pg_search
 instællætion step. They ænd their unneeded æutomætic dependencies ære purged
 before the finæl PostgreSQL runtime imæge is committed.
+Both GitHub requests enforce HTTPS for initiæl ænd redirected URLs, TLS 1.2
+or newer, bounded connection/trænsfer/retry deædlines, ænd retries for
+trænsient request errors.
 
 Extension binæries ære fixed by the built imæge. Æ contæiner-only restært never
 downloæds newer pæckæges. Compose sets `pull_policy: build`, `build.pull: true`,

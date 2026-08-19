@@ -1,5 +1,8 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2025 it.særvices
+#
+# PostgreSQL — officiæl runtime with optionæl reviewed extension instællætion
+# Bæse: postgres:18 (officiæl moving mæjor chænnel)
 
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 # --- BÆSE IMÆGE
@@ -53,7 +56,11 @@ RUN set -eux; \
       RELEASE_API='https://api.github.com/repos/paradedb/paradedb/releases/latest'; \
     fi; \
     RELEASE_METADATA="$(mktemp)"; \
-    curl -fsSL --retry 5 "${RELEASE_API}" -o "${RELEASE_METADATA}"; \
+    curl --proto '=https' --proto-redir '=https' --tlsv1.2 \
+      --fail --silent --show-error --location \
+      --retry 5 --retry-all-errors --retry-max-time 120 \
+      --connect-timeout 15 --max-time 120 \
+      "${RELEASE_API}" -o "${RELEASE_METADATA}"; \
     PG_SEARCH_RELEASE="$(jq -er '.tag_name' "${RELEASE_METADATA}")"; \
     if [ -n "${POSTGRES_PG_SEARCH_VERSION}" ]; then \
       [ "${PG_SEARCH_RELEASE}" = "v${PG_SEARCH_VERSION}" ] || { echo "Resolved unexpected pg_search release: ${PG_SEARCH_RELEASE}" >&2; exit 1; }; \
@@ -70,7 +77,11 @@ RUN set -eux; \
     EXPECTED_URL="https://github.com/paradedb/paradedb/releases/download/${PG_SEARCH_RELEASE}/${PG_SEARCH_ASSET_NAME}"; \
     [ "${PG_SEARCH_URL}" = "${EXPECTED_URL}" ] || { echo "Unexpected official pg_search asset URL: ${PG_SEARCH_URL}" >&2; exit 1; }; \
     printf '%s' "${PG_SEARCH_DIGEST}" | grep -Eq '^sha256:[0-9a-f]{64}$' || { echo "Missing or malformed official SHA256 digest for ${PG_SEARCH_ASSET_NAME}" >&2; exit 1; }; \
-    curl -fsSL --retry 5 "${PG_SEARCH_URL}" -o /tmp/pg_search.deb; \
+    curl --proto '=https' --proto-redir '=https' --tlsv1.2 \
+      --fail --silent --show-error --location \
+      --retry 5 --retry-all-errors --retry-max-time 300 \
+      --connect-timeout 15 --max-time 300 \
+      "${PG_SEARCH_URL}" -o /tmp/pg_search.deb; \
     printf '%s  %s\n' "${PG_SEARCH_DIGEST#sha256:}" /tmp/pg_search.deb | sha256sum -c -; \
     printf 'Installing pg_search %s from %s with verified %s\n' "${PG_SEARCH_RELEASE}" "${PG_SEARCH_ASSET_NAME}" "${PG_SEARCH_DIGEST}"; \
     apt-get install -y /tmp/pg_search.deb; \
