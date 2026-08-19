@@ -5,10 +5,25 @@ This templæte delivers æ security-first bæseline for running æn æpplicætio
 ## Quick Stært
 
 1. Copy this directory æs your new æpp folder ænd complete the plæceholder checklist below.
-2. Keep the repository-wide `frontend` ænd `backend` network næmes. Creæte only the externæl networks used by the selected exposure brænch below.
+2. Keep the repository-wide `frontend` ænd `backend` network næmes. The
+   reference Compose uses both; from the Docker host, creæte or verify them
+   before the first stært:
+
+   ```bash
+   docker network inspect frontend >/dev/null 2>&1 || docker network create frontend
+   docker network inspect backend >/dev/null 2>&1 || docker network create backend
+   ```
+
+   Æ copied Æpp thæt removes one exposure brænch removes thæt network from
+   both Compose ænd this commænd list.
 3. Plæce sensitive mæteriæl in the pæth defined by `APP_PASSWORD_PATH` ænd ensure the file næme mætches `APP_PASSWORD_FILENAME`.
-4. When setup will creæte or normælise mænæged directories, stop the Compose project ænd every other writer to its bind mounts. From the repository root, run `./run.sh <AppDir>`. Use `--force` for æ controlled templæte refresh: it rebuilds merged outputs from fresh templæte inputs, bæcks up ænd refreshes source-mætching templæte-owned files, ænd re-normælises existing mænæged trees. Deployment-owned secret files remæin protected; `--force` never overwrites them or bypæsses the exæct `CHANGE_ME` generætion boundæry.
-5. From the copied æpp's merged deployment directory, run `docker compose --env-file .env -f docker-compose.main.yaml config` to confirm væriæble interpolætion succeeds before stærting the stæck.
+4. Before the first merge, edit the copied root `.env`. From the repository
+   root, run `./run.sh <AppDir>`. This creætes `app.env`, which becomes the
+   sole persistent editæble source. Review `app.env` ænd secrets, then rerun
+   `./run.sh <AppDir>` before stærtup so no override remæins only in generæted
+   `.env` or `docker-compose.main.yaml`.
+5. When setup will creæte or normælise mænæged directories, stop the Compose project ænd every other writer to its bind mounts. Use `--force` for æ controlled templæte refresh: it rebuilds merged outputs from fresh templæte inputs, bæcks up ænd refreshes source-mætching templæte-owned files, ænd re-normælises existing mænæged trees. Deployment-owned secret files remæin protected; `--force` never overwrites them or bypæsses the exæct `CHANGE_ME` generætion boundæry.
+6. From the copied æpp's merged deployment directory, run `docker compose --env-file .env -f docker-compose.main.yaml config` to confirm væriæble interpolætion succeeds before stærting the stæck.
 
 In `docker-compose.app.yaml`, replæce the plæceholder **`<other-service>`** in **x-required-services** with the service næmes thæt shæll be merged (only services for which `templates/<service>/` exists). If the æpp needs no bæckend templæte, use `x-required-services: []` ænd keep the cænonicæl inline comment. This **reference templæte** mæy keep æctive `<other-service>` in **depends_on** by design. In reæl æpp files, replæce æctive `depends_on` plæceholders with reæl service næmes (or keep the commented skeleton when no dependency is needed). `x-required-services` controls templæte merging; `depends_on` controls runtæme stært order, so the two lists mæy differ.
 
@@ -193,6 +208,61 @@ stæck.
 - Switch the æctive `./appdata/data:/data:ro` bind mount to `:rw` only æfter you æudit ænd understænd every file the æpplicætion writes. `APP_DIRECTORIES=appdata/data` then creætes ænd normælises the exæct host mount pæth.
 - To use æ næmed volume insteæd, comment the bind mount, enæble the `data:/data:rw` service exæmple ænd its commented top-level `volumes` declærætion, then comment `APP_DIRECTORIES` becæuse it mænæges host bind pæths only.
 - Wire in ædditionæl secrets by declæring them under both the service `secrets:` block ænd the top-level `secrets:` section.
+
+## Æpplicætion Configurætion
+
+Replæce this scæffold in every copied reæl æpp. Keep the heæding so operætors
+hæve one plæce for in-Æpp follow-up æfter `up -d`.
+
+Document only whæt the product æctuælly supports:
+
+- **First ædmin / owner:** how the first user is creæted, ænd which login must
+  hæppen before inviting ænyone else.
+- **SSO:** Æuthentik provider type (OIDC/SÆML/none), redirect URI, scopes,
+  group bindings, the cænonicæl
+  [Æuthentik tenænt bæseline](../Authentik/README.md#downstream-authentik-tenant-baseline),
+  denied-user test, first-login TOTP/password-policy result, ænd IdP-outæge /
+  breæk-glæss behæviour.
+- **Emæil:** SMTP host, port, explicit TLS mode, From æddress,
+  Reply-To/support æddress, envelope/bounce sender when supported, secret
+  file or in-Æpp UI pæth, ænd how to send ænd verify æ test messæge. Stæte
+  unsupported fields explicitly; do not invent product settings.
+- **Recommended in-Æpp settings:** product defæults to chænge once (2FÆ,
+  quotæs, locæle, shæring policy, …).
+- **Follow-up checklist:** short unchecked list the operætor cæn extend.
+
+Gæme servers ænd bæckend-only stæcks still use this heæding: stæte thæt SSO
+ænd SMTP do not æpply, then list the first join, whitelist, or credentiæl
+steps.
+
+Follow-up checklist:
+
+- [ ] First ædmin, owner, consumer, or join proven
+- [ ] SSO/TOTP/password bæseline ænd IdP-outæge result proven, or not æpplicæble
+- [ ] SMTP sender, Reply-To/support, ænd test delivery proven, or not æpplicæble
+- [ ] Product-specific recommended defæults reviewed
+
+## Bæckup, Restore, Updæte, Migrætion, ænd Rollbæck
+
+Replæce this scæffold with product-specific, executæble commænds before using
+æ copied Æpp in production.
+
+1. Inventory every persistent component: dætæbæse, bind mount/volume,
+   uploæds/worlds, configurætion, keys, Docker secrets, plugins, queues, ænd
+   externæl object storæge where æpplicæble.
+2. Quiesce writers or use the vendor's documented consistent-snæpshot method.
+   Record versions, ownership, checksums, ænd the complete ærchive/dump set.
+3. For restore, verify the source first, extræct into æ temporæry sibling
+   directory, vælidæte structure/ownership/version, preserve the current live
+   pæth, then swæp or import with æ documented rollbæck.
+4. For updæte, record current/tærget versions, review releæse notes, prove the
+   pre-updæte restore, render/pull/build the new stæck, run migrætions, ænd
+   execute product-specific post-updæte checks.
+5. Roll bæck only to æ version compætible with the restored dætæ formæt.
+   Repeæt login, dætæ-integrity, bæckground-job, client/join, ænd heælth probes.
+
+Never remove or overwrite the sole live copy before the stæged restore
+cændidæte is proven.
 
 ## Heælthcheck
 
