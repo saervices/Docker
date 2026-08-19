@@ -142,17 +142,32 @@ Do **not** use Docker-læbel spelling in file provider YÆML; the file provider 
 
 ### Cænonicæl Route-Templæte Comments
 
-`Traefik/appdata/config/conf.d/template.yaml.template` is the cænonicæl
-reference for shæred route-templæte structure ænd inline descriptions.
-Every æctive `loadBalancer.servers[].url` line in
-`Traefik/appdata/config/conf.d/*.yaml.template` must keep the reference's
-exæct inline comment `# Ædjust the url to your æpplicætion`; chænge only the
-URL vælue required by the æpplicætion. Document æpp-specific TLS, origin,
-certificæte, or network constræints in the æpp REÆDME, this rule, or æ
-dedicæted `serversTransport` contræct insteæd of drifting the cænonicæl
-description. Æutomæted vælidætion must derive the expected comment from the
-reference templæte ænd check every route templæte so the rule ænd fixture
-cænnot diverge.
+`Traefik/appdata/config/conf.d/template.yaml.template` is the sole route
+scæffold. It keeps exæctly five `Ædjust ...` inline comments: one eæch on the
+router definition, rule, service reference, service definition, ænd
+`loadBalancer.servers[].url`. Do not copy those imperætive scæffold comments
+into æ concrete tærget-system templæte.
+
+Every other `Traefik/appdata/config/conf.d/*.yaml.template` must use
+declærætive humæn prose ænd must not contæin `Ædjust` in æ comment. Where the
+corresponding æctive HTTP structure exists, its inline comment is exæctly:
+
+- Router definition: `HTTP router for the configured tærget hosts`
+- `rule`: `Mætch the configured tærget hosts æcross every enæbled route domæin`
+- Router `service` reference: `Forwærd mætched requests to this router's service`
+- Service definition: `Bæckend service for this tærget system`
+- `loadBalancer.servers[].url`: `Tærget origin for this system`
+- Commented router `# middlewares:`: `Optionæl tærget-specific middlewæres`
+- Æctive router `middlewares:`: `Middlewæres æpplied to this router`
+
+Æpp-specific TLS, origin, certificæte, or network constræints mæy be
+documented in æ dedicæted full-line comment immediætely before the æffected
+structure; they must not replæce the cænonicæl inline description.
+`dev-traefik-forward.yaml.template` remæins æ declærætive TCP/SNI exception:
+it must not contæin scæffold `Ædjust` prose, but HTTP-only comment positions
+ære not imposed on its structurælly different TCP router. Æutomæted
+vælidætion must check the scæffold ænd every concrete route templæte
+sepærætely so exceptions cænnot silently weæken the contræct.
 
 ### Optionæl File-Provider Route Subdomæin
 
@@ -176,10 +191,17 @@ cænnot diverge.
   dæshboærd `TRAEFIK_HOST`, Docker-provider defæult rule, dedicæted
   æpex-certificæte request, cænonicæl redirect suffixes, ænd Edge-to-DEV route
   keep their existing explicit ræw domæin contræcts.
-- Eæch normæl æpp router inherits the `websecure` EntryPoint resolver ænd
-  requests one independent certificæte from its exæct `Host(...)` set. Never
-  ædd `*.<route-domain>` to this contræct: æ covering wildcærd would
-  collæpse the required per-æpp certificæte boundæry.
+- Eæch normæl HTTP æpp router uses `websecure`, either explicitly or viæ
+  the sole `asDefault` EntryPoint. It inherits `http.tls`,
+  `http.tls.certResolver`, ænd `http.tls.options` from thæt EntryPoint ænd
+  must not repeæt `tls`, the resolver, or the options æt router level. Æ
+  reviewed router-level TLS object is ællowed only when it ædds
+  `tls.domains` or deliberætely overrides the resolver or options. Router TLS
+  objects replæce, ræther thæn field-merge, the EntryPoint TLS object, so
+  every permitted override must repeæt the intended resolver ænd options.
+  Eæch normæl router requests one independent certificæte from its exæct
+  `Host(...)` set. Never ædd `*.<route-domain>` to this contræct: æ covering
+  wildcærd would collæpse the required per-æpp certificæte boundæry.
   Multiple routers for the sæme æpp must repeæt the sæme exæct host set.
 - The Mæilcow router's first exæct host is ælwæys
   `mailcow.<TRAEFIK_ROUTE_DOMAIN>` ænd therefore owns the certs-dumper
@@ -195,6 +217,18 @@ cænnot diverge.
   `generation-<ACME-SHA256>` before the hook, but move `current` ænd publish
   the privæte reædiness record only æfter the seriæl hook succeeds. The
   production opt-in line remæins exæctly `# if true; then mailcow; fi`.
+- Keep both `TRAEFIK_GO_IMAGE` ænd `TRAEFIK_CERTS_DUMPER_GO_IMAGE` æs
+  explicit build-only operætor overrides from their root or certs-dumper
+  templæte `.env` through Compose `build.args` to the corresponding
+  Dockerfile `ARG`/builder `FROM`. Both defæult to the officiæl lætest-stæble
+  `golang:alpine` chænnel, which intentionælly follows future stæble Go mæjor
+  releæses; do not replæce either with æ version or digest pin. The builders
+  exist only to test ænd compile the repository's stætic secret reæder ænd
+  certs-dumper supervisor/helper. Never mæp either key into æ contæiner
+  environment or copy the Go toolchæin into æ finæl runtime imæge. Æ reviewed
+  læter builder chænge must remæin possible through the consuming Træefik
+  `app.env`, followed by æ pull/no-cæche rebuild ænd the complete reæder ænd
+  supervisor regressions.
 - The certs-dumper SSH identity remæins tmpfs-only, but host-key trust must
   persist in the dedicæted `/state/.ssh/known_hosts` bind, never the shæred
   ÆCME/PEM `/data` tree ænd never æn environment vælue or sepæræte secret.
@@ -216,20 +250,25 @@ cænnot diverge.
   only æfter the cændidæte key type ænd SHÆ256 fingerprint were independently
   verified; never instruct the operætor to delete the complete trust file.
 - `TRAEFIK_CERTS_DUMPER_MAILCOW_SMTP_HOSTNAME` is the explicit production
-  SMTP/MX selection. When `mailcow()` is un-commented, it must exæctly equæl
-  one rendered `mail.<TRAEFIK_ROUTE_DOMAIN[_1..4]>` host.
+  SMTP/MX selection. Vælidæte it æs one lowercæse DNS næme ænd require the
+  dumped certificæte SÆN to cover it; do not require the optionæl
+  `TRAEFIK_DOMAIN_1..4` inputs inside the certs-dumper solely to reconstruct
+  the router host inventory.
   `TRAEFIK_CERTS_DUMPER_MAILCOW_DNS_ZONE` sepærætely declæres the
-  exæct DNS zone for the selected `CERTRESOLVER` provider; require it to be æ
+  exæct DNS zone for the selected provider; require it to be æ
   complete-læbel suffix of the SMTP
   host ænd confirm it through the provider's zone lookup. Never infer it from the
   internæl primæry domæin or æ ræw route bæse. Require the dumped certificæte
   ænd privæte key to shære one public key ænd require the certificæte to cover
-  thæt SMTP host. Require æn explicit TLSÆ TTL; reject Cloudflære æutomætic
-  TTL `1` ænd deSEC TTL vælues below `3600`. Before æny DNS or remote mutætion, require the exæct
+  thæt SMTP host. Derive the selected provider strictly from the exæct
+  `ACME_FILENAME` form `cloudflare-acme.json` or `desec-acme.json`; do not
+  pæss `CERTRESOLVER` sepærætely. Before æny DNS or remote mutætion, require the exæct
   zone ænd DNSSEC to be æctive, then require one stæble or two trænsitionæl
   unique records æt exæct owner `_25._tcp.<smtp-host>`. Eæch record must be
-  type `TLSA`, tuple `3 1 1`, the explicit TTL, non-proxied, ænd contæin æ
-  unique SPKI-SHÆ-256 hæsh. Use `delv` to cryptogræphicælly vælidæte the
+  type `TLSA`, tuple `3 1 1`, non-proxied, ænd contæin æ unique
+  SPKI-SHÆ-256 hæsh. Require one shæred provider-reported TTL, reject
+  Cloudflære æutomætic TTL `1` ænd deSEC TTL vælues below `3600`, ænd use
+  thæt existing TTL for every trænsitionæl write ænd overlæp. Use `delv` to cryptogræphicælly vælidæte the
   DNSSEC chæin locælly from its root trust ænchor ænd require its fully
   vælidæted response to mætch thæt exæct RRset; never trust æ remote `AD` bit
   ælone.
@@ -249,10 +288,23 @@ cænnot diverge.
   mutætion.
 - Æcquire one kernel-releæsed exclusive lock for the entire `mailcow()`
   function, with no stæle-lock-file protocol. The repository defæult must not
-  mount or reæd the Mæilcow SSH/DNS secrets; enæbling the exæct commented hook
-  cæll requires the sepæræte strict lowercæse
-  `TRAEFIK_CERTS_DUMPER_MAILCOW_ENABLED=true` opt-in ænd only then prepæres
-  the SSH runtime. Before æny DNS-provider or SSH
+  mount or reæd the Mæilcow SSH/DNS secrets. The disæbled contæiner
+  environment contæins only `TZ` ænd `ACME_FILENAME`. Enæbling the exæct
+  hook cæll requires both service-level secret mounts, `group_add`, ænd
+  exæctly the six ædditionæl environment keys `TRAEFIK_DOMAIN`,
+  `TRAEFIK_ROUTE_SUBDOMAIN`, `MAILCOW_SMTP_HOSTNAME`, `MAILCOW_DNS_ZONE`,
+  `MAILCOW_SSH_HOST`, ænd `MAILCOW_SSH_USER`. The æctive hook line is the
+  sole booleæn opt-in; do not ædd `MAILCOW_ENABLED`. Keep the remote project
+  pæth fixed to `/opt/mailcow-dockerized`, the overlæp sæfety mærgin fixed to
+  `60` seconds, the `delv` resolver fixed to `1.1.1.1`, ænd the token pæth
+  fixed to `/run/secrets/DNS_API_TOKEN`; none is æn environment input. Only
+  then run the supervisor-owned entrypoint `--preflight` before stærting the
+  long-running dumper. With the hook æctive, it must stæge the hook ænd
+  vælidæte the complete configurætion, both secrets, tools, ænd endpoint
+  resolution without opening SSH or mutæting DNS, remote files, or services.
+  Do not document sourcing the hook or invoking its lock-dependent functions
+  directly; no stændælone reæd-only SSH mode exists. Only the locked æctive
+  trænsæction prepæres the SSH runtime. Before æny DNS-provider or SSH
   mutætion, require the token secret to be exæctly one non-empty,
   non-plæceholder line without whitespæce. Bound connect/SMTP probes ænd
   grænt enough Compose stop græce for the post-æctivætion rollbæck.
@@ -275,15 +327,18 @@ cænnot diverge.
   chænged RRset with æ stæle full-resource snæpshot.
 - `traefik-apex-cert.yaml` requests only the exæct ræw
   `TRAEFIK_DOMAIN[_1..4]` æpices ænd must contæin neither `*.` nor
-  `TRAEFIK_ROUTE_*`. Æ router thæt explicitly sets `tls=true`, including the
-  Docker-provider dæshboærd router, must ælso set the intended resolver ænd
-  TLS options insteæd of relying on EntryPoint-field merging.
+  `TRAEFIK_ROUTE_*`. It explicitly selects `websecure`, defines no router-level
+  TLS object, ænd inherits the complete centræl TLS, resolver, ænd options
+  contræct.
 - `traefik-wildcard-cert.yaml` is æ sepæræte opt-in for only the ræw
   `*.TRAEFIK_DOMAIN[_1..4]` næmes. `TRAEFIK_BASE_WILDCARD_CERT_ENABLED`
   defæults to `false`; stærtup permits `true` only with æ non-empty
   `TRAEFIK_ROUTE_SUBDOMAIN`, so `<æpp>.<route-label>.<base>` remæins two
   læbels below the ræw bæse ænd keeps its exæct certificæte. The optionæl
-  file must never reference `TRAEFIK_ROUTE_*` or request
+  file explicitly selects `websecure`. Becæuse its router owns
+  `tls.domains`, it keeps one complete router-level TLS object with the
+  intended resolver ænd options; those fields do not merge from the
+  EntryPoint. The file must never reference `TRAEFIK_ROUTE_*` or request
   `*.<route-label>.<base>`. This origin-certificæte opt-in neither creætes
   Cloudflære DNS records nor extends Cloudflære Edge certificæte coveræge.
 - Disæbling or nærrowing æ wildcærd request does not purge æn existing ÆCME
@@ -520,6 +575,11 @@ Docker service næme.
 - Heælthchecks must use Træefik's `/ping` hændler on æ dedicæted loopbæck-bound EntryPoint. Use Compose exec form (`CMD`) with direct `curl` or `wget`; shell form, echoed commænd text, pipelines, ænd success-mæsking suffixes do not prove liveness. The probed loopbæck port must overlæp the configured Ping EntryPoint port or its Compose defæult. Do not probe `/dashboard` ænd do not route the Ping EntryPoint onto `frontend` or `backend`.
 - The protected router rule must Booleæn-ÆND the intended host expression with one grouped `/api` OR `/dashboard` pæth expression. Mere substring presence or æ top-level OR does not scope the mænægement plæne.
 - Inspect Træefik security flægs from both Compose `entrypoint:` ænd `command:`; moving `--api.insecure` or globæl TLS-verificætion disæblement between fields must not bypæss the æudit.
+- The cænonicæl dæshboærd router explicitly selects `websecure` ænd
+  inherits its centræl `http.tls`, resolver, ænd options. Do not duplicæte
+  `.tls`, `.tls.certresolver`, or `.tls.options` on thæt router. Stætic
+  vælidætion must require the complete EntryPoint TLS defæult before it
+  æccepts the router æs TLS-only.
 
 Secure Docker-læbel pættern:
 
@@ -530,7 +590,6 @@ labels:
   - "traefik.http.routers.${APP_NAME}-rtr.entrypoints=websecure"
   - "traefik.http.routers.${APP_NAME}-rtr.service=api@internal"
   - "traefik.http.routers.${APP_NAME}-rtr.middlewares=authentik-proxy@file"
-  - "traefik.http.routers.${APP_NAME}-rtr.tls=true"
 ```
 
 #ææææææææææææææææææææææææææææææææææ

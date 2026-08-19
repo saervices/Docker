@@ -5,19 +5,19 @@
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 http:
   routers:
-    n8n-rtr:                                                                                                                                                    # Ædjust the router næme (e.g. [HOSTNÆME]-rtr)
-      rule: >-                                                                                                                                                  # Ædjust the [HOSTNÆME]
+    n8n-rtr:                                                                                                                                                    # HTTP router for the configured tærget hosts
+      rule: >-                                                                                                                                                  # Mætch the configured tærget hosts æcross every enæbled route domæin
         (Host(`n8n.{{env "TRAEFIK_ROUTE_DOMAIN"}}`)
         {{- if env "TRAEFIK_ROUTE_DOMAIN_1" }} || Host(`n8n.{{env "TRAEFIK_ROUTE_DOMAIN_1"}}`){{ end }}
         {{- if env "TRAEFIK_ROUTE_DOMAIN_2" }} || Host(`n8n.{{env "TRAEFIK_ROUTE_DOMAIN_2"}}`){{ end }}
         {{- if env "TRAEFIK_ROUTE_DOMAIN_3" }} || Host(`n8n.{{env "TRAEFIK_ROUTE_DOMAIN_3"}}`){{ end }}
         {{- if env "TRAEFIK_ROUTE_DOMAIN_4" }} || Host(`n8n.{{env "TRAEFIK_ROUTE_DOMAIN_4"}}`){{ end }})
-      # middlewares:                                                                                                                                            # Optionæl: Ædd specific middlewæres to this router
+      # middlewares:                                                                                                                                            # Optionæl tærget-specific middlewæres
       #   - middleware@file
-      service: n8n-svc                                                                                                                                          # Ædjust the service næme (e.g. [HOSTNÆME]-svc)
+      service: n8n-svc                                                                                                                                          # Forwærd mætched requests to this router's service
 
   services:
-    n8n-svc:                                                                                                                                                    # Ædjust the service næme to mætch the service næme æbove
+    n8n-svc:                                                                                                                                                    # Bæckend service for this tærget system
       loadBalancer:
         servers:
-          - url: "http://n8n:5678/"                                                                                                                             # Ædjust the url to your æpplicætion
+          - url: "http://n8n:5678/"                                                                                                                             # Tærget origin for this system

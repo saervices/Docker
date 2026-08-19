@@ -2071,7 +2071,6 @@ esac
 		rollback: filepath.Join(root, "rollback"), lateMutation: filepath.Join(root, "late-mutation"),
 	}
 	setTestEnvironment(t, map[string]string{
-		"MAILCOW_ENABLED":                  "false",
 		"CERTS_DUMPER_TEST_VENDOR_LOG":     vendorLog,
 		"CERTS_DUMPER_TEST_CERT_A":         certificateAPath,
 		"CERTS_DUMPER_TEST_KEY_A":          keyAPath,
@@ -2095,6 +2094,105 @@ func atomicReplaceTestFile(t *testing.T, path string, content []byte) {
 	mustWriteFile(t, replacement, content, 0o600)
 	if err := os.Rename(replacement, path); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestValidatePostHookOptInUsesTheExactHookLine(t *testing.T) {
+	tests := []struct {
+		name    string
+		content string
+		enabled bool
+		valid   bool
+	}{
+		{name: "commented", content: "# if true; then mailcow; fi\n", enabled: false, valid: true},
+		{name: "active", content: "if true; then mailcow; fi\n", enabled: true, valid: true},
+		{name: "missing", content: "printf 'no hook\\n'\n", valid: false},
+		{name: "both", content: "# if true; then mailcow; fi\nif true; then mailcow; fi\n", valid: false},
+		{name: "duplicate active", content: "if true; then mailcow; fi\nif true; then mailcow; fi\n", valid: false},
+		{name: "modified", content: "if true; then  mailcow; fi\n", valid: false},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			enabled, err := validatePostHookOptIn([]byte(test.content))
+			if test.valid && err != nil {
+				t.Fatal(err)
+			}
+			if !test.valid && err == nil {
+				t.Fatal("invalid hook opt-in was accepted")
+			}
+			if test.valid && enabled != test.enabled {
+				t.Fatalf("unexpected enabled state: got %t want %t", enabled, test.enabled)
+			}
+		})
+	}
+}
+
+func TestPrepareSupervisorHookDispatchesTheValidatedPreflightMode(t *testing.T) {
+	tests := []struct {
+		name             string
+		optInLines       string
+		expectedArgument string
+		valid            bool
+	}{
+		{name: "commented", optInLines: "# if true; then mailcow; fi", expectedArgument: "--preflight", valid: true},
+		{name: "active", optInLines: "if true; then mailcow; fi", expectedArgument: "--preflight-mailcow", valid: true},
+		{name: "missing", optInLines: ":", valid: false},
+		{name: "both", optInLines: "# if true; then mailcow; fi\nif true; then mailcow; fi", valid: false},
+		{name: "duplicate", optInLines: "if true; then mailcow; fi\nif true; then mailcow; fi", valid: false},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			root := t.TempDir()
+			runtimeDirectory := filepath.Join(root, "run")
+			if err := os.Mkdir(runtimeDirectory, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			hookLog := filepath.Join(root, "hook.log")
+			t.Setenv("CERTS_DUMPER_TEST_PREFLIGHT_DISPATCH_LOG", hookLog)
+			hookSource := filepath.Join(root, "post-hook.sh")
+			hookContent := fmt.Sprintf(`#!/bin/sh
+set -eu
+case "${1:-}" in
+  '')
+%s
+    ;;
+  --preflight|--preflight-mailcow)
+    printf '%%s\n' "$1" >>"$CERTS_DUMPER_TEST_PREFLIGHT_DISPATCH_LOG"
+    ;;
+  *) exit 90 ;;
+esac
+`, test.optInLines)
+			mustWriteFile(t, hookSource, []byte(hookContent), 0o700)
+			config := dumperSupervisorConfig{
+				runtimeDirectory: runtimeDirectory,
+				hookSourcePath:   hookSource,
+				hookSnapshotPath: filepath.Join(runtimeDirectory, "post-hook.sh"),
+			}
+			signals := make(chan os.Signal, 1)
+			_, _, interrupted, err := prepareSupervisorHook(config, signals)
+			if interrupted {
+				t.Fatal("preflight dispatch was unexpectedly interrupted")
+			}
+			if test.valid {
+				if err != nil {
+					t.Fatal(err)
+				}
+				content, readErr := os.ReadFile(hookLog)
+				if readErr != nil {
+					t.Fatal(readErr)
+				}
+				if string(content) != test.expectedArgument+"\n" {
+					t.Fatalf("unexpected preflight dispatch: got %q want %q", content, test.expectedArgument+"\n")
+				}
+				return
+			}
+			if err == nil {
+				t.Fatal("invalid hook opt-in reached preflight dispatch")
+			}
+			if _, statErr := os.Stat(hookLog); !errors.Is(statErr, os.ErrNotExist) {
+				t.Fatalf("invalid hook opt-in started a child: %v", statErr)
+			}
+		})
 	}
 }
 

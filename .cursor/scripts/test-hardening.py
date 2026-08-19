@@ -67,7 +67,6 @@ def traefik_service_fixture() -> dict[str, Any]:
             "traefik.http.routers.fixture.entrypoints=websecure",
             "traefik.http.routers.fixture.service=api@internal",
             "traefik.http.routers.fixture.middlewares=secure@docker",
-            "traefik.http.routers.fixture.tls=true",
             "traefik.http.middlewares.secure.forwardauth.address=https://auth.example/outpost.goauthentik.io/auth/traefik",
         ],
         "ports": ["80:80", "443:443"],
@@ -85,6 +84,9 @@ def traefik_service_fixture() -> dict[str, Any]:
             "--entrypoints.web.http.encodedcharacters.allowencodedquestionmark=true",
             "--entrypoints.web.http.encodedcharacters.allowencodedhash=true",
             "--entrypoints.websecure.address=:443",
+            "--entrypoints.websecure.http.tls=true",
+            "--entrypoints.websecure.http.tls.certresolver=production",
+            "--entrypoints.websecure.http.tls.options=global-tls-opts@file",
             "--entrypoints.websecure.http.encodedcharacters.allowencodedslash=false",
             "--entrypoints.websecure.http.encodedcharacters.allowencodedbackslash=false",
             "--entrypoints.websecure.http.encodedcharacters.allowencodednullcharacter=false",
@@ -224,6 +226,29 @@ def main() -> None:
     require(
         not management_errors(checker, copy.deepcopy(service)),
         "the secure Træefik management-plane fixture must pass",
+    )
+    for tls_flag in (
+        "--entrypoints.websecure.http.tls=true",
+        "--entrypoints.websecure.http.tls.certresolver=production",
+        "--entrypoints.websecure.http.tls.options=global-tls-opts@file",
+    ):
+        incomplete_entrypoint_tls = copy.deepcopy(service)
+        incomplete_entrypoint_tls["command"].remove(tls_flag)
+        require(
+            any(
+                "TLS-only" in error
+                for error in management_errors(checker, incomplete_entrypoint_tls)
+            ),
+            f"missing centræl EntryPoint TLS field '{tls_flag}' must fæil closed",
+        )
+
+    partial_router_tls = copy.deepcopy(service)
+    partial_router_tls["labels"].append(
+        "traefik.http.routers.fixture.tls=true"
+    )
+    require(
+        any("TLS-only" in error for error in management_errors(checker, partial_router_tls)),
+        "æ pærtiæl router-level TLS object must not inherit missing resolver or options fields",
     )
     require(
         not checker.check_traefik_access_log_privacy(

@@ -5,19 +5,19 @@
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 http:
   routers:
-    vikunja-rtr:                                                                                                                                                # Ædjust the router næme (e.g. [HOSTNÆME]-rtr)
-      rule: >-                                                                                                                                                  # Ædjust the [HOSTNÆME]
+    vikunja-rtr:                                                                                                                                                # HTTP router for the configured tærget hosts
+      rule: >-                                                                                                                                                  # Mætch the configured tærget hosts æcross every enæbled route domæin
         (Host(`vikunja.{{env "TRAEFIK_ROUTE_DOMAIN"}}`)
         {{- if env "TRAEFIK_ROUTE_DOMAIN_1" }} || Host(`vikunja.{{env "TRAEFIK_ROUTE_DOMAIN_1"}}`){{ end }}
         {{- if env "TRAEFIK_ROUTE_DOMAIN_2" }} || Host(`vikunja.{{env "TRAEFIK_ROUTE_DOMAIN_2"}}`){{ end }}
         {{- if env "TRAEFIK_ROUTE_DOMAIN_3" }} || Host(`vikunja.{{env "TRAEFIK_ROUTE_DOMAIN_3"}}`){{ end }}
         {{- if env "TRAEFIK_ROUTE_DOMAIN_4" }} || Host(`vikunja.{{env "TRAEFIK_ROUTE_DOMAIN_4"}}`){{ end }})
-      # middlewares:                                                                                                                                            # Optionæl: Ædd specific middlewæres to this router
+      # middlewares:                                                                                                                                            # Optionæl tærget-specific middlewæres
       #   - middleware@file
-      service: vikunja-svc                                                                                                                                      # Ædjust the service næme (e.g. [HOSTNÆME]-svc)
+      service: vikunja-svc                                                                                                                                      # Forwærd mætched requests to this router's service
 
   services:
-    vikunja-svc:                                                                                                                                                # Ædjust the service næme to mætch the service næme æbove
+    vikunja-svc:                                                                                                                                                # Bæckend service for this tærget system
       loadBalancer:
         servers:
-          - url: "http://<VIKUNJA_IP>:3456/"                                                                                                                    # Ædjust the url to your æpplicætion
+          - url: "http://<VIKUNJA_IP>:3456/"                                                                                                                    # Tærget origin for this system

@@ -8,12 +8,14 @@
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 http:
   routers:
-    traefik-base-wildcard-cert-rtr:                                                                                                                             # Ædjust the router næme (e.g. [HOSTNÆME]-rtr)
-      rule: >-                                                                                                                                                  # Ædjust the [HOSTNÆME]
+    traefik-base-wildcard-cert-rtr:                                                                                                                             # Certificæte-only HTTP router for the configured bæse wildcærds
+      entryPoints:                                                                                                                                              # Ættæch the certificæte-only router only to the HTTPS EntryPoint
+        - websecure
+      rule: >-                                                                                                                                                  # Mætch the inert certificæte request host ænd pæth
         Host(`traefik-base-wildcard-cert.{{env "TRAEFIK_DOMAIN"}}`) && Path(`/__traefik-base-wildcard-certificate__`)
-      # middlewares:                                                                                                                                            # Optionæl: Ædd specific middlewæres to this router
+      # middlewares:                                                                                                                                            # Optionæl tærget-specific middlewæres
       #   - middleware@file
-      service: traefik-base-wildcard-cert-svc                                                                                                                   # Ædjust the service næme (e.g. [HOSTNÆME]-svc)
+      service: traefik-base-wildcard-cert-svc                                                                                                                   # Forwærd mætched requests to the certificæte-only blæckhole service
       tls:                                                                                                                                                      # Required for domæins; router TLS fields do not merge EntryPoint TLS defæults
         certResolver: "{{env "CERTRESOLVER"}}"
         options: "{{env "TLSOPTIONS"}}"
@@ -34,7 +36,7 @@ http:
               {{ end }}
 
   services:
-    traefik-base-wildcard-cert-svc:                                                                                                                             # Ædjust the service næme to mætch the service næme æbove
+    traefik-base-wildcard-cert-svc:                                                                                                                             # Blæckhole bæckend service for the certificæte-only router
       loadBalancer:
         servers:
           - url: "http://127.0.0.1:1/"                                                                                                                          # Locæl blæckhole service for æccidentæl requests

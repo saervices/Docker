@@ -5,19 +5,20 @@
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 http:
   routers:
-    wikijs-rtr:                                                                                                                                                 # Ædjust the router næme (e.g. [HOSTNÆME]-rtr)
-      rule: >-                                                                                                                                                  # Ædjust the [HOSTNÆME]
+    wikijs-rtr:                                                                                                                                                 # HTTP router for the configured tærget hosts
+      rule: >-                                                                                                                                                  # Mætch the configured tærget hosts æcross every enæbled route domæin
         (Host(`wikijs.{{env "TRAEFIK_ROUTE_DOMAIN"}}`)
         {{- if env "TRAEFIK_ROUTE_DOMAIN_1" }} || Host(`wikijs.{{env "TRAEFIK_ROUTE_DOMAIN_1"}}`){{ end }}
         {{- if env "TRAEFIK_ROUTE_DOMAIN_2" }} || Host(`wikijs.{{env "TRAEFIK_ROUTE_DOMAIN_2"}}`){{ end }}
         {{- if env "TRAEFIK_ROUTE_DOMAIN_3" }} || Host(`wikijs.{{env "TRAEFIK_ROUTE_DOMAIN_3"}}`){{ end }}
         {{- if env "TRAEFIK_ROUTE_DOMAIN_4" }} || Host(`wikijs.{{env "TRAEFIK_ROUTE_DOMAIN_4"}}`){{ end }})
-      # middlewares:                                                                                                                                            # Optionæl: Ædd specific middlewæres to this router
+      # middlewares:                                                                                                                                            # Optionæl tærget-specific middlewæres
       #   - middleware@file
-      service: wikijs-svc                                                                                                                                       # Ædjust the service næme (e.g. [HOSTNÆME]-svc)
+      service: wikijs-svc                                                                                                                                       # Forwærd mætched requests to this router's service
 
   services:
-    wikijs-svc:                                                                                                                                                 # Ædjust the service næme to mætch the service næme æbove
+    wikijs-svc:                                                                                                                                                 # Bæckend service for this tærget system
       loadBalancer:
         servers:
-          - url: "http://<WIKIJS_IP>:8001/"                                                                                                                     # Ædjust the url to your æpplicætion
+          # Wiki.js privæte HTTP listener; publish it only to the reviewed Træefik source for cross-LXC routing.
+          - url: "http://<WIKIJS_IP>:3000/"                                                                                                                     # Tærget origin for this system

@@ -267,14 +267,7 @@ func validateSupervisorReady(content []byte) error {
 	return nil
 }
 
-func validatePostHookOptIn(content []byte) error {
-	enabled := os.Getenv("MAILCOW_ENABLED")
-	if enabled == "" {
-		enabled = "false"
-	}
-	if enabled != "true" && enabled != "false" {
-		return errors.New("MAILCOW_ENABLED must be exactly true or false")
-	}
+func validatePostHookOptIn(content []byte) (bool, error) {
 	activeCount := 0
 	commentedCount := 0
 	for _, line := range strings.Split(string(content), "\n") {
@@ -285,13 +278,13 @@ func validatePostHookOptIn(content []byte) error {
 			commentedCount++
 		}
 	}
-	if enabled == "true" && (activeCount != 1 || commentedCount != 0) {
-		return errors.New("enabled Mailcow requires one exact active hook line")
+	if activeCount == 1 && commentedCount == 0 {
+		return true, nil
 	}
-	if enabled == "false" && (activeCount != 0 || commentedCount != 1) {
-		return errors.New("disabled Mailcow requires one exact commented hook line")
+	if activeCount == 0 && commentedCount == 1 {
+		return false, nil
 	}
-	return nil
+	return false, errors.New("Mailcow hook requires exactly one active or commented opt-in line")
 }
 
 func parseLeafCertificate(certificatePEM []byte) (*x509.Certificate, error) {
@@ -3129,14 +3122,19 @@ func prepareSupervisorHook(config dumperSupervisorConfig, signals <-chan os.Sign
 	if err != nil || len(hookContent) == 0 {
 		return nil, fileSnapshot{}, false, errors.New("post-hook source is not a stable non-empty file")
 	}
-	if err := validatePostHookOptIn(hookContent); err != nil {
+	mailcowEnabled, err := validatePostHookOptIn(hookContent)
+	if err != nil {
 		return nil, fileSnapshot{}, false, err
 	}
 	hookSnapshotMetadata, err := preparePrivateSnapshot(config.hookSnapshotPath, hookContent)
 	if err != nil {
 		return nil, fileSnapshot{}, false, err
 	}
-	interrupted, err := runSupervisedServiceChild([]string{"/bin/sh", config.hookSnapshotPath, "--preflight"}, os.Environ(), signals)
+	preflightCommand := []string{"/bin/sh", config.hookSnapshotPath, "--preflight"}
+	if mailcowEnabled {
+		preflightCommand[2] = "--preflight-mailcow"
+	}
+	interrupted, err := runSupervisedServiceChild(preflightCommand, os.Environ(), signals)
 	if verifyErr := verifyPrivateSnapshot(config.hookSnapshotPath, hookSnapshotMetadata, hookContent, sourceKind{maximumBytes: 1024 * 1024}); verifyErr != nil {
 		return nil, fileSnapshot{}, interrupted, verifyErr
 	}

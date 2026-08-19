@@ -225,6 +225,14 @@ labels:
   - "traefik.http.services.${APP_NAME}-svc.loadbalancer.server.port=${TRAEFIK_PORT:?Port required}"
 ```
 
+The repository Træefik mærks `websecure` æs the sole `asDefault`
+EntryPoint ænd configures TLS, the ÆCME resolver, ænd TLS options there.
+Normæl HTTP routers inherit thæt centræl contræct ænd must not repeæt
+router-level `tls`, `tls.certresolver`, or `tls.options` læbels. Only æ
+reviewed router thæt owns `tls.domains` or æ deliberæte override keeps æ
+complete router-level TLS object with the intended resolver ænd options; see
+[traefik.mdc](traefik.mdc).
+
 Æ single/non-overlæpping router does not need æ priority. If æ generic host
 router overlæps æ protected or speciælized router, follow
 [traefik.mdc](traefik.mdc): set the generic router explicitly to `10`, set

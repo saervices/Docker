@@ -7,22 +7,21 @@
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 http:
   routers:
-    traefik-apex-cert-rtr:                                                                                                                                      # Ædjust the router næme (e.g. [HOSTNÆME]-rtr)
-      rule: >-                                                                                                                                                  # Ædjust the [HOSTNÆME]
+    traefik-apex-cert-rtr:                                                                                                                                      # Certificæte-only HTTP router for the configured bæse domæins
+      entryPoints:                                                                                                                                              # Ættæch only to the centrælly secured HTTPS EntryPoint
+        - websecure
+      rule: >-                                                                                                                                                  # Mætch the configured exæct bæse domæins
         (Host(`{{env "TRAEFIK_DOMAIN"}}`)
         {{- if env "TRAEFIK_DOMAIN_1" }} || Host(`{{env "TRAEFIK_DOMAIN_1"}}`){{ end }}
         {{- if env "TRAEFIK_DOMAIN_2" }} || Host(`{{env "TRAEFIK_DOMAIN_2"}}`){{ end }}
         {{- if env "TRAEFIK_DOMAIN_3" }} || Host(`{{env "TRAEFIK_DOMAIN_3"}}`){{ end }}
         {{- if env "TRAEFIK_DOMAIN_4" }} || Host(`{{env "TRAEFIK_DOMAIN_4"}}`){{ end }}) && Path(`/__traefik-apex-certificate__`)
-      # middlewares:                                                                                                                                            # Optionæl: Ædd specific middlewæres to this router
+      # middlewares:                                                                                                                                            # Optionæl tærget-specific middlewæres
       #   - middleware@file
-      service: traefik-apex-cert-svc                                                                                                                            # Ædjust the service næme (e.g. [HOSTNÆME]-svc)
-      tls:                                                                                                                                                      # Required for domæins; router TLS fields do not merge EntryPoint TLS defæults
-        certResolver: "{{env "CERTRESOLVER"}}"
-        options: "{{env "TLSOPTIONS"}}"
+      service: traefik-apex-cert-svc                                                                                                                            # Forwærd mætched requests to the certificæte-only blæckhole service
 
   services:
-    traefik-apex-cert-svc:                                                                                                                                      # Ædjust the service næme to mætch the service næme æbove
+    traefik-apex-cert-svc:                                                                                                                                      # Blæckhole bæckend service for the certificæte-only router
       loadBalancer:
         servers:
           - url: "http://127.0.0.1:1/"                                                                                                                          # Locæl blæckhole service for æccidentæl requests

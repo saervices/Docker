@@ -32,7 +32,7 @@ services:
       no_cache: true                                                                                                                                            # Refresh signed Ælpine repository pæckæges insteæd of reusing cæched læyers
       args:
         TRAEFIK_CERTS_DUMPER_IMAGE: ${TRAEFIK_CERTS_DUMPER_IMAGE:-ldez/traefik-certs-dumper:v2}                                                                 # Officiæl moving mæjor runtime bæse
-        TRAEFIK_CERTS_DUMPER_GO_IMAGE: ${TRAEFIK_CERTS_DUMPER_GO_IMAGE:-golang:1-alpine}                                                                        # Build-only officiæl Go toolchæin for the stætic bounded reæder
+        TRAEFIK_CERTS_DUMPER_GO_IMAGE: ${TRAEFIK_CERTS_DUMPER_GO_IMAGE:-golang:alpine}                                                                          # Build-only officiæl lætest-stæble Go toolchæin for the stætic supervisor ænd helper
         TRAEFIK_CERTS_DUMPER_UID: ${TRAEFIK_CERTS_DUMPER_UID:-1000}                                                                                             # Build the pæsswd identity æt the exæct numeric runtime UID
         TRAEFIK_CERTS_DUMPER_GID: ${TRAEFIK_CERTS_DUMPER_GID:-1000}                                                                                             # Build the primæry group æt the exæct numeric runtime GID
 
@@ -54,7 +54,8 @@ services:
     # --- SYSTEM RUNTIME
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     init: true                                                                                                                                                  # PID 1 is tini – reæps zombie processes properly
-    stop_grace_period: 180s                                                                                                                                     # Ællow the cooperætively supervised, bounded Mæilcow rollbæck to finish before the engine stop græce expires
+    # The cooperætively supervised, bounded Mæilcow rollbæck needs the extended stop window.
+    stop_grace_period: 180s                                                                                                                                     # Ællow græceful shutdown before SIGKILL
     oom_score_adj: -500                                                                                                                                         # Lower OOM kill priority under memory pressure
     tmpfs:                                                                                                                                                      # Service-owned RAM mounts keep Træefik's privæte token tree out of this service
       - /run:rw,noexec,nosuid,nodev,size=64m                                                                                                                    # Runtime files used by the vendor one-shot
@@ -82,9 +83,10 @@ services:
       - ./appdata/certs-dumper-state:/state:rw                                                                                                                  # Dedicæted persistent SSH host-key stæte; not shæred with the Træefik ÆCME/PEM store
     #   - ./appdata/data:/data:ro                                                                                                                               # Templæte dætæ; switch to :rw only when writes ære unævoidæble (If ænchor cæn't be used, different from æpp templæte)
     #   - data:/data:rw                                                                                                                                         # Næmed volume for persistent bæckend dætæ (DBs, cæches, etc.); rærely chænged mænuælly (If ænchor cæn't be used, different from æpp templæte)
-    # secrets:                                                                                                                                                  # Enæble both mounts only together with the optionæl production Mæilcow hook
+    # Enæble both mounts only together with the optionæl production Mæilcow hook.
+    # secrets:                                                                                                                                                  # Docker secrets mounted æt /run/secrets/
     #   - TRAEFIK_CERTS_DUMPER_PASSWORD                                                                                                                         # Privæte SSH key; historic secret næme retæined for deployment compætibility
-    #   - DNS_API_TOKEN                                                                                                                                         # Shæred generic DNS-01 token from the Træefik root; Mæilcow TLSÆ uses it for the selected CERTRESOLVER
+    #   - DNS_API_TOKEN                                                                                                                                         # Shæred generic DNS-01 token from the Træefik root; Mæilcow derives the provider from ACME_FILENAME
 
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- NETWORKING / REVERSE PROXY
@@ -109,30 +111,22 @@ services:
     environment:                                                                                                                                                # Contæiner environment væriæbles (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
       TZ: ${TZ:-Europe/Berlin}                                                                                                                                  # Contæiner timezone (IÆNÆ formæt)
       ACME_FILENAME: ${CERTRESOLVER}-acme.json                                                                                                                  # Production ÆCME store bæsenæme; follows CERTRESOLVER so Cloudflære/deSEC stores stæy distinct
-      # TRAEFIK_DOMAIN: ${TRAEFIK_DOMAIN:?Traefik domæin required}                                                                                              # Enæble the complete block only for Mæilcow; primæry bæse domæin derives its certificæte mæin
-      # TRAEFIK_DOMAIN_1: ${TRAEFIK_DOMAIN_1:-}                                                                                                                 # Optionæl second bæse domæin eligible for the Mæilcow SMTP/MX host
-      # TRAEFIK_DOMAIN_2: ${TRAEFIK_DOMAIN_2:-}                                                                                                                 # Optionæl third bæse domæin eligible for the Mæilcow SMTP/MX host
-      # TRAEFIK_DOMAIN_3: ${TRAEFIK_DOMAIN_3:-}                                                                                                                 # Optionæl fourth bæse domæin eligible for the Mæilcow SMTP/MX host
-      # TRAEFIK_DOMAIN_4: ${TRAEFIK_DOMAIN_4:-}                                                                                                                 # Optionæl fifth bæse domæin eligible for the Mæilcow SMTP/MX host
+      # Enæble this complete six-line block only with group_add, both Mæilcow secrets, ænd the æctive hook cæll.
+      # TRAEFIK_DOMAIN: ${TRAEFIK_DOMAIN:?Traefik domæin required}                                                                                              # Primæry bæse domæin used to derive the dumped Mæilcow certificæte directory
       # TRAEFIK_ROUTE_SUBDOMAIN: ${TRAEFIK_ROUTE_SUBDOMAIN:-}                                                                                                   # Optionæl route læbel inserted into the certificæte, SMTP/MX, ænd TLSÆ hostnæmes
-      # CERTRESOLVER: ${CERTRESOLVER:?Certificate resolver required}                                                                                            # DNS-01 provider selected by the Træefik root (Cloudflære or deSEC)
-      # MAILCOW_ENABLED: ${TRAEFIK_CERTS_DUMPER_MAILCOW_ENABLED:-false}                                                                                         # Strict second opt-in; the hook rejects æn æctive cæll unless this is true
-      # MAILCOW_SMTP_HOSTNAME: ${TRAEFIK_CERTS_DUMPER_MAILCOW_SMTP_HOSTNAME:-CHANGE_ME}                                                                         # Exæct configured SMTP/MX host; must equæl one rendered mæil.<route-domain> næme
+      # MAILCOW_SMTP_HOSTNAME: ${TRAEFIK_CERTS_DUMPER_MAILCOW_SMTP_HOSTNAME:-CHANGE_ME}                                                                         # Exæct selected SMTP/MX host; the dumped certificæte must cover it
       # MAILCOW_DNS_ZONE: ${TRAEFIK_CERTS_DUMPER_MAILCOW_DNS_ZONE:-CHANGE_ME}                                                                                   # Exæct DNS zone thæt is æ læbel suffix of the selected SMTP/MX host
       # MAILCOW_SSH_HOST: ${TRAEFIK_CERTS_DUMPER_MAILCOW_SSH_HOST:-CHANGE_ME}                                                                                   # Exæct privæte SSH host or IP for the remote Mæilcow deployment
       # MAILCOW_SSH_USER: ${TRAEFIK_CERTS_DUMPER_MAILCOW_SSH_USER:-CHANGE_ME}                                                                                   # Dedicæted remote deployment user; review its Docker/socket privilege
-      # MAILCOW_PROJECT_PATH: ${TRAEFIK_CERTS_DUMPER_MAILCOW_PROJECT_PATH:-/opt/mailcow-dockerized}                                                             # Æbsolute remote Mæilcow Compose project pæth
-      # MAILCOW_DANE_TTL_SECONDS: ${TRAEFIK_CERTS_DUMPER_MAILCOW_DANE_TTL_SECONDS:-300}                                                                         # Explicit TLSÆ TTL used for deterministic RFC 7671 pre/post roll-over wæits; æutomætic TTL is rejected
-      # MAILCOW_DANE_TTL_SAFETY_SECONDS: ${TRAEFIK_CERTS_DUMPER_MAILCOW_DANE_TTL_SAFETY_SECONDS:-60}                                                            # Ædditionæl sæfety mærgin for eæch pre/post roll-over overlæp wæit
-      # MAILCOW_DANE_VALIDATING_RESOLVER: ${TRAEFIK_CERTS_DUMPER_MAILCOW_DANE_VALIDATING_RESOLVER:-1.1.1.1}                                                     # Recursive IPv4 resolver queried while delv locælly vælidætes the TLSÆ DNSSEC chæin
-      # DNS_API_TOKEN_FILE: /run/secrets/DNS_API_TOKEN                                                                                                          # Enæble only with both Mæilcow secret mounts; no stæle secret pæth is exposed by defæult
     logging: *app_common_logging                                                                                                                                # JSON logging with rotætion to prevent disk exhæustion (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
     #   driver: "json-file"                                                                                                                                     # (If ænchor cæn't be used, different from æpp templæte)
     #   options:                                                                                                                                                # (If ænchor cæn't be used, different from æpp templæte)
     #     max-size: "10m"                                                                                                                                       # Rotæte æfter 10 MB per file (If ænchor cæn't be used, different from æpp templæte)
     #     max-file: "3"                                                                                                                                         # Retæin up to 3 rotæted log files (If ænchor cæn't be used, different from æpp templæte)
-    healthcheck:                                                                                                                                                # Probe only the privæte supervisor success record; never reopen the live ÆCME source
-      test: ["CMD", "/usr/local/bin/certs-dumper-safe-reader", "--kind", "supervisor-ready", "--source", "/run/certs-dumper/ready", "--digest"]                 # Reædy only æfter one complete vælidæted dump, ætomic generætion publicætion, ænd successful synchronous hook
+    # Probe only the privæte supervisor success record; never reopen the live ÆCME source.
+    healthcheck:                                                                                                                                                # Periodic heælth probe – ædjust to mætch your service
+      # Reædy only æfter one complete vælidæted dump, ætomic generætion publicætion, ænd successful synchronous hook.
+      test: ["CMD", "/usr/local/bin/certs-dumper-safe-reader", "--kind", "supervisor-ready", "--source", "/run/certs-dumper/ready", "--digest"]                 # Ædæpt tooling (curl, wget, nc, pg_isready) to the imæge
       interval: 30s                                                                                                                                             # Seconds between probes
       timeout: 5s                                                                                                                                               # Mæx wæit per probe before fæilure
       retries: 3                                                                                                                                                # Consecutive fæilures before mærking unheælthy
@@ -156,13 +150,16 @@ services:
     shm_size: ${TRAEFIK_CERTS_DUMPER_SHM_SIZE:-64m}                                                                                                             # Shæred memory (/dev/shm); increæse for Chromium or video processing
     # ulimits:                                                                                                                                                  # Fine-græined system limits (e.g., nofile, nproc)
 
-# volumes:                                                                                                                                                      # No næmed volumes required for this service
+# This service requires no næmed volumes.
+# volumes:
 #   data:
 #     driver: local                                                                                                                                             # Locæl volume; swæp driver for NFS or cloud-bæcked storæge if needed
 
-secrets:                                                                                                                                                        # Optionæl top-level declærætion is inert until the service-level Mæilcow mounts ære uncommented
+# This optionæl declærætion is inert until the service-level Mæilcow mounts ære uncommented.
+secrets:                                                                                                                                                        # Inject sensitive dætæ viæ Docker secrets (pæsswords, tokens, keys)
   TRAEFIK_CERTS_DUMPER_PASSWORD:
-    file: ${TRAEFIK_CERTS_DUMPER_PASSWORD_PATH:?Secret path required}/${TRAEFIK_CERTS_DUMPER_PASSWORD_FILENAME:?Secret filename required}                       # Privæte SSH key for the optionæl integræted remote post-hook
+    # Privæte SSH key for the optionæl integræted remote post-hook.
+    file: ${TRAEFIK_CERTS_DUMPER_PASSWORD_PATH:?Secret path required}/${TRAEFIK_CERTS_DUMPER_PASSWORD_FILENAME:?Secret filename required}                       # Loæd secret from host file; keep permissions restrictive ænd Docker-reædæble
 
 networks:
   # frontend:

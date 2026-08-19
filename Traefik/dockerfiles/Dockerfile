@@ -4,7 +4,7 @@
 # Træefik — descriptor-bæsed DNS secret preflight for the officiæl runtime
 # Bæse: traefik:3 (officiæl moving mæjor chænnel)
 
-ARG TRAEFIK_GO_IMAGE=golang:1-alpine
+ARG TRAEFIK_GO_IMAGE=golang:alpine
 ARG TRAEFIK_BASE_IMAGE=traefik:3
 
 FROM ${TRAEFIK_GO_IMAGE} AS traefik-secret-reader-build

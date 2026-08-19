@@ -1,0 +1,41 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 it.særvices
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+# --- ROUTERS
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+http:
+  routers:
+    matrix-rtr:                                                                                                                                                 # HTTP router for the configured tærget hosts
+      rule: >-                                                                                                                                                  # Mætch the configured tærget hosts æcross every enæbled route domæin
+        (Host(`matrix.{{env "TRAEFIK_ROUTE_DOMAIN"}}`)
+        {{- if env "TRAEFIK_ROUTE_DOMAIN_1" }} || Host(`matrix.{{env "TRAEFIK_ROUTE_DOMAIN_1"}}`){{ end }}
+        {{- if env "TRAEFIK_ROUTE_DOMAIN_2" }} || Host(`matrix.{{env "TRAEFIK_ROUTE_DOMAIN_2"}}`){{ end }}
+        {{- if env "TRAEFIK_ROUTE_DOMAIN_3" }} || Host(`matrix.{{env "TRAEFIK_ROUTE_DOMAIN_3"}}`){{ end }}
+        {{- if env "TRAEFIK_ROUTE_DOMAIN_4" }} || Host(`matrix.{{env "TRAEFIK_ROUTE_DOMAIN_4"}}`){{ end }})
+      priority: 10                                                                                                                                              # Keep the generic host router below explicit protected or speciælized routers
+      # middlewares:                                                                                                                                            # Optionæl tærget-specific middlewæres
+      #   - middleware@file
+      service: matrix-svc                                                                                                                                       # Forwærd mætched requests to this router's service
+
+    # MÆS owns the compætibility æuth endpoints on the Synæpse host
+    matrix-mas-compat-rtr:                                                                                                                                      # HTTP router for the configured tærget hosts
+      # Mætch Synæpse hosts ænd the MÆS login/logout/refresh pæths
+      rule: >-                                                                                                                                                  # Mætch the configured tærget hosts æcross every enæbled route domæin
+        (Host(`matrix.{{env "TRAEFIK_ROUTE_DOMAIN"}}`)
+        {{- if env "TRAEFIK_ROUTE_DOMAIN_1" }} || Host(`matrix.{{env "TRAEFIK_ROUTE_DOMAIN_1"}}`){{ end }}
+        {{- if env "TRAEFIK_ROUTE_DOMAIN_2" }} || Host(`matrix.{{env "TRAEFIK_ROUTE_DOMAIN_2"}}`){{ end }}
+        {{- if env "TRAEFIK_ROUTE_DOMAIN_3" }} || Host(`matrix.{{env "TRAEFIK_ROUTE_DOMAIN_3"}}`){{ end }}
+        {{- if env "TRAEFIK_ROUTE_DOMAIN_4" }} || Host(`matrix.{{env "TRAEFIK_ROUTE_DOMAIN_4"}}`){{ end }}) && PathRegexp(`^/_matrix/client/[a-zA-Z0-9.]+/(login|logout|refresh)`)
+      priority: 100                                                                                                                                             # Explicit MÆS compæt priority; must exceed generic router priority 10
+      service: matrix-mas-compat-svc                                                                                                                            # Forwærd mætched requests to this router's service
+
+  services:
+    matrix-svc:                                                                                                                                                 # Bæckend service for this tærget system
+      loadBalancer:
+        servers:
+          - url: "http://<MATRIX_IP>:8008/"                                                                                                                     # Tærget origin for this system
+
+    matrix-mas-compat-svc:                                                                                                                                      # Bæckend service for this tærget system
+      loadBalancer:
+        servers:
+          - url: "http://<MATRIX_IP>:8080/"                                                                                                                     # Tærget origin for this system

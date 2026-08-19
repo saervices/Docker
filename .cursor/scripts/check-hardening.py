@@ -208,6 +208,47 @@ def environment_enables_flag(service: dict[str, Any], name: str) -> bool:
     return value is not None and configured_value_is_enabled(value)
 
 
+def traefik_entrypoint_http_tls_is_complete(
+    service: dict[str, Any], entrypoint: str
+) -> bool:
+    """Require the complete centræl TLS contræct for one EntryPoint."""
+    normalized_entrypoint = entrypoint.strip().lower()
+    if not normalized_entrypoint:
+        return False
+
+    tls_flag = f"--entrypoints.{normalized_entrypoint}.http.tls"
+    tls_state = command_flag_state(service, tls_flag)
+    environment = service_environment(service)
+    environment_prefix = re.sub(r"[^A-Z0-9]", "_", normalized_entrypoint.upper())
+    if tls_state is None:
+        tls_value = environment.get(
+            f"TRAEFIK_ENTRYPOINTS_{environment_prefix}_HTTP_TLS"
+        )
+        tls_enabled = (
+            tls_value is not None and configured_value_is_enabled(tls_value)
+        )
+    else:
+        tls_enabled = tls_state
+    if not tls_enabled:
+        return False
+
+    for field in ("certresolver", "options"):
+        flag_values = command_flag_values(
+            service,
+            f"{tls_flag}.{field}",
+        )
+        if flag_values:
+            configured = flag_values[-1].strip()
+        else:
+            configured = environment.get(
+                f"TRAEFIK_ENTRYPOINTS_{environment_prefix}_HTTP_TLS_{field.upper()}",
+                "",
+            ).strip()
+        if not configured:
+            return False
+    return True
+
+
 def check_traefik_proxy_protocol_security(
     path_rel: str, service_name: str, service: dict[str, Any]
 ) -> list[str]:
@@ -1074,12 +1115,31 @@ def check_traefik_management_plane(
         rule = labels.get(f"{prefix}.rule", "")
         entrypoints = labels.get(f"{prefix}.entrypoints", "")
         middlewares = labels.get(f"{prefix}.middlewares", "")
+        configured_entrypoints = {
+            item.strip().lower() for item in entrypoints.split(",") if item.strip()
+        }
+        router_tls_keys = {
+            key
+            for key in labels
+            if key == f"{prefix}.tls" or key.startswith(f"{prefix}.tls.")
+        }
         tls = labels.get(f"{prefix}.tls", "").lower()
+        if router_tls_keys:
+            tls_is_complete = (
+                tls in {"true", "1", "yes", "on"}
+                and bool(labels.get(f"{prefix}.tls.certresolver", "").strip())
+                and bool(labels.get(f"{prefix}.tls.options", "").strip())
+            )
+        else:
+            tls_is_complete = all(
+                traefik_entrypoint_http_tls_is_complete(service, entrypoint)
+                for entrypoint in configured_entrypoints
+            )
         if (
             traefik_api_router_rule_is_scoped(rule)
-            and "websecure" in {item.strip().lower() for item in entrypoints.split(",")}
+            and configured_entrypoints == {"websecure"}
             and router_has_auth_middleware(path_rel, labels, middlewares)
-            and tls in {"true", "1", "yes", "on"}
+            and tls_is_complete
         ):
             secure_routers += 1
 

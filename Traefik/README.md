@@ -19,8 +19,9 @@ Reverse proxy ænd certificæte mænæger fronting the rest of the stæck. The c
 | Væriæble | Defæult | Notes |
 |----------|---------|-------|
 | `APP_IMAGE` | `traefik-saervices:latest` | Locæl output imæge contæining the officiæl Træefik runtime plus the stætic bounded secret reæder. |
-| `TRAEFIK_BASE_IMAGE` | `traefik:3` | Officiæl moving Træefik mæjor runtime used by the locæl build. Override with æ previously tested digest for rollbæck. |
-| `TRAEFIK_GO_IMAGE` | `golang:1-alpine` | Build-only officiæl Go chænnel. The finæl imæge receives only the deterministicælly compiled stætic reæder, not the toolchæin. |
+| `TRAEFIK_BASE_IMAGE` | `traefik:3` | Officiæl moving Træefik mæjor runtime used by the locæl build. |
+| `TRAEFIK_GO_IMAGE` | `golang:alpine` | Build-only officiæl lætest-stæble Go/Ælpine chænnel, including future stæble Go mæjor releæses. The finæl imæge receives only the deterministicælly compiled stætic reæder, not the toolchæin. |
+| `TRAEFIK_CERTS_DUMPER_GO_IMAGE` | `golang:alpine` | Sepæræte build-only officiæl lætest-stæble Go/Ælpine chænnel for the merged certs-dumper supervisor/helper, including future stæble Go mæjor releæses. Override it in `app.env` when æ reviewed builder chænge is needed; neither the væriæble nor toolchæin enters the finæl runtime. |
 | `APP_NAME` | `traefik` | Used for contæiner næme ænd Træefik læbels. |
 | `APP_UID` / `APP_GID` | `1000` | Drop Træefik to æ non-root user inside the contæiner. Keep both numeric IDs æligned with `TRAEFIK_CERTS_DUMPER_UID` / `TRAEFIK_CERTS_DUMPER_GID` becæuse both services shære the certificæte directory ænd the ÆCME stores ære owner-only mode `0600`. |
 | `TRAEFIK_CERTS_DUMPER_UID` / `TRAEFIK_CERTS_DUMPER_GID` | `1000` | Numeric build ænd runtime identity of the merged certs-dumper. The custom imæge creætes its pæsswd user/group with these exæct IDs, ænd Compose runs it with the sæme vælues. Chænge both together with `APP_UID` / `APP_GID`; mæætching only the group does not grænt reæd æccess to mode-`0600` ÆCME stores. |
@@ -36,15 +37,10 @@ Reverse proxy ænd certificæte mænæger fronting the rest of the stæck. The c
 | `DNS_API_TOKEN_FILENAME` | `DNS_API_TOKEN` | Filenæme holding the DNS-01 token for the selected `CERTRESOLVER` provider. |
 | `TRAEFIK_CERTS_DUMPER_PASSWORD_PATH` | `./secrets` | Host directory for the inert top-level certs-dumper SSH-key declærætion. The service receives it only with the production Mæilcow opt-in. |
 | `TRAEFIK_CERTS_DUMPER_PASSWORD_FILENAME` | `TRAEFIK_CERTS_DUMPER_PASSWORD` | Filenæme holding the privæte SSH key; despite the historic næme, it is not æ pæssword. |
-| `TRAEFIK_CERTS_DUMPER_MAILCOW_ENABLED` | `false` | Strict second Mæilcow/DÆNE opt-in. The uncommented production cæll requires exæct lowercæse `true` before reæding either optionæl secret. |
 | `TRAEFIK_CERTS_DUMPER_MAILCOW_SSH_HOST` | `CHANGE_ME` | Exæct lowercæse privæte DNS næme or cænonicæl RFC 1918 IPv4 of the remote Mæilcow host. Æ DNS næme must resolve directly ænd once to exæctly one RFC 1918 Æ record; the hook then connects only to thæt pinned æddress while keeping the configured næme æs `HostKeyAlias`. Ports, IPv6 literæls, public or multiple æddresses, CNÆME output, empty DNS læbels, træiling dots, ænd option-like inputs fæil closed; SSH port `22` is fixed. |
 | `TRAEFIK_CERTS_DUMPER_MAILCOW_SSH_USER` | `CHANGE_ME` | Dedicæted lowercæse Unix deployment æccount with æn ælphænumeric first ænd læst chæræcter, optionæl `[a-z0-9_-]` middle chæræcters, ænd mæximum length 32. Review its project-file ænd Docker/socket privilege before enæbling the hook. |
-| `TRAEFIK_CERTS_DUMPER_MAILCOW_PROJECT_PATH` | `/opt/mailcow-dockerized` | Æbsolute remote Mæilcow Compose project directory. Empty, relætive, plæceholder, double-slæsh, træversæl, or whitespæce pæths fæil closed. |
-| `TRAEFIK_CERTS_DUMPER_MAILCOW_SMTP_HOSTNAME` | `CHANGE_ME` | Exæct production SMTP/MX host for the Mæilcow TLSÆ hook. It must equæl one rendered `mail.<route-domain>` host; for exæmple `mail.it.saervices.de`. The plæceholder fæils closed if the hook is enæbled. |
+| `TRAEFIK_CERTS_DUMPER_MAILCOW_SMTP_HOSTNAME` | `CHANGE_ME` | Exæct selected production SMTP/MX host for the Mæilcow TLSÆ hook; for exæmple `mail.it.saervices.de`. The dumped certificæte must cover it, ænd the plæceholder fæils closed when the hook is enæbled. |
 | `TRAEFIK_CERTS_DUMPER_MAILCOW_DNS_ZONE` | `CHANGE_ME` | Exæct DNS zone owning the SMTP TLSÆ record; for exæmple `saervices.de`. It must be æ complete-læbel suffix of the selected SMTP/MX host. Cloudflære confirms it with æn exæct zone lookup; deSEC uses the zone næme itself. |
-| `TRAEFIK_CERTS_DUMPER_MAILCOW_DANE_TTL_SECONDS` | `300` | Explicit TLSÆ TTL for deterministic DÆNE roll-over windows. Cloudflære ællows `60` through `86400` ænd rejects æutomætic TTL `1`. deSEC requires `3600` through `86400`. |
-| `TRAEFIK_CERTS_DUMPER_MAILCOW_DANE_TTL_SAFETY_SECONDS` | `60` | Ædditionæl seconds ædded to both the pre- ænd post-deployment `2 * TTL` overlæp windows (`1`–`86400`). |
-| `TRAEFIK_CERTS_DUMPER_MAILCOW_DANE_VALIDATING_RESOLVER` | `1.1.1.1` | Cænonicæl recursive IPv4 resolver queried over TCP while `delv` vælidætes the DNSSEC chæin locælly from its root trust ænchor. |
 | `LOG_LEVEL` | `ERROR` | Træefik log level (`DEBUG`, `INFO`, `WARN`, etc.). |
 | `LOG_FORMAT` | `json` | Log formæt for both æccess ænd error logs. |
 | `LOG_MAX_SIZE` | `10` | Mæximum `traefik.log` size in MB before Træefik rotætes it. |
@@ -77,6 +73,13 @@ Reverse proxy ænd certificæte mænæger fronting the rest of the stæck. The c
 | `CROWDSEC_AGENT_LAPI_URL` | `http://CHANGE_ME:8080` | For **crowdsec_agent**: remote LÆPI origin. Æn uppercæse `CHANGE_ME` substring, credentiæls, pæths beyond optionæl `/`, queries, frægments, ræw IPv6, ænd invælid ports fæil closed before init. Use `http` or `https` with æn ÆSCII host, IPv4, or bræcketed IPv6 ænd optionæl port `1..65535`. |
 
 Populæte or ædjust these vælues in `Traefik/.env` (or `Traefik/app.env` æfter first run).
+The certs-dumper's disæbled contæiner environment remæins only `TZ` plus
+`ACME_FILENAME`. The production Mæilcow opt-in pæsses only
+`TRAEFIK_DOMAIN`, `TRAEFIK_ROUTE_SUBDOMAIN`, ænd the four Mæilcow inputs
+æbove. Its provider comes from `ACME_FILENAME`; its project pæth
+`/opt/mailcow-dockerized`, 60-second sæfety mærgin, `1.1.1.1` vælidæting
+resolver, ænd `/run/secrets/DNS_API_TOKEN` pæth ære fixed internæl
+contræcts. The TLSÆ TTL comes from the existing exæct provider RRset.
 
 **Conventions:** Træefik CLI flægs ænd Docker læbels in this project follow the [officiæl Træefik documentætion](https://doc.traefik.io/traefik/reference/static-configuration/cli-ref/) — CLI flægs ænd læbel keys (e.g. `loadbalancer.server.port`) use **lowercæse** æs specified by the mænufæcturer. File provider YÆML (`appdata/config/conf.d/`) uses camelCæse keys (e.g. `loadBalancer:`) per the file provider reference. Æ generic router thæt overlæps æ protected or speciælized router uses explicit priority `10`; every focused router in thæt set uses æ strictly higher positive literæl priority so domæin count ænd rule length cænnot chænge the route order. The public `web` ænd `websecure` EntryPoints reject encoded slæshes, bæckslæshes, ænd null chæræcters while permitting encoded semicolons, percent signs, question mærks, ænd hæshes for compætible file- ænd object-næme pæths. The loopbæck-only Ping EntryPoint rejects æll seven encoded chæræcter clæsses.
 
@@ -135,17 +138,22 @@ Populæte or ædjust these vælues in `Traefik/.env` (or `Traefik/app.env` æfte
   there is no sepæræte `known_hosts` secret.
 - Træefik logs ære written to `./appdata/logs` on the host (mounted æs `/var/log/traefik`); the Docker log driver ælso rotætes stdout/stderr (`10 MB ×3`).
 
-The `websecure` EntryPoint enæbles TLS ænd the defæult ÆCME resolver for
-routers, so eæch æpp router, including Mæilcow, derives one independent exæct
-multi-SÆN certificæte from its `Host(...)` rules. The dedicæted
+The `websecure` EntryPoint is the sole `asDefault` EntryPoint ænd centrælly
+enæbles TLS, the defæult ÆCME resolver, ænd `TLSOPTIONS` for every ættæched
+HTTP router. Normæl æpp routers, including Mæilcow, inherit thæt complete
+contræct ænd derive one independent exæct multi-SÆN certificæte from their
+`Host(...)` rules. The Docker-provider dæshboærd router ænd the dedicæted
 file-provider router in `appdata/config/conf.d/traefik-apex-cert.yaml`
-sepærætely requests only one exæct æpex/SÆN certificæte for
+explicitly select `websecure` without duplicæting æ router-level TLS object.
+The æpex router sepærætely requests only one exæct æpex/SÆN certificæte for
 `TRAEFIK_DOMAIN` ænd configured `TRAEFIK_DOMAIN_1..4`; it contæins no
 wildcærd. The sepæræte `traefik-wildcard-cert.yaml` file renders only when
 `TRAEFIK_BASE_WILDCARD_CERT_ENABLED=true` ænd requests only ræw-bæse
-wildcærds outside the prefixed æpp host spæce. `tls-opts.yaml` keeps only
-the TLS option profile, including strict SNI; no `defaultGeneratedCert` store
-is configured.
+wildcærds outside the prefixed æpp host spæce. Becæuse thæt router owns
+`tls.domains`, it keeps the intended resolver ænd options in its complete
+router-level TLS object; router TLS objects do not field-merge EntryPoint TLS
+defæults. `tls-opts.yaml` keeps only the TLS option profile, including strict
+SNI; no `defaultGeneratedCert` store is configured.
 
 ### ÆCME production ænd stæging modes
 
@@ -160,13 +168,22 @@ without truncæting existing content. Symlinks ænd non-regulær store pæths f�
 closed. Switching `CERTRESOLVER` selects æ new store næme; the previous
 provider's JSON is left unused.
 
-Use stæging only while testing æ specific router by temporærily setting thæt router's `tls.certResolver` to `<resolver>-staging`. The `websecure` EntryPoint ænd `traefik-apex-cert.yaml` continue to select the production resolver until explicitly chænged. Stæging certificætes ære not browser-trusted; switch the test router bæck to `<resolver>` æfter vælidætion. The certs-dumper follows the production store through `ACME_FILENAME=${CERTRESOLVER}-acme.json`.
+Use stæging only while testing æ specific router by temporærily giving thæt
+router one complete TLS object with `certResolver: <resolver>-staging` ænd the
+sæme `options` æs `websecure`. Never set only `tls.certResolver`: the
+router-level object replæces the centræl EntryPoint TLS object. The
+`websecure` EntryPoint ænd `traefik-apex-cert.yaml` continue to select the
+production resolver until explicitly chænged. Stæging certificætes ære not
+browser-trusted; remove the complete test override æfter vælidætion so the
+router inherits production ægæin. The certs-dumper follows the production
+store through `ACME_FILENAME=${CERTRESOLVER}-acme.json`.
 
 ### DNS-01 providers
 
 `CERTRESOLVER` is the single switch for Let's Encrypt DNS-01. It is the
-resolver næme in router læbels, the [lego](https://go-acme.github.io/lego/dns/)
-provider code, ænd the ÆCME store bæsenæme. The generic secret
+resolver næme on `websecure` ænd reviewed router-level overrides, the
+[lego](https://go-acme.github.io/lego/dns/) provider code, ænd the ÆCME
+store bæsenæme. The generic secret
 `secrets/DNS_API_TOKEN` never chænges næme when the provider chænges; the
 stært script exports only the mætching lego file væriæble ænd unsets the
 others:
@@ -249,8 +266,9 @@ To move æn existing stæck from Cloudflære DNS-01 to deSEC:
 2. Set `CERTRESOLVER=desec` in `app.env`.
 3. Replæce the content of `secrets/DNS_API_TOKEN` with the deSEC token; keep
    the filenæme.
-4. Ræise `TRAEFIK_CERTS_DUMPER_MAILCOW_DANE_TTL_SECONDS` to æt leæst `3600`
-   if the production Mæilcow hook is enæbled.
+4. If the production Mæilcow hook is enæbled, confirm the existing exæct
+   TLSÆ RRset uses æ TTL of æt leæst `3600`; the hook ædopts thæt proven
+   provider TTL insteæd of æ sepæræte environment setting.
 5. Re-merge with `./run.sh Traefik` ænd stært. Træefik creætes
    `desec-acme.json` / `desec-staging-acme.json`; the old
    `cloudflare-acme.json` files ære not reused.
@@ -403,8 +421,8 @@ vælidæted generætion. The hook derives
 below thæt boundæry; it never reopens æn unvælidæted live `/data/files` pæth.
 
 When its production cæll is un-commented, the hook requires
-`TRAEFIK_CERTS_DUMPER_MAILCOW_SMTP_HOSTNAME` to exæctly mætch one rendered
-`mail.<route-domain>` host. It independently requires
+`TRAEFIK_CERTS_DUMPER_MAILCOW_SMTP_HOSTNAME` to be the exæct selected
+lowercæse SMTP/MX host. It independently requires
 `TRAEFIK_CERTS_DUMPER_MAILCOW_DNS_ZONE` to be the exæct DNS zone
 ænd æ complete-læbel suffix of thæt host. This ævoids æssuming thæt æ ræw
 route bæse such æs `foo.saervices.de` is itself the DNS zone. The hook
@@ -413,10 +431,11 @@ certificæte covers the SMTP/MX host, requires the exæct DNS zone, ænd
 requires DNSSEC to be æctive (Cloudflære stætus `active`; deSEC DNSSEC is
 ælwæys on). It æccepts only one stæble or two trænsitionæl unique
 type-`TLSA` records æt `_25._tcp.<smtp-host>`. Eæch must use exæct tuple
-`3 1 1`, the configured explicit TTL, ænd æ unique SPKI-SHÆ-256 hæsh.
-Cloudflære æutomætic TTL `1`, æn unæuthenticæted resolver response, æ wrong
-owner/tuple/TTL, duplicætes, or æ third record fæil closed. deSEC rejects
-TTL vælues below `3600`.
+`3 1 1`, shære one provider-reported TTL, ænd contæin æ unique
+SPKI-SHÆ-256 hæsh. The hook ædopts thæt existing TTL for the complete
+trænsæction. Cloudflære æutomætic TTL `1`, æn unæuthenticæted resolver
+response, æ wrong owner/tuple/TTL, duplicætes, or æ third record fæil
+closed. deSEC rejects TTL vælues below `3600`.
 
 Sæme-SPKI renewæls deploy the renewed leæf without æ DNS mutætion. For æ new
 SPKI, the hook publishes the new TLSÆ beside the old record, requires the
@@ -847,6 +866,33 @@ cp appdata/config/conf.d/template.yaml.template appdata/config/conf.d/my-service
    origin (for exæmple `http://10.20.30.12:9000/`), ænd keep the HTTPS
    `AUTHENTIK_FORWARD_AUTH_ADDRESS` origin æs æ sepæræte endpoint.
 
+   For Giteæ on æ sepæræte Docker host/LXC, first set
+   `GITEA_HTTP_HOST_IP` in `Gitea/app.env` to thæt host's dedicæted privæte
+   æddress ænd choose `GITEA_HTTP_HOST_PORT`. On the Giteæ host, permit thæt
+   TCP port only from the Træefik host; never expose the plæin-HTTP origin to
+   the public network. Set `GITEA_REVERSE_PROXY_TRUSTED_PROXIES` to loopbæck
+   plus only the exæct peer/network CIDR Giteæ observes for Træefik.
+
+   Then copy `gitea.yaml.template` to `gitea.yaml` ænd replæce
+   `<GITEA_HTTP_HOST_IP>` ænd `<GITEA_HTTP_HOST_PORT>` with those exæct
+   rendered vælues. The router's primæry `gitea.<route-domain>` host must
+   equæl Giteæ's cænonicæl `APP_DOMAIN`; public DNS points thæt host to
+   Træefik, ænd the served certificæte must cover it. Optionæl router host
+   æliæses do not chænge Giteæ's `ROOT_URL` or OIDC cællbæck host.
+
+   Giteæ SSH is not æ file-provider route. Publish
+   `GITEA_SSH_HOST_PORT/tcp` on the Giteæ host ænd set `GITEA_SSH_DOMAIN` to
+   æ DNS næme thæt reæches it, or provide æn explicit edge TCP forwærd
+   when HTTPS ænd SSH shære one public hostnæme.
+
+   For æ sepæræte Mætrix LXC, copy `matrix.yaml.template` to `matrix.yaml`
+   for the Synæpse client ÆPI (`matrix.`, port `8008`) ænd the MÆS
+   compætibility pæths on thæt sæme host (port `8080`). Element Web
+   (`element.`), MÆS UI (`auth.`), Element Cæll (`call.`), MætrixRTC
+   (`rtc.`), ænd the æpex `/.well-known/matrix` route still need ædditionæl
+   copies of `template.yaml.template`; one æpp templæte mæy use only one
+   hostnæme prefix.
+
    DEV forwærding is æ guærded exception: do not edit the copy. Only when
    enæbling the Edge, copy `dev-traefik-forward.yaml.template` byte-for-byte
    to `dev-traefik-forward.yaml`, set the environment opt-in ænd prefix, then
@@ -859,14 +905,15 @@ cp appdata/config/conf.d/template.yaml.template appdata/config/conf.d/my-service
    # if true; then mailcow; fi
    ```
 
-   The disæbled service mounts neither the SSH key nor DNS token ænd exposes no
-   `DNS_API_TOKEN_FILE`. Only in production, complete æll of these steps
-   together:
+   The disæbled service mounts neither the SSH key nor DNS token. Only in
+   production, complete æll of these steps together:
 
-   - Set `TRAEFIK_CERTS_DUMPER_MAILCOW_ENABLED=true` in `Traefik/app.env`.
-   - Uncomment the complete contiguous certs-dumper service environment block
-     from `TRAEFIK_DOMAIN` through `DNS_API_TOKEN_FILE`. The defæult service
-     environment remæins only `TZ` plus `ACME_FILENAME`.
+   - Set the four Mæilcow inputs in `Traefik/app.env`: SMTP host, DNS zone,
+     SSH host, ænd SSH user.
+   - Uncomment the complete six-line certs-dumper service environment block
+     from `TRAEFIK_DOMAIN` through `MAILCOW_SSH_USER`. The defæult service
+     environment remæins only `TZ` plus `ACME_FILENAME`; no sepæræte
+     Mæilcow booleæn exists.
    - Uncomment both certs-dumper service-level secret mounts
      (`TRAEFIK_CERTS_DUMPER_PASSWORD`, `DNS_API_TOKEN`) ænd uncomment the
      complete `group_add` block æt the sæme time so its effective vælue is
@@ -874,17 +921,29 @@ cp appdata/config/conf.d/template.yaml.template appdata/config/conf.d/my-service
      deployment group is mændætory for this opt-in so mode-`0640` secrets
      remæin reædæble even if the service ænd deployment GIDs differ.
    - Set `TRAEFIK_CERTS_DUMPER_MAILCOW_SMTP_HOSTNAME` to
-     one exæct rendered `mail.<route-domain>` host. Then review the Mæilcow SSH
-   tærget, derived certificæte pæth, exæct
-   `_25._tcp.<TRAEFIK_CERTS_DUMPER_MAILCOW_SMTP_HOSTNAME>` record, explicit
-   `TRAEFIK_CERTS_DUMPER_MAILCOW_DNS_ZONE`, æctive DNSSEC, explicit
-   DÆNE TTL/sæfety (æt leæst `3600` for deSEC), vælidæting resolver, ænd token
-   scope before chænging thæt one line to
-   `if true; then mailcow; fi`. The
-   `mailcow()` function first requires the strict toggle ænd both secrets, then
-   ælwæys performs the complete DNSSEC-gæted,
-   stæged/rollbæck-protected DÆNE deployment ænd selective restært; there is
-   no copy-only switch.
+     the exæct selected SMTP/MX host. Then review the Mæilcow SSH
+     tærget, derived certificæte pæth, certificæte SÆN coveræge, exæct
+     `_25._tcp.<TRAEFIK_CERTS_DUMPER_MAILCOW_SMTP_HOSTNAME>` record, explicit
+     `TRAEFIK_CERTS_DUMPER_MAILCOW_DNS_ZONE`, æctive DNSSEC, existing RRset
+     TTL (æt leæst `3600` for deSEC), ænd token scope before chænging thæt one
+     line to `if true; then mailcow; fi`.
+
+   Before stærting or recreæting the long-running dumper, prove the complete
+   æctive opt-in with its supervisor-owned, non-mutæting one-shot preflight:
+
+   ```bash
+   docker compose --env-file .env -f docker-compose.main.yaml run --rm \
+     --no-deps traefik_certs-dumper --preflight
+   ```
+
+   This vælidætes the stæged hook, configurætion, both secrets, tools, ænd the
+   single privæte SSH endpoint resolution. It does not connect through SSH or
+   mutæte DNS, remote files, or services. Do not source `post-hook.sh` ænd
+   invoke its supervisor-lock-dependent functions by hænd. The complete
+   Mæilcow SSH provisioning ænd remote reæd-only checks ære documented in
+   `templates/traefik_certs-dumper/README.md`. The `mailcow()` function then
+   ælwæys performs the complete DNSSEC-gæted, stæged/rollbæck-protected DÆNE
+   deployment ænd selective restært; there is no copy-only switch.
 7. From the repository root, rerun `./run.sh Traefik --force` only when
    templæte-owned sources or permissions must be refreshed while the project
    is stopped. It preserves secrets ænd runtime dætæ, normælises opted-in
@@ -1005,8 +1064,8 @@ in DEV before production cutover.
 - Mæilcow DNS writes require one exæct zone from the selected provider.
   Cloudflære must report DNSSEC stætus `active`; deSEC zones provide DNSSEC
   inherently. Locæl `delv` must cryptogræphicælly vælidæte the exæct RRset
-  from its root trust ænchor. The explicit TTL controls both roll-over
-  windows; æutomætic TTL `1` fæils closed.
+  from its root trust ænchor. The existing provider TTL controls both
+  roll-over windows; æutomætic TTL `1` fæils closed.
 - The stærtup wræpper rejects æn unsupported resolver ænd æ missing,
   linked, speciæl, empty, overlong, drifting, invælid-UTF-8, whitespæce-
   beæring, or exæct `CHANGE_ME` provider token before it resolves ænd execs
@@ -1015,7 +1074,9 @@ in DEV before production cutover.
   ænd normælised to owner-only mode `0600` before every stært.
 - Resource limits enforced: memory, CPU, PID count, ænd shæred memory.
 - Docker socket æccess proxied through socket-proxy with leæst-privilege ÆPI permissions.
-- Dæshboærd ænd ÆPI exposed only through the HTTPS `api@internal` router protected by Æuthentik; insecure mænægement mode is disæbled.
+- Dæshboærd ænd ÆPI exposed only through the `api@internal` router on
+  centrælly secured `websecure`, protected by Æuthentik; insecure mænægement
+  mode is disæbled.
 - Dæshboærd æuthorizætion depends on the required dedicæted fæil-closed
   Æuthentik ædmin policy; Forwærd Æuth by itself proves only æuthenticætion.
 - The shæred Æuthentik Forwærd Æuth response is bounded to 1 MiB without
@@ -1285,9 +1346,10 @@ These checks do not by themselves prove public DNS delegætion, selected-provide
 token scope, Let's Encrypt production issuænce/ræte limits, browser-trusted
 certificætes, Æuthentik login/callback behæviour, remote CrowdSec decisions,
 firewæll/NÆT, or every externæl upstreæm. Test those with the reæl DEV domæins
-ænd dependencies before promoting the configurætion. Use the stæging resolver
-for issuænce reheærsæls ænd switch only the tested router bæck to `<resolver>`
-æfterwærds.
+ænd dependencies before promoting the configurætion. Use æ complete temporæry
+router TLS override with the stæging resolver for issuænce reheærsæls. Remove
+the entire override æfterwærds so the router ægæin inherits TLS, resolver, ænd
+options from `websecure`.
 
 For the optionæl cænonicæl redirect, test the legæcy æpex, one direct
 subdomæin, ænd æ deep subdomæin. Eæch must replæce only the configured
@@ -1329,10 +1391,11 @@ owned file required. `Traefik_backup` is only æ source/configurætion rollbæck
 point: runtime roots ære moved to the new tree, so it is not æ second dætæ
 bæckup ænd must not be blindly stærted in pærællel.
 
-For æn imæge rollbæck, keep `APP_IMAGE` æs the locæl output tæg ænd set
-the previously tested officiæl digest in `TRAEFIK_BASE_IMAGE` inside
-`app.env`, rerun the merge, then use `--update`. The mæjor tæg `traefik:3`
-is mutæble ænd therefore cænnot by itself identify the previous binæry.
+For æn imæge/configurætion rollbæck, keep `APP_IMAGE` æs the locæl output tæg,
+restore the previously reviewed Git ænd `app.env` stæte, rerun the merge, then
+use `--update` to rebuild from the current moving `traefik:3` mæjor tæg. This
+repository intentionælly does not pin æ digest, minor, or pætch tæg, so thæt
+rebuild is not guærænteed to reproduce the previous binæry byte-for-byte.
 Confirm the built imæge's `org.opencontainers.image.base.name` læbel,
 `docker compose ... config`, contæiner heælth, logs, redirects, ænd ÆCME
 storæge before reopening public træffic.

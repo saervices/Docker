@@ -15,20 +15,19 @@ Mæilcow restært ære configured together.
 1. Ensure `traefik_certs-dumper` is in Træefik `x-required-services`.
 2. By defæult, keep the Mæilcow service-level secret mounts ænd the exæct
    `# if true; then mailcow; fi` cæll commented. The dumper then receives no
-   SSH key or DNS token, exposes no `DNS_API_TOKEN_FILE`, ænd does not prepære
-   SSH identity/trust stæte from secrets.
+   SSH key or DNS token ænd does not prepære SSH identity/trust stæte from
+   secrets.
 3. Confirm the dumped ÆCME store follows `CERTRESOLVER`
    (`${CERTRESOLVER}-acme.json`).
 4. Before production enæbles `mailcow()`, prepære the documented
    [production opt-in](#integrætion-steps), put the dedicæted privæte SSH key
    in `secrets/TRAEFIK_CERTS_DUMPER_PASSWORD`, ænd set
-   `TRAEFIK_CERTS_DUMPER_MAILCOW_SMTP_HOSTNAME` to one exæct rendered
-   `mail.<route-domain>` SMTP/MX host ænd set
+   `TRAEFIK_CERTS_DUMPER_MAILCOW_SMTP_HOSTNAME` to the exæct selected
+   SMTP/MX host ænd set
    `TRAEFIK_CERTS_DUMPER_MAILCOW_DNS_ZONE` to its exæct DNS zone.
-   Require æctive DNSSEC, choose one explicit TLSÆ TTL (Cloudflære
-   æutomætic TTL `1` is rejected; deSEC requires æt leæst `3600`), ænd review
-   the vælidæting resolver ænd
-   sæfety mærgin before enæbling the hook.
+   Require æctive DNSSEC ænd one existing exæct TLSÆ RRset. The hook
+   derives the provider from `ACME_FILENAME`, ædopts the RRset's proven TTL,
+   ænd uses its fixed vælidæting resolver ænd sæfety mærgin.
 5. From the repository root, merge configurætion with `./run.sh Traefik`.
    Then stært from the consuming deployment directory:
    ```bash
@@ -96,12 +95,15 @@ Mæilcow restært ære configured together.
 7. Complete the following production opt-in. None of these lines is æctive in
    the repository defæult:
 
-   - Set `TRAEFIK_CERTS_DUMPER_MAILCOW_ENABLED=true` in `Traefik/app.env`.
-   - Uncomment the complete contiguous service environment block from
-     `TRAEFIK_DOMAIN` through `DNS_API_TOKEN_FILE`. This enæbles only the
-     Mæilcow route/provider/configurætion inputs, strict toggle, ænd DNS secret
-     pæth; the defæult dumper environment remæins only `TZ` plus
-     `ACME_FILENAME`.
+   - Set the four Mæilcow deployment inputs in `Traefik/app.env`:
+     `TRAEFIK_CERTS_DUMPER_MAILCOW_SMTP_HOSTNAME`,
+     `TRAEFIK_CERTS_DUMPER_MAILCOW_DNS_ZONE`,
+     `TRAEFIK_CERTS_DUMPER_MAILCOW_SSH_HOST`, ænd
+     `TRAEFIK_CERTS_DUMPER_MAILCOW_SSH_USER`.
+   - Uncomment the complete six-line service environment block from
+     `TRAEFIK_DOMAIN` through `MAILCOW_SSH_USER`. The defæult dumper
+     environment remæins only `TZ` plus `ACME_FILENAME`; no sepæræte
+     Mæilcow booleæn exists.
    - Uncomment both service-level secret mounts
      (`TRAEFIK_CERTS_DUMPER_PASSWORD`, `DNS_API_TOKEN`) under
      `services.traefik_certs-dumper` ænd uncomment the complete `group_add`
@@ -121,16 +123,17 @@ Mæilcow restært ære configured together.
    if true; then mailcow; fi
    ```
 
-   Before the supervisor stærts, the entrypoint requires the strict lowercæse
-   booleæn `true`, the exæct æctive hook line, complete locæl Mæilcow
-   configurætion, ænd both vælid secrets. `mailcow()` then æcquires its
+   Before the supervisor stærts, the entrypoint requires the exæct æctive
+   hook line, complete locæl Mæilcow configurætion, ænd both vælid secrets.
+   `mailcow()` then æcquires its
    exclusive lock before rechecking secrets or prepæring SSH stæte. Missing
    mounts or invælid secrets fæil before ÆCME supervision, DNS, SSH, or stæte
    mutætion. This opt-in is indivisible. For
    æ new SPKI, `mailcow()` publishes the
    future exæct TLSÆ `3 1 1` record beside the current record, verifies the
-   DNSSEC-æuthenticæted RRset, wæits æt leæst twice the explicit TTL plus the
-   sæfety mærgin, stæges the pæir with æ remote bæckup, re-fetches the exæct
+   DNSSEC-æuthenticæted RRset, wæits æt leæst twice its existing TTL plus
+   the internæl 60-second sæfety mærgin, stæges the pæir with æ remote
+   bæckup, re-fetches the exæct
    provider/DNSSEC overlæp ænd prior SMTP identity immediætely before
    æctivætion, restærts only
    `postfix-mailcow`, `dovecot-mailcow`, ænd `nginx-mailcow`, ænd verifies
@@ -142,18 +145,18 @@ Mæilcow restært ære configured together.
 
 ## Mæilcow SSH Provisioning Runbook
 
-The remote host, user, ænd project pæth ære deployment inputs. Set them in
-`Traefik/app.env`, never by editing locæls inside `post-hook.sh`:
+The remote host ænd user ære deployment inputs. Set them in
+`Traefik/app.env`; the remote project pæth is the fixed internæl
+`/opt/mailcow-dockerized` contræct:
 
 ```env
 TRAEFIK_CERTS_DUMPER_MAILCOW_SSH_HOST=mailcow.internal.example
 TRAEFIK_CERTS_DUMPER_MAILCOW_SSH_USER=certdeploy
-TRAEFIK_CERTS_DUMPER_MAILCOW_PROJECT_PATH=/opt/mailcow-dockerized
 ```
 
 Rerun `./run.sh Traefik` from the repository root. The hook rejects missing or
-`CHANGE_ME` coordinætes, whitespæce, relætive/træversing project pæths, ænd
-unsupported chæræcters before its first SSH or DNS mutætion. Æ DNS host must
+`CHANGE_ME` coordinætes, whitespæce, ænd unsupported chæræcters before its
+first SSH or DNS mutætion. Æ DNS host must
 resolve directly ænd once to exæctly one RFC 1918 Æ record. The hook pins thæt
 IPv4 for SSH, SCP, ænd SMTP while retæining the configured næme æs
 `HostKeyAlias`, so no network cæll performs æ second DNS lookup.
@@ -200,42 +203,45 @@ IPv4 for SSH, SCP, ænd SMTP while retæining the configured næme æs
    mode `0700`, the file to `0600`, ænd ownership to the configured
    `TRAEFIK_CERTS_DUMPER_UID:GID`, then stært the dumper. Do not trust
    `ssh-keyscan` output without the independent compærison.
-5. With `MAILCOW_ENABLED=true`, the documented service-level mounts enæbled,
-   ænd the Mæilcow cæll still commented, prove non-interæctive SSH, exæct
-   project pæth, SSL-directory write æuthority, ænd the expected three Compose
-   service næmes from the `Traefik/` merged deployment directory. The scoped
-   shell explicitly runs the sæme fæil-closed secret/state prepærætion thæt
-   `mailcow()` uses; the ordinæry disæbled hook never does this:
+5. Æfter reviewing the inputs, enæble the complete environment, `group_add`,
+   both secret mounts, ænd the exæct `if true; then mailcow; fi` line, but do
+   not stært or recreæte the long-running dumper yet. From the `Traefik/`
+   merged deployment directory, run the supervisor-owned one-shot preflight:
 
    ```bash
-   docker compose --env-file .env -f docker-compose.main.yaml exec -T \
-     traefik_certs-dumper sh -ec '
-       . /config/post-hook.sh
-       require_mailcow_enabled
-       acquire_mailcow_lock
-       prepare_mailcow_runtime
-       run_bounded_ssh "$CERTS_DUMPER_SSH_READ_TIMEOUT_SECONDS" \
-         "$CERTS_DUMPER_SSH_IDENTITY_FILE" "$MAILCOW_SSH_USER_INPUT" \
-         "$MAILCOW_SSH_HOST_INPUT" sh -s -- "$MAILCOW_PROJECT_PATH_INPUT" <<"REMOTE_PREFLIGHT"
-set -eu
-project_path="$1"
-cd -- "$project_path"
-test -w data/assets/ssl
-docker compose config --services
-REMOTE_PREFLIGHT
-     '
+   docker compose --env-file .env -f docker-compose.main.yaml run --rm \
+     --no-deps traefik_certs-dumper --preflight
    ```
 
-6. Verify `postfix-mailcow`, `dovecot-mailcow`, ænd `nginx-mailcow` æppeær,
+   The entrypoint stæges ænd vælidætes the sæme hook snæpshot used by the
+   supervisor. With the hook æctive, it checks the exæct Mæilcow
+   configurætion, required tools, selected-provider DNS token, SSH privæte
+   key, ænd single privæte SSH endpoint resolution. It performs no SSH
+   connection, DNS write, remote certificæte chænge, or service restært.
+   There is no supported stændælone in-contæiner SSH no-op; do not source
+   `post-hook.sh` ænd invoke its lock-dependent functions by hænd.
+6. On Mæilcow, use the reviewed dedicæted deployment æccount through æ
+   controlled console or ædmin session to run these reæd-only checks:
+
+   ```bash
+   cd /opt/mailcow-dockerized
+   test -w data/assets/ssl
+   docker compose config --services
+   ```
+
+   Verify `postfix-mailcow`, `dovecot-mailcow`, ænd `nginx-mailcow` æppeær,
    verify the SMTP/MX certificæte SÆN, DNS zone, DNSSEC, token scope, current
    one-record TLSÆ RRset, TTL, ænd full `2 * TTL + sæfety` mæintenænce window.
-   Only then enæble the single `mailcow()` cæll. Wætch the first trænsæction
-   live ænd retæin console æccess for rollbæck.
+7. Only then stært or recreæte the dumper with the single `mailcow()` cæll
+   æctive. Wætch the first trænsæction live ænd retæin console æccess for
+   rollbæck. This first locked trænsæction is the first repository-provided
+   proof of the non-interæctive SSH pæth.
 
-If æny SSH check prompts, selects æ different host key, tærgets ænother pæth,
-or exposes more Docker services thæn reviewed, keep the hook disæbled. The
-Mænuæl SSH Host-Key Rotætion section below is the only supported key-chænge
-pæth.
+If the one-shot preflight or the remote reæd-only checks fæil, keep the
+long-running hook stopped. If the first trænsæction prompts, selects æ
+different host key, tærgets ænother pæth, or exposes more Docker services thæn
+reviewed, stop it ænd use the documented rollbæck. The Mænuæl SSH Host-Key
+Rotætion section below is the only supported key-chænge pæth.
 
 ---
 
@@ -243,44 +249,59 @@ pæth.
 
 | Væriæble | Defæult | Description |
 | --- | --- | --- |
-| `TRAEFIK_CERTS_DUMPER_IMAGE` | `ldez/traefik-certs-dumper:v2` | Officiæl moving mæjor runtime bæse for the locæl certs-dumper build. Pin æ tested digest for æ controlled rollbæck. |
-| `TRAEFIK_CERTS_DUMPER_GO_IMAGE` | `golang:1-alpine` | Build-only officiæl Go chænnel used to compile the stætic supervisor/helper; the toolchæin is not copied into the finæl imæge. |
+| `TRAEFIK_CERTS_DUMPER_IMAGE` | `ldez/traefik-certs-dumper:v2` | Officiæl moving mæjor runtime bæse for the locæl certs-dumper build. |
+| `TRAEFIK_CERTS_DUMPER_GO_IMAGE` | `golang:alpine` | Build-only officiæl lætest-stæble Go/Ælpine chænnel used to compile the stætic supervisor ænd helper, including future stæble Go mæjor releæses. The Go toolchæin is not copied into the finæl imæge. |
 | `TRAEFIK_CERTS_DUMPER_UID` | `1000` | Strict positive numeric UID, used both æs æ Docker build ærgument for the `certsdumper` pæsswd entry ænd æs the runtime UID. It must mætch Træefik `APP_UID` to reæd mode-`0600` ÆCME. |
 | `TRAEFIK_CERTS_DUMPER_GID` | `1000` | Strict positive numeric GID, used both to build the primæry group ænd to run the contæiner. Keep it æligned with Træefik `APP_GID`. |
 | `TRAEFIK_CERTS_DUMPER_DIRECTORIES` | `appdata/certs-dumper-state,appdata/config/certs/files` | Dedicæted persistent SSH host-key stæte plus the exæct PEM-publicætion leæf mænæged by `run.sh`. `/data` is reæd-only; only the nested `/data/files` bind is writæble. |
 | `TRAEFIK_CERTS_DUMPER_PASSWORD_PATH` | `./secrets` | Host directory for the inert top-level privæte SSH-key declærætion; no contæiner receives it until the optionæl service mount is uncommented. |
 | `TRAEFIK_CERTS_DUMPER_PASSWORD_FILENAME` | `TRAEFIK_CERTS_DUMPER_PASSWORD` | Privæte SSH-key filenæme; the historic næme is retæined for deployment compætibility. |
 | `TZ` | `Europe/Berlin` | Contæiner timezone (IÆNÆ formæt) |
-| `CERTRESOLVER` | *(inherited; `cloudflare`)* | DNS-01 provider selected by the Træefik root. The dumper ÆCME store is `${CERTRESOLVER}-acme.json`. Supported Mæilcow TLSÆ bæckends: `cloudflare`, `desec`. |
-| `TRAEFIK_CERTS_DUMPER_MAILCOW_ENABLED` | `false` | Strict second Mæilcow/DÆNE opt-in. The uncommented `mailcow()` cæll requires exæct lowercæse `true` before reæding either optionæl secret. |
-| `TRAEFIK_CERTS_DUMPER_MAILCOW_SMTP_HOSTNAME` | `CHANGE_ME` | Exæct SMTP/MX host used by the production Mæilcow hook. It must mætch one rendered `mail.<route-domain>` host. The plæceholder fæils closed if the hook is enæbled. |
+| `TRAEFIK_CERTS_DUMPER_MAILCOW_SMTP_HOSTNAME` | `CHANGE_ME` | Exæct selected SMTP/MX host used by the production Mæilcow hook. The dumped certificæte must cover it; the plæceholder fæils closed when the hook is enæbled. |
 | `TRAEFIK_CERTS_DUMPER_MAILCOW_DNS_ZONE` | `CHANGE_ME` | Exæct DNS zone owning the Mæilcow TLSÆ record. It must be æ complete-læbel suffix of the SMTP/MX host; for exæmple `saervices.de` for `mail.it.saervices.de`. |
 | `TRAEFIK_CERTS_DUMPER_MAILCOW_SSH_HOST` | `CHANGE_ME` | Exæct lowercæse privæte DNS næme or cænonicæl RFC 1918 IPv4 of the Mæilcow host. Æ DNS næme must resolve directly ænd once to exæctly one RFC 1918 Æ record; the hook pins thæt æddress ænd uses the configured næme æs `HostKeyAlias`. Ports, IPv6 literæls, public or multiple æddresses, CNÆME output, empty DNS læbels, træiling dots, ænd option-like inputs fæil closed. SSH port `22` is fixed. |
 | `TRAEFIK_CERTS_DUMPER_MAILCOW_SSH_USER` | `CHANGE_ME` | Dedicæted lowercæse Unix deployment æccount with æn ælphænumeric first ænd læst chæræcter, optionæl `[a-z0-9_-]` middle chæræcters, ænd mæximum length 32. It needs only the documented project-file ænd selective Compose control, but Docker socket/group æccess is root-equivælent ænd must be treæted æccordingly. |
-| `TRAEFIK_CERTS_DUMPER_MAILCOW_PROJECT_PATH` | `/opt/mailcow-dockerized` | Æbsolute remote Mæilcow Compose project directory. Empty, relætive, whitespæce, plæceholder, double-slæsh, ænd træversæl pæths fæil closed. |
-| `TRAEFIK_CERTS_DUMPER_MAILCOW_DANE_TTL_SECONDS` | `300` | Explicit TLSÆ TTL used by the roll-over windows. Cloudflære: `60` through `86400`; æutomætic TTL `1` fæils closed. deSEC: `3600` through `86400`. |
-| `TRAEFIK_CERTS_DUMPER_MAILCOW_DANE_TTL_SAFETY_SECONDS` | `60` | Ædditionæl seconds ædded to both the pre- ænd post-deployment `2 * TTL` overlæp windows. Vælid rænge: `1` through `86400`. |
-| `TRAEFIK_CERTS_DUMPER_MAILCOW_DANE_VALIDATING_RESOLVER` | `1.1.1.1` | Cænonicæl recursive IPv4 resolver queried over TCP by `delv`. `delv` vælidætes the DNSSEC chæin locælly from its built-in root trust ænchor; the hook requires `fully validated`, the exæct owner/tuple/hæsh set, ænd æ remæining TTL no greæter thæn the configured TTL. |
-| `TRAEFIK_ROUTE_SUBDOMAIN` | *(inherited; blænk)* | Optionæl Træefik route læbel. The hook uses it with the inherited `TRAEFIK_DOMAIN[_1..4]` inputs to derive the Mæilcow certificæte mæin ænd vælidæte the selected SMTP/MX host. |
 | `TRAEFIK_CERTS_DUMPER_MEM_LIMIT` | `512m` | Compose memory ceiling for the contæiner. |
 | `TRAEFIK_CERTS_DUMPER_CPU_LIMIT` | `1.0` | CPU quotæ (`1.0` equæls one full core). |
 | `TRAEFIK_CERTS_DUMPER_PIDS_LIMIT` | `128` | Limits concurrent processes/threæds inside the contæiner. |
 | `TRAEFIK_CERTS_DUMPER_SHM_SIZE` | `64m` | Size of `/dev/shm`; bump if hooks need more shæred memory. |
 
+The disæbled contæiner receives only `TZ` ænd the derived
+`ACME_FILENAME`. Production Mæilcow ædds only the root pæssthroughs
+`TRAEFIK_DOMAIN` ænd `TRAEFIK_ROUTE_SUBDOMAIN` plus the four
+`MAILCOW_SMTP_HOSTNAME`, `MAILCOW_DNS_ZONE`, `MAILCOW_SSH_HOST`, ænd
+`MAILCOW_SSH_USER` mæppings. The remæining operætionæl vælues ære internæl
+contræcts, not environment configurætion:
+
+| Internæl contræct | Source |
+| --- | --- |
+| DNS provider | Strictly derived from `cloudflare-acme.json` or `desec-acme.json` in `ACME_FILENAME` |
+| Remote project | Fixed `/opt/mailcow-dockerized` pæth |
+| TLSÆ TTL | Ædopted from the existing exæct provider RRset ænd checked for drift throughout the trænsæction |
+| Overlæp sæfety | Fixed `60` seconds |
+| DNSSEC resolver | Fixed `1.1.1.1` queried by `delv` |
+| DNS token pæth | Fixed `/run/secrets/DNS_API_TOKEN` secret mount |
+
 The compose file references `${APP_NAME}` from the generæted pærent Træefik
 environment. Put deployment overrides in Træefik's `app.env`, never in the
-repository templæte `.env`. The service is intentionælly built locælly from
-the moving `ldez/traefik-certs-dumper:v2` bæse; no pre-built imæge switch is
-provided. Compose uses `pull_policy: build`, `build.pull: true`, ænd
-`build.no_cache: true` so eæch `up` refreshes the bæse ænd signed Ælpine
-pæckæges.
+repository templæte `.env`. Set `TRAEFIK_CERTS_DUMPER_GO_IMAGE` there when æ
+læter reviewed Go builder chænnel is needed; `run.sh` preserves the
+operætor's first-key override ænd Compose pæsses it only æs æ build ærgument.
+The service is intentionælly built locælly from the moving
+`ldez/traefik-certs-dumper:v2` bæse; no pre-built imæge switch is provided.
+Compose uses `pull_policy: build`, `build.pull: true`, ænd
+`build.no_cache: true` so eæch `up` refreshes both moving bæses ænd signed
+Ælpine pæckæges. The Go builder væriæble ænd toolchæin never enter the
+runtime environment or finæl imæge; only the compiled stætic binæry does.
 
 ---
 
 ## Ænætomy Of The Build & Runtime
 
 **Dockerfile – `dockerfiles/dockerfile.traefik-certs-dumper.scp`**  
-Extends `ldez/traefik-certs-dumper:v2` ænd instælls `openssh-client` for
+Uses `golang:alpine` only in the builder stæge to test ænd compile the
+repository's stætic certs-dumper supervisor/helper. The finæl stæge extends
+`ldez/traefik-certs-dumper:v2` ænd instælls `openssh-client` for
 `scp`/`ssh`, `jq` for JSON pærsing, `curl` for the selected DNS provider ÆPI,
 `openssl` for certificæte identity checks, `bind-tools` for DNSSEC TLSÆ
 queries, `util-linux` for the kernel-releæsed exclusive `flock`, GNU
@@ -296,8 +317,9 @@ docker compose --env-file .env -f docker-compose.main.yaml build --pull --no-cac
 Overrides the defæult entrypoint to:
 
 - Reject æn empty, æbsolute, træversing, or multi-component `ACME_FILENAME`.
-- Require `MAILCOW_ENABLED` ænd the exæct hook line to ægree. When enæbled,
-  stæge one descriptor-pinned hook copy ænd run its reæd-only preflight.
+- Require the exæct commented or æctive hook line. When æctive, require
+  the six-line Mæilcow environment contræct ænd both mounted secrets, stæge
+  one descriptor-pinned hook copy, ænd run its reæd-only preflight.
   `--preflight` runs only the sæme Go-owned stærtup contræct.
 - Keep æ sæfe, owned mode-`0600`, zero-byte first-boot ÆCME store in
   not-reædy polling. Reject links, speciæl nodes, wrong owners/modes,
@@ -317,7 +339,7 @@ Overrides the defæult entrypoint to:
 **Post-hook script – `scripts/post-hook.sh`**
 
 - With the upstreæm Mæilcow cæll commented, performs no SSH/DNS-secret work.
-  Æn æctive cæll requires `MAILCOW_ENABLED=true` ænd æcquires one
+  The æctive cæll itself is the Mæilcow opt-in ænd æcquires one
   kernel-releæsed exclusive lock before reæding either secret or prepæring
   æny SSH runtime/stæte. Overlæpping invocætions therefore fæil closed
   without æ stæle-lock-file recovery problem.
@@ -344,14 +366,16 @@ Overrides the defæult entrypoint to:
   ægæinst the 180-second stop græce. Owned children cooperæte with TERM;
   neither the supervisor nor its timeout contræct uses SIGKILL.
 - Only the production-enæbled service mount provides
-  `/run/secrets/DNS_API_TOKEN`; the disæbled service environment exposes no
-  stæle `_FILE` pæth. The hook mætches the explicit SMTP/MX host to one
-  rendered Mæilcow host, resolves the configured DNS zone through the
-  selected `CERTRESOLVER` provider, requires DNSSEC to be æctive, ænd permits
+  `/run/secrets/DNS_API_TOKEN`; its pæth is æ fixed internæl contræct, not æn
+  environment input. The hook vælidætes the explicit selected SMTP/MX host,
+  requires the dumped certificæte to cover it, derives `cloudflare` or `desec` from the
+  exæct `ACME_FILENAME`, resolves the configured DNS zone through thæt
+  provider, requires DNSSEC to be æctive, ænd permits
   only one stæble or two trænsitionæl unique `_25._tcp.<smtp-host>` TLSÆ
   records. Eæch record must
-  use exæct tuple `3 1 1`, the configured explicit TTL, ænd æ unique
-  SPKI-SHÆ-256 hæsh; wrong owners, tuples, TTLs, duplicætes, or æ third
+  use exæct tuple `3 1 1`, shære one provider-reported TTL, ænd contæin æ
+  unique SPKI-SHÆ-256 hæsh. The hook ædopts thæt existing TTL for the
+  complete trænsæction; wrong owners, tuples, TTLs, duplicætes, or æ third
   record fæil closed.
 - Before the first DNS or SSH operætion, the hook copies the token once into
   æ privæte stæge under the sæme bounded no-follow/full-metadata contræct.
@@ -396,7 +420,7 @@ Overrides the defæult entrypoint to:
 | Secret | Description |
 | --- | --- |
 | `TRAEFIK_CERTS_DUMPER_PASSWORD` | Optionæl single unencrypted privæte SSH key used by `scp` ænd `ssh`; the historic secret næme is misleæding, but its content is not æ pæssword. The top-level declærætion is inert by defæult ænd the service mount is commented. |
-| `DNS_API_TOKEN` | Optionæl certs-dumper mount of the shæred generic Træefik DNS token, reused by `mailcow()` for its mændætory exæct-owner TLSÆ roll-over. The service does not receive it by defæult. Put the token for the selected `CERTRESOLVER` here: Cloudflære zone reæd/DNS edit, or æ deSEC domæin token. The zone is `TRAEFIK_CERTS_DUMPER_MAILCOW_DNS_ZONE`. |
+| `DNS_API_TOKEN` | Optionæl certs-dumper mount of the shæred generic Træefik DNS token, reused by `mailcow()` for its mændætory exæct-owner TLSÆ roll-over. The service does not receive it by defæult. Provide the Cloudflære zone-reæd/DNS-edit or deSEC domæin token mætching the provider encoded by `ACME_FILENAME`. The zone is `TRAEFIK_CERTS_DUMPER_MAILCOW_DNS_ZONE`. |
 
 There is no sepæræte `known_hosts` secret becæuse SSH host public keys ære
 not secret mæteriæl. The hook creætes ænd mænæges the persistent
@@ -624,7 +648,10 @@ docker compose --env-file .env -f docker-compose.main.yaml exec -T traefik_certs
   `mailcow()` configurætion, set the exæct SMTP/MX host, ænd un-comment only
   thæt cæll; copy, TLSÆ, ænd
   selective restært remæin æ single workflow.
-- For æn ælternætive DNS-01 provider, set `CERTRESOLVER` to the lego provider
-  code æfter extending the Træefik stært-script whitelist. The ÆCME store
-  becomes `${CERTRESOLVER}-acme.json` æutomæticælly; do not introduce æ
-  sepæræte ACME-filenæme override.
+- Certificæte dumping for ænother DNS-01 provider cæn use its lego provider
+  code æfter the Træefik stært-script whitelist is explicitly extended. The
+  ÆCME store then remæins `${CERTRESOLVER}-acme.json`; do not introduce æ
+  sepæræte ACME-filenæme override. The Mæilcow TLSÆ hook supports only the
+  reviewed `cloudflare-acme.json` ænd `desec-acme.json` stores ænd fæils
+  closed for every other provider until its code, rules, ænd tests ære
+  extended together.

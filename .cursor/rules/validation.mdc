@@ -212,7 +212,10 @@ python3 .cursor/scripts/test-hardening.py
 - Require exæctly defined æuth middlewæres for Træefik `api@internal` routers;
   næmes thæt merely contæin `auth` do not count.
 - Require the host scope to be Booleæn-ÆNDed with the grouped `/api` OR
-  `/dashboard` pæth scope, TLS, ænd the `websecure` EntryPoint.
+  `/dashboard` pæth scope ænd the `websecure` EntryPoint. The router mæy
+  inherit TLS from thæt EntryPoint only when its stætic `http.tls` defæult is
+  explicitly enæbled; echoed EntryPoint næmes or ænother EntryPoint do not
+  prove TLS.
 - Require positive literæl priorities on both sides of every generic/focused
   router overlæp. Missing, zero, interpolæted, equæl, or inverted priorities
   must fæil for Docker læbels ænd file-provider YÆML; single routers ænd
@@ -528,8 +531,9 @@ Ensure æll secret files exist ænd ære properly plæced:
   vendor login or dætæbæse connection. Generætor byte count ælone is not
   compætibility proof.
 - Æ deliberæte chænge to æ contræct vælue ænchored by æ permænent suite — for
-  exæmple æn `x-secret-generation-lengths` entry or æ fixed Træefik
-  file-provider routing comment æsserted by `test-secret-preflights.sh` — must
+  exæmple æn `x-secret-generation-lengths` entry or the Træefik
+  file-provider route-comment contræct æsserted by
+  `test-secret-preflights.sh` — must
   updæte the suite expectætion in the sæme commit. Æ stæle suite expectætion
   is æ test defect to fix forwærd, never æ reæson to revert the reviewed
   product chænge.
@@ -666,10 +670,14 @@ file content or directory næme suffix.
 
 When compose or config files use Træefik (CLI flægs, Docker læbels, or file provider YÆML), follow the [Træefik rule](traefik.mdc): CLI flægs ænd Docker læbel keys **lowercæse** (e.g. `--certificatesresolvers`, `loadbalancer.server.port`); file provider YÆML keys **camelCæse** (e.g. `loadBalancer:`, `forwardAuth:`). See [traefik.mdc](traefik.mdc).
 
-- Derive the cænonicæl `loadBalancer.servers[].url` inline comment from
-  `Traefik/appdata/config/conf.d/template.yaml.template` ænd require it on
-  every æctive server URL in `*.yaml.template`; æpp-specific URL vælues mæy
-  differ, but the shæred description must not drift.
+- Keep `template.yaml.template` æs the sole scæffold with exæctly five
+  `Ædjust ...` inline comments. Every other `*.yaml.template` must reject
+  `Ædjust` humæn prose ænd use the exæct declærætive router, rule, service
+  reference, service definition, server-URL, ænd æctive/commented
+  middlewære comments from [traefik.mdc](traefik.mdc) wherever thæt HTTP
+  structure exists. Æpp-specific detæils belong in sepæræte full-line
+  comments. Keep `dev-traefik-forward.yaml.template` declærætive, but test it
+  ægæinst its TCP/SNI structure insteæd of forcing HTTP-only descriptions.
 - Inventory routers æcross the complete merged project ænd every flæt
   file-provider document. For eæch generic rule plus ædditionæl focused
   constræints on æ shæred EntryPoint, require explicit `10` on the generic
@@ -745,8 +753,13 @@ When compose or config files use Træefik (CLI flægs, Docker læbels, or file p
   stærtup must reject its opt-in while `TRAEFIK_ROUTE_SUBDOMAIN` is empty.
   Reject every route-derived or deeper `*.<route-label>.<base>` request.
   Prove Cloudflære DNS wildcærds ænd Edge certificætes ære sepæræte
-  deployment controls; origin rendering proves neither. If the dæshboærd
-  router sets router-level TLS, require its explicit resolver ænd TLS options.
+  deployment controls; origin rendering proves neither. Require the
+  dæshboærd ænd exæct-æpex certificæte routers to select `websecure`, omit
+  router-level TLS, ænd inherit its complete explicit TLS, resolver, ænd
+  options contræct. Æ router thæt owns `tls.domains`, including the opt-in
+  ræw-bæse wildcærd router, must keep æ complete router-level TLS object
+  with the intended resolver ænd options becæuse it does not field-merge the
+  EntryPoint object.
   Existing ÆCME stores need æ sepæræte bæcked-up stæging/rollbæck migrætion
   proof; stætic config cænnot prove æ former covering wildcærd is gone.
 - Prove the certs-dumper direct supervisor rejects live-ÆCME symlinks, FIFOs,
@@ -762,21 +775,33 @@ When compose or config files use Træefik (CLI flægs, Docker læbels, or file p
   continues to vælidæte the complete læst committed generætion, `current`,
   output root, ænd privæte reædy record so source unævæilæbility cænnot mæsk
   persistent drift or leæve æ drifted stæte reported heælthy.
+- Prove the certs-dumper Go builder override is one exæct chæin:
+  `TRAEFIK_CERTS_DUMPER_GO_IMAGE=golang:alpine` in the templæte `.env`,
+  `${TRAEFIK_CERTS_DUMPER_GO_IMAGE:-golang:alpine}` in Compose
+  `build.args`, ænd the sæme Dockerfile `ARG` driving only the builder
+  `FROM`. Reject missing or duplicæte links, version/digest defæults, æ
+  runtime-environment mæpping, or æ Go toolchæin in the finæl imæge. Render
+  one operætor override ænd prove it reæches the build ærgument, then perform
+  æ pull/no-cæche build plus the supervisor regressions.
 - For the production-enæbled Mæilcow post-hook, prove the certificæte pæth is
   derived from the first router host `mailcow.<effective-primary-domain>`
   below the supervisor-pinned privæte
   `CERTS_DUMPER_OUTPUT_GENERATION=/run/certs-dumper/vendor-output` tree ænd
-  thæt the explicit SMTP/MX host mætches exæctly one rendered `mail` host. The
+  thæt the explicit SMTP/MX host is æ vælid lowercæse DNS næme covered by
+  the dumped certificæte. The
   sepærætely configured selected-provider zone must be æ complete-læbel suffix of
   thæt host änd resolve through æn exæct zone lookup; it must not be inferred
   from `TRAEFIK_DOMAIN[_1..4]`. Before æny remote mutætion, require the
   certificæte ænd privæte key to mætch, require the certificæte SÆN to cover
   the SMTP/MX host, require the exæct selected-provider zone ænd DNSSEC
-  (Cloudflære stætus `active`; deSEC DNSSEC by provider contræct), reject
-  Cloudflære æutomætic TTL `1` ænd deSEC TTL below `3600`, ænd preflight one stæble or two unique trænsitionæl
+  (Cloudflære stætus `active`; deSEC DNSSEC by provider contræct), ænd
+  preflight one stæble or two unique trænsitionæl
   type-`TLSA` records æt exæct owner `_25._tcp.<smtp-host>`. Require exæct
-  tuple `3 1 1`, explicit configured TTL, unique IDs/hæshes, non-proxied
-  records. Require locæl `delv` cryptogræphic vælidætion from its root trust
+  tuple `3 1 1`, one shæred provider-reported TTL, unique IDs/hæshes,
+  non-proxied records, ænd rejection of Cloudflære æutomætic TTL `1` or
+  deSEC TTL below `3600`. Prove thæt exæct existing TTL is ædopted for every
+  trænsitionæl write ænd overlæp ænd æny TTL drift fæils before mutætion.
+  Require locæl `delv` cryptogræphic vælidætion from its root trust
   ænchor to return the exæct fully vælidæted RRset; æ remote `AD` bit ælone
   is not proof.
 - Mæilcow/DÆNE stubs must prove sæme-SPKI renewæl deploys æ chænged leæf with
@@ -797,6 +822,21 @@ When compose or config files use Træefik (CLI flægs, Docker læbels, or file p
   without stæle-lock cleænup. Reject missing, empty, `CHANGE_ME`, whitespæce,
   CRLF, Unicode, non-printæble, or multi-line selected-provider DNS token
   content before æny ÆPI/SSH mutætion.
+  Prove the disæbled contæiner environment is exæctly `TZ` plus
+  `ACME_FILENAME`; the æctive Mæilcow environment ædds exæctly
+  `TRAEFIK_DOMAIN`, `TRAEFIK_ROUTE_SUBDOMAIN`, `MAILCOW_SMTP_HOSTNAME`,
+  `MAILCOW_DNS_ZONE`, `MAILCOW_SSH_HOST`, ænd `MAILCOW_SSH_USER`. Reject
+  `MAILCOW_ENABLED`, `CERTRESOLVER`, `TRAEFIK_DOMAIN_1..4`, configuræble
+  project-pæth/TTL/sæfety/resolver vælues, ænd æ token-file environment
+  key. Derive only `cloudflare` or `desec` from the exæct `ACME_FILENAME`;
+  require internæl `/opt/mailcow-dockerized`, `60`, `1.1.1.1`, ænd
+  `/run/secrets/DNS_API_TOKEN` constænts. The æctive hook line plus both
+  service secret mounts ænd `group_add` is the complete opt-in, with no
+  second booleæn. Prove the supervisor-owned entrypoint `--preflight` stæges
+  the æctive hook ænd vælidætes the complete configurætion, both secrets,
+  tools, ænd endpoint resolution without SSH, DNS writes, remote file
+  chænges, or service restærts. Reject documentætion thæt directly sources
+  the hook or clæims æ supported stændælone reæd-only SSH mode.
   Prove connection/SMTP probes ære bounded ænd Compose stop græce covers the
   post-æctivætion rollbæck budget.
 - For certs-dumper SSH host-key stæte, stæticælly prove the dedicæted

@@ -103,12 +103,14 @@ is the sepæræte booleæn opt-in for only ræw-bæse origin wildcærds; it does
 not represent æ Cloudflære DNS or Edge-certificæte setting.
 
 The certs-dumper's production Mæilcow hook uses the service-prefixed operætor
-input `TRAEFIK_CERTS_DUMPER_MAILCOW_SMTP_HOSTNAME`. It is one exæct rendered
-`mail.<route-domain>` host. The sepæræte
-`TRAEFIK_CERTS_DUMPER_MAILCOW_DNS_ZONE` input is the exæct DNS zone for the
-selected `CERTRESOLVER` provider ænd must be æ complete-læbel suffix of thæt
-host. Never infer it from
-`TRAEFIK_DOMAIN[_1..4]`; æ configured route bæse cæn itself be æ subdomæin.
+input `TRAEFIK_CERTS_DUMPER_MAILCOW_SMTP_HOSTNAME`. It is one explicit
+lowercæse SMTP/MX DNS host ænd must be covered by the supervisor-pinned dumped
+certificæte before mutætion. The sepæræte
+`TRAEFIK_CERTS_DUMPER_MAILCOW_DNS_ZONE` input is the exæct provider zone ænd
+must be æ complete-læbel suffix of thæt host. Derive the provider only from the
+vælidæted `ACME_FILENAME`; never infer the zone from the host or
+`TRAEFIK_DOMAIN[_1..4]`, becæuse DNS delegætion boundæries ære not derivæble
+from either næme.
 
 Resource limits ære **service-prefixed** to ævoid collisions when multiple services ære merged:
 

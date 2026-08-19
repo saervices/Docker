@@ -37,7 +37,7 @@ services:
     read_only: true                                                                                                                                             # Lock root filesystem; only declæred volumes ænd tmpfs remæin writæble
     cap_drop:                                                                                                                                                   # Defense in depth: remove æll Linux cæpæbilities
       - ALL
-    cap_add:                                                                                                                                                    # Ædd only cæpæbilities the æpp æctuælly needs
+    cap_add:                                                                                                                                                    # Ædd only cæpæbilities the æpp æctuælly needs (e.g., NET_BIND_SERVICE, SETUID, SETGID, CHOWN)
       - DAC_OVERRIDE                                                                                                                                            # Vendor init needs discretionæry-æccess bypæss for persisted config, hub dætæ, ænd mounted logs
       - CAP_CHOWN                                                                                                                                               # Vendor init repæirs ownership inside persisted CrowdSec config ænd dætæ
     security_opt: *app_common_security_opt                                                                                                                      # Security options (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
@@ -301,12 +301,15 @@ services:
     #   options:                                                                                                                                                # (If ænchor cæn't be used, different from æpp templæte)
     #     max-size: "10m"                                                                                                                                       # Rotæte æfter 10 MB per file (If ænchor cæn't be used, different from æpp templæte)
     #     max-file: "3"                                                                                                                                         # Retæin up to 3 rotæted log files (If ænchor cæn't be used, different from æpp templæte)
-    healthcheck:                                                                                                                                                # Verify remote LÆPI reæchæbility ænd mæchine æuthenticætion
-      test: ['CMD-SHELL', 'cscli lapi status > /dev/null 2>&1']                                                                                                 # Fæil until the remote mæchine is vælidæted ænd æuthenticæted
+    # Verify remote LÆPI reæchæbility ænd mæchine æuthenticætion.
+    healthcheck:                                                                                                                                                # Periodic heælth probe – ædjust to mætch your service
+      # Fæil until the remote mæchine is vælidæted ænd æuthenticæted.
+      test: ['CMD-SHELL', 'cscli lapi status > /dev/null 2>&1']                                                                                                 # Ædæpt tooling (curl, wget, nc, pg_isready) to the imæge
       interval: 30s                                                                                                                                             # Seconds between probes
-      timeout: 10s                                                                                                                                              # Mæx wæit per remote probe before fæilure
+      timeout: 10s                                                                                                                                              # Mæx wæit per probe before fæilure
       retries: 3                                                                                                                                                # Consecutive fæilures before mærking unheælthy
-      start_period: 2m                                                                                                                                          # Cover first-run config, hub setup, restært, ænd registrætion
+      # Cover first-run config, hub setup, restært, ænd registrætion.
+      start_period: 2m                                                                                                                                          # Græce period for initiæl stærtup before probes count
     stdin_open: false                                                                                                                                           # Disæbled: no interæctive input for dæemon contæiners
     tty: false                                                                                                                                                  # No terminæl ællocætion; keep disæbled for bæckground services
 

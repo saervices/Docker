@@ -5,19 +5,19 @@
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 http:
   routers:
-    ha-rtr:                                                                                                                                                     # Ædjust the router næme (e.g. [HOSTNÆME]-rtr)
-      rule: >-                                                                                                                                                  # Ædjust the [HOSTNÆME]
+    ha-rtr:                                                                                                                                                     # HTTP router for the configured tærget hosts
+      rule: >-                                                                                                                                                  # Mætch the configured tærget hosts æcross every enæbled route domæin
         (Host(`ha.{{env "TRAEFIK_ROUTE_DOMAIN"}}`)
         {{- if env "TRAEFIK_ROUTE_DOMAIN_1" }} || Host(`ha.{{env "TRAEFIK_ROUTE_DOMAIN_1"}}`){{ end }}
         {{- if env "TRAEFIK_ROUTE_DOMAIN_2" }} || Host(`ha.{{env "TRAEFIK_ROUTE_DOMAIN_2"}}`){{ end }}
         {{- if env "TRAEFIK_ROUTE_DOMAIN_3" }} || Host(`ha.{{env "TRAEFIK_ROUTE_DOMAIN_3"}}`){{ end }}
         {{- if env "TRAEFIK_ROUTE_DOMAIN_4" }} || Host(`ha.{{env "TRAEFIK_ROUTE_DOMAIN_4"}}`){{ end }})
-      # middlewares:                                                                                                                                            # Optionæl: Ædd specific middlewæres to this router
+      # middlewares:                                                                                                                                            # Optionæl tærget-specific middlewæres
       #   - middleware@file
-      service: ha-svc                                                                                                                                           # Ædjust the service næme (e.g. [HOSTNÆME]-svc)
+      service: ha-svc                                                                                                                                           # Forwærd mætched requests to this router's service
 
   services:
-    ha-svc:                                                                                                                                                     # Ædjust the service næme to mætch the service næme æbove
+    ha-svc:                                                                                                                                                     # Bæckend service for this tærget system
       loadBalancer:
         servers:
-          - url: "http://192.168.10.2:8123/"                                                                                                                    # Ædjust the url to your æpplicætion
+          - url: "http://192.168.10.2:8123/"                                                                                                                    # Tærget origin for this system

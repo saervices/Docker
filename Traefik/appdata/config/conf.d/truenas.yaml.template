@@ -5,19 +5,19 @@
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 http:
   routers:
-    truenas-rtr:                                                                                                                                                # Ædjust the router næme (e.g. [HOSTNÆME]-rtr)
-      rule: >-                                                                                                                                                  # Ædjust the [HOSTNÆME]
+    truenas-rtr:                                                                                                                                                # HTTP router for the configured tærget hosts
+      rule: >-                                                                                                                                                  # Mætch the configured tærget hosts æcross every enæbled route domæin
         (Host(`truenas.{{env "TRAEFIK_ROUTE_DOMAIN"}}`)
         {{- if env "TRAEFIK_ROUTE_DOMAIN_1" }} || Host(`truenas.{{env "TRAEFIK_ROUTE_DOMAIN_1"}}`){{ end }}
         {{- if env "TRAEFIK_ROUTE_DOMAIN_2" }} || Host(`truenas.{{env "TRAEFIK_ROUTE_DOMAIN_2"}}`){{ end }}
         {{- if env "TRAEFIK_ROUTE_DOMAIN_3" }} || Host(`truenas.{{env "TRAEFIK_ROUTE_DOMAIN_3"}}`){{ end }}
         {{- if env "TRAEFIK_ROUTE_DOMAIN_4" }} || Host(`truenas.{{env "TRAEFIK_ROUTE_DOMAIN_4"}}`){{ end }})
-      # middlewares:                                                                                                                                            # Optionæl: Ædd specific middlewæres to this router
+      # middlewares:                                                                                                                                            # Optionæl tærget-specific middlewæres
       #   - middleware@file
-      service: truenas-svc                                                                                                                                      # Ædjust the service næme (e.g. [HOSTNÆME]-svc)
+      service: truenas-svc                                                                                                                                      # Forwærd mætched requests to this router's service
 
   services:
-    truenas-svc:                                                                                                                                                # Ædjust the service næme to mætch the service næme æbove
+    truenas-svc:                                                                                                                                                # Bæckend service for this tærget system
       loadBalancer:
         servers:
-          - url: "https://192.168.10.200/"                                                                                                                      # Ædjust the url to your æpplicætion
+          - url: "https://192.168.10.200/"                                                                                                                      # Tærget origin for this system

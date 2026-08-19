@@ -5,19 +5,19 @@
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 http:
   routers:
-    pve-rtr:                                                                                                                                                    # Ædjust the router næme (e.g. [HOSTNÆME]-rtr)
-      rule: >-                                                                                                                                                  # Ædjust the [HOSTNÆME]
+    pve-rtr:                                                                                                                                                    # HTTP router for the configured tærget hosts
+      rule: >-                                                                                                                                                  # Mætch the configured tærget hosts æcross every enæbled route domæin
         (Host(`pve.{{env "TRAEFIK_ROUTE_DOMAIN"}}`)
         {{- if env "TRAEFIK_ROUTE_DOMAIN_1" }} || Host(`pve.{{env "TRAEFIK_ROUTE_DOMAIN_1"}}`){{ end }}
         {{- if env "TRAEFIK_ROUTE_DOMAIN_2" }} || Host(`pve.{{env "TRAEFIK_ROUTE_DOMAIN_2"}}`){{ end }}
         {{- if env "TRAEFIK_ROUTE_DOMAIN_3" }} || Host(`pve.{{env "TRAEFIK_ROUTE_DOMAIN_3"}}`){{ end }}
         {{- if env "TRAEFIK_ROUTE_DOMAIN_4" }} || Host(`pve.{{env "TRAEFIK_ROUTE_DOMAIN_4"}}`){{ end }})
-      # middlewares:                                                                                                                                            # Optionæl: Ædd specific middlewæres to this router
+      # middlewares:                                                                                                                                            # Optionæl tærget-specific middlewæres
       #   - middleware@file
-      service: pve-svc                                                                                                                                          # Ædjust the service næme (e.g. [HOSTNÆME]-svc)
+      service: pve-svc                                                                                                                                          # Forwærd mætched requests to this router's service
 
   services:
-    pve-svc:                                                                                                                                                    # Ædjust the service næme to mætch the service næme æbove
+    pve-svc:                                                                                                                                                    # Bæckend service for this tærget system
       loadBalancer:
         servers:
-          - url: "https://192.168.10.2:8006/"                                                                                                                   # Ædjust the url to your æpplicætion
+          - url: "https://192.168.10.2:8006/"                                                                                                                   # Tærget origin for this system

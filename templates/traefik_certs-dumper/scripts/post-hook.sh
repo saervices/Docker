@@ -12,7 +12,7 @@ readonly CERTS_DUMPER_SSH_STATE_DIR="${CERTS_DUMPER_SSH_STATE_ROOT}/.ssh"
 readonly CERTS_DUMPER_SSH_KNOWN_HOSTS_FILE="${CERTS_DUMPER_SSH_STATE_DIR}/known_hosts"
 readonly CERTS_DUMPER_MAILCOW_LOCK_FILE="${CERTS_DUMPER_SSH_STATE_ROOT}/mailcow-rollover.lock"
 readonly CERTS_DUMPER_SAFE_READER="/usr/local/bin/certs-dumper-safe-reader"
-readonly CERTS_DUMPER_DNS_TOKEN_FILE="${DNS_API_TOKEN_FILE:-/run/secrets/DNS_API_TOKEN}"
+readonly CERTS_DUMPER_DNS_TOKEN_FILE="/run/secrets/DNS_API_TOKEN"
 readonly CERTS_DUMPER_DNS_TOKEN_RUNTIME_PREFIX="/tmp/.ssh/dns-api-token."
 readonly CERTS_DUMPER_CF_API_BASE="${CLOUDFLARE_API_BASE:-https://api.cloudflare.com/client/v4}"
 readonly CERTS_DUMPER_DESEC_API_BASE="${DESEC_API_BASE:-https://desec.io/api/v1}"
@@ -37,22 +37,19 @@ readonly CERTS_DUMPER_SSH_ROLLBACK_RESTORE_TIMEOUT_SECONDS=45
 readonly CERTS_DUMPER_SSH_ROLLBACK_RESTART_TIMEOUT_SECONDS=45
 readonly CERTS_DUMPER_SMTP_ROLLBACK_WAIT_SECONDS=40
 readonly CERTS_DUMPER_MAILCOW_STOP_GRACE_SECONDS=180
-readonly MAILCOW_ENABLED_INPUT="${MAILCOW_ENABLED:-false}"
+readonly MAILCOW_PROJECT_PATH="/opt/mailcow-dockerized"
+readonly MAILCOW_DANE_TTL_SAFETY_SECONDS=60
+readonly MAILCOW_DANE_VALIDATING_RESOLVER="1.1.1.1"
 readonly MAILCOW_SMTP_HOSTNAME_INPUT="${MAILCOW_SMTP_HOSTNAME:-}"
 readonly MAILCOW_DNS_ZONE_INPUT="${MAILCOW_DNS_ZONE:-}"
 readonly MAILCOW_SSH_HOST_INPUT="${MAILCOW_SSH_HOST:-}"
 readonly MAILCOW_SSH_USER_INPUT="${MAILCOW_SSH_USER:-}"
-readonly MAILCOW_PROJECT_PATH_INPUT="${MAILCOW_PROJECT_PATH:-}"
-readonly MAILCOW_DANE_TTL_SECONDS_INPUT="${MAILCOW_DANE_TTL_SECONDS:-300}"
-readonly MAILCOW_DANE_TTL_SAFETY_SECONDS_INPUT="${MAILCOW_DANE_TTL_SAFETY_SECONDS:-60}"
-readonly MAILCOW_DANE_VALIDATING_RESOLVER_INPUT="${MAILCOW_DANE_VALIDATING_RESOLVER:-1.1.1.1}"
 MAILCOW_CERT_MAIN_DOMAIN=''
 MAILCOW_SMTP_HOSTNAME=''
 MAILCOW_DNS_ZONE_NAME=''
 MAILCOW_TLSA_RECORD_NAME=''
 MAILCOW_DANE_TTL_SECONDS=''
-MAILCOW_DANE_TTL_SAFETY_SECONDS=''
-MAILCOW_DANE_VALIDATING_RESOLVER=''
+MAILCOW_DNS_PROVIDER=''
 MAILCOW_SSH_RESOLVED_ADDRESS=''
 MAILCOW_SSH_HOST_KEY_ALIAS=''
 MAILCOW_ROLLBACK_ARMED=false
@@ -1024,12 +1021,11 @@ preflight_mailcow_configuration() {
 }
 
 preflight_mailcow_static_configuration() {
-  require_mailcow_enabled
   check_dependencies "$CERTS_DUMPER_SAFE_READER" scp ssh ssh-keygen curl jq openssl od stat delv dig timeout setsid awk grep sed sort dd wc mktemp mv chmod cmp
   resolve_mailcow_configuration
   validate_mailcow_deadline_contract
   validate_mailcow_ssh_configuration \
-    "$MAILCOW_SSH_HOST_INPUT" "$MAILCOW_SSH_USER_INPUT" "$MAILCOW_PROJECT_PATH_INPUT"
+    "$MAILCOW_SSH_HOST_INPUT" "$MAILCOW_SSH_USER_INPUT" "$MAILCOW_PROJECT_PATH"
   resolve_mailcow_ssh_endpoint "$MAILCOW_SSH_HOST_INPUT"
 }
 
@@ -1071,15 +1067,6 @@ prepare_mailcow_runtime() {
   prepare_ssh_identity_from_secret
   pin_ssh_runtime_state
   establish_mailcow_host_trust
-}
-
-#ææææææææææææææææææææææææææææææææææ
-# FUNCTION: require_mailcow_enabled
-#   Requires the strict production opt-in before touching Mæilcow secrets/state.
-#ææææææææææææææææææææææææææææææææææ
-require_mailcow_enabled() {
-  [ "$MAILCOW_ENABLED_INPUT" = true ] \
-    || log_error "Mailcow hook call requires MAILCOW_ENABLED=true"
 }
 
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
@@ -1153,14 +1140,18 @@ read_dns_api_token() (
 )
 
 #ææææææææææææææææææææææææææææææææææ
-# FUNCTION: acquire_mailcow_lock
-#   Æcquires one kernel-releæsed exclusive lock for the complete Mæilcow/DÆNE flow.
+# FUNCTION: validate_mailcow_lock_context
+#   Vælidætes the helper-inherited stæte-root ænd lock descriptors.
 #ææææææææææææææææææææææææææææææææææ
 validate_mailcow_lock_context() {
   "$CERTS_DUMPER_SAFE_READER" --validate-state-lock "$CERTS_DUMPER_MAILCOW_LOCK_FILE" \
     || log_error "Mailcow locked mode requires the exact helper-inherited state-root and lock descriptors"
 }
 
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: run_mailcow_with_lock
+#   Runs the mutæting Mæilcow/DÆNE flow below one kernel-releæsed lock.
+#ææææææææææææææææææææææææææææææææææ
 run_mailcow_with_lock() {
   "$CERTS_DUMPER_SAFE_READER" \
     --with-state-lock "$CERTS_DUMPER_MAILCOW_LOCK_FILE" \
@@ -1359,6 +1350,18 @@ is_valid_mailcow_tlsa_owner() (
 )
 
 #ææææææææææææææææææææææææææææææææææ
+# FUNCTION: derive_mailcow_dns_provider
+#   Derives the exæct DNS provider from the production ÆCME-store bæsenæme.
+#ææææææææææææææææææææææææææææææææææ
+derive_mailcow_dns_provider() {
+  case "${ACME_FILENAME:-}" in
+    cloudflare-acme.json) MAILCOW_DNS_PROVIDER=cloudflare ;;
+    desec-acme.json) MAILCOW_DNS_PROVIDER=desec ;;
+    *) log_error "ACME_FILENAME must be cloudflare-acme.json or desec-acme.json when mailcow() is enabled" ;;
+  esac
+}
+
+#ææææææææææææææææææææææææææææææææææ
 # FUNCTION: resolve_mailcow_configuration
 #   Derives the dumped certificæte directory ænd exæct SMTP/TLSÆ DNS contræct.
 #ææææææææææææææææææææææææææææææææææ
@@ -1366,10 +1369,6 @@ resolve_mailcow_configuration() {
   local route_subdomain="${TRAEFIK_ROUTE_SUBDOMAIN:-}"
   local route_prefix=''
   local primary_domain="${TRAEFIK_DOMAIN:-}"
-  local base_domain
-  local effective_domain
-  local expected_smtp_hostname
-  local match_count=0
 
   if [ -n "$route_subdomain" ]; then
     is_valid_dns_label "$route_subdomain" || log_error "TRAEFIK_ROUTE_SUBDOMAIN must be blank or one lowercase RFC 1123 DNS label"
@@ -1388,22 +1387,7 @@ resolve_mailcow_configuration() {
   [ "$MAILCOW_SMTP_HOSTNAME" = "$MAILCOW_SMTP_HOSTNAME_INPUT" ] || log_error "MAILCOW_SMTP_HOSTNAME must be lowercase without a trailing dot"
   is_valid_dns_name "$MAILCOW_SMTP_HOSTNAME" || log_error "MAILCOW_SMTP_HOSTNAME is not a valid lowercase DNS name"
 
-  for base_domain in "$primary_domain" "${TRAEFIK_DOMAIN_1:-}" "${TRAEFIK_DOMAIN_2:-}" "${TRAEFIK_DOMAIN_3:-}" "${TRAEFIK_DOMAIN_4:-}"; do
-    [ -n "$base_domain" ] || continue
-    is_valid_dns_name "$base_domain" || log_error "A configured TRAEFIK_DOMAIN_1..4 value is not a valid lowercase DNS base"
-    effective_domain="${route_prefix}${base_domain}"
-    expected_smtp_hostname="mail.${effective_domain}"
-    is_valid_dns_name "$expected_smtp_hostname" || log_error "A derived Mailcow SMTP hostname is invalid or overlong"
-    if [ "$MAILCOW_SMTP_HOSTNAME" = "$expected_smtp_hostname" ]; then
-      match_count=$((match_count + 1))
-    fi
-  done
-
-  [ "$match_count" -eq 1 ] || log_error "MAILCOW_SMTP_HOSTNAME must match exactly one rendered mail.<route-domain> hostname"
-  case "${CERTRESOLVER:-}" in
-    cloudflare|desec) ;;
-    *) log_error "mailcow() requires CERTRESOLVER=cloudflare or CERTRESOLVER=desec; extend the hook whitelist for further DNS providers" ;;
-  esac
+  derive_mailcow_dns_provider
   case "$MAILCOW_DNS_ZONE_INPUT" in
     ''|*CHANGE_ME*) log_error "MAILCOW_DNS_ZONE must be configured before mailcow() is enabled" ;;
   esac
@@ -1416,20 +1400,6 @@ resolve_mailcow_configuration() {
   esac
   MAILCOW_TLSA_RECORD_NAME="_25._tcp.${MAILCOW_SMTP_HOSTNAME}"
   is_valid_mailcow_tlsa_owner "$MAILCOW_TLSA_RECORD_NAME" "$MAILCOW_SMTP_HOSTNAME" || log_error "The derived Mailcow TLSA record name is invalid or overlong"
-
-  case "${CERTRESOLVER}" in
-    cloudflare)
-      is_valid_bounded_integer "$MAILCOW_DANE_TTL_SECONDS_INPUT" 60 86400 || log_error "MAILCOW_DANE_TTL_SECONDS must be an explicit integer from 60 through 86400; Cloudflare automatic TTL=1 is not accepted"
-      ;;
-    desec)
-      is_valid_bounded_integer "$MAILCOW_DANE_TTL_SECONDS_INPUT" 3600 86400 || log_error "MAILCOW_DANE_TTL_SECONDS must be an explicit integer from 3600 through 86400 for deSEC"
-      ;;
-  esac
-  is_valid_bounded_integer "$MAILCOW_DANE_TTL_SAFETY_SECONDS_INPUT" 1 86400 || log_error "MAILCOW_DANE_TTL_SAFETY_SECONDS must be an integer from 1 through 86400"
-  is_valid_ipv4_address "$MAILCOW_DANE_VALIDATING_RESOLVER_INPUT" || log_error "MAILCOW_DANE_VALIDATING_RESOLVER must be one canonical dotted-decimal IPv4 address"
-  MAILCOW_DANE_TTL_SECONDS="$MAILCOW_DANE_TTL_SECONDS_INPUT"
-  MAILCOW_DANE_TTL_SAFETY_SECONDS="$MAILCOW_DANE_TTL_SAFETY_SECONDS_INPUT"
-  MAILCOW_DANE_VALIDATING_RESOLVER="$MAILCOW_DANE_VALIDATING_RESOLVER_INPUT"
 }
 
 #ææææææææææææææææææææææææææææææææææ
@@ -1514,6 +1484,51 @@ is_valid_sha256_hash() {
   case "$candidate" in
     *[!0-9a-f]*) return 1 ;;
   esac
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: derive_mailcow_tlsa_ttl
+#   Derives one stæble explicit TTL from the exæct existing provider RRset.
+#   Ærguments:
+#     $1 - provider-normælised TLSÆ records response JSON
+#     $2 - exæct expected TLSÆ record næme
+#ææææææææææææææææææææææææææææææææææ
+derive_mailcow_tlsa_ttl() {
+  local records_json="$1"
+  local expected_record_name="$2"
+  local minimum_ttl
+  local derived_ttl
+
+  case "$MAILCOW_DNS_PROVIDER" in
+    cloudflare) minimum_ttl=60 ;;
+    desec) minimum_ttl=3600 ;;
+    *) log_error "Cannot derive a Mailcow TLSA TTL for an unsupported DNS provider" ;;
+  esac
+  if ! derived_ttl="$(printf '%s' "$records_json" | jq -er \
+    --arg expected_record_name "$expected_record_name" \
+    --argjson minimum_ttl "$minimum_ttl" '
+      (.result // null) as $result |
+      if (($result | type) == "array") and
+        (($result | length) >= 1 and ($result | length) <= 2) and
+        ($result | all(
+          ((.type | type) == "string") and
+          ((.type | ascii_upcase) == "TLSA") and
+          ((.name | type) == "string") and
+          ((.name | ascii_downcase | rtrimstr(".")) == $expected_record_name) and
+          ((.ttl | type) == "number") and
+          (.ttl == (.ttl | floor)) and
+          (.ttl >= $minimum_ttl) and
+          (.ttl <= 86400))) and
+        (([$result[].ttl] | unique | length) == 1)
+      then $result[0].ttl
+      else error("Mailcow TLSA RRset has no single safe explicit TTL")
+      end
+    ')"; then
+    log_error "The existing exact Mailcow TLSA RRset must contain one shared explicit TTL valid for ${MAILCOW_DNS_PROVIDER}"
+  fi
+  is_valid_bounded_integer "$derived_ttl" "$minimum_ttl" 86400 \
+    || log_error "The derived Mailcow TLSA TTL is outside the safe ${MAILCOW_DNS_PROVIDER} range"
+  printf '%s' "$derived_ttl"
 }
 
 #ææææææææææææææææææææææææææææææææææ
@@ -2520,10 +2535,10 @@ delete_desec_tlsa_record() {
 dns_require_zone() {
   local zone_name="$1"
 
-  case "${CERTRESOLVER}" in
+  case "$MAILCOW_DNS_PROVIDER" in
     cloudflare) cloudflare_find_zone_id "$zone_name" ;;
     desec) desec_require_domain "$zone_name" ;;
-    *) log_error "Unsupported CERTRESOLVER for Mailcow TLSA: ${CERTRESOLVER}" ;;
+    *) log_error "Unsupported derived DNS provider for Mailcow TLSA: ${MAILCOW_DNS_PROVIDER}" ;;
   esac
 }
 
@@ -2536,10 +2551,10 @@ dns_require_zone() {
 dns_require_dnssec() {
   local zone_handle="$1"
 
-  case "${CERTRESOLVER}" in
+  case "$MAILCOW_DNS_PROVIDER" in
     cloudflare) require_cloudflare_dnssec_active "$zone_handle" ;;
     desec) log_ok "deSEC DNSSEC is always active for the configured Mailcow zone." ;;
-    *) log_error "Unsupported CERTRESOLVER for Mailcow DNSSEC: ${CERTRESOLVER}" ;;
+    *) log_error "Unsupported derived DNS provider for Mailcow DNSSEC: ${MAILCOW_DNS_PROVIDER}" ;;
   esac
 }
 
@@ -2554,10 +2569,10 @@ dns_get_tlsa_records() {
   local zone_handle="$1"
   local record_name="$2"
 
-  case "${CERTRESOLVER}" in
+  case "$MAILCOW_DNS_PROVIDER" in
     cloudflare) cloudflare_get_tlsa_records "$zone_handle" "$record_name" ;;
     desec) desec_get_tlsa_records "$zone_handle" "$record_name" ;;
-    *) log_error "Unsupported CERTRESOLVER for Mailcow TLSA lookup: ${CERTRESOLVER}" ;;
+    *) log_error "Unsupported derived DNS provider for Mailcow TLSA lookup: ${MAILCOW_DNS_PROVIDER}" ;;
   esac
 }
 
@@ -2578,11 +2593,11 @@ dns_create_tlsa_record() {
   local certificate_hash="$4"
   local expected_rrset_json="$5"
 
-  case "${CERTRESOLVER}" in
+  case "$MAILCOW_DNS_PROVIDER" in
     cloudflare) create_cloudflare_tlsa_record \
       "$zone_handle" "$record_name" "$record_ttl" "$certificate_hash" "$expected_rrset_json" ;;
     desec) create_desec_tlsa_record "$zone_handle" "$record_name" "$record_ttl" "$certificate_hash" "$expected_rrset_json" ;;
-    *) log_error "Unsupported CERTRESOLVER for Mailcow TLSA create: ${CERTRESOLVER}" ;;
+    *) log_error "Unsupported derived DNS provider for Mailcow TLSA create: ${MAILCOW_DNS_PROVIDER}" ;;
   esac
 }
 
@@ -2599,12 +2614,12 @@ dns_delete_tlsa_record() {
   local record_id="$2"
   local expected_rrset_json="$3"
 
-  case "${CERTRESOLVER}" in
+  case "$MAILCOW_DNS_PROVIDER" in
     cloudflare) delete_cloudflare_tlsa_record "$zone_handle" "$record_id" "$expected_rrset_json" ;;
     desec) delete_desec_tlsa_record \
       "$zone_handle" "$record_id" "$MAILCOW_TLSA_RECORD_NAME" \
       "$MAILCOW_DANE_TTL_SECONDS" "$expected_rrset_json" ;;
-    *) log_error "Unsupported CERTRESOLVER for Mailcow TLSA delete: ${CERTRESOLVER}" ;;
+    *) log_error "Unsupported derived DNS provider for Mailcow TLSA delete: ${MAILCOW_DNS_PROVIDER}" ;;
   esac
 }
 
@@ -3485,7 +3500,6 @@ deploy_mailcow_certificate_pair() {
 #ææææææææææææææææææææææææææææææææææ
 mailcow() {
   [ "$#" -eq 0 ] || log_error "mailcow does not accept arguments"
-  require_mailcow_enabled
   run_mailcow_with_lock
 }
 
@@ -3493,7 +3507,7 @@ mailcow_locked() {
   local ssh_key="$CERTS_DUMPER_SSH_IDENTITY_FILE"
   local dest_host="$MAILCOW_SSH_HOST_INPUT"
   local dest_user="$MAILCOW_SSH_USER_INPUT"
-  local project_path="$MAILCOW_PROJECT_PATH_INPUT"
+  local project_path="$MAILCOW_PROJECT_PATH"
   local local_cert
   local local_key
   local local_spki
@@ -3513,7 +3527,6 @@ mailcow_locked() {
   local observation_wait
   local overlap_wait
 
-  require_mailcow_enabled
   validate_mailcow_lock_context
   install_mailcow_transaction_traps
   prepare_mailcow_runtime
@@ -3532,12 +3545,14 @@ mailcow_locked() {
 
   dns_zone_handle="$(dns_require_zone "$MAILCOW_DNS_ZONE_NAME")"
   dns_require_dnssec "$dns_zone_handle"
-  observation_wait=$((MAILCOW_DANE_TTL_SECONDS + MAILCOW_DANE_TTL_SAFETY_SECONDS))
-  overlap_wait=$((2 * MAILCOW_DANE_TTL_SECONDS + MAILCOW_DANE_TTL_SAFETY_SECONDS))
 
   records_response="$(dns_get_tlsa_records "$dns_zone_handle" "$MAILCOW_TLSA_RECORD_NAME")"
+  MAILCOW_DANE_TTL_SECONDS="$(derive_mailcow_tlsa_ttl \
+    "$records_response" "$MAILCOW_TLSA_RECORD_NAME")"
   records_json="$(select_mailcow_tlsa_records \
     "$records_response" "$MAILCOW_TLSA_RECORD_NAME" "$MAILCOW_DANE_TTL_SECONDS")"
+  observation_wait=$((MAILCOW_DANE_TTL_SECONDS + MAILCOW_DANE_TTL_SAFETY_SECONDS))
+  overlap_wait=$((2 * MAILCOW_DANE_TTL_SECONDS + MAILCOW_DANE_TTL_SAFETY_SECONDS))
   record_count="$(printf '%s' "$records_json" | jq -r 'length')"
   first_hash="$(printf '%s' "$records_json" | jq -r \
     '.[0] | (.data.certificate // ((.content // "" | split(" ") | .[3] // "")) | ascii_downcase)')"
@@ -3698,9 +3713,10 @@ if [ "${CERTS_DUMPER_POST_HOOK_LIBRARY_ONLY:-false}" != true ]; then
       ;;
     --preflight)
       [ "$#" -eq 1 ] || log_error "--preflight does not accept additional arguments"
-      if [ "${MAILCOW_ENABLED:-false}" = true ]; then
-        preflight_mailcow_container
-      fi
+      ;;
+    --preflight-mailcow)
+      [ "$#" -eq 1 ] || log_error "--preflight-mailcow does not accept additional arguments"
+      preflight_mailcow_container
       ;;
     *) log_error "Unsupported post-hook argument" ;;
   esac

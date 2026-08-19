@@ -3431,7 +3431,7 @@ run_certs_dumper() {
   fi
   PATH="${TEST_BIN}:${PATH}" \
     CERTS_DUMPER_MARKER="${fixture}/dumper-started" \
-    ACME_DIR="${fixture}/data" ACME_FILENAME=acme.json MAILCOW_ENABLED=false \
+    ACME_DIR="${fixture}/data" ACME_FILENAME=acme.json \
     "${shell_runner[@]}" "${fixture}/entrypoint.sh"
 }
 
@@ -3445,7 +3445,6 @@ run_certs_dumper_with_filename() {
     shell_runner=(busybox sh)
   fi
   PATH="${TEST_BIN}:${PATH}" ACME_DIR="${fixture}/data" ACME_FILENAME="$filename" \
-    MAILCOW_ENABLED=false \
     "${shell_runner[@]}" "${fixture}/entrypoint.sh"
 }
 
@@ -3455,7 +3454,7 @@ case_certs_dumper_preflight_delegates() {
   PATH="${TEST_BIN}:${PATH}" \
     CERTS_DUMPER_PREFLIGHT_MARKER="${fixture}/preflight-called" \
     CERTS_DUMPER_MARKER="${fixture}/supervisor-called" \
-    ACME_DIR="${fixture}/data" ACME_FILENAME=acme.json MAILCOW_ENABLED=false \
+    ACME_DIR="${fixture}/data" ACME_FILENAME=acme.json \
     /bin/sh "${fixture}/entrypoint.sh" --preflight
   [[ -f "${fixture}/preflight-called" ]]
   [[ ! -e "${fixture}/supervisor-called" ]]
@@ -3526,6 +3525,9 @@ replacements = {
     'readonly CERTS_DUMPER_SSH_STATE_ROOT="/state"': (
         f'readonly CERTS_DUMPER_SSH_STATE_ROOT="{fixture}/state"'
     ),
+    'readonly CERTS_DUMPER_DNS_TOKEN_FILE="/run/secrets/DNS_API_TOKEN"': (
+        f'readonly CERTS_DUMPER_DNS_TOKEN_FILE="{fixture}/secrets/DNS_API_TOKEN"'
+    ),
     'readonly CERTS_DUMPER_SAFE_READER="/usr/local/bin/certs-dumper-safe-reader"': (
         f'readonly CERTS_DUMPER_SAFE_READER="{test_bin}/certs-dumper-safe-reader"'
     ),
@@ -3591,14 +3593,12 @@ PY
 #   Runs one isolæted Mæilcow-aware certs-dumper entrypoint fixture.
 #   Ærguments:
 #     $1 - Fixture root
-#     $2 - Mæilcow toggle
 #     $@ - Optionæl entrypoint ærguments
 #ææææææææææææææææææææææææææææææææææ
 run_certs_dumper_mailcow() {
   local fixture="$1"
-  local enabled="$2"
   local -a shell_runner=(/bin/sh)
-  shift 2
+  shift
   if [[ -x /usr/lib/initcpio/busybox ]]; then
     shell_runner=(/usr/lib/initcpio/busybox sh)
   elif command -v busybox >/dev/null 2>&1; then
@@ -3606,20 +3606,13 @@ run_certs_dumper_mailcow() {
   fi
   PATH="${TEST_BIN}:${PATH}" \
     CERTS_DUMPER_MARKER="${fixture}/dumper-started" \
-    ACME_DIR="${fixture}/data" ACME_FILENAME=acme.json \
-    MAILCOW_ENABLED="$enabled" \
+    ACME_DIR="${fixture}/data" ACME_FILENAME=cloudflare-acme.json \
     TRAEFIK_DOMAIN=example.com \
-    TRAEFIK_DOMAIN_1= TRAEFIK_DOMAIN_2= TRAEFIK_DOMAIN_3= TRAEFIK_DOMAIN_4= \
-    TRAEFIK_ROUTE_SUBDOMAIN= CERTRESOLVER=cloudflare \
+    TRAEFIK_ROUTE_SUBDOMAIN= \
     MAILCOW_SMTP_HOSTNAME=mail.example.com \
     MAILCOW_DNS_ZONE=example.com \
     MAILCOW_SSH_HOST=192.168.20.120 \
     MAILCOW_SSH_USER=root \
-    MAILCOW_PROJECT_PATH=/opt/mailcow-dockerized \
-    MAILCOW_DANE_TTL_SECONDS=300 \
-    MAILCOW_DANE_TTL_SAFETY_SECONDS=60 \
-    MAILCOW_DANE_VALIDATING_RESOLVER=1.1.1.1 \
-    DNS_API_TOKEN_FILE="${fixture}/secrets/DNS_API_TOKEN" \
     timeout 5 "${shell_runner[@]}" "${fixture}/entrypoint.sh" "$@"
 }
 
@@ -3700,7 +3693,7 @@ case_certs_dumper_mailcow_invalid_secret() {
 
   key_fingerprint="$(certs_dumper_fixture_path_fingerprint "$key_path")"
   token_fingerprint="$(certs_dumper_fixture_path_fingerprint "$token_path")"
-  if run_certs_dumper_mailcow "$fixture" true; then
+  if run_certs_dumper_mailcow "$fixture"; then
     return 1
   fi
   [[ ! -e "${fixture}/dumper-started" ]]
@@ -3720,7 +3713,7 @@ case_certs_dumper_mailcow_valid_preflight() {
   prepare_certs_dumper_mailcow "$fixture" active
   key_fingerprint="$(certs_dumper_fixture_path_fingerprint "${fixture}/secrets/TRAEFIK_CERTS_DUMPER_PASSWORD")"
   token_fingerprint="$(certs_dumper_fixture_path_fingerprint "${fixture}/secrets/DNS_API_TOKEN")"
-  run_certs_dumper_mailcow "$fixture" true --preflight
+  run_certs_dumper_mailcow "$fixture" --preflight
   [[ ! -e "${fixture}/dumper-started" ]]
   assert_certs_dumper_mailcow_read_only \
     "$fixture" "$key_fingerprint" "$token_fingerprint"
@@ -3734,7 +3727,7 @@ case_certs_dumper_mailcow_valid_watcher() {
   local fixture="${TEST_ROOT}/certs-dumper-mailcow-valid-watcher"
 
   prepare_certs_dumper_mailcow "$fixture" active
-  run_certs_dumper_mailcow "$fixture" true
+  run_certs_dumper_mailcow "$fixture"
   [[ -f "${fixture}/dumper-started" ]]
 }
 
@@ -3752,7 +3745,7 @@ case_certs_dumper_mailcow_disabled_no_secret_read() {
   mkfifo -- \
     "${fixture}/secrets/TRAEFIK_CERTS_DUMPER_PASSWORD" \
     "${fixture}/secrets/DNS_API_TOKEN"
-  run_certs_dumper_mailcow "$fixture" false
+  run_certs_dumper_mailcow "$fixture"
   [[ -f "${fixture}/dumper-started" ]]
   [[ -z "$(find "${fixture}/runtime" -mindepth 1 -print -quit)" ]]
   [[ -z "$(find "${fixture}/state" -mindepth 1 -print -quit)" ]]
@@ -5366,14 +5359,21 @@ for required_tls_argument in (
             f"{required_tls_argument!r}"
         )
 traefik_labels = set(traefik_service.get("labels") or [])
-for required_dashboard_label in (
+required_dashboard_entrypoint = (
+    "traefik.http.routers.${APP_NAME}-rtr.entrypoints=websecure"
+)
+if required_dashboard_entrypoint not in traefik_labels:
+    raise SystemExit(
+        f"{traefik_path}: dashboard router must select only the websecure EntryPoint"
+    )
+for forbidden_dashboard_label in (
     "traefik.http.routers.${APP_NAME}-rtr.tls=true",
     "traefik.http.routers.${APP_NAME}-rtr.tls.certresolver=${CERTRESOLVER}",
     "traefik.http.routers.${APP_NAME}-rtr.tls.options=${TLSOPTIONS}",
 ):
-    if required_dashboard_label not in traefik_labels:
+    if forbidden_dashboard_label in traefik_labels:
         raise SystemExit(
-            f"{traefik_path}: dashboard router must keep {required_dashboard_label!r}"
+            f"{traefik_path}: dashboard router must inherit websecure TLS instead of duplicating {forbidden_dashboard_label!r}"
         )
 for entrypoint in ("web", "websecure"):
     required_underscore_strategy = (
@@ -5482,35 +5482,185 @@ for required_fragment in (
         )
 route_template_directory = root / "Traefik/appdata/config/conf.d"
 route_template_reference = route_template_directory / "template.yaml.template"
-reference_url_lines = [
-    line
-    for line in route_template_reference.read_text(encoding="utf-8").splitlines()
-    if re.match(r"^\s*-\s+url:\s+", line)
-]
-if len(reference_url_lines) != 1 or "#" not in reference_url_lines[0]:
-    raise SystemExit(
-        f"{route_template_reference}: canonical route template must have exactly one commented server URL"
-    )
-expected_url_comment = reference_url_lines[0].rpartition("#")[2].strip()
-fixed_target_url_comments = {
-    "rustdesk.yaml.template": "Docker DNS on rustdesk-proxy; never publish this trusted listener",
-    "rustdesk-pro.yaml.template": "Docker DNS on rustdesk-proxy; host exposure remæins loopbæck-only",
+
+
+def inline_comment(line):
+    return line.rpartition("#")[2].strip() if "#" in line else ""
+
+
+def require_one_inline_comment(path, lines, description, pattern, expected):
+    matches = [
+        (line_number, line)
+        for line_number, line in enumerate(lines, start=1)
+        if re.match(pattern, line)
+    ]
+    if len(matches) != 1:
+        raise SystemExit(
+            f"{path}: expected exactly one {description}, found {len(matches)}"
+        )
+    line_number, line = matches[0]
+    actual = inline_comment(line)
+    if actual != expected:
+        raise SystemExit(
+            f"{path}:{line_number}: {description} comment must be {expected!r}, "
+            f"found {actual!r}"
+        )
+
+
+bootstrap_comment_contract = {
+    "AUTHENTIK_POSTGRESQL__HOST": "PostgreSQL service hostnæme (contæiner næme by convention)",
+    "AUTHENTIK_POSTGRESQL__USER": "Dætæbæse user (mætches APP_NAME by convention)",
+    "AUTHENTIK_POSTGRESQL__NAME": "Dætæbæse næme (mætches APP_NAME by convention)",
+    "AUTHENTIK_POSTGRESQL__PASSWORD": "Pæssword injected viæ Docker secret file reference",
+    "AUTHENTIK_ERROR_REPORTING__ENABLED": "Send error reports to Sentry only when explicitly enæbled",
+    "AUTHENTIK_DISABLE_STARTUP_ANALYTICS": "Disæble telemetry sent to Sentry on stærtup",
+    "AUTHENTIK_SECRET_KEY": "Cryptogræphic signing key injected viæ Docker secret file reference",
+    "AUTHENTIK_LISTEN__HTTP": "Keep the short-lived worker listener contæiner-locæl",
+    "AUTHENTIK_LISTEN__METRICS": "Keep unæuthenticæted setup-worker metrics off the shæred bæckend network",
+    "AUTHENTIK_LISTEN__DEBUG_PY": "Keep the Python debugger contæiner-locæl if explicitly enæbled",
+    "AUTHENTIK_BOOTSTRAP_EMAIL": "E-mæil æddress for the initiæl ædministrætor user",
+    "AUTHENTIK_BOOTSTRAP_MIGRATION_TIMEOUT_SECONDS": "Mæximum wæit for nætive migrætions",
+    "AUTHENTIK_BOOTSTRAP_READY_TIMEOUT_SECONDS": "Mæximum wæit for persisted setup stæte",
+    "AUTHENTIK_BOOTSTRAP_STOP_TIMEOUT_SECONDS": "Mæximum græceful nætive-worker retirement time",
 }
-for route_template_path in sorted(route_template_directory.glob("*.yaml.template")):
-    expected_route_url_comment = fixed_target_url_comments.get(
-        route_template_path.name, expected_url_comment
+bootstrap_lines = bootstrap_path.read_text(encoding="utf-8").splitlines()
+for env_key, expected_comment in bootstrap_comment_contract.items():
+    require_one_inline_comment(
+        bootstrap_path,
+        bootstrap_lines,
+        f"{env_key} environment",
+        rf"^\s+{re.escape(env_key)}:",
+        expected_comment,
     )
-    for line_number, line in enumerate(
-        route_template_path.read_text(encoding="utf-8").splitlines(),
-        start=1,
-    ):
-        if not re.match(r"^\s*-\s+url:\s+", line):
-            continue
-        actual_url_comment = line.rpartition("#")[2].strip() if "#" in line else ""
-        if actual_url_comment != expected_route_url_comment:
+
+authentik_env_path = root / "Authentik/.env"
+require_one_inline_comment(
+    authentik_env_path,
+    authentik_env_path.read_text(encoding="utf-8").splitlines(),
+    "AUTHENTIK_BOOTSTRAP_EMAIL source environment",
+    r"^AUTHENTIK_BOOTSTRAP_EMAIL=",
+    "E-mæil æddress for the initiæl ædministrætor user",
+)
+require_one_inline_comment(
+    bootstrap_path,
+    bootstrap_lines,
+    "disabled bootstrap healthcheck",
+    r"^\s+disable:\s+true\s+",
+    "Prevent the inherited vendor heælthcheck from probing during migrætion ænd setup",
+)
+
+
+reference_lines = route_template_reference.read_text(encoding="utf-8").splitlines()
+scaffold_comment_contract = (
+    (
+        "scaffold router definition",
+        r"^    template-rtr:",
+        "Ædjust the router næme (e.g. [HOSTNÆME]-rtr)",
+    ),
+    (
+        "scaffold router rule",
+        r"^      rule:\s+",
+        "Ædjust the [HOSTNÆME]",
+    ),
+    (
+        "scaffold router service reference",
+        r"^      service:\s+template-svc(?:\s|$)",
+        "Ædjust the service næme (e.g. [HOSTNÆME]-svc)",
+    ),
+    (
+        "scaffold service definition",
+        r"^    template-svc:",
+        "Ædjust the service næme to mætch the service næme æbove",
+    ),
+    (
+        "scaffold server URL",
+        r"^\s*-\s+url:\s+",
+        "Ædjust the url to your æpplicætion",
+    ),
+)
+for description, pattern, expected in scaffold_comment_contract:
+    require_one_inline_comment(
+        route_template_reference,
+        reference_lines,
+        description,
+        pattern,
+        expected,
+    )
+reference_adjust_comments = [
+    inline_comment(line)
+    for line in reference_lines
+    if re.search(r"(?i)\bædjust\b", inline_comment(line))
+]
+if len(reference_adjust_comments) != len(scaffold_comment_contract):
+    raise SystemExit(
+        f"{route_template_reference}: sole scaffold must keep exactly "
+        f"{len(scaffold_comment_contract)} Ædjust inline comments"
+    )
+
+declarative_comment_contract = {
+    "router definition": "HTTP router for the configured tærget hosts",
+    "router rule": "Mætch the configured tærget hosts æcross every enæbled route domæin",
+    "router service reference": "Forwærd mætched requests to this router's service",
+    "service definition": "Bæckend service for this tærget system",
+    "server URL": "Tærget origin for this system",
+    "optional router middlewares": "Optionæl tærget-specific middlewæres",
+    "active router middlewares": "Middlewæres æpplied to this router",
+}
+dev_forward_template_name = "dev-traefik-forward.yaml.template"
+for route_template_path in sorted(route_template_directory.glob("*.yaml.template")):
+    if route_template_path == route_template_reference:
+        continue
+    route_lines = route_template_path.read_text(encoding="utf-8").splitlines()
+    for line_number, line in enumerate(route_lines, start=1):
+        stripped = line.lstrip()
+        human_comment = ""
+        if stripped.startswith("#"):
+            human_comment = stripped[1:]
+        else:
+            comment_match = re.search(r"\s+#\s?(.*)$", line)
+            if comment_match is not None:
+                human_comment = comment_match.group(1)
+        if re.search(r"(?i)\bædjust\b", human_comment):
             raise SystemExit(
-                f"{route_template_path}:{line_number}: server URL comment must match "
-                f"the canonical or fixed-target text: {expected_route_url_comment!r}"
+                f"{route_template_path}:{line_number}: concrete route comments "
+                "must be declarative and must not contain Ædjust"
+            )
+    if route_template_path.name == dev_forward_template_name:
+        continue
+
+    section = None
+    for line_number, line in enumerate(route_lines, start=1):
+        section_match = re.match(r"^  ([A-Za-z][A-Za-z0-9]*):(?:\s+#.*)?$", line)
+        if section_match is not None:
+            section = section_match.group(1)
+            continue
+
+        description = None
+        if section == "routers":
+            if re.match(r"^    [A-Za-z0-9_-]+:", line):
+                description = "router definition"
+            elif re.match(r"^      rule:\s+", line):
+                description = "router rule"
+            elif re.match(r"^      service:\s+", line):
+                description = "router service reference"
+            elif re.match(r"^      #\s+middlewares:", line):
+                description = "optional router middlewares"
+            elif re.match(r"^      middlewares:", line):
+                description = "active router middlewares"
+        elif section == "services":
+            if re.match(r"^    [A-Za-z0-9_-]+:", line):
+                description = "service definition"
+            elif re.match(r"^\s*-\s+url:\s+", line):
+                description = "server URL"
+
+        if description is None:
+            continue
+        expected = declarative_comment_contract[description]
+        actual = inline_comment(line)
+        if actual != expected:
+            raise SystemExit(
+                f"{route_template_path}:{line_number}: {description} comment "
+                f"must be {expected!r}, found {actual!r}"
             )
 
 excluded_route_templates = {
@@ -5780,6 +5930,20 @@ if "TRAEFIK_ROUTE_" in apex_cert_text or "*." in apex_cert_text:
     raise SystemExit(
         f"{apex_cert_path}: apex certificate router must stay exact and route-independent"
     )
+apex_cert_document = yaml.safe_load(apex_cert_text)
+apex_cert_router = (
+    (apex_cert_document.get("http") or {}).get("routers") or {}
+).get("traefik-apex-cert-rtr")
+if not isinstance(apex_cert_router, dict):
+    raise SystemExit(f"{apex_cert_path}: missing apex certificate router")
+if apex_cert_router.get("entryPoints") != ["websecure"]:
+    raise SystemExit(
+        f"{apex_cert_path}: apex certificate router must select only websecure"
+    )
+if "tls" in apex_cert_router:
+    raise SystemExit(
+        f"{apex_cert_path}: apex certificate router must inherit the complete websecure TLS contract"
+    )
 wildcard_cert_path = route_template_directory / "traefik-wildcard-cert.yaml"
 wildcard_cert_text = wildcard_cert_path.read_text(encoding="utf-8")
 wildcard_condition = '{{ if eq (env "TRAEFIK_BASE_WILDCARD_CERT_ENABLED") "true" }}'
@@ -5866,6 +6030,27 @@ enabled_wildcard_render = render_wildcard_template(
 )
 if enabled_wildcard_render.count("traefik-base-wildcard-cert-rtr:") != 1:
     raise SystemExit(f"{wildcard_cert_path}: true opt-in must render exactly one wildcard router")
+enabled_wildcard_document = yaml.safe_load(enabled_wildcard_render)
+enabled_wildcard_router = (
+    (enabled_wildcard_document.get("http") or {}).get("routers") or {}
+).get("traefik-base-wildcard-cert-rtr")
+if not isinstance(enabled_wildcard_router, dict):
+    raise SystemExit(f"{wildcard_cert_path}: enabled wildcard router is missing")
+if enabled_wildcard_router.get("entryPoints") != ["websecure"]:
+    raise SystemExit(
+        f"{wildcard_cert_path}: wildcard certificate router must select only websecure"
+    )
+enabled_wildcard_tls = enabled_wildcard_router.get("tls")
+if not isinstance(enabled_wildcard_tls, dict):
+    raise SystemExit(f"{wildcard_cert_path}: wildcard domains require router-level TLS")
+if (
+    enabled_wildcard_tls.get("certResolver") != "cloudflare"
+    or enabled_wildcard_tls.get("options") != "tls-options@file"
+    or not enabled_wildcard_tls.get("domains")
+):
+    raise SystemExit(
+        f"{wildcard_cert_path}: wildcard TLS must keep domains, resolver, and options together"
+    )
 rendered_wildcards = Counter(re.findall(r'["\'](\*\.[^"\']+)["\']', enabled_wildcard_render))
 expected_rendered_wildcards = Counter(
     {
@@ -5941,8 +6126,12 @@ for commented_opt_in_fragment in (
     "# secrets:",
     "#   - TRAEFIK_CERTS_DUMPER_PASSWORD",
     "#   - DNS_API_TOKEN",
-    "# MAILCOW_ENABLED: ${TRAEFIK_CERTS_DUMPER_MAILCOW_ENABLED:-false}",
-    "# DNS_API_TOKEN_FILE: /run/secrets/DNS_API_TOKEN",
+    "# TRAEFIK_DOMAIN: ${TRAEFIK_DOMAIN:?Traefik domæin required}",
+    "# TRAEFIK_ROUTE_SUBDOMAIN: ${TRAEFIK_ROUTE_SUBDOMAIN:-}",
+    "# MAILCOW_SMTP_HOSTNAME: ${TRAEFIK_CERTS_DUMPER_MAILCOW_SMTP_HOSTNAME:-CHANGE_ME}",
+    "# MAILCOW_DNS_ZONE: ${TRAEFIK_CERTS_DUMPER_MAILCOW_DNS_ZONE:-CHANGE_ME}",
+    "# MAILCOW_SSH_HOST: ${TRAEFIK_CERTS_DUMPER_MAILCOW_SSH_HOST:-CHANGE_ME}",
+    "# MAILCOW_SSH_USER: ${TRAEFIK_CERTS_DUMPER_MAILCOW_SSH_USER:-CHANGE_ME}",
 ):
     if commented_opt_in_fragment not in certs_text:
         raise SystemExit(
@@ -5963,6 +6152,30 @@ for commented_fragment, active_fragment in (
         "      - TRAEFIK_CERTS_DUMPER_PASSWORD",
     ),
     ("    #   - DNS_API_TOKEN", "      - DNS_API_TOKEN"),
+    (
+        "      # TRAEFIK_DOMAIN: ${TRAEFIK_DOMAIN:?Traefik domæin required}",
+        "      TRAEFIK_DOMAIN: ${TRAEFIK_DOMAIN:?Traefik domæin required}",
+    ),
+    (
+        "      # TRAEFIK_ROUTE_SUBDOMAIN: ${TRAEFIK_ROUTE_SUBDOMAIN:-}",
+        "      TRAEFIK_ROUTE_SUBDOMAIN: ${TRAEFIK_ROUTE_SUBDOMAIN:-}",
+    ),
+    (
+        "      # MAILCOW_SMTP_HOSTNAME: ${TRAEFIK_CERTS_DUMPER_MAILCOW_SMTP_HOSTNAME:-CHANGE_ME}",
+        "      MAILCOW_SMTP_HOSTNAME: ${TRAEFIK_CERTS_DUMPER_MAILCOW_SMTP_HOSTNAME:-CHANGE_ME}",
+    ),
+    (
+        "      # MAILCOW_DNS_ZONE: ${TRAEFIK_CERTS_DUMPER_MAILCOW_DNS_ZONE:-CHANGE_ME}",
+        "      MAILCOW_DNS_ZONE: ${TRAEFIK_CERTS_DUMPER_MAILCOW_DNS_ZONE:-CHANGE_ME}",
+    ),
+    (
+        "      # MAILCOW_SSH_HOST: ${TRAEFIK_CERTS_DUMPER_MAILCOW_SSH_HOST:-CHANGE_ME}",
+        "      MAILCOW_SSH_HOST: ${TRAEFIK_CERTS_DUMPER_MAILCOW_SSH_HOST:-CHANGE_ME}",
+    ),
+    (
+        "      # MAILCOW_SSH_USER: ${TRAEFIK_CERTS_DUMPER_MAILCOW_SSH_USER:-CHANGE_ME}",
+        "      MAILCOW_SSH_USER: ${TRAEFIK_CERTS_DUMPER_MAILCOW_SSH_USER:-CHANGE_ME}",
+    ),
 ):
     if mailcow_opt_in_text.count(commented_fragment) != 1:
         raise SystemExit(
@@ -5985,6 +6198,21 @@ if mailcow_opt_in_service.get("secrets") != [
 ]:
     raise SystemExit(
         f"{certs_path}: enabled Mailcow access must mount exactly the SSH key and DNS token together"
+    )
+mailcow_opt_in_environment = mailcow_opt_in_service.get("environment") or {}
+expected_mailcow_opt_in_environment = {
+    "TZ",
+    "ACME_FILENAME",
+    "TRAEFIK_DOMAIN",
+    "TRAEFIK_ROUTE_SUBDOMAIN",
+    "MAILCOW_SMTP_HOSTNAME",
+    "MAILCOW_DNS_ZONE",
+    "MAILCOW_SSH_HOST",
+    "MAILCOW_SSH_USER",
+}
+if set(mailcow_opt_in_environment) != expected_mailcow_opt_in_environment:
+    raise SystemExit(
+        f"{certs_path}: enabled Mailcow environment must expose only the six external settings plus the two base values"
     )
 
 for mailcow_readme_path in (
@@ -6040,6 +6268,24 @@ if (
     raise SystemExit(f"{certs_path}: only /data/files may be a no-create writable bind")
 certs_env_path = certs_path.parent / ".env"
 certs_env_text = certs_env_path.read_text(encoding="utf-8")
+mailcow_env_assignments = {
+    match.group(1)
+    for match in re.finditer(
+        r"^(TRAEFIK_CERTS_DUMPER_MAILCOW_[A-Z0-9_]+)=",
+        certs_env_text,
+        flags=re.MULTILINE,
+    )
+}
+expected_mailcow_env_assignments = {
+    "TRAEFIK_CERTS_DUMPER_MAILCOW_SMTP_HOSTNAME",
+    "TRAEFIK_CERTS_DUMPER_MAILCOW_DNS_ZONE",
+    "TRAEFIK_CERTS_DUMPER_MAILCOW_SSH_HOST",
+    "TRAEFIK_CERTS_DUMPER_MAILCOW_SSH_USER",
+}
+if mailcow_env_assignments != expected_mailcow_env_assignments:
+    raise SystemExit(
+        f"{certs_env_path}: Mailcow operator inputs must be exactly the SMTP host, DNS zone, SSH host, and SSH user"
+    )
 certs_directories_match = re.search(
     r"^TRAEFIK_CERTS_DUMPER_DIRECTORIES=([^#\n]+)",
     certs_env_text,
@@ -6063,39 +6309,102 @@ if certs_service.get("stop_grace_period") != "180s":
     )
 if certs_environment.get("ACME_FILENAME") != "${CERTRESOLVER}-acme.json":
     raise SystemExit(f"{certs_path}: ACME store basename must follow CERTRESOLVER")
-optional_mailcow_environment = {
-    "TRAEFIK_DOMAIN",
-    "TRAEFIK_DOMAIN_1",
-    "TRAEFIK_DOMAIN_2",
-    "TRAEFIK_DOMAIN_3",
-    "TRAEFIK_DOMAIN_4",
-    "TRAEFIK_ROUTE_SUBDOMAIN",
+removed_mailcow_environment_keys = {
     "CERTRESOLVER",
     "MAILCOW_ENABLED",
-    "MAILCOW_SMTP_HOSTNAME",
-    "MAILCOW_DNS_ZONE",
-    "MAILCOW_SSH_HOST",
-    "MAILCOW_SSH_USER",
     "MAILCOW_PROJECT_PATH",
     "MAILCOW_DANE_TTL_SECONDS",
     "MAILCOW_DANE_TTL_SAFETY_SECONDS",
     "MAILCOW_DANE_VALIDATING_RESOLVER",
     "DNS_API_TOKEN_FILE",
 }
-active_optional_mailcow_environment = optional_mailcow_environment.intersection(
-    certs_environment
+for domain_index in range(1, 5):
+    removed_mailcow_environment_keys.add(f"TRAEFIK_DOMAIN_{domain_index}")
+removed_key_lines = re.findall(
+    r"^[ \t]*#?[ \t]*(TRAEFIK_DOMAIN_[1-4]|CERTRESOLVER|MAILCOW_ENABLED|MAILCOW_PROJECT_PATH|MAILCOW_DANE_TTL_SECONDS|MAILCOW_DANE_TTL_SAFETY_SECONDS|MAILCOW_DANE_VALIDATING_RESOLVER|DNS_API_TOKEN_FILE):",
+    certs_text,
+    flags=re.MULTILINE,
 )
-if active_optional_mailcow_environment:
+if removed_key_lines:
     raise SystemExit(
-        f"{certs_path}: default certs-dumper exposes optional Mailcow settings: "
-        f"{sorted(active_optional_mailcow_environment)}"
+        f"{certs_path}: removed Mailcow container inputs remain in the Compose surface: "
+        f"{sorted(set(removed_key_lines))}"
+    )
+if removed_mailcow_environment_keys.intersection(certs_environment):
+    raise SystemExit(f"{certs_path}: removed Mailcow inputs remain active")
+removed_env_assignment = re.search(
+    r"^(?:TRAEFIK_DOMAIN_[1-4]|CERTRESOLVER|TRAEFIK_CERTS_DUMPER_MAILCOW_(?:ENABLED|PROJECT_PATH|DANE_TTL_SECONDS|DANE_TTL_SAFETY_SECONDS|DANE_VALIDATING_RESOLVER)|DNS_API_TOKEN_FILE)=",
+    certs_env_text,
+    flags=re.MULTILINE,
+)
+if removed_env_assignment:
+    raise SystemExit(
+        f"{certs_env_path}: removed Mailcow input remains in the template environment: "
+        f"{removed_env_assignment.group(0)[:-1]}"
+    )
+
+certs_dockerfile_path = root / "templates/traefik_certs-dumper/dockerfiles/dockerfile.traefik-certs-dumper.scp"
+certs_dockerfile = certs_dockerfile_path.read_text(encoding="utf-8")
+certs_build = certs_service.get("build") or {}
+certs_build_args = certs_build.get("args") or {}
+go_image_name = "TRAEFIK_CERTS_DUMPER_GO_IMAGE"
+go_image_default = "golang:alpine"
+go_image_compose_default = "${TRAEFIK_CERTS_DUMPER_GO_IMAGE:-golang:alpine}"
+go_image_env_assignments = re.findall(
+    r"^TRAEFIK_CERTS_DUMPER_GO_IMAGE=([^#\n]+)",
+    certs_env_text,
+    flags=re.MULTILINE,
+)
+if len(go_image_env_assignments) != 1 or go_image_env_assignments[0].strip() != go_image_default:
+    raise SystemExit(
+        f"{certs_env_path}: {go_image_name} must expose exactly one latest-stable "
+        f"{go_image_default} build-only default"
+    )
+if (
+    certs_service.get("pull_policy") != "build"
+    or certs_build.get("pull") is not True
+    or certs_build.get("no_cache") is not True
+):
+    raise SystemExit(
+        f"{certs_path}: moving Go/runtime builders require pull_policy=build, "
+        "build.pull=true, and build.no_cache=true"
+    )
+if certs_build_args.get(go_image_name) != go_image_compose_default:
+    raise SystemExit(
+        f"{certs_path}: {go_image_name} must pass the operator override only as the exact "
+        f"{go_image_compose_default} build argument"
+    )
+if go_image_name in certs_environment:
+    raise SystemExit(
+        f"{certs_path}: {go_image_name} is build-only and must not enter the container environment"
+    )
+go_image_dockerfile_fragments = (
+    "ARG TRAEFIK_CERTS_DUMPER_GO_IMAGE=golang:alpine",
+    "FROM ${TRAEFIK_CERTS_DUMPER_GO_IMAGE} AS certs-dumper-safe-reader-build",
+    "ARG TRAEFIK_CERTS_DUMPER_GO_IMAGE\n",
+    'de.saervices.traefik_certs_dumper.safe_reader_builder="${TRAEFIK_CERTS_DUMPER_GO_IMAGE}"',
+)
+for exact_fragment in go_image_dockerfile_fragments:
+    if certs_dockerfile.count(exact_fragment) != 1:
+        raise SystemExit(
+            f"{certs_dockerfile_path}: build-only Go override contract is incomplete: "
+            f"expected exactly one {exact_fragment!r}"
+        )
+go_image_contract_text = "\n".join((certs_env_text, certs_text, certs_dockerfile))
+go_image_version_pin = re.compile(r"\bgolang:[0-9][A-Za-z0-9._-]*(?=[\s#\"'}]|$)")
+go_image_digest_pin = re.compile(r"\bgolang:[^\s#\"'}]+@sha256:")
+if go_image_version_pin.search(go_image_contract_text) or go_image_digest_pin.search(
+    go_image_contract_text
+):
+    raise SystemExit(
+        f"{certs_env_path}, {certs_path}, and {certs_dockerfile_path}: "
+        "Go builder must stay on the unpinned latest-stable golang:alpine channel"
     )
 if re.search(r"(?:SSH_)?KNOWN_HOSTS", certs_text, flags=re.IGNORECASE):
     raise SystemExit(
         f"{certs_path}: known_hosts content must stay file-backed, not become a Compose secret or environment value"
     )
 
-certs_build_args = (certs_service.get("build") or {}).get("args") or {}
 for build_identity_name in (
     "TRAEFIK_CERTS_DUMPER_UID",
     "TRAEFIK_CERTS_DUMPER_GID",
@@ -6192,21 +6501,38 @@ if 'return "", false, err\n\t\treturn "", false, err' in certs_reader:
     raise SystemExit(
         f"{certs_reader_path}: publishGeneration contains a duplicated unreachable error return"
     )
+for exact_opt_in_fragment in (
+    'func validatePostHookOptIn(content []byte) (bool, error)',
+    'preflightCommand := []string{"/bin/sh", config.hookSnapshotPath, "--preflight"}',
+    'preflightCommand[2] = "--preflight-mailcow"',
+):
+    if exact_opt_in_fragment not in certs_reader:
+        raise SystemExit(
+            f"{certs_reader_path}: active hook-line-only Mailcow preflight contract is missing "
+            f"{exact_opt_in_fragment!r}"
+        )
+if "MAILCOW_ENABLED" in certs_reader:
+    raise SystemExit(
+        f"{certs_reader_path}: removed MAILCOW_ENABLED toggle must not participate in hook activation"
+    )
 for required_fragment in (
     'CERTS_DUMPER_SSH_SECRET="/run/secrets/TRAEFIK_CERTS_DUMPER_PASSWORD"',
     'CERTS_DUMPER_SSH_STATE_ROOT="/state"',
     'CERTS_DUMPER_SSH_STATE_DIR="${CERTS_DUMPER_SSH_STATE_ROOT}/.ssh"',
     'CERTS_DUMPER_SSH_KNOWN_HOSTS_FILE="${CERTS_DUMPER_SSH_STATE_DIR}/known_hosts"',
     'CERTS_DUMPER_SAFE_READER="/usr/local/bin/certs-dumper-safe-reader"',
-    'CERTS_DUMPER_DNS_TOKEN_FILE="${DNS_API_TOKEN_FILE:-/run/secrets/DNS_API_TOKEN}"',
+    'CERTS_DUMPER_DNS_TOKEN_FILE="/run/secrets/DNS_API_TOKEN"',
     'CERTS_DUMPER_DNS_CONNECT_TIMEOUT_SECONDS=5',
     'CERTS_DUMPER_DNS_MAX_TIME_SECONDS=30',
-    'MAILCOW_ENABLED_INPUT="${MAILCOW_ENABLED:-false}"',
+    'MAILCOW_PROJECT_PATH="/opt/mailcow-dockerized"',
+    'MAILCOW_DANE_TTL_SAFETY_SECONDS=60',
+    'MAILCOW_DANE_VALIDATING_RESOLVER="1.1.1.1"',
     'MAILCOW_SMTP_HOSTNAME_INPUT="${MAILCOW_SMTP_HOSTNAME:-}"',
     'MAILCOW_DNS_ZONE_INPUT="${MAILCOW_DNS_ZONE:-}"',
-    'MAILCOW_DANE_TTL_SECONDS_INPUT="${MAILCOW_DANE_TTL_SECONDS:-300}"',
-    'MAILCOW_DANE_TTL_SAFETY_SECONDS_INPUT="${MAILCOW_DANE_TTL_SAFETY_SECONDS:-60}"',
-    'MAILCOW_DANE_VALIDATING_RESOLVER_INPUT="${MAILCOW_DANE_VALIDATING_RESOLVER:-1.1.1.1}"',
+    'derive_mailcow_dns_provider() {',
+    'cloudflare-acme.json) MAILCOW_DNS_PROVIDER=cloudflare',
+    'desec-acme.json) MAILCOW_DNS_PROVIDER=desec',
+    'derive_mailcow_tlsa_ttl() {',
     'MAILCOW_TLSA_RECORD_NAME="_25._tcp.${MAILCOW_SMTP_HOSTNAME}"',
     'CERTS_DUMPER_MAILCOW_LOCK_FILE="${CERTS_DUMPER_SSH_STATE_ROOT}/mailcow-rollover.lock"',
     '--with-state-lock "$CERTS_DUMPER_MAILCOW_LOCK_FILE"',
@@ -6232,7 +6558,6 @@ for required_fragment in (
     '--data-urlencode "name=${record_name}"',
     '(.type | ascii_upcase) == "TLSA"',
     'select_mailcow_tlsa_records() {',
-    'require_mailcow_enabled',
     'prepare_mailcow_runtime',
     'dns_require_dnssec "$dns_zone_handle"',
     'require_certificate_key_pair "$local_cert" "$local_key"',
@@ -6281,6 +6606,32 @@ if len(re.findall(r"^# if true; then mailcow; fi$", certs_hook, flags=re.MULTILI
     raise SystemExit(f"{certs_hook_path}: Mailcow must have exactly one commented upstream call")
 if re.search(r"^[ \t]*(?!#)(?:if[ ;].*[ ;]then[ ;]+)?mailcow(?:[ ;]|$)", certs_hook, flags=re.MULTILINE):
     raise SystemExit(f"{certs_hook_path}: Mailcow must not be active upstream")
+removed_hook_inputs = (
+    "MAILCOW_ENABLED",
+    "TRAEFIK_DOMAIN_1",
+    "TRAEFIK_DOMAIN_2",
+    "TRAEFIK_DOMAIN_3",
+    "TRAEFIK_DOMAIN_4",
+    "CERTRESOLVER",
+    "MAILCOW_PROJECT_PATH_INPUT",
+    "MAILCOW_DANE_TTL_SECONDS_INPUT",
+    "MAILCOW_DANE_TTL_SAFETY_SECONDS_INPUT",
+    "MAILCOW_DANE_VALIDATING_RESOLVER_INPUT",
+    "DNS_API_TOKEN_FILE",
+)
+remaining_removed_hook_inputs = [
+    input_name
+    for input_name in removed_hook_inputs
+    if re.search(
+        rf"(?<![A-Z0-9_]){re.escape(input_name)}(?![A-Z0-9_])",
+        certs_hook,
+    )
+]
+if remaining_removed_hook_inputs:
+    raise SystemExit(
+        f"{certs_hook_path}: removed Mailcow hook inputs remain: "
+        f"{remaining_removed_hook_inputs}"
+    )
 curl_calls = re.findall(
     r"curl -sS \\\n(?P<body>(?:[^\n]*\\\n)+[^\n]*)",
     certs_hook,
@@ -6311,8 +6662,7 @@ if not mailcow_wrapper_match or not mailcow_locked_match:
     raise SystemExit(f"{certs_hook_path}: integrated locked Mailcow functions are missing")
 mailcow_wrapper_body = mailcow_wrapper_match.group("body")
 if (
-    "require_mailcow_enabled" not in mailcow_wrapper_body
-    or "run_mailcow_with_lock" not in mailcow_wrapper_body
+    "run_mailcow_with_lock" not in mailcow_wrapper_body
     or "prepare_mailcow_runtime" in mailcow_wrapper_body
 ):
     raise SystemExit(
@@ -6320,7 +6670,6 @@ if (
     )
 mailcow_body = mailcow_locked_match.group("body")
 ordered_mailcow_steps = (
-    "require_mailcow_enabled",
     "validate_mailcow_lock_context",
     "install_mailcow_transaction_traps",
     "prepare_mailcow_runtime",
@@ -6377,6 +6726,7 @@ hook_main = certs_hook[hook_main_offset:]
 for required_main_fragment in (
     'case "${1:-}" in',
     "# if true; then mailcow; fi",
+    "--preflight-mailcow)",
     "--mailcow-locked)",
     "mailcow_locked",
 ):
@@ -6413,6 +6763,23 @@ if default_post_hook_case.returncode != 0:
     raise SystemExit(
         f"{certs_hook_path}: default commented hook must be a no-op: "
         f"{default_post_hook_case.stderr.strip()}"
+    )
+inactive_provider_case = subprocess.run(
+    ["/bin/bash", str(certs_hook_path), "--preflight"],
+    cwd=certs_hook_path.parent,
+    env={
+        "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
+        "LC_ALL": "C",
+        "ACME_FILENAME": "unsupported-staging-acme.json",
+    },
+    check=False,
+    capture_output=True,
+    text=True,
+    timeout=5,
+)
+if inactive_provider_case.returncode != 0:
+    raise SystemExit(
+        f"{certs_hook_path}: inactive Mailcow must not validate its provider or secrets"
     )
 
 def run_ssh_state_hook_fixture(
@@ -6699,6 +7066,10 @@ def run_mailcow_hook_fixture(body, environment, library_replacements=None):
             )
         return result
 
+fixed_dns_token_source = (
+    'readonly CERTS_DUMPER_DNS_TOKEN_FILE="/run/secrets/DNS_API_TOKEN"'
+)
+
 with tempfile.TemporaryDirectory(prefix="mailcow-secret-races.") as race_fixture_name:
     race_fixture = Path(race_fixture_name)
     dns_token_path = race_fixture / "dns-token"
@@ -6706,8 +7077,12 @@ with tempfile.TemporaryDirectory(prefix="mailcow-secret-races.") as race_fixture
     dns_race_case = run_mailcow_hook_fixture(
         "install_mailcow_transaction_traps\nprepare_dns_api_token_from_secret\nread_dns_api_token >/dev/null",
         {
-            "DNS_API_TOKEN_FILE": str(dns_token_path),
             "CERTS_DUMPER_TEST_READER_HOOK": "same-size",
+        },
+        {
+            fixed_dns_token_source: (
+                f'readonly CERTS_DUMPER_DNS_TOKEN_FILE="{dns_token_path}"'
+            ),
         },
     )
     if dns_race_case.returncode == 0:
@@ -6754,8 +7129,12 @@ with tempfile.TemporaryDirectory(prefix="mailcow-dns-transaction.") as token_fix
 [ ! -e "$CERTS_DUMPER_DNS_TOKEN_FILE" ]
 [ -z "$(find "${CERTS_DUMPER_DNS_TOKEN_RUNTIME_PREFIX%/dns-api-token.}" -maxdepth 1 -name 'dns-api-token.*' -print -quit)" ]''',
         {
-            "DNS_API_TOKEN_FILE": str(token_path),
             "CERTS_DUMPER_TEST_READER_CALLS": str(calls_path),
+        },
+        {
+            fixed_dns_token_source: (
+                f'readonly CERTS_DUMPER_DNS_TOKEN_FILE="{token_path}"'
+            ),
         },
     )
     if snapshot_case.returncode != 0:
@@ -6782,67 +7161,26 @@ with tempfile.TemporaryDirectory(prefix="mailcow-dns-transaction.") as token_fix
   exit 1
 fi
 [ -z "$(find "${CERTS_DUMPER_DNS_TOKEN_RUNTIME_PREFIX%/dns-api-token.}" -maxdepth 1 -name 'dns-api-token.*' -print -quit)" ]''',
-        {"DNS_API_TOKEN_FILE": str(token_path)},
+        {},
+        {
+            fixed_dns_token_source: (
+                f'readonly CERTS_DUMPER_DNS_TOKEN_FILE="{token_path}"'
+            ),
+        },
     )
     if stage_drift_case.returncode != 0:
         raise SystemExit(
             f"{certs_hook_path}: DNS transaction-stage drift was accepted or leaked its private snapshot"
         )
 
-mailcow_toggle_body = r'''run_mailcow_with_lock() {
-  : >"$MAILCOW_RUNTIME_MARKER"
-  exit 23
-}
-mailcow'''
-with tempfile.TemporaryDirectory(prefix="mailcow-strict-toggle.") as toggle_fixture_name:
-    toggle_fixture = Path(toggle_fixture_name)
-    for toggle_label, toggle_environment in (
-        ("unset", {}),
-        ("false", {"MAILCOW_ENABLED": "false"}),
-        ("uppercase", {"MAILCOW_ENABLED": "TRUE"}),
-        ("numeric", {"MAILCOW_ENABLED": "1"}),
-        ("padded", {"MAILCOW_ENABLED": " true"}),
-    ):
-        runtime_marker = toggle_fixture / f"{toggle_label}.runtime"
-        toggle_case = run_mailcow_hook_fixture(
-            mailcow_toggle_body,
-            {**toggle_environment, "MAILCOW_RUNTIME_MARKER": str(runtime_marker)},
-        )
-        if toggle_case.returncode == 0 or runtime_marker.exists():
-            raise SystemExit(
-                f"{certs_hook_path}: Mailcow toggle fixture did not fail before secret preparation: {toggle_label}"
-            )
-
-    enabled_runtime_marker = toggle_fixture / "enabled.runtime"
-    enabled_toggle_case = run_mailcow_hook_fixture(
-        mailcow_toggle_body,
-        {
-            "MAILCOW_ENABLED": "true",
-            "MAILCOW_RUNTIME_MARKER": str(enabled_runtime_marker),
-        },
-    )
-    if enabled_toggle_case.returncode != 23 or not enabled_runtime_marker.is_file():
-        raise SystemExit(
-            f"{certs_hook_path}: exact MAILCOW_ENABLED=true did not enter opt-in runtime preparation"
-        )
-
 mailcow_route_environment = {
     "TRAEFIK_DOMAIN": "xn--lb-1ia.de",
-    "TRAEFIK_DOMAIN_1": "xn--srvices-mxa.de",
-    "TRAEFIK_DOMAIN_2": "saervices.de",
-    "TRAEFIK_DOMAIN_3": "it-saervices.de",
-    "TRAEFIK_DOMAIN_4": "itsaervices.de",
     "TRAEFIK_ROUTE_SUBDOMAIN": "it",
     "MAILCOW_SMTP_HOSTNAME": "mail.it.saervices.de",
     "MAILCOW_DNS_ZONE": "saervices.de",
-    "MAILCOW_DANE_TTL_SECONDS": "300",
-    "MAILCOW_DANE_TTL_SAFETY_SECONDS": "60",
-    "MAILCOW_DANE_VALIDATING_RESOLVER": "1.1.1.1",
     "MAILCOW_SSH_HOST": "192.168.20.120",
     "MAILCOW_SSH_USER": "root",
-    "MAILCOW_PROJECT_PATH": "/opt/mailcow-dockerized",
-    "CERTRESOLVER": "cloudflare",
-    "MAILCOW_ENABLED": "true",
+    "ACME_FILENAME": "cloudflare-acme.json",
 }
 
 with tempfile.TemporaryDirectory(prefix="mailcow-accept-new-delta.") as delta_fixture_name:
@@ -7130,7 +7468,11 @@ printf '%s\n' \
   "$MAILCOW_CERT_MAIN_DOMAIN" \
   "$MAILCOW_SMTP_HOSTNAME" \
   "$MAILCOW_DNS_ZONE_NAME" \
-  "$MAILCOW_TLSA_RECORD_NAME"''',
+  "$MAILCOW_TLSA_RECORD_NAME" \
+  "$MAILCOW_DNS_PROVIDER" \
+  "$MAILCOW_PROJECT_PATH" \
+  "$MAILCOW_DANE_TTL_SAFETY_SECONDS" \
+  "$MAILCOW_DANE_VALIDATING_RESOLVER"''',
     mailcow_route_environment,
 )
 expected_mailcow_resolution = "\n".join(
@@ -7139,6 +7481,10 @@ expected_mailcow_resolution = "\n".join(
         "mail.it.saervices.de",
         "saervices.de",
         "_25._tcp.mail.it.saervices.de",
+        "cloudflare",
+        "/opt/mailcow-dockerized",
+        "60",
+        "1.1.1.1",
         "",
     )
 )
@@ -7150,17 +7496,17 @@ if (
         f"{certs_hook_path}: SMTP, explicit DNS zone, TLSA owner, or certificate main resolved incorrectly"
     )
 
-unprefixed_smtp_environment = {
+independent_smtp_environment = {
     **mailcow_route_environment,
     "MAILCOW_SMTP_HOSTNAME": "mail.saervices.de",
 }
-unprefixed_smtp_case = run_mailcow_hook_fixture(
+independent_smtp_case = run_mailcow_hook_fixture(
     "resolve_mailcow_configuration",
-    unprefixed_smtp_environment,
+    independent_smtp_environment,
 )
-if unprefixed_smtp_case.returncode == 0:
+if independent_smtp_case.returncode != 0:
     raise SystemExit(
-        f"{certs_hook_path}: prefixed mode must reject the legacy unprefixed SMTP host"
+        f"{certs_hook_path}: explicit SMTP host must not require removed TRAEFIK_DOMAIN_1..4 inputs"
     )
 
 placeholder_zone_case = run_mailcow_hook_fixture(
@@ -7172,39 +7518,30 @@ if placeholder_zone_case.returncode == 0:
         f"{certs_hook_path}: active Mailcow hook must reject an unconfigured DNS zone"
     )
 
-unsupported_resolver_case = run_mailcow_hook_fixture(
-    "resolve_mailcow_configuration",
-    {**mailcow_route_environment, "CERTRESOLVER": "route53"},
-)
-if unsupported_resolver_case.returncode == 0:
-    raise SystemExit(
-        f"{certs_hook_path}: Mailcow must reject an unsupported CERTRESOLVER"
+for invalid_acme_filename in (
+    "",
+    "route53-acme.json",
+    "cloudflare-staging-acme.json",
+    "../cloudflare-acme.json",
+    "CLOUDFLARE-acme.json",
+):
+    invalid_provider_case = run_mailcow_hook_fixture(
+        "resolve_mailcow_configuration",
+        {**mailcow_route_environment, "ACME_FILENAME": invalid_acme_filename},
     )
+    if invalid_provider_case.returncode == 0:
+        raise SystemExit(
+            f"{certs_hook_path}: Mailcow accepted unsupported ACME_FILENAME "
+            f"{invalid_acme_filename!r}"
+        )
 
-desec_low_ttl_case = run_mailcow_hook_fixture(
-    "resolve_mailcow_configuration",
-    {
-        **mailcow_route_environment,
-        "CERTRESOLVER": "desec",
-        "MAILCOW_DANE_TTL_SECONDS": "300",
-    },
+desec_provider_case = run_mailcow_hook_fixture(
+    'resolve_mailcow_configuration\n[ "$MAILCOW_DNS_PROVIDER" = desec ]',
+    {**mailcow_route_environment, "ACME_FILENAME": "desec-acme.json"},
 )
-if desec_low_ttl_case.returncode == 0:
+if desec_provider_case.returncode != 0:
     raise SystemExit(
-        f"{certs_hook_path}: deSEC Mailcow TTL below 3600 must fail closed"
-    )
-
-desec_valid_ttl_case = run_mailcow_hook_fixture(
-    "resolve_mailcow_configuration",
-    {
-        **mailcow_route_environment,
-        "CERTRESOLVER": "desec",
-        "MAILCOW_DANE_TTL_SECONDS": "3600",
-    },
-)
-if desec_valid_ttl_case.returncode != 0:
-    raise SystemExit(
-        f"{certs_hook_path}: deSEC Mailcow TTL 3600 must be accepted"
+        f"{certs_hook_path}: desec-acme.json did not select the deSEC Mailcow provider"
     )
 
 if True:
@@ -7250,6 +7587,84 @@ if True:
         "content": f"3 1 1 {new_spki}",
       }],
   }
+
+  valid_derived_ttl_rrsets = (
+      ("cloudflare-minimum", "cloudflare", {"success": True, "result": [tlsa_record(old_record_id, old_spki, ttl=60)]}, 60),
+      ("cloudflare-normal", "cloudflare", stable_rrset, 300),
+      ("cloudflare-maximum", "cloudflare", {"success": True, "result": [tlsa_record(old_record_id, old_spki, ttl=86400)]}, 86400),
+      ("cloudflare-transitional", "cloudflare", transitional_rrset, 300),
+      ("desec-minimum", "desec", {"success": True, "result": [tlsa_record(old_spki, old_spki, ttl=3600)]}, 3600),
+      ("desec-maximum", "desec", {"success": True, "result": [tlsa_record(old_spki, old_spki, ttl=86400)]}, 86400),
+  )
+  for ttl_label, provider_name, rrset, expected_ttl in valid_derived_ttl_rrsets:
+    derived_ttl_case = run_mailcow_hook_fixture(
+        'MAILCOW_DNS_PROVIDER="$TLSA_PROVIDER"; '
+        'derive_mailcow_tlsa_ttl "$TLSA_RECORDS" "$TLSA_OWNER"',
+        {
+            "TLSA_PROVIDER": provider_name,
+            "TLSA_RECORDS": json.dumps(rrset, separators=(",", ":")),
+            "TLSA_OWNER": tlsa_owner,
+        },
+    )
+    if (
+        derived_ttl_case.returncode != 0
+        or derived_ttl_case.stdout != str(expected_ttl)
+    ):
+      raise SystemExit(
+          f"{certs_hook_path}: {ttl_label} did not derive the exact existing RRset TTL"
+      )
+
+  invalid_derived_ttl_rrsets = (
+      (
+          "mismatched",
+          "cloudflare",
+          {
+              "success": True,
+              "result": [
+                  tlsa_record(old_record_id, old_spki, ttl=300),
+                  tlsa_record(new_record_id, new_spki, ttl=600),
+              ],
+          },
+      ),
+      ("cloudflare-automatic", "cloudflare", {"success": True, "result": [tlsa_record(old_record_id, old_spki, ttl=1)]}),
+      ("cloudflare-below-range", "cloudflare", {"success": True, "result": [tlsa_record(old_record_id, old_spki, ttl=59)]}),
+      ("cloudflare-above-range", "cloudflare", {"success": True, "result": [tlsa_record(old_record_id, old_spki, ttl=86401)]}),
+      ("desec-cloudflare-range", "desec", {"success": True, "result": [tlsa_record(old_spki, old_spki, ttl=300)]}),
+      ("desec-below-range", "desec", {"success": True, "result": [tlsa_record(old_spki, old_spki, ttl=3599)]}),
+      ("desec-above-range", "desec", {"success": True, "result": [tlsa_record(old_spki, old_spki, ttl=86401)]}),
+      ("zero-record", "cloudflare", {"success": True, "result": []}),
+      (
+          "three-record",
+          "cloudflare",
+          {
+              "success": True,
+              "result": [
+                  tlsa_record(old_record_id, old_spki),
+                  tlsa_record(new_record_id, new_spki),
+                  tlsa_record("3" * 32, "e" * 64),
+              ],
+          },
+      ),
+      ("wrong-name", "cloudflare", {"success": True, "result": [tlsa_record(old_record_id, old_spki, owner=f"{tlsa_owner}.evil")]}),
+      ("wrong-type", "cloudflare", {"success": True, "result": [{**tlsa_record(old_record_id, old_spki), "type": "A"}]}),
+      ("float", "cloudflare", {"success": True, "result": [tlsa_record(old_record_id, old_spki, ttl=300.5)]}),
+      ("string", "cloudflare", {"success": True, "result": [tlsa_record(old_record_id, old_spki, ttl="300")]}),
+      ("null", "cloudflare", {"success": True, "result": [tlsa_record(old_record_id, old_spki, ttl=None)]}),
+  )
+  for ttl_label, provider_name, rrset in invalid_derived_ttl_rrsets:
+    derived_ttl_case = run_mailcow_hook_fixture(
+        'MAILCOW_DNS_PROVIDER="$TLSA_PROVIDER"; '
+        'derive_mailcow_tlsa_ttl "$TLSA_RECORDS" "$TLSA_OWNER"',
+        {
+            "TLSA_PROVIDER": provider_name,
+            "TLSA_RECORDS": json.dumps(rrset, separators=(",", ":")),
+            "TLSA_OWNER": tlsa_owner,
+        },
+    )
+    if derived_ttl_case.returncode == 0:
+      raise SystemExit(
+          f"{certs_hook_path}: invalid {ttl_label} provider TTL was derived instead of rejected"
+      )
 
   cloudflare_drift_rrset = {
       "success": True,
@@ -7301,6 +7716,17 @@ cloudflare_mutate_record() {
           False,
       ),
       (
+          "create-ttl-drift",
+          cloudflare_create_operation,
+          stable_rrset,
+          {
+              "success": True,
+              "result": [tlsa_record(old_record_id, old_spki, ttl=600)],
+          },
+          "POST",
+          False,
+      ),
+      (
           "delete-stable",
           cloudflare_delete_operation,
           transitional_rrset,
@@ -7321,6 +7747,20 @@ cloudflare_mutate_record() {
           cloudflare_delete_operation,
           transitional_rrset,
           cloudflare_delete_drift_rrset,
+          "DELETE",
+          False,
+      ),
+      (
+          "delete-ttl-drift",
+          cloudflare_delete_operation,
+          transitional_rrset,
+          {
+              "success": True,
+              "result": [
+                  tlsa_record(old_record_id, old_spki, ttl=600),
+                  tlsa_record(new_record_id, new_spki, ttl=600),
+              ],
+          },
           "DELETE",
           False,
       ),
@@ -7853,8 +8293,7 @@ cloudflare_find_zone_id 'saervices.de' ''',
     raise SystemExit(f"{certs_hook_path}: Cloudflare DNSSEC active gate is not fail closed")
 
   locally_validated_rrset_case = run_mailcow_hook_fixture(
-    r'''MAILCOW_DANE_VALIDATING_RESOLVER=1.1.1.1
-timeout() { shift; "$@"; }
+    r'''timeout() { shift; "$@"; }
 delv() {
   printf '%s\n' '; fully validated' \
     "_25._tcp.mail.it.saervices.de. 300 IN TLSA 3 1 1 ${TLSA_HASH}"
@@ -7863,8 +8302,7 @@ dnssec_tlsa_rrset_matches _25._tcp.mail.it.saervices.de 300 "$TLSA_HASH"''',
     {"TLSA_HASH": old_spki},
   )
   forged_ad_rrset_case = run_mailcow_hook_fixture(
-    r'''MAILCOW_DANE_VALIDATING_RESOLVER=1.1.1.1
-timeout() { shift; "$@"; }
+    r'''timeout() { shift; "$@"; }
 delv() {
   printf '%s\n' ';; flags: qr rd ra ad;' \
     "_25._tcp.mail.it.saervices.de. 300 IN TLSA 3 1 1 ${TLSA_HASH}"
@@ -7876,13 +8314,6 @@ dnssec_tlsa_rrset_matches _25._tcp.mail.it.saervices.de 300 "$TLSA_HASH"''',
     raise SystemExit(
         f"{certs_hook_path}: local delv validation must accept fully validated DNSSEC and reject a forged AD bit"
     )
-
-  automatic_ttl_case = run_mailcow_hook_fixture(
-    "resolve_mailcow_configuration",
-    {**mailcow_route_environment, "MAILCOW_DANE_TTL_SECONDS": "1"},
-  )
-  if automatic_ttl_case.returncode == 0:
-    raise SystemExit(f"{certs_hook_path}: Cloudflare automatic TLSA TTL=1 must fail closed")
 
   with tempfile.TemporaryDirectory(prefix="mailcow-cf-token.") as token_fixture_name:
     token_fixture = Path(token_fixture_name)
@@ -7903,7 +8334,12 @@ dnssec_tlsa_rrset_matches _25._tcp.mail.it.saervices.de 300 "$TLSA_HASH"''',
       token_path.write_bytes(token_bytes)
       token_case = run_mailcow_hook_fixture(
           "install_mailcow_transaction_traps\nprepare_dns_api_token_from_secret\nread_dns_api_token",
-          {"DNS_API_TOKEN_FILE": str(token_path)},
+          {},
+          {
+              fixed_dns_token_source: (
+                  f'readonly CERTS_DUMPER_DNS_TOKEN_FILE="{token_path}"'
+              ),
+          },
       )
       if (token_case.returncode == 0) != expected_success:
         raise SystemExit(
@@ -8311,6 +8747,7 @@ MAILCOW_SMTP_HOSTNAME=mail.it.saervices.de
 MAILCOW_DNS_ZONE_NAME=it.saervices.de
 MAILCOW_TLSA_RECORD_NAME=_25._tcp.mail.it.saervices.de
 MAILCOW_DANE_TTL_SECONDS=300
+MAILCOW_DNS_PROVIDER=cloudflare
 expected_response="$(cat "$MAILCOW_TEST_EXPECTED")"
 deploy_mailcow_certificate_pair cert key 192.168.20.120 deploy /opt/mailcow key \
   "$MAILCOW_TEST_NEW_SPKI" "$MAILCOW_TEST_NEW_LEAF" \
@@ -8325,7 +8762,6 @@ deploy_mailcow_certificate_pair cert key 192.168.20.120 deploy /opt/mailcow key 
       activation_case = run_mailcow_hook_fixture(
           activation_body,
           {
-              "CERTRESOLVER": "cloudflare",
               "MAILCOW_TEST_MODE": mode,
               "MAILCOW_TEST_TRACE": str(trace_path),
               "MAILCOW_TEST_ACTIVATED": str(activated_path),

@@ -36,14 +36,15 @@ services:
     hostname: ${APP_NAME}                                                                                                                                       # Internæl hostnæme for DNS resolution between contæiners
     restart: unless-stopped                                                                                                                                     # Æuto-recover from cræshes; mænuæl stop is honored
     pull_policy: build                                                                                                                                          # Rebuild on Compose up so the moving officiæl Træefik bæse receives reviewed updætes
-    build:                                                                                                                                                      # Ædd one stætic descriptor-bæsed secret reæder to the officiæl runtime
+    # Build one stætic descriptor-bæsed secret reæder into the officiæl Træefik runtime.
+    build:                                                                                                                                                      # Optionæl: build imæge from locæl Dockerfile
       context: ./dockerfiles
       dockerfile: Dockerfile
       pull: true                                                                                                                                                # Pull the current Træefik ænd Go moving chænnels before building
       no_cache: true                                                                                                                                            # Re-run formætting, unit tests, ænd deterministic compile on every build
       args:
         TRAEFIK_BASE_IMAGE: ${TRAEFIK_BASE_IMAGE:-traefik:3}                                                                                                    # Officiæl Træefik moving mæjor runtime
-        TRAEFIK_GO_IMAGE: ${TRAEFIK_GO_IMAGE:-golang:1-alpine}                                                                                                  # Build-only officiæl Go toolchæin
+        TRAEFIK_GO_IMAGE: ${TRAEFIK_GO_IMAGE:-golang:alpine}                                                                                                    # Build-only officiæl lætest-stæble Go toolchæin
 
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- SECURITY SETTINGS
@@ -91,10 +92,8 @@ services:
       - "traefik.http.routers.${APP_NAME}-rtr.entrypoints=websecure"                                                                                            # Expose the protected mænægement router only on the HTTPS EntryPoint
       - "traefik.http.routers.${APP_NAME}-rtr.service=api@internal"                                                                                             # Route to Træefik's internæl ÆPI/dæshboærd service without æn insecure mænægement listener
       - "traefik.http.routers.${APP_NAME}-rtr.middlewares=authentik-proxy@file"                                                                                 # Require Æuthentik Forwærd Æuth before exposing the ÆPI or dæshboærd
-      - "traefik.http.routers.${APP_NAME}-rtr.tls=true"                                                                                                         # Require TLS for the mænægement router
-      - "traefik.http.routers.${APP_NAME}-rtr.tls.certresolver=${CERTRESOLVER}"                                                                                 # Preserve the configured ÆCME resolver when router-level TLS is explicit
-      - "traefik.http.routers.${APP_NAME}-rtr.tls.options=${TLSOPTIONS}"                                                                                        # Preserve the configured file-provider TLS options when router-level TLS is explicit
-    ports:                                                                                                                                                      # Optionæl: exposed ports (Træefik entrypoints 80/443)
+    # Publish only the public HTTP ænd HTTPS EntryPoint ports; mænægement stæys behind the protected router.
+    ports:                                                                                                                                                      # Optionæl: exposed ports
       - 80:80
       - 443:443
     # expose:                                                                                                                                                   # Optionæl: expose without publishing
@@ -108,7 +107,8 @@ services:
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- RUNTIME / ENVIRONMENT
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
-    command:                                                                                                                                                    # Override defæult contæiner commænd: Træefik CLI ærguments (dæshboærd, logs, entrypoints, providers, ÆCME)
+    # Configure the Træefik dæshboærd, observæbility, EntryPoints, providers, ænd ÆCME resolvers.
+    command:                                                                                                                                                    # Override the imæge defæult commænd
       - --api=true
       - --api.dashboard=true
       - --api.disabledashboardad=true
@@ -182,9 +182,10 @@ services:
       - --certificatesresolvers.${CERTRESOLVER}.acme.keytype=${KEYTYPE}
       - --certificatesresolvers.${CERTRESOLVER}.acme.dnschallenge.provider=${CERTRESOLVER}
       - --certificatesresolvers.${CERTRESOLVER}.acme.dnschallenge.resolvers=${DNSCHALLENGE_RESOLVERS}
-    entrypoint: ['/bin/sh', '/usr/local/bin/traefik-start.sh']                                                                                                  # Vælidæte the DNS token, then exec the officiæl Træefik binæry
+    # Vælidæte the DNS token, prepære runtime configurætion, then exec the officiæl Træefik binæry.
+    entrypoint: ['/bin/sh', '/usr/local/bin/traefik-start.sh']                                                                                                  # Override the imæge defæult entrypoint
     environment: &app_common_environment                                                                                                                        # Contæiner environment væriæbles (shæred viæ ænchor with sætellites)
-      TZ: ${TZ:-Europe/Berlin}                                                                                                                                  # Contæiner timezone (IÆNÆ formæt)
+      TZ: ${TZ:-Europe/Berlin}                                                                                                                                  # Optionæl: æctivæte only when the selected imæge or contæiner scripts consume libc timezone dætæ
       DNS_API_TOKEN_FILE: /run/secrets/DNS_API_TOKEN                                                                                                            # Generic DNS-01 ÆPI token; the stært script mæps it to the lego væriæble selected by CERTRESOLVER
       CERTRESOLVER: ${CERTRESOLVER}                                                                                                                             # ÆCME resolver næme used by file-provider TLS store templætes
       TLSOPTIONS: ${TLSOPTIONS}                                                                                                                                 # TLS option set used by file-provider routers
@@ -208,8 +209,10 @@ services:
       options:
         max-size: "10m"                                                                                                                                         # Rotæte æfter 10 MB per file
         max-file: "3"                                                                                                                                           # Retæin up to 3 rotæted log files
-    healthcheck:                                                                                                                                                # Periodic heælth probe ægæinst the dedicæted loopbæck-only Ping endpoint
-      test: ['CMD', 'wget', '--spider', '--quiet', 'http://127.0.0.1:${TRAEFIK_PORT:-8080}/ping']                                                               # Probe liveness without exposing or bypæssing the protected dæshboærd router
+    # Probe the dedicæted loopbæck-only Ping endpoint without bypæssing the protected dæshboærd router.
+    healthcheck:                                                                                                                                                # Periodic heælth probe – ædjust to mætch your service
+      # Use direct exec form so echoed commænd text or shell success mæsking cænnot pæss liveness.
+      test: ['CMD', 'wget', '--spider', '--quiet', 'http://127.0.0.1:${TRAEFIK_PORT:-8080}/ping']                                                               # Ædæpt tooling (curl, wget, nc, pg_isready) to the imæge
       interval: 30s                                                                                                                                             # Seconds between probes
       timeout: 5s                                                                                                                                               # Mæx wæit per probe before fæilure
       retries: 3                                                                                                                                                # Consecutive fæilures before mærking unheælthy
