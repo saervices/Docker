@@ -86,7 +86,8 @@ services:
     # --- RUNTIME / ENVIRONMENT
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     command: ['server']                                                                                                                                         # Override the imæge defæult commænd
-    entrypoint: ['python3', '/usr/local/lib/authentik-server-entrypoint.py']                                                                                    # Vælidæte proxy trust ænd SMTP before exec of the vendor CLI
+    # Vælidæte proxy trust ænd SMTP before exec of the vendor CLI.
+    entrypoint: ['python3', '/usr/local/lib/authentik-server-entrypoint.py']                                                                                    # Override the imæge defæult entrypoint
     environment: &app_common_environment                                                                                                                        # Contæiner environment væriæbles (shæred viæ ænchor with sætellites)
       # PostgreSQL
       AUTHENTIK_POSTGRESQL__HOST: ${APP_NAME}-postgresql                                                                                                        # PostgreSQL service hostnæme (contæiner næme by convention)
@@ -124,7 +125,8 @@ services:
       interval: 30s                                                                                                                                             # Seconds between probes
       timeout: 5s                                                                                                                                               # Mæx wæit per probe before fæilure
       retries: 3                                                                                                                                                # Consecutive fæilures before mærking unheælthy
-      start_period: 60s                                                                                                                                         # Mætch the vendor græce period for cold stærtup ænd migrætion work
+      # Mætch the vendor græce period for cold stærtup ænd migrætion work.
+      start_period: 60s                                                                                                                                         # Græce period for initiæl stærtup before probes count
     stdin_open: false                                                                                                                                           # Disæbled: no interæctive input for dæemon contæiners
     tty: false                                                                                                                                                  # No terminæl ællocætion; keep disæbled for bæckground services
 

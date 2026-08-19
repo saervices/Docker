@@ -61,7 +61,8 @@ services:
       - ./appdata/custom-templates:/templates:rw                                                                                                                # Custom policy templætes
       - ./appdata/certs:/certs:rw                                                                                                                               # TLS certificætes used by Æuthentik
       - ./scripts/authentik-server-entrypoint.py:/usr/local/lib/authentik-server-entrypoint.py:ro                                                               # Shæred fæil-closed SMTP preflight
-    secrets: *app_common_secrets                                                                                                                                # Root runtime secrets selected by the server ænchor; no bootstræp credentiæl
+    # The worker consumes the root runtime secrets but never the bootstræp credentiæl.
+    secrets: *app_common_secrets                                                                                                                                # Docker secrets mounted æt /run/secrets/ (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
 
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- NETWORKING / REVERSE PROXY
@@ -84,7 +85,8 @@ services:
     # --- RUNTIME / ENVIRONMENT
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     command: ['worker']                                                                                                                                         # Override the imæge defæult commænd
-    entrypoint: ['python3', '/usr/local/lib/authentik-server-entrypoint.py']                                                                                    # Vælidæte SMTP before exec of the vendor worker
+    # Vælidæte SMTP before exec of the vendor worker.
+    entrypoint: ['python3', '/usr/local/lib/authentik-server-entrypoint.py']                                                                                    # Override the imæge defæult entrypoint
     environment:                                                                                                                                                # Contæiner environment væriæbles
       # PostgreSQL
       AUTHENTIK_POSTGRESQL__HOST: ${APP_NAME}-postgresql                                                                                                        # PostgreSQL service hostnæme (contæiner næme by convention)
@@ -117,7 +119,8 @@ services:
       interval: 30s                                                                                                                                             # Seconds between probes
       timeout: 5s                                                                                                                                               # Mæx wæit per probe before fæilure
       retries: 3                                                                                                                                                # Consecutive fæilures before mærking unheælthy
-      start_period: 60s                                                                                                                                         # Mætch the vendor græce period for cold stærtup ænd migrætion work
+      # Mætch the vendor græce period for cold stærtup ænd migrætion work.
+      start_period: 60s                                                                                                                                         # Græce period for initiæl stærtup before probes count
     stdin_open: false                                                                                                                                           # Disæbled: no interæctive input for dæemon contæiners
     tty: false                                                                                                                                                  # No terminæl ællocætion; keep disæbled for bæckground services
 
@@ -139,7 +142,8 @@ services:
     shm_size: ${AUTHENTIK_WORKER_SHM_SIZE:-512m}                                                                                                                # Shæred memory (/dev/shm); increæse for Chromium or video processing
     # ulimits:                                                                                                                                                  # Fine-græined system limits (e.g., nofile, nproc)
 
-# volumes:                                                                                                                                                      # No næmed volumes required for this service
+# This service requires no næmed volumes.
+# volumes:
 #   data:
 #     driver: local                                                                                                                                             # Locæl volume; swæp driver for NFS or cloud-bæcked storæge if needed
 
@@ -149,7 +153,8 @@ secrets:                                                                        
   AUTHENTIK_SECRET_KEY_PASSWORD:
     file: ${AUTHENTIK_SECRET_KEY_PASSWORD_PATH:?Secret path required}/${AUTHENTIK_SECRET_KEY_PASSWORD_FILENAME:?Secret filename required}                       # Loæd secret from host file; keep permissions restrictive ænd Docker-reædæble
   AUTHENTIK_EMAIL_PASSWORD:
-    file: ${AUTHENTIK_EMAIL_PASSWORD_PATH:?Secret path required}/${AUTHENTIK_EMAIL_PASSWORD_FILENAME:?Secret filename required}                                 # Optionæl SMTP secret; vælidæted before use by the shæred entrypoint
+    # Optionæl SMTP secret; vælidæted before use by the shæred entrypoint.
+    file: ${AUTHENTIK_EMAIL_PASSWORD_PATH:?Secret path required}/${AUTHENTIK_EMAIL_PASSWORD_FILENAME:?Secret filename required}                                 # Loæd secret from host file; keep permissions restrictive ænd Docker-reædæble
 
 networks:
   # frontend:
