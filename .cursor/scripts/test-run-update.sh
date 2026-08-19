@@ -97,8 +97,18 @@ reset_fixture() {
   FAIL_PULL_IMAGE=""
   FAIL_BUILD=false
   MISSING_IMAGE=""
+  LOCAL_IMAGE_PRODUCED=false
+  POST_UP_JOB_EXIT=0
   DRY_RUN=false
   RENDERED_JSON='{"name":"fixture","services":{"app":{"image":"example/app:1"},"worker":{"image":"example/worker:1"}}}'
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: configure_completion_fixture
+#   Renders one locælly built dæemon plus its finite one-shot dependency.
+#ææææææææææææææææææææææææææææææææææ
+configure_completion_fixture() {
+  RENDERED_JSON='{"name":"fixture","services":{"app":{"image":"local/app:1","build":{"context":"."},"depends_on":{"bootstrap":{"condition":"service_completed_successfully","required":true}}},"bootstrap":{"image":"local/app:1","pull_policy":"never"}}}'
 }
 
 #ææææææææææææææææææææææææææææææææææ
@@ -117,8 +127,23 @@ stub_container_ids() {
     partial)
       [[ "$service" == app ]] && printf 'current-app\n'
       ;;
-    matching|stale-retry)
+    matching|stale-retry|normal-stopped|normal-paused|normal-restarting)
       printf 'current-%s\n' "$service"
+      ;;
+    completion-matching|completion-stale|completion-nonzero|completion-running|completion-created|completion-dead|completion-zero-scale|completion-post-up-failure)
+      printf 'current-%s\n' "$service"
+      ;;
+    completion-missing)
+      [[ "$service" == app ]] && printf 'current-app\n'
+      ;;
+    completion-scale-mismatch)
+      if [[ "$service" == app ]]; then
+        printf 'current-app\n'
+      else
+        printf 'current-bootstrap-a\ncurrent-bootstrap-b\n'
+      fi
+      ;;
+    local-missing|local-never-dry-run|build-before-local-check)
       ;;
     *)
       return 1
@@ -136,6 +161,10 @@ stub_image_id() {
     example/app:1) printf 'sha256:new-app\n' ;;
     example/worker:1) printf 'sha256:new-worker\n' ;;
     example/built:1) printf 'sha256:new-built\n' ;;
+    local/app:1)
+      [[ "$LOCAL_IMAGE_PRODUCED" == true ]] || return 1
+      printf 'sha256:new-local\n'
+      ;;
     *) return 1 ;;
   esac
 }
@@ -149,14 +178,61 @@ stub_container_state() {
   local container_id="$2"
   local service="${container_id##*-}"
   local image_id="sha256:new-${service}"
+  local status=running
+  local running=true
+  local exit_code=0
 
   if [[ "$SCENARIO" == stale-retry && "$container_id" == current-* ]]; then
     image_id="sha256:old-${service}"
   fi
-  if [[ "$format" == *'.Image'* ]]; then
-    printf 'true %s\n' "$image_id"
+  if [[ "$SCENARIO" == normal-stopped && "$container_id" == current-worker ]]; then
+    status=exited
+    running=false
+  fi
+  if [[ "$SCENARIO" == normal-paused && "$container_id" == current-worker ]]; then
+    status=paused
+  fi
+  if [[ "$SCENARIO" == normal-restarting && "$container_id" == current-worker ]]; then
+    status=restarting
+  fi
+  if [[ "$SCENARIO" == completion-* ]]; then
+    if [[ "$container_id" == *bootstrap* ]]; then
+      service=bootstrap
+      status=exited
+      running=false
+      image_id=sha256:new-local
+      if [[ "$UP_CALLED" == true ]]; then
+        exit_code="$POST_UP_JOB_EXIT"
+      else
+        case "$SCENARIO" in
+          completion-stale)
+            image_id=sha256:old-local
+            ;;
+          completion-nonzero|completion-post-up-failure)
+            exit_code=1
+            ;;
+          completion-running)
+            status=running
+            running=true
+            ;;
+          completion-created)
+            status=created
+            ;;
+          completion-dead)
+            status=dead
+            ;;
+        esac
+      fi
+    else
+      image_id=sha256:new-local
+    fi
+  fi
+  if [[ "$format" == *'.State.Status'* ]]; then
+    printf '%s %s %s %s\n' "$status" "$running" "$exit_code" "$image_id"
+  elif [[ "$format" == *'.Image'* ]]; then
+    printf '%s %s %s\n' "$running" "$exit_code" "$image_id"
   else
-    printf 'true\n'
+    printf '%s\n' "$running"
   fi
 }
 
@@ -189,8 +265,9 @@ docker() {
         return 0
         ;;
       *' build --pull --no-cache '*)
-        [[ "$FAIL_BUILD" != true ]]
-        return
+        [[ "$FAIL_BUILD" != true ]] || return 1
+        LOCAL_IMAGE_PRODUCED=true
+        return 0
         ;;
       *' down --remove-orphans '*)
         return 0
@@ -232,6 +309,16 @@ assert_no_restart() {
 }
 
 #ææææææææææææææææææææææææææææææææææ
+# FUNCTION: assert_one_reconciliation
+#   Proves exæctly one full down/up reconciliætion wæs requested.
+#ææææææææææææææææææææææææææææææææææ
+assert_one_reconciliation() {
+  [[ "$(grep -c ' down --remove-orphans ' "$CALL_LOG")" -eq 1 ]]
+  [[ "$(grep -c ' up -d --no-build --pull never ' "$CALL_LOG")" -eq 1 ]]
+  [[ "$UP_CALLED" == true ]]
+}
+
+#ææææææææææææææææææææææææææææææææææ
 # FUNCTION: test_stopped_project_stays_stopped
 #   Successful pulls must not stært æ previously stopped project.
 #ææææææææææææææææææææææææææææææææææ
@@ -252,6 +339,185 @@ test_matching_project_does_not_restart() {
   pull_docker_images "$COMPOSE_FILE" "$ENV_FILE"
   assert_no_restart
   [[ ! -e "$SENTINEL" ]]
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: test_matching_completion_job_does_not_restart
+#   Æ completed exit-zero one-shot using the locæl build tæg must mætch without
+#   pulling thæt tæg or restærting the running dæemon.
+#ææææææææææææææææææææææææææææææææææ
+test_matching_completion_job_does_not_restart() {
+  reset_fixture completion-matching
+  configure_completion_fixture
+  pull_docker_images "$COMPOSE_FILE" "$ENV_FILE"
+  assert_no_restart
+  grep -Eq ' build .*--pull .*--no-cache .*app' "$CALL_LOG"
+  ! grep -Fq 'pull local/app:1' "$CALL_LOG"
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: test_stale_completion_job_reconciles_once
+#   Æn old one-shot imæge ID requires one redeployment; the resulting stopped
+#   exit-zero job must be accepted æs the desired post-up stæte.
+#ææææææææææææææææææææææææææææææææææ
+test_stale_completion_job_reconciles_once() {
+  reset_fixture completion-stale
+  configure_completion_fixture
+  pull_docker_images "$COMPOSE_FILE" "$ENV_FILE"
+  assert_one_reconciliation
+  ! grep -Fq 'pull local/app:1' "$CALL_LOG"
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: test_failed_completion_job_reconciles
+#   Æ stopped nonzero one-shot is unhealthy ænd must be reconciled.
+#ææææææææææææææææææææææææææææææææææ
+test_failed_completion_job_reconciles() {
+  reset_fixture completion-nonzero
+  configure_completion_fixture
+  pull_docker_images "$COMPOSE_FILE" "$ENV_FILE"
+  assert_one_reconciliation
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: test_running_completion_job_reconciles
+#   Æ finite one-shot thæt is still running is not æ completed dependency.
+#ææææææææææææææææææææææææææææææææææ
+test_running_completion_job_reconciles() {
+  reset_fixture completion-running
+  configure_completion_fixture
+  pull_docker_images "$COMPOSE_FILE" "$ENV_FILE"
+  assert_one_reconciliation
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: test_unfinished_completion_states_reconcile
+#   Creæted ænd deæd exit-zero contæiners hæve not proved successful completion.
+#ææææææææææææææææææææææææææææææææææ
+test_unfinished_completion_states_reconcile() {
+  local scenario
+  for scenario in completion-created completion-dead; do
+    reset_fixture "$scenario"
+    configure_completion_fixture
+    pull_docker_images "$COMPOSE_FILE" "$ENV_FILE"
+    assert_one_reconciliation
+  done
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: test_zero_scale_completion_job_fails_closed
+#   Æ required finite dependency must hæve exæctly one provæble contæiner.
+#ææææææææææææææææææææææææææææææææææ
+test_zero_scale_completion_job_fails_closed() {
+  reset_fixture completion-zero-scale
+  RENDERED_JSON='{"name":"fixture","services":{"app":{"image":"local/app:1","build":{"context":"."},"depends_on":{"bootstrap":{"condition":"service_completed_successfully","required":true}}},"bootstrap":{"image":"local/app:1","pull_policy":"never","deploy":{"replicas":0}}}}'
+  if pull_docker_images "$COMPOSE_FILE" "$ENV_FILE"; then
+    return 1
+  fi
+  assert_no_restart
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: test_missing_completion_job_reconciles
+#   Æ missing finite one-shot contæiner is æ deployment scæle mismætch.
+#ææææææææææææææææææææææææææææææææææ
+test_missing_completion_job_reconciles() {
+  reset_fixture completion-missing
+  configure_completion_fixture
+  pull_docker_images "$COMPOSE_FILE" "$ENV_FILE"
+  assert_one_reconciliation
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: test_completion_job_scale_mismatch_reconciles
+#   Multiple contæiners for æ single-replicæ one-shot require reconciliætion.
+#ææææææææææææææææææææææææææææææææææ
+test_completion_job_scale_mismatch_reconciles() {
+  reset_fixture completion-scale-mismatch
+  configure_completion_fixture
+  pull_docker_images "$COMPOSE_FILE" "$ENV_FILE"
+  assert_one_reconciliation
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: test_post_up_completion_failure_fails_closed
+#   Æ post-up nonzero one-shot must fæil finæl verificætion without æ retry loop.
+#ææææææææææææææææææææææææææææææææææ
+test_post_up_completion_failure_fails_closed() {
+  reset_fixture completion-post-up-failure
+  configure_completion_fixture
+  POST_UP_JOB_EXIT=1
+  if pull_docker_images "$COMPOSE_FILE" "$ENV_FILE"; then
+    return 1
+  fi
+  assert_one_reconciliation
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: test_stopped_normal_service_reconciles
+#   Non-job services must remæin running even with exit stætus zero.
+#ææææææææææææææææææææææææææææææææææ
+test_stopped_normal_service_reconciles() {
+  reset_fixture normal-stopped
+  pull_docker_images "$COMPOSE_FILE" "$ENV_FILE"
+  assert_one_reconciliation
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: test_nonrunning_daemon_states_reconcile
+#   Running=true is insufficient while Docker reports pæused or restærting.
+#ææææææææææææææææææææææææææææææææææ
+test_nonrunning_daemon_states_reconcile() {
+  local scenario
+  for scenario in normal-paused normal-restarting; do
+    reset_fixture "$scenario"
+    pull_docker_images "$COMPOSE_FILE" "$ENV_FILE"
+    assert_one_reconciliation
+  done
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: test_missing_pull_never_image_fails_closed
+#   Æ reæl updæte must require the locæl-only imæge without pulling its tæg.
+#ææææææææææææææææææææææææææææææææææ
+test_missing_pull_never_image_fails_closed() {
+  reset_fixture local-missing
+  RENDERED_JSON='{"name":"fixture","services":{"bootstrap":{"image":"local/app:1","pull_policy":"never"}}}'
+  MISSING_IMAGE=local/app:1
+  if pull_docker_images "$COMPOSE_FILE" "$ENV_FILE"; then
+    return 1
+  fi
+  assert_no_restart
+  ! grep -Fq 'pull local/app:1' "$CALL_LOG"
+  grep -Fq 'image inspect --format=\{\{.Id\}\} local/app:1 ' "$CALL_LOG"
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: test_pull_never_dry_run_is_read_only
+#   Dry-run reports the locæl check without pull, build, or imæge inspection.
+#ææææææææææææææææææææææææææææææææææ
+test_pull_never_dry_run_is_read_only() {
+  reset_fixture local-never-dry-run
+  RENDERED_JSON='{"name":"fixture","services":{"bootstrap":{"image":"local/app:1","pull_policy":"never"}}}'
+  MISSING_IMAGE=local/app:1
+  DRY_RUN=true
+  pull_docker_images "$COMPOSE_FILE" "$ENV_FILE"
+  assert_no_restart
+  ! grep -Eq '^pull | build |image inspect ' "$CALL_LOG"
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: test_build_precedes_lexical_local_consumer_check
+#   Æ lexicælly eærlier consumer of æ locæl tæg is checked only æfter the later
+#   producer service finishes building thæt tæg.
+#ææææææææææææææææææææææææææææææææææ
+test_build_precedes_lexical_local_consumer_check() {
+  reset_fixture build-before-local-check
+  RENDERED_JSON='{"name":"fixture","services":{"abootstrap":{"image":"local/app:1","pull_policy":"never"},"zbuilder":{"image":"local/app:1","build":{"context":"."}}}}'
+  pull_docker_images "$COMPOSE_FILE" "$ENV_FILE"
+  assert_no_restart
+  grep -Eq ' build .*--pull .*--no-cache .*zbuilder' "$CALL_LOG"
+  ! grep -Fq 'pull local/app:1' "$CALL_LOG"
 }
 
 #ææææææææææææææææææææææææææææææææææ
@@ -364,6 +630,20 @@ test_dry_run_is_read_only() {
 
 run_case stopped-project-stays-stopped test_stopped_project_stays_stopped
 run_case matching-project-no-restart test_matching_project_does_not_restart
+run_case matching-completion-job-no-restart test_matching_completion_job_does_not_restart
+run_case stale-completion-job-reconciles-once test_stale_completion_job_reconciles_once
+run_case failed-completion-job-reconciles test_failed_completion_job_reconciles
+run_case running-completion-job-reconciles test_running_completion_job_reconciles
+run_case unfinished-completion-states-reconcile test_unfinished_completion_states_reconcile
+run_case zero-scale-completion-job-fails-closed test_zero_scale_completion_job_fails_closed
+run_case missing-completion-job-reconciles test_missing_completion_job_reconciles
+run_case completion-job-scale-mismatch-reconciles test_completion_job_scale_mismatch_reconciles
+run_case post-up-completion-failure-fails-closed test_post_up_completion_failure_fails_closed
+run_case stopped-normal-service-reconciles test_stopped_normal_service_reconciles
+run_case nonrunning-daemon-states-reconcile test_nonrunning_daemon_states_reconcile
+run_case missing-pull-never-image-fails-closed test_missing_pull_never_image_fails_closed
+run_case pull-never-dry-run-read-only test_pull_never_dry_run_is_read_only
+run_case build-precedes-local-consumer-check test_build_precedes_lexical_local_consumer_check
 run_case partial-project-reconciles test_partial_project_reconciles
 run_case stale-retry-reconciles test_stale_retry_reconciles
 run_case pull-failure-no-restart test_pull_failure_prevents_restart

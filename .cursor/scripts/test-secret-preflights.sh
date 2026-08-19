@@ -4490,6 +4490,71 @@ for path, secret_name, env_name, expected_default in checks:
                 f"VIKUNJA_MAILER_PASSWORD_FILE to direct health and CLI processes"
             )
 
+grafana_path = root / "Grafana/docker-compose.app.yaml"
+grafana_document = yaml.safe_load(grafana_path.read_text(encoding="utf-8"))
+grafana_app = grafana_document["services"]["app"]
+grafana_mounts = {
+    item if isinstance(item, str) else item.get("source")
+    for item in grafana_app.get("secrets", [])
+}
+expected_grafana_mounts = {
+    "POSTGRES_PASSWORD",
+    "GRAFANA_SECRET_KEY",
+    "GRAFANA_OIDC_CLIENT_ID",
+    "GRAFANA_OIDC_CLIENT_SECRET",
+}
+if grafana_mounts != expected_grafana_mounts:
+    raise SystemExit(
+        f"{grafana_path}: final app secret mounts must be exactly "
+        f"{sorted(expected_grafana_mounts)!r}, got {sorted(grafana_mounts)!r}"
+    )
+grafana_volumes = {str(item).split(":", 1)[0] for item in grafana_app.get("volumes", [])}
+if "./appdata/bootstrap-state" in grafana_volumes:
+    raise SystemExit(f"{grafana_path}: final app must not mount bootstrap-state")
+grafana_environment = grafana_app.get("environment", {})
+for name, expected in {
+    "GF_SECURITY_DISABLE_INITIAL_ADMIN_CREATION": "true",
+    "GF_AUTH_GENERIC_OAUTH_ENABLED": "true",
+    "GF_AUTH_GENERIC_OAUTH_VALIDATE_ID_TOKEN": "true",
+    "GF_AUTH_GENERIC_OAUTH_LOGIN_ATTRIBUTE_PATH": "sub",
+    "GF_AUTH_GENERIC_OAUTH_ROLE_ATTRIBUTE_STRICT": "true",
+    "GF_AUTH_BASIC_ENABLED": "false",
+    "GF_AUTH_ANONYMOUS_ENABLED": "false",
+}.items():
+    if grafana_environment.get(name) != expected:
+        raise SystemExit(f"{grafana_path}: {name} must equal {expected!r}")
+if "GRAFANA_OIDC_ENABLED" in grafana_environment:
+    raise SystemExit(f"{grafana_path}: mandatory OIDC must not retain a false toggle")
+if grafana_app.get("depends_on", {}).get("grafana-bootstrap", {}).get("condition") != "service_completed_successfully":
+    raise SystemExit(f"{grafana_path}: app must wait for verified grafana-bootstrap completion")
+
+grafana_bootstrap_path = root / "templates/grafana-bootstrap/docker-compose.grafana-bootstrap.yaml"
+grafana_bootstrap_document = yaml.safe_load(
+    grafana_bootstrap_path.read_text(encoding="utf-8")
+)
+grafana_bootstrap = grafana_bootstrap_document["services"]["grafana-bootstrap"]
+grafana_bootstrap_mounts = {
+    item if isinstance(item, str) else item.get("source")
+    for item in grafana_bootstrap.get("secrets", [])
+}
+expected_bootstrap_mounts = {
+    "POSTGRES_PASSWORD",
+    "GRAFANA_SECRET_KEY",
+    "GRAFANA_ADMIN_PASSWORD",
+}
+if grafana_bootstrap_mounts != expected_bootstrap_mounts:
+    raise SystemExit(
+        f"{grafana_bootstrap_path}: bootstrap secret mounts must be exactly "
+        f"{sorted(expected_bootstrap_mounts)!r}"
+    )
+bootstrap_volumes = {
+    str(item).split(":", 1)[0] for item in grafana_bootstrap.get("volumes", [])
+}
+if "./appdata/bootstrap-state" not in bootstrap_volumes:
+    raise SystemExit(f"{grafana_bootstrap_path}: bootstrap-state marker bind is missing")
+if grafana_bootstrap.get("restart") != "no" or grafana_bootstrap.get("command") != ["bootstrap"]:
+    raise SystemExit(f"{grafana_bootstrap_path}: bootstrap must remain a finite one-shot")
+
 authentik_path = root / "Authentik/docker-compose.app.yaml"
 authentik_document = yaml.safe_load(authentik_path.read_text(encoding="utf-8"))
 authentik_secret = "AUTHENTIK_EMAIL_PASSWORD"

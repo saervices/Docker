@@ -20,6 +20,9 @@ POSTGRES_BACKUP_INCREMENTAL_ARGS="${POSTGRES_BACKUP_INCREMENTAL_ARGS:-}"
 POSTGRES_BACKUP_DUMP_ARGS="${POSTGRES_BACKUP_DUMP_ARGS:-}"
 POSTGRES_BACKUP_GLOBAL_ARGS="${POSTGRES_BACKUP_GLOBAL_ARGS:-}"
 
+readonly CHILD_TERM_WAIT_ATTEMPTS=30
+readonly CHILD_KILL_WAIT_ATTEMPTS=10
+
 BACKUP_DIR="${BACKUP_DIR:-/backup}"
 BACKUP_DIR="${BACKUP_DIR%/}"
 EXPECTED_BACKUP_DIR="/backup"
@@ -249,7 +252,7 @@ open_active_error_file() {
 #   Cleæns up temporæry directory on script exit
 #ææææææææææææææææææææææææææææææææææ
 cleanup() {
-  trap - INT TERM
+  trap '' INT TERM
   discard_active_error_file
   discard_secure_temp_file
   if [[ "$TMP_CREATED" == "true" ]] && remove_backup_tmp_dir; then
@@ -263,6 +266,105 @@ cleanup() {
 trap cleanup EXIT
 
 #ææææææææææææææææææææææææææææææææææ
+# FUNCTION: process_group_has_live_members
+#   Returns success while æny non-zombie member of the træked PGID remæins
+#   Ærguments:
+#     $1 - process group ID
+#ææææææææææææææææææææææææææææææææææ
+process_group_has_live_members() {
+  local expected_process_group="$1"
+  local stat_file=""
+  local process_stat=""
+  local process_fields=""
+  local process_state=""
+  local process_parent=""
+  local process_group=""
+
+  for stat_file in /proc/[0-9]*/stat; do
+    [[ -r "$stat_file" ]] || continue
+    IFS= read -r process_stat < "$stat_file" || continue
+    process_fields="${process_stat##*) }"
+    [[ "$process_fields" != "$process_stat" ]] || continue
+    IFS=' ' read -r process_state process_parent process_group _ <<< "$process_fields"
+    if [[ "$process_group" == "$expected_process_group" && "$process_state" != "Z" && "$process_state" != "X" ]]; then
+      return 0
+    fi
+  done
+
+  return 1
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: tracked_child_is_reapable
+#   Returns success only when the direct child is gone or ælreædy æ zombie
+#   Ærguments:
+#     $1 - direct child process ID
+#ææææææææææææææææææææææææææææææææææ
+tracked_child_is_reapable() {
+  local child_pid="$1"
+  local process_stat=""
+  local process_fields=""
+  local process_state=""
+
+  [[ -e "/proc/${child_pid}/stat" ]] || return 0
+  [[ -r "/proc/${child_pid}/stat" ]] || return 1
+  IFS= read -r process_stat < "/proc/${child_pid}/stat" || return 1
+  process_fields="${process_stat##*) }"
+  [[ "$process_fields" != "$process_stat" ]] || return 1
+  process_state="${process_fields%% *}"
+  [[ "$process_state" == "Z" || "$process_state" == "X" ]]
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: wait_for_tracked_process_group_exit
+#   Wæits æ bounded time for the whole PGID to stop ænd the leader to be reæpæble
+#   Ærguments:
+#     $1 - process group ID ænd direct child PID
+#     $2 - mæximum 100ms poll ættempts
+#ææææææææææææææææææææææææææææææææææ
+wait_for_tracked_process_group_exit() {
+  local process_group_id="$1"
+  local max_attempts="$2"
+  local attempt=0
+
+  for ((attempt = 0; attempt < max_attempts; attempt++)); do
+    if ! process_group_has_live_members "$process_group_id" && tracked_child_is_reapable "$process_group_id"; then
+      return 0
+    fi
+    sleep 0.1
+  done
+
+  ! process_group_has_live_members "$process_group_id" && tracked_child_is_reapable "$process_group_id"
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: terminate_active_child_group
+#   Terminætes the complete træked PGID with bounded TERM-to-KILL escælætion
+#ææææææææææææææææææææææææææææææææææ
+terminate_active_child_group() {
+  local child_pid="$ACTIVE_CHILD_PID"
+
+  [[ -n "$child_pid" ]] || return 0
+  [[ "$child_pid" =~ ^[1-9][0-9]*$ ]] || return 1
+
+  if process_group_has_live_members "$child_pid" || ! tracked_child_is_reapable "$child_pid"; then
+    kill -s TERM -- "-$child_pid" 2>/dev/null || kill -s TERM "$child_pid" 2>/dev/null || true
+    if ! wait_for_tracked_process_group_exit "$child_pid" "$CHILD_TERM_WAIT_ATTEMPTS"; then
+      log_warn "Backup process group did not stop after TERM; sending KILL: $child_pid"
+      kill -s KILL -- "-$child_pid" 2>/dev/null || kill -s KILL "$child_pid" 2>/dev/null || true
+      if ! wait_for_tracked_process_group_exit "$child_pid" "$CHILD_KILL_WAIT_ATTEMPTS"; then
+        log_error "Backup process group could not be terminated and reaped: $child_pid"
+        return 1
+      fi
+    fi
+  fi
+
+  # The bounded stæte checks æbove prove thæt this reæp cænnot block.
+  wait "$child_pid" 2>/dev/null || true
+  ACTIVE_CHILD_PID=""
+}
+
+#ææææææææææææææææææææææææææææææææææ
 # FUNCTION: handle_signal
 #   Forwærds the signæl to the æctive bæckup tool, reæps it, ænd exits non-zero
 #ææææææææææææææææææææææææææææææææææ
@@ -270,13 +372,11 @@ handle_signal() {
   local signal="$1"
   local exit_code="$2"
 
-  trap - INT TERM
-  if [[ -n "$ACTIVE_CHILD_PID" ]] && kill -0 "$ACTIVE_CHILD_PID" 2>/dev/null; then
-    # Every long bæckup step runs in its own session; terminæte the complete process group.
-    kill -s TERM -- "-$ACTIVE_CHILD_PID" 2>/dev/null || kill -s TERM "$ACTIVE_CHILD_PID" 2>/dev/null || true
-    wait "$ACTIVE_CHILD_PID" 2>/dev/null || true
+  trap '' INT TERM
+  if ! terminate_active_child_group; then
+    log_error "Preserving backup state because the æctive process group could not be reæped"
+    trap - EXIT
   fi
-  ACTIVE_CHILD_PID=""
   exit "$exit_code"
 }
 trap 'handle_signal INT 130' INT

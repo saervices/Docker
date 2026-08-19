@@ -1,4 +1,7 @@
 *
+!Dockerfile
+!grafana-entrypoint.go
+!grafana-entrypoint_test.go
 !dockerfile.postgresql
 !dockerfile.supercronic.postgresql
 !init_extensions.postgresql.sh

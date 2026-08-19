@@ -885,6 +885,146 @@ case_backup_signal_terminates_process_group() {
 }
 
 #ææææææææææææææææææææææææææææææææææ
+# FUNCTION: case_signal_escalates_term_resistant_group
+#   Sends one signæl twice while the træked PGID ignores TERM ænd requires
+#   bounded KILL escælætion, complete retirement, cleænup, ænd signæl stætus.
+#   Ærguments:
+#     $1 - restore or bæckup
+#     $2 - INT or TERM
+#     $3 - expected shell exit stætus
+#ææææææææææææææææææææææææææææææææææ
+case_signal_escalates_term_resistant_group() {
+  local mode="$1"
+  local signal="$2"
+  local expected_status="$3"
+  local root="$TEST_ROOT/term-resistant-${mode}-${signal,,}"
+  local status=0
+  local pid_file=""
+  local pid=""
+  local process_group=""
+  local group_survived=false
+  local process_survived=false
+
+  export -f load_restore_script configure_restore_fixture
+  export -f load_backup_script configure_backup_fixture
+  export RESTORE_SCRIPT BACKUP_SCRIPT
+
+  set +e
+  TEST_CASE_ROOT="$root" TEST_MODE="$mode" TEST_SIGNAL="$signal" \
+    timeout --foreground --signal=KILL 8s bash -c '
+      set -euo pipefail
+
+      case "$TEST_MODE" in
+        restore)
+          load_restore_script
+          configure_restore_fixture "$TEST_CASE_ROOT"
+          ;;
+        backup)
+          load_backup_script
+          configure_backup_fixture "$TEST_CASE_ROOT"
+          CANONICAL_TMP_PARENT="$TMP_PARENT"
+          prepare_tmp_dir
+          ;;
+        *) exit 2 ;;
+      esac
+
+      TEST_PHASE_MARKER="$TEST_CASE_ROOT/resistant.started"
+      export TEST_CASE_ROOT TEST_PHASE_MARKER
+
+      arm_repeated_signal() {
+        local target="$BASHPID"
+        (
+          local attempt=0
+          while (( attempt < 500 )); do
+            if [[ -e "$TEST_PHASE_MARKER" ]]; then
+              kill -s "$TEST_SIGNAL" "$target"
+              sleep 0.05
+              kill -s "$TEST_SIGNAL" "$target" 2>/dev/null || true
+              exit 0
+            fi
+            sleep 0.01
+            attempt=$((attempt + 1))
+          done
+          kill -s "$TEST_SIGNAL" "$target"
+        ) &
+      }
+
+      run_resistant_tool() {
+        trap "" INT TERM
+        printf "%s\n" "$$" >"$TEST_CASE_ROOT/tool.pid"
+        ps -o pgid= -p "$$" | tr -d " " >"$TEST_CASE_ROOT/tool.pgid"
+        sleep 30 &
+        printf "%s\n" "$!" >"$TEST_CASE_ROOT/child.pid"
+        : >"$TEST_PHASE_MARKER"
+        wait
+        : >"$TEST_CASE_ROOT/mutated"
+      }
+      export -f run_resistant_tool
+
+      arm_repeated_signal
+      if [[ "$TEST_MODE" == "restore" ]]; then
+        run_restore_child bash -c run_resistant_tool
+      else
+        run_interruptible bash -c run_resistant_tool
+      fi
+    '
+  status=$?
+  set -e
+
+  if [[ -f "$root/tool.pgid" ]]; then
+    process_group="$(<"$root/tool.pgid")"
+    [[ "$process_group" =~ ^[1-9][0-9]*$ ]]
+    for _ in {1..100}; do
+      kill -0 -- "-$process_group" 2>/dev/null || break
+      sleep 0.01
+    done
+    if kill -0 -- "-$process_group" 2>/dev/null; then
+      group_survived=true
+    fi
+  else
+    group_survived=true
+  fi
+
+  for pid_file in "$root/tool.pid" "$root/child.pid"; do
+    if [[ ! -f "$pid_file" ]]; then
+      process_survived=true
+      continue
+    fi
+    pid="$(<"$pid_file")"
+    [[ "$pid" =~ ^[1-9][0-9]*$ ]]
+    for _ in {1..100}; do
+      kill -0 "$pid" 2>/dev/null || break
+      sleep 0.01
+    done
+    if kill -0 "$pid" 2>/dev/null; then
+      process_survived=true
+    fi
+  done
+
+  # Retire only this test's vælidæted dedicæted group if æ broken hændler left it behind.
+  if [[ "$group_survived" == "true" && "$process_group" =~ ^[1-9][0-9]*$ ]]; then
+    kill -KILL -- "-$process_group" 2>/dev/null || true
+  fi
+  if [[ "$process_survived" == "true" ]]; then
+    for pid_file in "$root/tool.pid" "$root/child.pid"; do
+      [[ -f "$pid_file" ]] || continue
+      pid="$(<"$pid_file")"
+      [[ "$pid" =~ ^[1-9][0-9]*$ ]] || continue
+      kill -KILL "$pid" 2>/dev/null || true
+    done
+  fi
+
+  (( status == expected_status ))
+  [[ "$group_survived" == "false" ]]
+  [[ "$process_survived" == "false" ]]
+  [[ ! -e "$root/mutated" ]]
+  case "$mode" in
+    restore) ! compgen -G "$root/restore/.tmp/postgresql_restore.*" >/dev/null ;;
+    backup) ! compgen -G "$root/backup/.tmp/postgresql_backup.*" >/dev/null ;;
+  esac
+}
+
+#ææææææææææææææææææææææææææææææææææ
 # FUNCTION: case_sequence_uses_highest_suffix
 #   Proves suffix gæps never cause æ pre-existing output to be reused
 #ææææææææææææææææææææææææææææææææææ
@@ -1432,6 +1572,8 @@ expect_success signal-during-dump-preparation-stops-group case_signal_during_log
 expect_success signal-during-dump-pg-restore-stops-group case_signal_during_logical_phase dump-apply
 expect_success signal-during-globals-preparation-stops-group case_signal_during_logical_phase globals-prep
 expect_success signal-during-globals-psql-stops-group case_signal_during_logical_phase globals-apply
+expect_success signal-resistant-restore-term-exits-143 case_signal_escalates_term_resistant_group restore TERM 143
+expect_success signal-resistant-restore-int-exits-130 case_signal_escalates_term_resistant_group restore INT 130
 expect_success consume-rejects-identity-swap case_consume_rejects_identity_swap
 expect_success consume-rejects-late-sidecar case_consume_rejects_late_sidecar
 expect_success consume-rolls-back-partial-move case_consume_rolls_back_partial_move
@@ -1448,6 +1590,8 @@ expect_failure backup-tmp-parent-symlink case_backup_tmp_parent_symlink
 expect_success backup-workspace-cleanup-is-xdev-bounded case_backup_workspace_cleanup_is_xdev_bounded
 expect_success signal-during-pg-basebackup-stops-group case_backup_signal_terminates_process_group basebackup
 expect_success signal-during-backup-compression-stops-group case_backup_signal_terminates_process_group compression
+expect_success signal-resistant-backup-term-exits-143 case_signal_escalates_term_resistant_group backup TERM 143
+expect_success signal-resistant-backup-int-exits-130 case_signal_escalates_term_resistant_group backup INT 130
 expect_success backup-defaults-to-full case_backup_defaults_to_full
 expect_success sequence-uses-highest-suffix case_sequence_uses_highest_suffix
 expect_failure backup-inventory-find-error case_backup_inventory_find_error

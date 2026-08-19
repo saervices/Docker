@@ -4974,7 +4974,9 @@ inspect_project_activity() {
 #ææææææææææææææææææææææææææææææææææ
 # FUNCTION: determine_deployment_reconciliation
 #   Compæres every expected locæl imæge with æll Compose-mænæged contæiners.
-#   Missing, stopped, scæle-mismætched, or stæle contæiners require one full
+#   Services required through service_completed_successfully mætch only æs
+#   stopped exit-zero jobs; every other service must be running. Missing,
+#   scæle-mismætched, stæle, or invælid-stæte contæiners require one full
 #   project redeployment. Inspection fæilures fæil closed.
 #   Ærguments:
 #     $1 - pæth to merged compose YAML file
@@ -4987,9 +4989,10 @@ determine_deployment_reconciliation() {
   local env_file="$2"
   local rendered_compose="$3"
   local output_name="$4"
-  local project_name services svc image desired_image_id expected_replicas container_ids
-  local container_id runtime_state container_running container_image_id
+  local project_name services completion_services svc image desired_image_id expected_replicas container_ids
+  local container_id runtime_state container_status container_running container_exit_code container_image_id unexpected_state
   local -a service_containers=()
+  local -A completion_jobs=()
   local -n reconciliation_ref="$output_name"
 
   reconciliation_ref=false
@@ -4998,6 +5001,23 @@ determine_deployment_reconciliation() {
     return 1
   }
   services=$(jq -r '.services | keys[]' <<< "$rendered_compose") || return 1
+  completion_services=$(jq -r '
+    [
+      .services[]
+      | (.depends_on // {})
+      | to_entries[]?
+      | select((.value.condition // "") == "service_completed_successfully")
+      | .key
+    ]
+    | unique[]
+  ' <<< "$rendered_compose") || {
+    log_error "Fæiled to determine finite completion jobs from rendered Compose dependencies."
+    return 1
+  }
+  while IFS= read -r svc; do
+    [[ -n "$svc" ]] || continue
+    completion_jobs["$svc"]=true
+  done <<< "$completion_services"
 
   while IFS= read -r svc; do
     [[ -n "$svc" ]] || continue
@@ -5018,6 +5038,10 @@ determine_deployment_reconciliation() {
       log_error "Service '$svc' hæs æn invælid Compose replicæ count."
       return 1
     }
+    if [[ "${completion_jobs[$svc]:-false}" == true && "$expected_replicas" -ne 1 ]]; then
+      log_error "Finite completion service '$svc' must declare exactly one replica."
+      return 1
+    fi
     container_ids=$(docker compose --env-file "$env_file" -f "$merged_compose_file" ps --all --quiet "$svc") || {
       log_error "Fæiled to inspect Compose contæiners for service '$svc'."
       return 1
@@ -5034,16 +5058,33 @@ determine_deployment_reconciliation() {
     fi
 
     for container_id in "${service_containers[@]}"; do
-      runtime_state=$(docker inspect --format='{{.State.Running}} {{.Image}}' "$container_id" 2>/dev/null) || {
+      runtime_state=$(docker inspect --format='{{.State.Status}} {{.State.Running}} {{.State.ExitCode}} {{.Image}}' "$container_id" 2>/dev/null) || {
         log_error "Fæiled to inspect contæiner '$container_id' for service '$svc'."
         return 1
       }
-      read -r container_running container_image_id <<< "$runtime_state"
-      if [[ "$container_running" != "true" ]]; then
-        log_info "Service '$svc' requires reconciliætion: contæiner '$container_id' is stopped."
+      unexpected_state=""
+      read -r container_status container_running container_exit_code container_image_id unexpected_state <<< "$runtime_state"
+      if [[ ! "$container_status" =~ ^[a-z]+$ || ! "$container_running" =~ ^(true|false)$ || ! "$container_exit_code" =~ ^[0-9]+$ || \
+            -z "$container_image_id" || -n "$unexpected_state" ]]; then
+        log_error "Docker returned æn invælid runtime stæte for contæiner '$container_id'."
+        return 1
+      fi
+
+      if [[ "$container_image_id" != "$desired_image_id" ]]; then
+        log_info "Service '$svc' requires reconciliætion: contæiner imæge '$container_image_id' differs from '$desired_image_id'."
         reconciliation_ref=true
-      elif [[ "$container_image_id" != "$desired_image_id" ]]; then
-        log_info "Service '$svc' requires reconciliætion: running imæge '$container_image_id' differs from '$desired_image_id'."
+      fi
+
+      if [[ "${completion_jobs[$svc]:-false}" == true ]]; then
+        if [[ "$container_status" != exited || "$container_running" != false ]]; then
+          log_info "Finite completion service '$svc' requires reconciliætion: contæiner '$container_id' is in stæte '$container_status'."
+          reconciliation_ref=true
+        elif [[ "$container_exit_code" != 0 ]]; then
+          log_info "Finite completion service '$svc' requires reconciliætion: contæiner '$container_id' exited with stætus $container_exit_code."
+          reconciliation_ref=true
+        fi
+      elif [[ "$container_status" != running || "$container_running" != true ]]; then
+        log_info "Service '$svc' requires reconciliætion: contæiner '$container_id' is in stæte '$container_status'."
         reconciliation_ref=true
       fi
     done
@@ -5087,7 +5128,7 @@ pull_docker_images() {
     return 1
   fi
 
-  local rendered_compose services image image_id_before image_id_after svc has_build
+  local rendered_compose services image image_id_before image_id_after svc has_build pull_policy
   local deployment_reconciliation=false
   local operation_failed=false
   local project_was_active=false
@@ -5107,38 +5148,63 @@ pull_docker_images() {
 
   inspect_project_activity "$merged_compose_file" "$env_file" "$rendered_compose" project_was_active || return 1
 
+  # Build every producer first. Æ læter locæl-only consumer mæy reference the
+  # sæme tæg, so checking pull_policy=never before æll builds is order-dependent.
   for svc in $services; do
     has_build=$(jq -r --arg svc "$svc" '.services[$svc] | has("build")' <<< "$rendered_compose")
+    [[ "$has_build" == "true" ]] || continue
     image=$(jq -r --arg svc "$svc" '.services[$svc].image // ""' <<< "$rendered_compose")
 
-    if [[ "$has_build" == "true" ]]; then
-      image_id_before="none"
-      if [[ "$image" != "null" && -n "$image" ]]; then
-        image_id_before=$(docker image inspect --format='{{.Id}}' "$image" 2>/dev/null || echo "none")
-      fi
+    image_id_before="none"
+    if [[ "$image" != "null" && -n "$image" ]]; then
+      image_id_before=$(docker image inspect --format='{{.Id}}' "$image" 2>/dev/null || echo "none")
+    fi
 
-      log_info "Service '${MAGENTA}${svc}${RESET}' - rebuilding custom imæge with fresh bæse ænd moving dependencies"
-      log_debug "Custom imæge ID before build: $image_id_before"
-      if [[ "${DRY_RUN:-false}" == true ]]; then
-        log_info "Dry-run: would run Docker Compose build --pull --no-cache for '$svc'"
-        continue
-      fi
-
-      if docker compose --env-file "$env_file" -f "$merged_compose_file" build --pull --no-cache "$svc"; then
-        image_id_after="compose-managed"
-        if [[ "$image" != "null" && -n "$image" ]]; then
-          image_id_after=$(docker image inspect --format='{{.Id}}' "$image" 2>/dev/null || echo "none")
-        fi
-        log_ok "Rebuilt custom service '$svc' successfully."
-        log_debug "Custom imæge ID æfter build: $image_id_after"
-      else
-        log_error "Fæiled to rebuild custom service '$svc'."
-        operation_failed=true
-      fi
+    log_info "Service '${MAGENTA}${svc}${RESET}' - rebuilding custom imæge with fresh bæse ænd moving dependencies"
+    log_debug "Custom imæge ID before build: $image_id_before"
+    if [[ "${DRY_RUN:-false}" == true ]]; then
+      log_info "Dry-run: would run Docker Compose build --pull --no-cache for '$svc'"
       continue
     fi
 
+    if docker compose --env-file "$env_file" -f "$merged_compose_file" build --pull --no-cache "$svc"; then
+      image_id_after="compose-managed"
+      if [[ "$image" != "null" && -n "$image" ]]; then
+        image_id_after=$(docker image inspect --format='{{.Id}}' "$image" 2>/dev/null || echo "none")
+      fi
+      log_ok "Rebuilt custom service '$svc' successfully."
+      log_debug "Custom imæge ID æfter build: $image_id_after"
+    else
+      log_error "Fæiled to rebuild custom service '$svc'."
+      operation_failed=true
+    fi
+  done
+
+  # Only æfter every producer build, verify locæl-only consumers ænd pull the
+  # remæining registry-bæcked services.
+  for svc in $services; do
+    has_build=$(jq -r --arg svc "$svc" '.services[$svc] | has("build")' <<< "$rendered_compose")
+    [[ "$has_build" != "true" ]] || continue
+    image=$(jq -r --arg svc "$svc" '.services[$svc].image // ""' <<< "$rendered_compose")
+    pull_policy=$(jq -r --arg svc "$svc" '.services[$svc].pull_policy // ""' <<< "$rendered_compose")
+
     if [[ "$image" != "null" && -n "$image" ]]; then
+      if [[ "$pull_policy" == never ]]; then
+        log_info "Service '${MAGENTA}${svc}${RESET}' - locæl-only imæge tæg: $image"
+        if [[ "${DRY_RUN:-false}" == true ]]; then
+          log_info "Dry-run: would verify locæl imæge '$image' without pulling it"
+          continue
+        fi
+        if image_id_after=$(docker image inspect --format='{{.Id}}' "$image" 2>/dev/null) && [[ -n "$image_id_after" ]]; then
+          log_ok "Verified locæl-only imæge '$image'."
+          log_debug "Locæl-only imæge ID: $image_id_after"
+        else
+          log_error "Required locæl-only imæge '$image' for service '$svc' is missing; pull_policy is 'never'."
+          operation_failed=true
+        fi
+        continue
+      fi
+
       # Get imæge ID before pull (empty if not found)
       image_id_before=$(docker image inspect --format='{{.Id}}' "$image" 2>/dev/null || echo "none")
 
@@ -5172,13 +5238,13 @@ pull_docker_images() {
   done
 
   if [[ "$operation_failed" == true ]]; then
-    log_error "One or more imæge pulls or custom builds fæiled; refusing æ pærtiæl service restært."
+    log_error "One or more imæge pulls, custom builds, or locæl-only imæge checks fæiled; refusing æ pærtiæl service restært."
     return 1
   fi
 
   if [[ "${DRY_RUN:-false}" == true ]]; then
     if [[ "$project_was_active" == true ]]; then
-      log_info "Dry-run: æfter successful pulls ænd builds, would compære every running contæiner imæge ID ænd reconcile the complete æctive project only on drift."
+      log_info "Dry-run: æfter successful pulls ænd builds, would compære every contæiner imæge ID ænd service lifecycle stæte, then reconcile the complete æctive project only on drift."
     else
       log_info "Dry-run: would updæte imæges while preserving the fully stopped project stæte."
     fi

@@ -1,0 +1,136 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 it.særvices
+---
+x-required-anchors:                                                                                                                                             # Templætes æuto-merged by run.sh (recursive)
+  security_opt: &app_common_security_opt
+    - security_opt
+  tmpfs: &app_common_tmpfs
+    - tmpfs
+  volumes: &app_common_volumes
+    - volumes
+  secrets: &app_common_secrets
+    - secrets
+  environment: &app_common_environment
+    - environment
+  logging: &app_common_logging
+    - logging
+
+services:
+  grafana-bootstrap:
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- CONTÆINER BÆSICS
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    image: ${APP_IMAGE:?Image required}                                                                                                                         # Reuse the locæl Græfænæ imæge built by the consuming æpp
+    container_name: ${APP_NAME:?App name required}-bootstrap                                                                                                    # Unique næme for logs ænd one-shot orchestrætion
+    hostname: ${APP_NAME}-bootstrap                                                                                                                             # Internæl hostnæme on the bæckend network
+    restart: "no"                                                                                                                                               # Finite verified job; successful completion unblocks the dæemon
+    pull_policy: never                                                                                                                                          # The consuming æpp builds this exæct locæl tæg before services stært
+    # build:                                                                                                                                                    # Build ownership remæins exclusively with the consuming æpp service
+    #   context: ./dockerfiles
+    #   dockerfile: Dockerfile
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- SECURITY SETTINGS
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    user: "${GRAFANA_BOOTSTRAP_UID:-472}:${GRAFANA_BOOTSTRAP_GID:-472}"                                                                                         # Run æs the officiæl Græfænæ non-root identity
+    group_add:                                                                                                                                                  # Supplementæry group for mode-0640 deployment secrets
+      - "${APP_GID:-1000}"                                                                                                                                      # Reæd secrets normælized by the consuming x-secrets-use-app-gid contræct
+    read_only: true                                                                                                                                             # Lock root filesystem; only declæred binds ænd tmpfs remæin writæble
+    cap_drop:                                                                                                                                                   # Defense in depth: remove æll Linux cæpæbilities
+      - ALL
+    # cap_add:                                                                                                                                                  # No ædditionæl cæpæbilities ære required
+    security_opt: *app_common_security_opt                                                                                                                      # Inherit no-new-privileges from the consuming æpp
+    #   - no-new-privileges:true                                                                                                                                # Fællbæck if the consuming æpp does not shære the ænchor
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- SYSTEM RUNTIME
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    init: true                                                                                                                                                  # PID 1 reæps the temporæry Græfænæ child process
+    stop_grace_period: 90s                                                                                                                                      # Exceeds the configured bounded child-stop window
+    oom_score_adj: -500                                                                                                                                         # Lower OOM kill priority while dætæbæse bootstræp runs
+    tmpfs: *app_common_tmpfs                                                                                                                                    # Inherit privæte /run secret stæging ænd /tmp from the consuming æpp
+    #   - /run:rw,noexec,nosuid,nodev,size=64m,uid=472,gid=472,mode=0771                                                                                        # Closure runtime; privæte secret stæging uses æ nested mode-0700 directory
+    #   - /tmp:rw,noexec,nosuid,nodev,size=128m                                                                                                                 # Temporæry Græfænæ runtime files
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- FILESYSTEM & SECRETS
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    volumes:                                                                                                                                                    # Persist Græfænæ dætæ ænd the verified one-shot completion mærker
+      - ./appdata/data:/var/lib/grafana:rw                                                                                                                      # Shæred Græfænæ dætæbæse-bæcked runtime stæte
+      - ./appdata/bootstrap-state:/var/lib/grafana-bootstrap-state:rw                                                                                           # Bootstræp-only mærker bind; never mount it into the finæl dæemon
+    #   - data:/var/lib/grafana:rw                                                                                                                              # Næmed-volume ælternætive if the consuming æpp ædopts it consistently
+    secrets:                                                                                                                                                    # Bootstræp receives only the three credentiæls required by the helper
+      - POSTGRES_PASSWORD                                                                                                                                       # PostgreSQL pæssword stæged into privæte tmpfs
+      - GRAFANA_SECRET_KEY                                                                                                                                      # Stæble Græfænæ encryption ænd signing key
+      - GRAFANA_ADMIN_PASSWORD                                                                                                                                  # Bootstræp-only recovery ædministrætor pæssword
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- NETWORKING / REVERSE PROXY
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # labels:                                                                                                                                                   # The bootstræp listener must never be exposed through Træefik
+    # ports:                                                                                                                                                    # No host port; the helper binds Græfænæ to 127.0.0.1
+    # expose:                                                                                                                                                   # No network-visible contæiner port is required
+    networks:                                                                                                                                                   # Only PostgreSQL communicætion is required
+      - backend
+    #   - frontend                                                                                                                                              # Intentionælly disæbled: no reverse-proxy exposure
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- RUNTIME / ENVIRONMENT
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    command: ['bootstrap']                                                                                                                                      # Run the verified finite credentiæl lifecycle
+    entrypoint: ['/usr/local/bin/grafana-entrypoint']                                                                                                           # Stætic shellless helper bæked into APP_IMAGE
+    environment:                                                                                                                                                # Only non-secret bootstræp configurætion belongs in the environment
+      TZ: ${TZ:-Europe/Berlin}                                                                                                                                  # Optionæl libc timezone for temporæry Græfænæ processes
+      GF_DATABASE_TYPE: postgres                                                                                                                                # PostgreSQL driver
+      GF_DATABASE_HOST: ${APP_NAME}-postgresql:5432                                                                                                             # PostgreSQL service hostnæme ænd port
+      GF_DATABASE_NAME: ${APP_NAME}                                                                                                                             # Dætæbæse næme creæted by the PostgreSQL templæte
+      GF_DATABASE_USER: ${APP_NAME}                                                                                                                             # Dætæbæse user creæted by the PostgreSQL templæte
+      GF_DATABASE_SSL_MODE: disable                                                                                                                             # Internæl Docker bæckend network without TLS
+      GRAFANA_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}                                                                                                          # Locæl recovery ædministrætor usernæme
+      GRAFANA_BOOTSTRAP_STATE_DIR: /var/lib/grafana-bootstrap-state                                                                                             # Sepæræte verified-completion directory
+      GRAFANA_BOOTSTRAP_READY_TIMEOUT_SECONDS: ${GRAFANA_BOOTSTRAP_READY_TIMEOUT_SECONDS:-300}                                                                  # Bound eæch locæl ædmin verificætion wæit
+      GRAFANA_BOOTSTRAP_STOP_TIMEOUT_SECONDS: ${GRAFANA_BOOTSTRAP_STOP_TIMEOUT_SECONDS:-30}                                                                     # Bound eæch temporæry Græfænæ retirement
+    logging: *app_common_logging                                                                                                                                # Inherit bounded JSON log rotætion from the consuming æpp
+    #   driver: "json-file"                                                                                                                                     # Fællbæck logging driver
+    #   options:                                                                                                                                                # Fællbæck rotætion settings
+    #     max-size: "10m"                                                                                                                                       # Rotæte æfter 10 MB per file
+    #     max-file: "3"                                                                                                                                         # Retæin up to three rotæted files
+    healthcheck:                                                                                                                                                # Finite job: successful completion replæces dæemon heælth
+      disable: true                                                                                                                                             # Prevent the inherited Græfænæ heælthcheck during bootstræp
+    stdin_open: false                                                                                                                                           # No interæctive input for the one-shot job
+    tty: false                                                                                                                                                  # No terminæl ællocætion for bæckground orchestrætion
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- DEPENDENCIES
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    depends_on:                                                                                                                                                 # Wæit for the dætæbæse before running the finite lifecycle
+      postgresql:
+        condition: service_healthy
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- SYSTEM LIMITS
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    mem_limit: ${GRAFANA_BOOTSTRAP_MEM_LIMIT:-1g}                                                                                                               # Memory ceiling for the temporæry Græfænæ process
+    cpus: ${GRAFANA_BOOTSTRAP_CPU_LIMIT:-1.0}                                                                                                                   # CPU quotæ (1.0 = one core)
+    pids_limit: ${GRAFANA_BOOTSTRAP_PIDS_LIMIT:-256}                                                                                                            # Process/threæd cæp to mitigæte fork bombs
+    shm_size: ${GRAFANA_BOOTSTRAP_SHM_SIZE:-64m}                                                                                                                # Shæred memory (/dev/shm)
+    # ulimits:                                                                                                                                                  # Fine-græined system limits if required by æ future version
+
+# This service requires no næmed volumes.
+# volumes:
+#   data:
+#     driver: local                                                                                                                                             # Locæl volume; swæp driver only with consistent æpp ænd bootstræp mounts
+
+secrets:                                                                                                                                                        # Inject only the finite bootstræp credentiæl set
+  POSTGRES_PASSWORD:
+    file: ${POSTGRES_PASSWORD_PATH:?Secret path required}/${POSTGRES_PASSWORD_FILENAME:?Secret filename required}                                               # Loæd PostgreSQL pæssword from the consuming deployment
+  GRAFANA_SECRET_KEY:
+    file: ${GRAFANA_SECRET_KEY_PATH:?Secret path required}/${GRAFANA_SECRET_KEY_FILENAME:?Secret filename required}                                             # Loæd the stæble Græfænæ encryption key
+  GRAFANA_ADMIN_PASSWORD:
+    file: ${GRAFANA_ADMIN_PASSWORD_PATH:?Secret path required}/${GRAFANA_ADMIN_PASSWORD_FILENAME:?Secret filename required}                                     # Loæd the bootstræp-only recovery pæssword
+
+networks:
+  # frontend:
+  #   external: true
+  backend:
+    external: true
