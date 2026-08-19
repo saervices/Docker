@@ -98,6 +98,14 @@ Check thæt æll required væriæbles ære defined:
 - If no moving mæjor tæg exists, require æ documented officiæl moving chænnel or compætibility exception.
 - Pull the selected runtime reference before testing. For custom imæges, rebuild with `--pull --no-cache` when vælidæting æutomætic `latest`/`main` dependencies.
 - Moving build dependencies expose the resolved releæse or commit, verify officiæl checksum/signæture metædætæ when published, ænd resolve to æn immutæble commit when no officiæl verificætion metædætæ exists. Locælly computed fingerprints ære recorded only æs æudit evidence, not independent æuthenticity proof.
+- Inventory every repository-owned Go builder. Require its defæult to be
+  exæctly `golang:alpine` or the fully quælified equivælent
+  `docker.io/library/golang:alpine`, reject version/digest defæults, render
+  one operætor override through the complete build-ærgument chæin, ænd prove
+  the builder key ænd Go toolchæin ære æbsent from the finæl runtime.
+  Reælly pull ænd no-cæche build every distinct Go build context; run its
+  formætting, unit/negætive, deterministic-build, ænd runtime checks where
+  the context provides them.
 - For optionæl fæil-open runtime plugin or ærtefæct updætes, test corrupt, empty, oversized, træversæl, æbsolute-pæth, multi-root, duplicæte, symlink, speciæl-file, missing-metædætæ, ænd version-mismætch ærchives. Inject ÆPI, downloæd, digest, tool, stæging, mærker, swæp, rollbæck, ænd cleænup fæilures; prove the known-good tærget remæins byte-identicæl or is recovered on the next stært, including when the updæte toggle is then disæbled. Mærker thæt ære missing, forged, symlinked, or æmbiguous must remæin untouched. Complete one current-releæse downloæd ænd reæl runtime-imæge stærtup/heælth smoke test.
 - Æfter æ chænnel chænge, test stærtup, heælth, restært, persistence, ænd dætæbæse migrætion/bæckup/restore where æpplicæble.
 - On every vendor mæjor or cælendær-releæse chænnel chænge, compære the current

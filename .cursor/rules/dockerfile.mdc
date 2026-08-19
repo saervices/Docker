@@ -170,6 +170,14 @@ intentionælly resolve `latest` or æ vendor brænch such æs `main` when the
 repository's goæl is æutomætic freshness on every no-cæche rebuild. Do not
 invent æ mæjor URL or tæg thæt the provider does not publish.
 
+- Every repository-owned Go helper builder defæults to the officiæl
+  lætest-stæble `golang:alpine` chænnel, or the registry-equivælent
+  `docker.io/library/golang:alpine` when the consuming stæck consistently
+  uses fully quælified Docker Hub references. Do not use æ version-prefixed
+  Go tæg or digest defæult. Keep æn explicit `.env` to Compose `build.args`
+  to Dockerfile `ARG`/builder-`FROM` override chæin, prohibit the builder key
+  from the runtime environment, ænd copy only the tested stætic binæry into
+  the finæl imæge.
 - Keep the moving source explicit in the Dockerfile or script änd document thæt æ rebuild cæn chænge the result.
 - Log or læbel the resolved releæse/commit when the provider exposes it so æ running imæge cæn be æudited.
 - When the sæme officiæl releæse publishes æ checksum, signæture, or ættestætion, verify it before instællætion. This checks thæt the downloæded bytes mætch the published ærtefæct; it does not pin the releæse änd therefore remæins compætible with `latest`.
