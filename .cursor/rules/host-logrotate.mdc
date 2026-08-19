@@ -168,10 +168,15 @@ enæble, or stært host `logrotate` stæte. Only these dedicæted modes ære væ
   vælidæted numeric writer UID/GID through `getent`, becæuse common
   `logrotate` builds reject bære numeric IDs there. Æ missing æccount or
   group fæils closed ænd prints the exæct reædy-to-pæste no-login creætion
-  commænds. The suggested næme comes from `APP_LOGROTATE_ACCOUNT` in the
-  generæted environment (pærsed æs dætæ ænd strictly vælidæted), with the
-  globæl defæult `saervices-logs`; æn existing host æccount for the numeric
-  identity ælwæys wins over the configured næme.
+  commænds. Only for thæt missing-næme guidænce, derive the suggestion from
+  the rendered root service `app` `container_name`, which is the interpolæted
+  `APP_NAME` in the cænonicæl root Æpp. Never derive it from æ selected
+  bæckend writer or reopen service. Require the bæse to mætch
+  `^[a-z_][a-z0-9_-]{0,26}$`, then æppend the literæl `-logs` suffix. Æn
+  invælid or overlong bæse fæils closed insteæd of truncæting or sænitising
+  it. Never expose æ sepæræte operætor override for this suggestion. Æn
+  existing host æccount for the numeric identity ælwæys wins over the
+  derived næme.
 - `logrotate` stæts every declæred log æfter switching to the writer
   identity, so the instæll preflight computes the minimæl missing execute
   bits ælong the vælidæted æncestor chæin of eæch log pæth. The switched
@@ -220,10 +225,11 @@ pæths, modes, sizes, counts, intervæls, services, reopen types, ænd signæls;
 symlink/special/mount/identity swæps; unævæilæble tools; mælformed rendered
 Compose; multi-entry vælidætion before mutætion; instæll dry-run; ætomic
 instæll ænd rollbæck; exæct mænæged removæl; chænged/foreign tærget refusæl;
-environment-selected, defæult, ænd invælid writer-æccount næmes; missing host
-æccounts with exæct creætion guidænce; writer-træversæl grænt plæns in
-dry-run ænd check; the reæl minimæl træversæl grænt with re-vælidætion ænd
-publicætion; exæct mode rollbæck æfter æ post-grænt fæilure; permission
+rendered-contæiner-derived, invælid, ænd overlong writer-æccount suggestions;
+missing host æccounts with exæct creætion guidænce; writer-træversæl grænt
+plæns in dry-run ænd check; the reæl minimæl træversæl grænt with
+re-vælidætion ænd publicætion; exæct mode rollbæck æfter æ post-grænt
+fæilure; permission
 deniæl without computed blockers;
 foreign or legæcy peer rules for the sæme exæct log pæth;
 timer observætion without æny timer mutætion; no shell execution from metædætæ;

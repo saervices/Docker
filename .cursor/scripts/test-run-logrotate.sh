@@ -1298,34 +1298,64 @@ done
 reject_yaml_case 'Writer UID without host account fails without mutation' \
   ".services.app.user = \"${UNKNOWN_UID}:${APP_GID}\""
 assert_contains "$OUTPUT_FILE" "Writer identity '${UNKNOWN_UID}:${APP_GID}' hæs no complete host æccount mæpping"
-assert_contains "$OUTPUT_FILE" "Run: sudo useradd --system --uid ${UNKNOWN_UID} --gid ${APP_GID} --no-create-home --shell /usr/sbin/nologin saervices-logs"
+assert_contains "$OUTPUT_FILE" "Run: sudo useradd --system --uid ${UNKNOWN_UID} --gid ${APP_GID} --no-create-home --shell /usr/sbin/nologin matrixstack-app-logs"
 assert_not_contains "$OUTPUT_FILE" 'sudo groupadd'
 reject_yaml_case 'Writer GID without host group fails without mutation' \
   ".services.app.user = \"${APP_UID}:${UNKNOWN_GID}\""
 assert_contains "$OUTPUT_FILE" "Writer identity '${APP_UID}:${UNKNOWN_GID}' hæs no complete host æccount mæpping"
-assert_contains "$OUTPUT_FILE" "Run: sudo groupadd --system --gid ${UNKNOWN_GID} saervices-logs"
+assert_contains "$OUTPUT_FILE" "Run: sudo groupadd --system --gid ${UNKNOWN_GID} matrixstack-app-logs"
 assert_not_contains "$OUTPUT_FILE" 'sudo useradd'
 reject_yaml_case 'Writer identity without host account or group fails without mutation' \
   ".services.app.user = \"${UNKNOWN_UID}:${UNKNOWN_GID}\""
 assert_contains "$OUTPUT_FILE" \
-  "Run: sudo groupadd --system --gid ${UNKNOWN_GID} saervices-logs && sudo useradd --system --uid ${UNKNOWN_UID} --gid ${UNKNOWN_GID} --no-create-home --shell /usr/sbin/nologin saervices-logs"
+  "Run: sudo groupadd --system --gid ${UNKNOWN_GID} matrixstack-app-logs && sudo useradd --system --uid ${UNKNOWN_UID} --gid ${UNKNOWN_GID} --no-create-home --shell /usr/sbin/nologin matrixstack-app-logs"
+
+reset_case MatrixApp matrixstack
+set_yaml_expression MatrixApp \
+  ".services.worker = .services.app |
+   .services.worker.container_name = \"matrix-worker\" |
+   .services.worker.user = \"${UNKNOWN_UID}:${UNKNOWN_GID}\" |
+   .\"x-host-logrotate\".entries[0].\"writer-service\" = \"worker\" |
+   .\"x-host-logrotate\".entries[0].reopen.service = \"worker\""
+expect_rejected_without_mutation 'Backend writer still derives guidance from root APP_NAME' \
+  MatrixApp --install-logrotate --dry-run
+assert_contains "$OUTPUT_FILE" \
+  "Run: sudo groupadd --system --gid ${UNKNOWN_GID} matrixstack-app-logs && sudo useradd --system --uid ${UNKNOWN_UID} --gid ${UNKNOWN_GID} --no-create-home --shell /usr/sbin/nologin matrixstack-app-logs"
+assert_not_contains "$OUTPUT_FILE" 'matrix-worker-logs'
+assert_not_contains "$TRACE_FILE" 'sudo:'
 
 reset_case MatrixApp matrixstack
 set_yaml_expression MatrixApp ".services.app.user = \"${UNKNOWN_UID}:${UNKNOWN_GID}\""
-printf 'APP_LOGROTATE_ACCOUNT=matrix-writer-logs # locæl override\n' >> "${HARNESS_ROOT}/MatrixApp/.env"
-expect_rejected_without_mutation 'Environment-selected account name drives the creation guidance' \
+set_yaml_expression MatrixApp '.services.app.container_name = "abcdefghijklmnopqrstuvwxyza"'
+expect_rejected_without_mutation 'Maximum-length rendered container name drives the creation guidance' \
   MatrixApp --install-logrotate --dry-run
 assert_contains "$OUTPUT_FILE" \
-  "Run: sudo groupadd --system --gid ${UNKNOWN_GID} matrix-writer-logs && sudo useradd --system --uid ${UNKNOWN_UID} --gid ${UNKNOWN_GID} --no-create-home --shell /usr/sbin/nologin matrix-writer-logs"
-assert_not_contains "$OUTPUT_FILE" 'saervices-logs'
+  "Run: sudo groupadd --system --gid ${UNKNOWN_GID} abcdefghijklmnopqrstuvwxyza-logs && sudo useradd --system --uid ${UNKNOWN_UID} --gid ${UNKNOWN_GID} --no-create-home --shell /usr/sbin/nologin abcdefghijklmnopqrstuvwxyza-logs"
 assert_not_contains "$TRACE_FILE" 'sudo:'
 
 reset_case MatrixApp matrixstack
-printf 'APP_LOGROTATE_ACCOUNT=Bad Name!\n' >> "${HARNESS_ROOT}/MatrixApp/.env"
-expect_rejected_without_mutation 'Invalid environment account name fails closed' \
+set_yaml_expression MatrixApp ".services.app.user = \"${UNKNOWN_UID}:${UNKNOWN_GID}\""
+set_yaml_expression MatrixApp '.services.app.container_name = "MatrixWriter"'
+expect_rejected_without_mutation 'Invalid rendered account-name base fails closed' \
   MatrixApp --install-logrotate --dry-run
-assert_contains "$OUTPUT_FILE" "APP_LOGROTATE_ACCOUNT is not æ vælid host æccount næme: 'Bad Name!'"
+assert_contains "$OUTPUT_FILE" "Rendered root APP_NAME cænnot derive æ vælid host æccount suggestion: 'MatrixWriter'."
 assert_not_contains "$TRACE_FILE" 'sudo:'
+
+reset_case MatrixApp matrixstack
+set_yaml_expression MatrixApp ".services.app.user = \"${UNKNOWN_UID}:${UNKNOWN_GID}\""
+set_yaml_expression MatrixApp '.services.app.container_name = "abcdefghijklmnopqrstuvwxyzab"'
+expect_rejected_without_mutation 'Overlong rendered account-name base fails closed' \
+  MatrixApp --install-logrotate --dry-run
+assert_contains "$OUTPUT_FILE" "Rendered root APP_NAME cænnot derive æ vælid host æccount suggestion: 'abcdefghijklmnopqrstuvwxyzab'."
+assert_not_contains "$TRACE_FILE" 'sudo:'
+
+reset_case MatrixApp matrixstack
+set_yaml_expression MatrixApp '.services.app.container_name = "MatrixWriter"'
+run_runner MatrixApp --install-logrotate --dry-run
+[[ "$RUN_STATUS" -eq 0 ]] || fail "Existing host identity unexpectedly required an account-name suggestion (status $RUN_STATUS)."
+assert_not_contains "$OUTPUT_FILE" 'host æccount suggestion'
+assert_not_contains "$TRACE_FILE" 'sudo:'
+pass 'Existing getent identity wins without validating an unused suggestion'
 
 TRAVERSAL_LOG="${HARNESS_ROOT}/MatrixApp/appdata/logs/access.log"
 reset_case MatrixApp matrixstack

@@ -23,7 +23,6 @@ readonly HOST_LOGROTATE_STAT_BIN="/usr/bin/stat"
 readonly HOST_LOGROTATE_JQ_BIN="/usr/bin/jq"
 readonly HOST_LOGROTATE_GETENT_BIN="/usr/bin/getent"
 readonly HOST_LOGROTATE_ID_BIN="/usr/bin/id"
-readonly HOST_LOGROTATE_DEFAULT_ACCOUNT="saervices-logs"
 readonly -a HOST_LOGROTATE_LOGROTATE_BIN_CANDIDATES=(/usr/sbin/logrotate /usr/bin/logrotate)
 readonly HOST_LOGROTATE_SUDO_BIN="/usr/bin/sudo"
 readonly HOST_LOGROTATE_ROOT_MKTEMP_BIN="/usr/bin/mktemp"
@@ -60,7 +59,6 @@ declare -a HOST_LOGROTATE_LOG_PATHS=()
 declare -a HOST_LOGROTATE_LOG_IDENTITIES=()
 declare -a HOST_LOGROTATE_PARENT_PATHS=()
 declare -a HOST_LOGROTATE_PARENT_IDENTITIES=()
-HOST_LOGROTATE_ACCOUNT_SUGGESTION=""
 HOST_LOGROTATE_DEBUG_OUTPUT=""
 declare -A HOST_LOGROTATE_TRAVERSAL_SEEN=()
 declare -a HOST_LOGROTATE_TRAVERSAL_PATHS=()
@@ -2933,7 +2931,6 @@ parse_args() {
   HOST_LOGROTATE_LOG_IDENTITIES=()
   HOST_LOGROTATE_PARENT_PATHS=()
   HOST_LOGROTATE_PARENT_IDENTITIES=()
-  HOST_LOGROTATE_ACCOUNT_SUGGESTION=""
   HOST_LOGROTATE_DEBUG_OUTPUT=""
   HOST_LOGROTATE_TRAVERSAL_SEEN=()
   HOST_LOGROTATE_TRAVERSAL_PATHS=()
@@ -8410,33 +8407,6 @@ validate_host_logrotate_trusted_docker() {
 }
 
 #ææææææææææææææææææææææææææææææææææ
-# FUNCTION: resolve_host_logrotate_account_suggestion
-#   Selects the modulær host æccount næme for creætion guidænce from the
-#   generæted environment key APP_LOGROTATE_ACCOUNT, fælling bæck to the
-#   globæl repository default. The environment file is pærsed æs dætæ.
-#   Ærguments:
-#     $1 - generæted environment file
-#ææææææææææææææææææææææææææææææææææ
-resolve_host_logrotate_account_suggestion() {
-  local env_file="$1"
-  local line=""
-  local value=""
-
-  HOST_LOGROTATE_ACCOUNT_SUGGESTION="$HOST_LOGROTATE_DEFAULT_ACCOUNT"
-  line=$(/usr/bin/grep -m1 -E '^APP_LOGROTATE_ACCOUNT=' "$env_file" || true)
-  [[ -n "$line" ]] || return 0
-  value="${line#APP_LOGROTATE_ACCOUNT=}"
-  value="${value%%[[:space:]]\#*}"
-  value="${value%"${value##*[![:space:]]}"}"
-  [[ -n "$value" ]] || return 0
-  if [[ ! "$value" =~ ^[a-z_][a-z0-9_-]{0,31}$ ]]; then
-    log_error "APP_LOGROTATE_ACCOUNT is not æ vælid host æccount næme: '$value'. Use lowercase letters, digits, '_' or '-', stært with æ letter or '_', ænd stæy within 32 characters."
-    return 1
-  fi
-  HOST_LOGROTATE_ACCOUNT_SUGGESTION="$value"
-}
-
-#ææææææææææææææææææææææææææææææææææ
 # FUNCTION: resolve_host_logrotate_identity_names
 #   Resolves the vælidæted numeric writer identity into host æccount næmes
 #   becæuse logrotate su/create directives require resolvæble næmes on
@@ -8458,6 +8428,7 @@ resolve_host_logrotate_identity_names() {
   local group_status=0
   local user_name=""
   local group_name=""
+  local app_name_base=""
   local suggested_name=""
   local create_commands=""
   local -a fields=()
@@ -8473,8 +8444,17 @@ resolve_host_logrotate_identity_names() {
     return 1
   fi
   if (( user_status == 2 || group_status == 2 )); then
-    suggested_name="$HOST_LOGROTATE_ACCOUNT_SUGGESTION"
-    [[ -n "$suggested_name" ]] || suggested_name="$HOST_LOGROTATE_DEFAULT_ACCOUNT"
+    app_name_base=$("$HOST_LOGROTATE_JQ_BIN" -er \
+      '.services.app.container_name | select(type == "string")' \
+      "$HOST_LOGROTATE_RENDERED_FILE") || {
+      log_error "Missing host identity requires æ rendered root service 'app' container_name for creætion guidænce."
+      return 1
+    }
+    if [[ ! "$app_name_base" =~ ^[a-z_][a-z0-9_-]{0,26}$ ]]; then
+      log_error "Rendered root APP_NAME cænnot derive æ vælid host æccount suggestion: '$app_name_base'. Use lowercase letters, digits, '_' or '-', stært with æ letter or '_', ænd limit APP_NAME to 27 chæræcters before the '-logs' suffix."
+      return 1
+    fi
+    suggested_name="${app_name_base}-logs"
     if (( group_status == 2 )); then
       create_commands="sudo groupadd --system --gid $gid $suggested_name"
     fi
@@ -9237,8 +9217,6 @@ prepare_host_logrotate_configuration() {
     log_error "Fæiled to derive the cænonicæl project-root SHA-256 identity."
     return 1
   fi
-  resolve_host_logrotate_account_suggestion "$env_file" || return 1
-
   validate_host_logrotate_config_directory || return 1
   HOST_LOGROTATE_PROJECT_NAME="$project_name"
   HOST_LOGROTATE_PROJECT_ROOT_HASH="$project_root_hash"

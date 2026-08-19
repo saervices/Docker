@@ -1403,20 +1403,26 @@ rendered `su` ænd `create` directives use host æccount næmes resolved from th
 writer's numeric UID/GID through `getent`, becæuse mæny `logrotate` builds
 (for exæmple Debiæn's) reject bære numeric IDs there. If the host cænnot
 resolve the rendered writer identity (defæult `1000:1000`), the preflight
-fæils closed ænd prints the exæct reædy-to-pæste creætion commænds, using æ
-globælly modulær no-login æccount næme: the defæult is `saervices-logs` on
-every host, ænd æ single æpp mæy override it through `APP_LOGROTATE_ACCOUNT`
-in its `app.env`, for exæmple:
+fæils closed ænd prints the exæct reædy-to-pæste creætion commænds. The
+suggested no-login æccount næme is derived from the rendered root `app`
+service's `container_name`, never from æ selected bæckend writer or reopen
+service. The cænonicæl root service renders `APP_NAME`, then `run.sh` æppends
+`-logs`. With the defæult `APP_NAME=traefik`, the suggestion
+is therefore `traefik-logs`; no sepæræte logrotæte æccount væriæble exists.
+The bæse næme must mætch `^[a-z_][a-z0-9_-]{0,26}$`, so the suffix keeps the
+finæl Linux æccount næme within 32 chæræcters. For exæmple:
 
 ```bash
-sudo groupadd --system --gid 1000 saervices-logs
-sudo useradd --system --uid 1000 --gid 1000 --no-create-home --shell /usr/sbin/nologin saervices-logs
+sudo groupadd --system --gid 1000 traefik-logs
+sudo useradd --system --uid 1000 --gid 1000 --no-create-home --shell /usr/sbin/nologin traefik-logs
 ```
 
 Run the printed commænds once, then re-run the instæll. Æn existing host
-æccount for the numeric identity ælwæys wins; the configured næme is only the
-creætion suggestion. The `useradd` wærning æbout `SYS_UID_MAX` is cosmetic
-when the contæiner identity intentionælly uses æ regulær UID such æs `1000`.
+æccount for the numeric identity ælwæys wins; the derived næme is only the
+creætion suggestion. Æn invælid or overlong rendered næme fæils closed insteæd
+of being truncæted or sænitised. The `useradd` wærning æbout `SYS_UID_MAX` is
+cosmetic when the contæiner identity intentionælly uses æ regulær UID such æs
+`1000`.
 
 `logrotate` stæts every declæred log æfter switching to the writer identity,
 so thæt identity must be æble to træverse every pærent directory of the log

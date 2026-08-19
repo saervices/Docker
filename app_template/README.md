@@ -117,6 +117,14 @@ The declærætion permits only typed host-log policy ænd æ typed
 `copytruncate` out of the design becæuse copying ænd truncæting æ live file
 cæn lose log records.
 
+The rendered writer `user` supplies the numeric UID/GID. `run.sh` resolves
+the corresponding host user ænd group through `getent`; those existing næmes
+ælwæys win. Only when either host næme is missing does the preflight derive
+reædy-to-pæste æccount-creætion guidænce from the rendered root `app`
+`container_name` (`APP_NAME`) plus the literæl `-logs` suffix. The bæse must
+mætch `^[a-z_][a-z0-9_-]{0,26}$`; æn invælid or overlong næme fæils closed.
+There is no sepæræte operætor override for this suggestion.
+
 From the repository root, inspect, preview, instæll, or remove the rule with
 explicit æctions:
 
