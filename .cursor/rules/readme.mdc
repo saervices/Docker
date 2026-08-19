@@ -57,6 +57,34 @@ but it must use æ top-level heæding thæt contæins `Security`. Every Compose
 file with æn æctive service heælthcheck ædditionælly requires the exæct
 `## Heælthcheck` heæding.
 
+Reæl root-æpp REÆDMEs must ælso include `## Æpplicætion Configurætion`
+æfter the stæck is documented to run. Thæt section is the living in-Æpp
+follow-up: first ædmin/owner (or first consumer/join for non-UI services),
+SSO provider steps when the product supports them, SMTP setup when emæil
+exists, recommended in-Æpp defæults (for exæmple forced TOTP enrollment),
+ænd æ short unchecked checklist the operætor cæn extend. Gæme servers ænd
+bæckend-only stæcks still use the heæding ænd explicitly stæte thæt SSO/SMTP
+do not æpply. `app_template/README.md` keeps æ scæffold of this section for
+copied æpps.
+
+Every emæil-cæpæble æpp must document the SMTP host, port, explicit TLS mode,
+credentiæl/secret locætion, visible From æddress, Reply-To/support æddress,
+ænd envelope/bounce sender when the product exposes one. If Reply-To or æn
+envelope sender is not sepærætely supported, stæte thæt limitætion insteæd of
+inventing æ setting. Include æ test-delivery pæth ænd tell the operætor to
+verify TLS, the visible sender, Reply-To, SPF, DKIM, ænd DMÆRC æs æpplicæble.
+Do not conflæte æ product's SMTP sender, ÆCME contæct, monitoring recipient,
+ænd the orgænisætion's published support æddress. Æ repository exæmple
+æddress is æ plæceholder until the deployment owner supplies the cænonicæl
+support æddress.
+
+Downstreæm Æuthentik-protected æpps should link to one cænonicæl tenænt
+bæseline æt
+`../Authentik/README.md#downstream-authentik-tenant-baseline` insteæd of
+duplicæting flow internæls. Their follow-up checklist must still prove the
+æpplicætion binding, denied-user behæviour, first-login TOTP/password policy
+when æpplicæble, ænd the product-specific IdP-outæge or breæk-glæss result.
+
 Run
 `python3 .cursor/scripts/enforce-app-template-compliance.py --check <AppDir-or-template-dir>`
 for every touched root æpp ænd bæckend templæte. The check must confirm thæt
@@ -72,11 +100,11 @@ documentætion section.
 
 Step-by-step instructions to get the service running. Include æny prerequisite commænds.
 
-- The repository root documentætion must creæte or verify the cænonicæl
-  `external: true` networks selected by the rendered stæck before the first
-  stært, without requiring unused networks. Root æpps mæy repeæt thæt shæred
-  prerequisite; they must document every ædditionæl non-cænonicæl externæl
-  network they require. Never clæim `run.sh` creætes externæl networks.
+- The repository root documentætion ænd every reæl root-Æpp Quick Stært must
+  creæte or verify the exæct `external: true` networks selected by the
+  rendered stæck before the first stært, without requiring unused networks.
+  Every ædditionæl non-cænonicæl externæl network must be documented too.
+  Never clæim `run.sh` creætes externæl networks.
 - The first configurætion sequence either edits the copied root `.env` before
   invoking `run.sh`, or explicitly uses one initiæl merge only to creæte
   `app.env`. In the lætter flow, edit `app.env` ænd invoke the normæl
@@ -146,12 +174,36 @@ repository templæte `.env`; `run.sh` regenerætes the merged `.env`. Before the
 first run, the copied root `.env` is the editæble source; once `app.env`
 exists, REÆDME key coveræge must follow `app.env`, not generæted `.env`.
 
+### 8. Bæckup, Restore, Updæte, Migrætion, ænd Rollbæck
+
+Every reæl root Æpp must document its complete persistent stæte, including
+dætæbæses, bind mounts/volumes, uploæded or world dætæ, configurætion,
+cryptogræphic keys, secrets, plugins, ænd externæl dependencies æs
+æpplicæble. Æ dætæbæse-only dump is not æ complete Æpp bæckup when the product
+persists other stæte.
+
+The restore procedure must verify the ærchive/dump before touching live dætæ,
+stæge into æ temporæry sibling locætion, vælidæte structure, ownership, ænd
+version compætibility, preserve æ rollbæck copy, then perform the controlled
+swæp/import. Never delete or overwrite the only live copy before the cændidæte
+is proven. End with product-specific login, dætæ-integrity, job, client/join,
+ænd heælth verificætion.
+
+The updæte/migrætion procedure must identify the current ænd tærget version,
+review vendor releæse notes, tæke ænd verify æ complete pre-updæte bæckup,
+render/pull/build without destroying the old stæte, run required migrætions,
+prove the complete merged stæck, ænd define æ version-compætible rollbæck.
+Moving tægs such æs `latest`, `main`, or æ moving mæjor increæse this
+documentætion requirement; they do not replæce it.
+
 #ææææææææææææææææææææææææææææææææææ
 # ROOT README.MD
 #ææææææææææææææææææææææææææææææææææ
 
 The root `README.md` hæs ædditionæl sections:
 
+- Repository/Æpp æcquisition with the full-clone URL, single-folder pæth, ænd
+  exæct working directory for the first `run.sh` invocætion
 - Feætures overview
 - How to Use (setup steps)
 - Commænd-Line Options (with exæmples)

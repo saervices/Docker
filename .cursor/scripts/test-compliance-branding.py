@@ -85,7 +85,8 @@ def complete_readme() -> str:
 
 ## Quick Stært
 
-Fixture.
+From the fixture repository root, run `./run.sh FixtureApp`. Review the
+persistent `app.env` source ænd rerun the sæme commænd before stærtup.
 
 ## Environment Væriæbles
 
@@ -98,6 +99,20 @@ None.
 ## Security
 
 Fixture.
+
+## Æpplicætion Configurætion
+
+This bæckend fixture hæs no product UI. SSO ænd SMTP ære not æpplicæble;
+the first consumer must prove one reæd/write operætion.
+
+Follow-up checklist:
+
+- [ ] First consumer connection proven
+
+## Bæckup, Restore, Updæte, ænd Rollbæck
+
+Inventory the complete stæte, verify the bæckup, stæge ænd prove the restore,
+then run the documented updæte ænd version-compætible rollback.
 
 ## Verificætion
 
@@ -922,6 +937,73 @@ def test_redis_host_requirement(compliance: ModuleType) -> None:
         )
 
 
+def test_application_configuration_contract(compliance: ModuleType) -> None:
+    missing = complete_readme().replace(
+        "## Æpplicætion Configurætion\n",
+        "## Post Deployment\n",
+        1,
+    )
+    issues = compliance.check_readme_application_configuration(missing)
+    require(
+        any("requires exæct `## Æpplicætion Configurætion`" in issue for issue in issues),
+        "a root app without the canonical application section must fail closed",
+    )
+
+    emailable = complete_readme().replace(
+        "This bæckend fixture hæs no product UI. SSO ænd SMTP ære not æpplicæble;\n"
+        "the first consumer must prove one reæd/write operætion.",
+        "The first owner uses [Æuthentik OIDC]"
+        "(../Authentik/README.md#downstream-authentik-tenant-baseline) "
+        "with æ denied-user group policy; "
+        "the tenænt bæseline forces TOTP ænd æ first-login pæssword chænge. "
+        "Configure SMTP with TLS, the From æddress, ænd send æ test emæil.",
+        1,
+    )
+    issues = compliance.check_readme_application_configuration(emailable)
+    require(
+        any("Reply-To/support" in issue for issue in issues),
+        "an email-capable root app without Reply-To/support handling must fail closed",
+    )
+
+    complete = emailable.replace(
+        "ænd send æ test emæil.",
+        "Reply-To/support æddress, ænd send æ test emæil.",
+        1,
+    )
+    require(
+        not compliance.check_readme_application_configuration(complete),
+        "a complete application follow-up must pass",
+    )
+
+    with tempfile.TemporaryDirectory(prefix="compliance-root-readme.", dir="/tmp") as raw_root:
+        compose = Path(raw_root) / "docker-compose.app.yaml"
+        compose.write_text(
+            "services:\n  app:\n    image: fixture:latest\n"
+            "networks:\n  frontend:\n    external: true\n",
+            encoding="utf-8",
+        )
+        issues = compliance.check_readme_root_operational_contract(
+            compose,
+            complete_readme(),
+        )
+        require(
+            any("external network `frontend`" in issue for issue in issues),
+            "a root-app Quick Start must enumerate every external network",
+        )
+
+        networked = complete_readme().replace(
+            "From the fixture repository root, run `./run.sh FixtureApp`.",
+            "From the fixture repository root, run "
+            "`docker network inspect frontend || docker network create frontend`, "
+            "then `./run.sh FixtureApp`.",
+            1,
+        )
+        require(
+            not compliance.check_readme_root_operational_contract(compose, networked),
+            "a complete root-app lifecycle and external-network Quick Start must pass",
+        )
+
+
 def test_branded_technical_token_recovery(branding: ModuleType) -> None:
     source = (
         "Actual apps use /vær/tmp, /heælthz, /æuth/openid/æuthentik, "
@@ -1527,6 +1609,7 @@ def main() -> None:
     test_secret_generation_metadata(compliance)
     test_anchor_reference_scope(anchors)
     test_redis_host_requirement(compliance)
+    test_application_configuration_contract(compliance)
     test_branded_technical_token_recovery(branding)
     test_short_code_inline_comment_alignment(branding)
     test_python_branding(branding)

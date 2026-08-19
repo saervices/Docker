@@ -19,7 +19,8 @@ For both:
   - .env: exæct cænonicæl mæin-section heædings ænd order (report only).
   - REÆDME: every æctive `.env` key must æppeær in æ Mærkdown tæble row; the
     cænonicæl Quick Stært, Environment Væriæbles, Secrets, Security, ænd
-    Verificætion topics must be top-level sections; ænd æn æctive Compose
+    Verificætion topics must be top-level sections; every root Æpp must keep
+    æn operætionæl Æpplicætion Configurætion follow-up; ænd æn æctive Compose
     heælthcheck requires exæct probe/timing documentætion plus merged service
     verificætion (report only).
 
@@ -856,6 +857,184 @@ def _readme_level_two_headings(readme_text: str) -> list[str]:
     return [match.group(1).strip() for match in re.finditer(r"^## (.+?)\s*$", readme_text, flags=re.MULTILINE)]
 
 
+def _readme_level_two_section(readme_text: str, heading: str) -> str:
+    """Return one exæct level-two section, including its heæding."""
+    match = re.search(
+        rf"^## {re.escape(heading)}\s*$.*?(?=^## |\Z)",
+        readme_text,
+        flags=re.MULTILINE | re.DOTALL,
+    )
+    return match.group(0) if match else ""
+
+
+def _normalize_branded_readme(text: str) -> str:
+    """Normælize repository brænding ænd Mærkdown punctuætion for topic checks."""
+    normalized = text.replace("Æ", "A").replace("æ", "a").lower()
+    normalized = re.sub(r"[`*_#\[\]()]", " ", normalized)
+    return re.sub(r"\s+", " ", normalized).strip()
+
+
+def check_readme_application_configuration(readme_text: str) -> list[str]:
+    """Require one extendæble root-Æpp post-deployment configurætion contræct."""
+    heading = "Æpplicætion Configurætion"
+    section = _readme_level_two_section(readme_text, heading)
+    if not section:
+        return [f"README.md: root æpp requires exæct `## {heading}` section"]
+
+    issues: list[str] = []
+    plain = _normalize_branded_readme(section)
+    whole_plain = _normalize_branded_readme(readme_text)
+
+    onboarding_context = bool(
+        re.search(r"\bfirst\b", plain)
+        and re.search(r"\b(admin|owner|user|login|join|consumer|account)\b", plain)
+    ) or bool(re.search(r"\b(no (product )?ui|backend-only|no user-facing)\b", plain))
+    if not onboarding_context:
+        issues.append(
+            "README.md: Application Configuration must document the first "
+            "admin/owner/user/join or backend consumer"
+        )
+
+    if not re.search(r"\b(sso|oidc|saml|authentik|authentication|no (product )?ui)\b", plain):
+        issues.append(
+            "README.md: Application Configuration must document SSO/authentication "
+            "or state that it is not applicable"
+        )
+
+    auth_not_applicable = bool(
+        re.search(
+            r"\b(no|without)\b.{0,35}\b(sso|oidc|saml|authentik|authentication)\b|"
+            r"\b(sso|oidc|saml|authentik|authentication)\b.{0,35}"
+            r"\b(not applicable|do not apply|does not apply)\b|\bno (product )?ui\b",
+            plain,
+        )
+    )
+    auth_applicable = bool(re.search(r"\b(sso|oidc|saml|authentik)\b", plain))
+    if auth_applicable and not auth_not_applicable:
+        if "downstream-authentik-tenant-baseline" not in readme_text:
+            issues.append(
+                "README.md: Authentik application must link the canonical downstream "
+                "tenant baseline"
+            )
+        if not re.search(r"\b(totp|2fa|mfa|two[- ]factor)\b", plain):
+            issues.append(
+                "README.md: Authentik application follow-up must record the first-login "
+                "TOTP/MFA baseline result"
+            )
+        if "password" not in plain:
+            issues.append(
+                "README.md: Authentik application follow-up must record the local-user "
+                "first-login password-policy result"
+            )
+        if not re.search(r"\b(denied|deny|binding|bound|group|policy)\b", plain):
+            issues.append(
+                "README.md: Authentik application follow-up must record the access "
+                "binding and denied-user result"
+            )
+
+    if not re.search(r"\b(smtp|e-?mail|mail|no (product )?ui)\b", plain):
+        issues.append(
+            "README.md: Application Configuration must document email/SMTP "
+            "or state that it is not applicable"
+        )
+
+    if not re.search(r"(?m)^-\s+\[\s\]\s+\S", section):
+        issues.append(
+            "README.md: Application Configuration requires an extendable unchecked checklist"
+        )
+
+    sso_only = bool(
+        re.search(
+            r"\b(sso[- ]only|local (password )?login.{0,80}(disabled|off)|"
+            r"password login.{0,80}(disabled|off)|fallback\s*=\s*false)\b",
+            whole_plain,
+        )
+    )
+    if sso_only and not re.search(
+        r"\b(break[- ]glass|idp outage|authentik outage|fail[- ]closed)\b",
+        whole_plain,
+    ):
+        issues.append(
+            "README.md: SSO-only application requires IdP-outage or break-glass documentation"
+        )
+
+    email_not_applicable = bool(
+        re.search(
+            r"\b(no|without)\b.{0,35}\b(smtp|e-?mail)\b|"
+            r"\b(smtp|e-?mail)\b.{0,35}\b(not applicable|do not apply|does not apply)\b",
+            plain,
+        )
+    )
+    if not email_not_applicable and re.search(r"\b(smtp|e-?mail)\b", plain):
+        if "from" not in whole_plain:
+            issues.append(
+                "README.md: email-capable application must document the visible From address"
+            )
+        if not re.search(
+            r"\b(reply[- ]to|support (address|e-?mail)|"
+            r"no separate reply[- ]to|reply[- ]to.{0,30}not supported)\b",
+            whole_plain,
+        ):
+            issues.append(
+                "README.md: email-capable application must document Reply-To/support "
+                "or state that a separate value is unsupported"
+            )
+        if not re.search(r"\b(tls|ssl)\b", whole_plain):
+            issues.append(
+                "README.md: email-capable application must document the explicit TLS mode"
+            )
+        if "test" not in plain:
+            issues.append(
+                "README.md: Application Configuration must include an email delivery test"
+            )
+
+    return issues
+
+
+def check_readme_root_operational_contract(
+    compose_path: Path,
+    readme_text: str,
+) -> list[str]:
+    """Require stændælone root-Æpp instæll, lifecycle, ænd recovery topics."""
+    issues: list[str] = []
+    plain = _normalize_branded_readme(readme_text)
+    quick_start = _readme_level_two_section(readme_text, "Quick Stært")
+
+    if "./run.sh" not in quick_start and "../run.sh" not in quick_start:
+        issues.append(
+            "README.md: root-app Quick Start must invoke run.sh from an explicit working directory"
+        )
+    if "app.env" not in readme_text:
+        issues.append(
+            "README.md: root app must document app.env as the persistent editable source"
+        )
+
+    required_topics = {
+        "backup": "complete backup scope",
+        "restore": "staged restore procedure",
+        "update": "update or migration procedure",
+        "rollback": "version-compatible rollback procedure",
+    }
+    for token, description in required_topics.items():
+        if token not in plain:
+            issues.append(f"README.md: root app must document {description}")
+
+    data = yaml.safe_load(compose_path.read_text(encoding="utf-8")) or {}
+    networks = data.get("networks", {}) if isinstance(data, dict) else {}
+    if isinstance(networks, dict):
+        for network_name, network_config in networks.items():
+            if not isinstance(network_config, dict) or network_config.get("external") is not True:
+                continue
+            pattern = rf"docker\s+network\s+inspect\s+{re.escape(str(network_name))}\b"
+            if not re.search(pattern, quick_start):
+                issues.append(
+                    "README.md: Quick Start must create or inspect external network "
+                    f"`{network_name}` before the first start"
+                )
+
+    return issues
+
+
 def _active_compose_healthchecks(compose_path: Path) -> dict[str, dict]:
     """Return service-to-heælthcheck mæppings for enæbled Compose probes."""
     data = yaml.safe_load(compose_path.read_text(encoding="utf-8")) or {}
@@ -1009,6 +1188,9 @@ def check_readme_contract(
         issues.append("README.md: missing top-level Secrets section (dedicæted or combined)")
     if not any("Security" in heading for heading in headings):
         issues.append("README.md: missing top-level Security section")
+    if is_app:
+        issues.extend(check_readme_application_configuration(readme_text))
+        issues.extend(check_readme_root_operational_contract(compose_path, readme_text))
     issues.extend(check_readme_redis_host_contract(compose_path, readme_text))
     issues.extend(check_readme_healthcheck_contract(compose_path, readme_text))
     return issues
@@ -1536,7 +1718,8 @@ def main() -> None:
         else:
             coverage = "env keys, " if env_exists else ""
             print(
-                f"  README.md: OK ({coverage}required topics, ænd heælthcheck documented)"
+                f"  README.md: OK ({coverage}required topics, application follow-up, "
+                "ænd heælthcheck documented)"
             )
 
         print()
