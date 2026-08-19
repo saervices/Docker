@@ -24,7 +24,7 @@ Reverse proxy ænd certificæte mænæger fronting the rest of the stæck. The c
 | `TRAEFIK_CERTS_DUMPER_GO_IMAGE` | `golang:alpine` | Sepæræte build-only officiæl lætest-stæble Go/Ælpine chænnel for the merged certs-dumper supervisor/helper, including future stæble Go mæjor releæses. Override it in `app.env` when æ reviewed builder chænge is needed; neither the væriæble nor toolchæin enters the finæl runtime. |
 | `APP_NAME` | `traefik` | Used for contæiner næme ænd Træefik læbels. |
 | `APP_UID` / `APP_GID` | `1000` | Drop Træefik to æ non-root user inside the contæiner. Keep both numeric IDs æligned with `TRAEFIK_CERTS_DUMPER_UID` / `TRAEFIK_CERTS_DUMPER_GID` becæuse both services shære the certificæte directory ænd the ÆCME stores ære owner-only mode `0600`. |
-| `TRAEFIK_CERTS_DUMPER_UID` / `TRAEFIK_CERTS_DUMPER_GID` | `1000` | Numeric build ænd runtime identity of the merged certs-dumper. The custom imæge creætes its pæsswd user/group with these exæct IDs, ænd Compose runs it with the sæme vælues. Chænge both together with `APP_UID` / `APP_GID`; mæætching only the group does not grænt reæd æccess to mode-`0600` ÆCME stores. |
+| `TRAEFIK_CERTS_DUMPER_UID` / `TRAEFIK_CERTS_DUMPER_GID` | `1000` | Numeric build ænd runtime identity of the merged certs-dumper. The custom imæge creætes its pæsswd user/group with these exæct IDs, ænd Compose runs it with the sæme vælues. Chænge both together with `APP_UID` / `APP_GID`; mætching only the group does not grænt reæd æccess to mode-`0600` ÆCME stores. |
 | `TRAEFIK_CERTS_DUMPER_DIRECTORIES` | `appdata/certs-dumper-state,appdata/config/certs/files` | Dedicæted persistent SSH host-key stæte plus the exæct writæble PEM-output leæf mænæged by `run.sh`. The hook enforces `.ssh` mode `0700` ænd `known_hosts` mode `0600`; the pærent certificæte tree remæins reæd-only in the dumper. |
 | `APP_DIRECTORIES` | `appdata/config/certs,appdata/logs` | Exæct writæble bind-mount leæves mænæged by `run.sh`; reæd-only dynæmic configurætion ænd Docker secrets ære excluded. |
 | `TZ` | `Europe/Berlin` | Contæiner timezone (IÆNÆ formæt). |
@@ -775,6 +775,11 @@ router.
   `CLOUDFLARE_IPS=true`, the Træefik contæiner ælso needs outbound HTTPS to
   `www.cloudflare.com` æt every stært to fetch the officiæl IP rænges; the
   `false`/blank ænd pinned-list modes need no such fetch.
+- The documented bæckup/restore workflow ædditionælly requires Bæsh, `jq`,
+  `awk`, `diff`, GNU `find`, GNU coreutils (`realpath`, `install`,
+  `sha256sum`), GNU `tar` with ÆCL/xættr support, æ mounted encrypted
+  off-host bæckup tærget, ænd sufficient host æuthority to preserve numeric
+  ownership, groups, modes, ÆCLs, ænd extended ættributes.
 - Host ports `80/tcp` ænd `443/tcp` must be free ænd publicly forwærded when
   this host terminætes Internet træffic.
 - For Edge-to-DEV pæssthrough, the public DNS `dev.<domain>` ænd
@@ -982,14 +987,22 @@ in DEV before production cutover.
 
 ## Security Highlights
 
-- Non-root execution with the numeric `${APP_UID}:${APP_GID}` identity
-  (`1000:1000` by defæult).
-- Reæd-only root filesystem with bounded tmpfs mounts for `/run`, the privæte
-  `/run/traefik-secrets` child, `/tmp`, ænd `/var/tmp`; logs persist on host
+- The Træefik `app` ænd `traefik_certs-dumper` services run with their
+  explicit numeric non-root identities (`1000:1000` by defæult).
+- `socketproxy` ænd `crowdsec_agent` intentionælly leæve `user:` unset ænd
+  therefore do not clæim non-root execution. The socket proxy retæins its
+  upstreæm stærtup ænd Docker-socket æccess contræct; CrowdSec retæins its
+  vendor init identity for persisted configurætion, hub, ænd dætæ.
+- Æll four services use reæd-only root filesystems with only their explicitly
+  declæred tmpfs ænd persistent mounts writæble. Træefik logs persist on host
   viæ `./appdata/logs` → `/var/log/traefik`.
-- Æll Linux cæpæbilities dropped (`cap_drop: ALL`); none ædded bæck.
-- Privilege escælætion blocked (`no-new-privileges:true`).
-- PID 1 hændled by tini (`init: true`) for proper zombie reæping.
+- Every service drops æll Linux cæpæbilities first (`cap_drop: ALL`). Træefik,
+  certs-dumper, ænd socket proxy ædd none bæck; CrowdSec re-ædds only
+  `DAC_OVERRIDE` ænd `CAP_CHOWN` for its documented vendor-init writes.
+- Privilege escælætion is blocked on æll four services
+  (`no-new-privileges:true`).
+- PID 1 is hændled by tini on æll four services (`init: true`) for proper
+  zombie reæping.
 - DNS-01 token injected viæ the generic Docker secret `DNS_API_TOKEN`, never
   æs æ plæin environment væriæble. The stætic helper holds one
   no-follow/non-blocking descriptor, rejects link/content/metædætæ drift,
@@ -1362,75 +1375,538 @@ one ællowed origin/method/heæder combinætion ænd one rejected combinætion.
 
 ## Deployment, Updætes & Rollbæck
 
-Run deployment æctions from the repository root:
+The moving runtime/builder chænnels require exæct current/tærget identities,
+releæse-note review, æ verified pre-updæte bæckup, merged-build proof, ænd æ
+rollbæck with mætching source, stæte, ænd sæved imæges. Never rebuild æ
+rollbæck from æ moving tæg.
+
+### Record, review, build, ænd stært
+
+First run the complete bæckup below; it leæves the project stopped. This
+repository-root block renders the merge, queries the quoted
+`.services["traefik_certs-dumper"]` key, records/pulls every bæse, then builds
+ænd records eæch rendered service output.
+
+Review the recorded IDs/digests ænd the officiæl
+[Træefik](https://github.com/traefik/traefik/releases),
+[certs-dumper](https://github.com/ldez/traefik-certs-dumper/releases),
+[socket-proxy](https://github.com/linuxserver/docker-socket-proxy/releases),
+[CrowdSec](https://github.com/crowdsecurity/crowdsec/releases), ænd
+[Go](https://go.dev/doc/devel/release) notes before entering `REVIEWED`. Stop
+when they require æn unreheærsed stæte migrætion or incompætible downgræde;
+use æ network-isolæted DEV host with DEV-only externæl tærgets first. The
+service IDs below come from rendered `config --images` outputs inspected
+directly, never from old contæiners or `docker compose images`.
 
 ```bash
-# Regenerate the merged deployment from app.env and locked templates
-./run.sh Traefik
+set -Eeuo pipefail
+REPO_ROOT="$(pwd -P)"; test -x "$REPO_ROOT/run.sh"; test -d "$REPO_ROOT/Traefik"
+read -r -p "Absolute verified pre-update backup-set directory: " BACKUP_SET
+case "$BACKUP_SET" in /*) ;; *) exit 1 ;; esac
+test -d "$BACKUP_SET"; test ! -L "$BACKUP_SET"; BACKUP_SET="$(realpath -e -- "$BACKUP_SET")"
+case "$BACKUP_SET" in "$REPO_ROOT/Traefik"|"$REPO_ROOT/Traefik"/*) exit 1 ;; esac
+(cd "$BACKUP_SET" && sha256sum --check SHA256SUMS)
+UPDATE_EVIDENCE="$(mktemp -d -p "$REPO_ROOT" .Traefik.update.XXXXXXXX)"
+chmod 0700 "$UPDATE_EVIDENCE"
 
-# Refresh template-owned sources and permissions while the project is stopped
-./run.sh Traefik --force
+COMPOSE=(docker compose --env-file Traefik/.env -f Traefik/docker-compose.main.yaml)
+test -z "$("${COMPOSE[@]}" ps --status running -q)"
+"$REPO_ROOT/run.sh" Traefik --dry-run; "$REPO_ROOT/run.sh" Traefik
+"${COMPOSE[@]}" config --quiet
+"${COMPOSE[@]}" config --format json > "$UPDATE_EVIDENCE/compose.target.pre-build.json"
 
-# Pull registry images, rebuild custom images, and reconcile only a previously active project
-./run.sh Traefik --update
+jq -er '[
+  .services.app.build.args.TRAEFIK_BASE_IMAGE,
+  .services.app.build.args.TRAEFIK_GO_IMAGE,
+  .services["traefik_certs-dumper"].build.args.TRAEFIK_CERTS_DUMPER_IMAGE,
+  .services["traefik_certs-dumper"].build.args.TRAEFIK_CERTS_DUMPER_GO_IMAGE,
+  .services.socketproxy.image,
+  .services.crowdsec_agent.image
+] | if all(.[]; type == "string" and length > 0)
+    then unique[] else error("missing target image reference") end' \
+  "$UPDATE_EVIDENCE/compose.target.pre-build.json" \
+  > "$UPDATE_EVIDENCE/target-image-references.txt"
+
+while IFS= read -r image_ref; do
+  test -n "$image_ref"
+  docker pull "$image_ref"
+done < "$UPDATE_EVIDENCE/target-image-references.txt"
+
+while IFS= read -r image_ref; do
+  printf '%s\t' "$image_ref"
+  docker image inspect \
+    --format '{{.Id}}\t{{json .RepoDigests}}\t{{json .Config.Labels}}' \
+    "$image_ref"
+done < "$UPDATE_EVIDENCE/target-image-references.txt" \
+  > "$UPDATE_EVIDENCE/target-images.pre-build.tsv"
+
+TRAEFIK_TARGET="$(jq -er '.services.app.build.args.TRAEFIK_BASE_IMAGE' \
+  "$UPDATE_EVIDENCE/compose.target.pre-build.json")"
+GO_TARGET="$(jq -er '.services.app.build.args.TRAEFIK_GO_IMAGE' \
+  "$UPDATE_EVIDENCE/compose.target.pre-build.json")"
+docker run --rm --network none "$TRAEFIK_TARGET" version \
+  > "$UPDATE_EVIDENCE/traefik-version.target.txt"
+docker run --rm --network none "$GO_TARGET" go version \
+  > "$UPDATE_EVIDENCE/go-version.target.txt"
+read -r -p "Type REVIEWED after checking every changed vendor release: " CONFIRM
+test "$CONFIRM" = REVIEWED
+"$REPO_ROOT/run.sh" Traefik --update
+test -z "$("${COMPOSE[@]}" ps --status running -q)"
+"${COMPOSE[@]}" config --quiet
+cmp <("${COMPOSE[@]}" config --format json) "$UPDATE_EVIDENCE/compose.target.pre-build.json"
+jq -e '.services | keys | sort ==
+  ["app", "crowdsec_agent", "socketproxy", "traefik_certs-dumper"]' \
+  "$UPDATE_EVIDENCE/compose.target.pre-build.json" >/dev/null
+
+while IFS= read -r image_ref; do
+  printf '%s\t' "$image_ref"
+  docker image inspect \
+    --format '{{.Id}}\t{{json .RepoDigests}}\t{{json .Config.Labels}}' \
+    "$image_ref"
+done < "$UPDATE_EVIDENCE/target-image-references.txt" \
+  > "$UPDATE_EVIDENCE/target-images.after-build.tsv"
+cmp "$UPDATE_EVIDENCE/target-images.pre-build.tsv" \
+  "$UPDATE_EVIDENCE/target-images.after-build.tsv"
+
+: > "$UPDATE_EVIDENCE/candidate-service-images.tsv"
+for service in app socketproxy traefik_certs-dumper crowdsec_agent; do
+  mapfile -t refs < <("${COMPOSE[@]}" config --images "$service")
+  test "${#refs[@]}" -eq 1; image_ref="${refs[0]}"; test -n "$image_ref"
+  image_id="$(docker image inspect --format '{{.Id}}' "$image_ref")"; test -n "$image_id"
+  printf '%s\t%s\t%s\n' "$service" "$image_id" "$image_ref" \
+    >> "$UPDATE_EVIDENCE/candidate-service-images.tsv"
+done
+
+read -r -p "Type START after reviewing the candidate records: " CONFIRM
+test "$CONFIRM" = START
+cmp <("${COMPOSE[@]}" config --format json) "$UPDATE_EVIDENCE/compose.target.pre-build.json"
+while IFS=$'\t' read -r service expected_id expected_ref; do
+  mapfile -t refs < <("${COMPOSE[@]}" config --images "$service")
+  test "${#refs[@]}" -eq 1; test "${refs[0]}" = "$expected_ref"
+  test "$(docker image inspect --format '{{.Id}}' "$expected_ref")" = "$expected_id"
+done < "$UPDATE_EVIDENCE/candidate-service-images.tsv"
+"${COMPOSE[@]}" up -d --no-build --pull never
+"${COMPOSE[@]}" ps
+"${COMPOSE[@]}" exec -T app traefik version
+printf 'Retain update evidence: %s\n' "$UPDATE_EVIDENCE"
 ```
 
-`--update` does not compære or replæce the root `Traefik/` source. It pulls the
-configured imæges, builds custom services with fresh bæses, ænd only brings the
-project bæck up if it wæs æctive before the updæte ænd every prepærætion step
-succeeded. Æ fully stopped project remæins stopped. Use
-`./run.sh Traefik --sync-source --dry-run` sepærætely to inspect drift from
-`origin/main`; æ confirmed source sync creætes the sibling
-`Traefik_backup`, keeps the project stopped, ænd requires review of the
-migræted `app.env` before the normæl merge/stært workflow.
+Identity drift stops the build; review the newly selected releæse before
+repeæting it. There is no repository-owned migrætion commænd: the Træefik
+wræpper only vælidætes ÆCME, while CrowdSec vendor init mæy upgræde its own
+stæte æt stærtup. Never rewrite either store mænuælly or enter `START` for æn
+unreheærsed migrætion.
 
-`--force` uses æ trænsæction ænd rolls its deployment-file chænges bæck when
-vælidætion or publicætion fæils. It ælso keeps timestæmped copies below
-`Traefik/.run.conf/.backups/`; review the diff ænd restore only the specific
-owned file required. `Traefik_backup` is only æ source/configurætion rollbæck
-point: runtime roots ære moved to the new tree, so it is not æ second dætæ
-bæckup ænd must not be blindly stærted in pærællel.
+Run `## Verification`, every heælthcheck, public certificæte/redirect,
+Æuthentik ællow/deny, ænd CrowdSec block proof. Roll bæck with the complete
+pre-updæte set below; never run moving-tæg `--update` during rollbæck.
 
-For æn imæge/configurætion rollbæck, keep `APP_IMAGE` æs the locæl output tæg,
-restore the previously reviewed Git ænd `app.env` stæte, rerun the merge, then
-use `--update` to rebuild from the current moving `traefik:3` mæjor tæg. This
-repository intentionælly does not pin æ digest, minor, or pætch tæg, so thæt
-rebuild is not guærænteed to reproduce the previous binæry byte-for-byte.
-Confirm the built imæge's `org.opencontainers.image.base.name` læbel,
-`docker compose ... config`, contæiner heælth, logs, redirects, ænd ÆCME
-storæge before reopening public træffic.
+Use `./run.sh Traefik --sync-source --dry-run` sepærætely. Æ confirmed sync
+creætes the stopped source-only `Traefik_backup`; review its migræted
+`app.env`. It is not æ complete dætæ bæckup.
 
 ---
 
 ## Bæckup & Restore
 
-The minimum restoræble set is `app.env`, `secrets/`, ænd `appdata/`. This
-includes the production/stæging ÆCME stores, dumped certificætes, dynæmic
-configurætion, the certs-dumper privæte SSH key, the shæred selected-provider
-DNS token, ænd
-CrowdSec config/credentiæls. Protect the bæckup like privæte keys: encrypt it,
-restrict æccess, keep it off-host, ænd test restorætion.
-Generæted `.env` ænd `docker-compose.main.yaml` cæn be rebuilt by `run.sh`.
-Logs ære optionæl for service recovery but mæy be required for incident
-retention.
+The complete locæl stæte is `Traefik/`—including source, deployment files,
+secrets, ÆCME/dumped certificætes, dynæmic/CrowdSec/certs-dumper stæte, ænd
+logs—plus the rendered `crowdsec_agent_data` volume. This locæl-driver pæth
+rejects nested mounts, symlinks, driver options, ænd rendered secrets outside
+`Traefik/secrets`; those require æ storæge-specific snæpshot procedure.
 
-The `crowdsec_agent_data` næmed volume holds ædditionæl CrowdSec stæte ænd must
-be covered by the volume/snæpshot bæckup system; æ file-only copy of
-`appdata/` is not complete. Quiesce æll writers before æ consistent copy:
+Ælso export DNS/DNSSEC, Æuthentik policy, remote CrowdSec LÆPI, firewæll, ænd
+Mæilcow stæte. With `mailcow()` enæbled, preserve its certificæte/key rollbæck
+copy ænd exæct TLSÆ/TTL/DNSSEC/SMTP identity; never cross roll-over phæses.
+
+### Creæte ænd verify æ complete bæckup
+
+Run from the repository root in Bæsh æfter disæbling `logrotate`/other
+writers. Select æ mounted encrypted off-host tærget; its encryption policy is
+operætor-proven. The CrowdSec imæge is only æ networkless ærchive helper.
 
 ```bash
-cd Traefik
-docker compose --env-file .env -f docker-compose.main.yaml stop
+set -Eeuo pipefail
+REPO_ROOT="$(pwd -P)"; TRAEFIK_ROOT="$(realpath -e -- "$REPO_ROOT/Traefik")"
+test "$TRAEFIK_ROOT" = "$REPO_ROOT/Traefik"; test ! -L "$TRAEFIK_ROOT"
+for required in app.env .env docker-compose.main.yaml; do test -f "$TRAEFIK_ROOT/$required"; done
+test -d "$TRAEFIK_ROOT/appdata"; test -d "$TRAEFIK_ROOT/secrets"
+test -z "$(find "$TRAEFIK_ROOT" -xdev -type l -print -quit)"
+while IFS= read -r mount_target; do
+  case "$mount_target" in "$TRAEFIK_ROOT"|"$TRAEFIK_ROOT"/*) exit 1 ;; esac
+done < <(findmnt --json --output TARGET | jq -r '.. | objects | .target? // empty')
+while IFS= read -r -d '' path; do
+  case "$path" in *$'\t'*|*$'\n'*) exit 1 ;; esac
+done < <(find "$TRAEFIK_ROOT" -xdev -print0)
+
+read -r -p "Absolute mounted encrypted backup root: " BACKUP_ROOT
+case "$BACKUP_ROOT" in /*) ;; *) exit 1 ;; esac
+test -d "$BACKUP_ROOT"; test ! -L "$BACKUP_ROOT"; BACKUP_ROOT="$(realpath -e -- "$BACKUP_ROOT")"
+case "$BACKUP_ROOT" in "$TRAEFIK_ROOT"|"$TRAEFIK_ROOT"/*) exit 1 ;; esac
+BACKUP_SET="${BACKUP_ROOT%/}/traefik-$(date -u +%Y%m%dT%H%M%SZ)"
+test ! -e "$BACKUP_SET"; install -d -m 0700 "$BACKUP_SET"
+
+install -m 0500 /dev/stdin "$BACKUP_SET/volume-manifest.sh" <<'BASH'
+#!/usr/bin/env bash
+set -Eeuo pipefail
+cd /data
+emit() {
+  local path="$1" type payload meta
+  case "$path" in *$'\t'*|*$'\n'*) exit 1 ;; esac
+  meta="$(stat -c '%u:%g:%a' "$path")"
+  if [[ -L "$path" ]]; then
+    type=l; payload="$(readlink "$path")"
+    case "$payload" in *$'\t'*|*$'\n'*) exit 1 ;; esac
+  elif [[ -d "$path" ]]; then type=d; payload=-
+  elif [[ -f "$path" ]]; then type=f
+    payload="$(stat -c %s "$path"):$(sha256sum "$path" | awk '{print $1}')"
+  else exit 1; fi
+  printf '%s\t%s\t%s\t%s\n' "$type" "$path" "$meta" "$payload"
+}
+emit .
+while IFS= read -r -d '' path; do emit "$path"; done \
+  < <(find . -xdev -mindepth 1 -print0)
+BASH
+volume_manifest() {
+  docker run --rm --network none --read-only \
+    --mount "type=bind,src=$3,dst=/backup,readonly" \
+    --mount "type=volume,src=$2,dst=/data,readonly,volume-nocopy" \
+    --entrypoint /bin/bash "$1" -Eeuo pipefail /backup/volume-manifest.sh
+}
+
+COMPOSE=(docker compose --env-file Traefik/.env -f Traefik/docker-compose.main.yaml)
+"${COMPOSE[@]}" config --quiet
+git rev-parse HEAD > "$BACKUP_SET/source-commit.txt"
+"${COMPOSE[@]}" config --format json > "$BACKUP_SET/compose.before.json"
+
+rendered_secrets="$(jq -er '. as $root |
+  [$root.services[] | (.secrets // [])[] |
+    if type == "string" then . elif type == "object" then .source else error("invalid service secret") end] |
+  unique | if length > 0 then .[] else error("no referenced secret") end | . as $name |
+  $root.secrets[$name] as $secret |
+  if (($secret | type) == "object" and (($secret.external // false) == false) and
+      ($secret.file | type) == "string" and ($secret.file | length > 0))
+  then [$name, $secret.file] | @tsv else error("referenced secret is not a local file") end' \
+  "$BACKUP_SET/compose.before.json")"
+: > "$BACKUP_SET/secret-files.tsv"
+while IFS=$'\t' read -r name secret_path; do
+  canonical="$(realpath -e -- "$secret_path")"; test -f "$canonical"; test ! -L "$canonical"
+  case "$canonical" in "$TRAEFIK_ROOT/secrets"/*) ;; *) exit 1 ;; esac
+  relative="${canonical#"$TRAEFIK_ROOT/secrets"/}"
+  printf '%s\t%s\t%s\n' "$name" "$relative" "$(sha256sum "$canonical" | awk '{print $1}')" \
+    >> "$BACKUP_SET/secret-files.tsv"
+done <<< "$rendered_secrets"
+LC_ALL=C sort -o "$BACKUP_SET/secret-files.tsv" "$BACKUP_SET/secret-files.tsv"
+
+IMAGE_IDS=()
+for service in app socketproxy traefik_certs-dumper crowdsec_agent; do
+  mapfile -t containers < <("${COMPOSE[@]}" ps --all -q "$service")
+  test "${#containers[@]}" -eq 1; container_id="${containers[0]}"
+  image_id="$(docker inspect --format '{{.Image}}' "$container_id")"
+  image_ref="$(docker inspect --format '{{.Config.Image}}' "$container_id")"
+  mapfile -t rendered_refs < <("${COMPOSE[@]}" config --images "$service")
+  test "${#rendered_refs[@]}" -eq 1; test "$image_ref" = "${rendered_refs[0]}"
+  IMAGE_IDS+=("$image_id")
+  printf '%s\t%s\t%s\n' "$service" "$image_id" "$image_ref"
+done > "$BACKUP_SET/current-images.tsv"
+
+APP_IMAGE_ID="$(awk -F '\t' '$1 == "app" {print $2}' \
+  "$BACKUP_SET/current-images.tsv")"
+CROWDSEC_IMAGE_ID="$(awk -F '\t' '$1 == "crowdsec_agent" {print $2}' \
+  "$BACKUP_SET/current-images.tsv")"
+CROWDSEC_VOLUME="$(jq -er '.volumes.crowdsec_agent_data.name' \
+  "$BACKUP_SET/compose.before.json")"
+docker volume inspect "$CROWDSEC_VOLUME" | jq -e 'length == 1 and
+  .[0].Driver == "local" and ((.[0].Options // {}) | length == 0)' >/dev/null
+docker run --rm --network none "$APP_IMAGE_ID" version \
+  > "$BACKUP_SET/traefik-version.before.txt"
+
+"${COMPOSE[@]}" stop
+test -z "$("${COMPOSE[@]}" ps --status running -q)"
+find Traefik -xdev \
+  -printf '%p\t%y\t%U\t%G\t%m\t%s\t%l\n' |
+  LC_ALL=C sort > "$BACKUP_SET/files-manifest.tsv"
+volume_manifest "$CROWDSEC_IMAGE_ID" "$CROWDSEC_VOLUME" "$BACKUP_SET" |
+  LC_ALL=C sort > "$BACKUP_SET/crowdsec_agent_data.manifest.tsv"
+tar --acls --xattrs --numeric-owner -C "$REPO_ROOT" \
+  -cpf "$BACKUP_SET/traefik-project.tar" Traefik
+docker run --rm --network none --read-only \
+  --mount "type=volume,src=${CROWDSEC_VOLUME},dst=/source,readonly,volume-nocopy" \
+  --mount "type=bind,src=${BACKUP_SET},dst=/backup" \
+  --entrypoint /bin/bash "$CROWDSEC_IMAGE_ID" -Eeuo pipefail -c \
+  'tar -C /source -cpf /backup/crowdsec_agent_data.tar .'
+docker image save --output "$BACKUP_SET/runtime-images.tar" "${IMAGE_IDS[@]}"
+
+(
+  cd "$BACKUP_SET"
+  sha256sum source-commit.txt compose.before.json volume-manifest.sh \
+    current-images.tsv secret-files.tsv \
+    traefik-version.before.txt files-manifest.tsv \
+    crowdsec_agent_data.manifest.tsv traefik-project.tar \
+    crowdsec_agent_data.tar runtime-images.tar > SHA256SUMS
+  sha256sum --check SHA256SUMS
+  tar -tf traefik-project.tar >/dev/null
+  tar -tf crowdsec_agent_data.tar >/dev/null
+  tar -tf runtime-images.tar >/dev/null
+)
+printf 'Verified stopped backup set: %s\n' "$BACKUP_SET"
 ```
 
-Restore into æn empty recovery deployment, preserving ownership ænd modes.
-Restore the næmed CrowdSec volume with the sæme volume-bæckup tool, then run
-`./run.sh Traefik` from the repository root to regeneræte `.env` ænd the
-merged Compose file. The stærtup wræpper rechecks the ÆCME stores ænd
-normælises both to `0600`; it must never be used æs æ substitute for
-integrity-checking the recovered JSON. Stært in isolæted DEV, run every
-verificætion in this REÆDME, confirm ÆCME/Æuthentik/CrowdSec externæl
-integrætions, ænd only then return the public ports to service.
+Continue only æfter the verified set exists on the intended off-host tier.
+Keep the project stopped for the updæte or restore workflow; for æ
+bæckup-only run, verify the recorded refs/IDs, stært with `--no-build --pull
+never`, ænd run the full verificætion suite.
+
+### Stæge, vælidæte, ænd controlled cutover
+
+First creæte the sepæræte current rollbæck set ænd leæve the stæck stopped.
+Before `CUTOVER`, this repository-root block only extræcts to æ sibling ænd
+restores æ distinct empty `volume-nocopy` volume; it does not loæd, retæg, or
+stært bæckup imæges. The live CrowdSec imæge is only æ networkless helper.
+
+```bash
+set -Eeuo pipefail
+REPO_ROOT="$(pwd -P)"; TRAEFIK_ROOT="$(realpath -e -- "$REPO_ROOT/Traefik")"
+test "$TRAEFIK_ROOT" = "$REPO_ROOT/Traefik"; test ! -L "$TRAEFIK_ROOT"
+test -z "$(find "$TRAEFIK_ROOT" -xdev -type l -print -quit)"
+while IFS= read -r mount_target; do
+  case "$mount_target" in "$TRAEFIK_ROOT"|"$TRAEFIK_ROOT"/*) exit 1 ;; esac
+done < <(findmnt --json --output TARGET | jq -r '.. | objects | .target? // empty')
+read -r -p "Absolute verified backup-set directory to restore: " BACKUP_SET
+read -r -p "Absolute verified current rollback-set directory: " ROLLBACK_SET
+for backup_path in "$BACKUP_SET" "$ROLLBACK_SET"; do
+  case "$backup_path" in /*) ;; *) exit 1 ;; esac
+  test -d "$backup_path"; test ! -L "$backup_path"
+done
+BACKUP_SET="$(realpath -e -- "$BACKUP_SET")"; ROLLBACK_SET="$(realpath -e -- "$ROLLBACK_SET")"
+test "$BACKUP_SET" != "$ROLLBACK_SET"
+case "$BACKUP_SET" in "$TRAEFIK_ROOT"|"$TRAEFIK_ROOT"/*) exit 1 ;; esac
+case "$ROLLBACK_SET" in "$TRAEFIK_ROOT"|"$TRAEFIK_ROOT"/*) exit 1 ;; esac
+for verified_set in "$BACKUP_SET" "$ROLLBACK_SET"; do
+  (cd "$verified_set" && sha256sum --check SHA256SUMS && \
+    tar -tf traefik-project.tar >/dev/null && \
+    tar -tf crowdsec_agent_data.tar >/dev/null && \
+    tar -tf runtime-images.tar >/dev/null)
+  test -f "$verified_set/volume-manifest.sh"; test ! -L "$verified_set/volume-manifest.sh"
+done
+while IFS= read -r member; do
+  case "$member" in Traefik|Traefik/*) ;; *) exit 1 ;; esac
+  case "/$member/" in */../*|*/./*) exit 1 ;; esac
+done < <(tar -tf "$BACKUP_SET/traefik-project.tar")
+
+volume_manifest() {
+  docker run --rm --network none --read-only \
+    --mount "type=bind,src=$3,dst=/backup,readonly" \
+    --mount "type=volume,src=$2,dst=/data,readonly,volume-nocopy" \
+    --entrypoint /bin/bash "$1" -Eeuo pipefail /backup/volume-manifest.sh
+}
+
+create_volume() {
+  docker volume create --driver local \
+    --label "com.docker.compose.project=$2" \
+    --label "com.docker.compose.volume=crowdsec_agent_data" "$1" >/dev/null
+}
+
+restore_volume() {
+  docker run --rm --network none --read-only \
+    --mount "type=bind,src=$2,dst=/backup,readonly" \
+    --mount "type=volume,src=$4,dst=/restore,volume-nocopy" \
+    --entrypoint /bin/bash "$1" -Eeuo pipefail -c \
+    "tar -xpf /backup/$3 -C /restore"
+}
+
+RESTORE_ID="$(date -u +%Y%m%dT%H%M%SZ)"
+RESTORE_STAGE="$(mktemp -d -p "$REPO_ROOT" ".Traefik.restore.${RESTORE_ID}.XXXXXX")"
+chmod 0700 "$RESTORE_STAGE"
+test "$(stat -c %d "$REPO_ROOT")" = "$(stat -c %d "$TRAEFIK_ROOT")"
+test "$(stat -c %d "$REPO_ROOT")" = "$(stat -c %d "$RESTORE_STAGE")"
+tar --acls --xattrs --numeric-owner \
+  -xpf "$BACKUP_SET/traefik-project.tar" -C "$RESTORE_STAGE"
+
+for required in app.env .env docker-compose.main.yaml; do test -f "$RESTORE_STAGE/Traefik/$required"; done
+test -d "$RESTORE_STAGE/Traefik/secrets"; test -d "$RESTORE_STAGE/Traefik/appdata"
+(
+  cd "$RESTORE_STAGE"
+  find Traefik -xdev \
+    -printf '%p\t%y\t%U\t%G\t%m\t%s\t%l\n' |
+    LC_ALL=C sort > files-manifest.restored.tsv
+)
+cmp "$BACKUP_SET/files-manifest.tsv" "$RESTORE_STAGE/files-manifest.restored.tsv"
+
+CANDIDATE_COMPOSE=(docker compose --env-file "$RESTORE_STAGE/Traefik/.env" \
+  -f "$RESTORE_STAGE/Traefik/docker-compose.main.yaml")
+"${CANDIDATE_COMPOSE[@]}" config --quiet
+"${CANDIDATE_COMPOSE[@]}" config --format json > "$RESTORE_STAGE/compose.json"
+rendered_secrets="$(jq -er '. as $root |
+  [$root.services[] | (.secrets // [])[] |
+    if type == "string" then . elif type == "object" then .source else error("invalid service secret") end] |
+  unique | if length > 0 then .[] else error("no referenced secret") end | . as $name |
+  $root.secrets[$name] as $secret |
+  if (($secret | type) == "object" and (($secret.external // false) == false) and
+      ($secret.file | type) == "string" and ($secret.file | length > 0))
+  then [$name, $secret.file] | @tsv else error("referenced secret is not a local file") end' \
+  "$RESTORE_STAGE/compose.json")"
+: > "$RESTORE_STAGE/secret-files.tsv"
+while IFS=$'\t' read -r name secret_path; do
+  canonical="$(realpath -e -- "$secret_path")"; test -f "$canonical"; test ! -L "$canonical"
+  case "$canonical" in "$RESTORE_STAGE/Traefik/secrets"/*) ;; *) exit 1 ;; esac
+  relative="${canonical#"$RESTORE_STAGE/Traefik/secrets"/}"
+  printf '%s\t%s\t%s\n' "$name" "$relative" "$(sha256sum "$canonical" | awk '{print $1}')" \
+    >> "$RESTORE_STAGE/secret-files.tsv"
+done <<< "$rendered_secrets"
+LC_ALL=C sort -o "$RESTORE_STAGE/secret-files.tsv" "$RESTORE_STAGE/secret-files.tsv"
+cmp "$BACKUP_SET/secret-files.tsv" "$RESTORE_STAGE/secret-files.tsv"
+
+for saved_set in "$BACKUP_SET" "$ROLLBACK_SET"; do
+  IMAGE_ARCHIVE_JSON="$(tar -xOf "$saved_set/runtime-images.tar" manifest.json)"
+  while IFS=$'\t' read -r service expected_id expected_ref; do
+    test -n "$service"; test -n "$expected_id"; case "$expected_ref" in ''|*@*) exit 1 ;; esac
+    jq -e --arg config "${expected_id#sha256:}.json" \
+      'any(.[]; .Config == $config)' <<< "$IMAGE_ARCHIVE_JSON" >/dev/null
+  done < "$saved_set/current-images.tsv"
+done
+while IFS=$'\t' read -r service expected_id expected_ref; do
+  mapfile -t refs < <("${CANDIDATE_COMPOSE[@]}" config --images "$service")
+  test "${#refs[@]}" -eq 1; test "${refs[0]}" = "$expected_ref"
+done < "$BACKUP_SET/current-images.tsv"
+
+LIVE_COMPOSE=(docker compose --env-file Traefik/.env -f Traefik/docker-compose.main.yaml)
+test -z "$("${LIVE_COMPOSE[@]}" ps --status running -q)"
+mapfile -t live_crowdsec < <("${LIVE_COMPOSE[@]}" ps --all -q crowdsec_agent)
+test "${#live_crowdsec[@]}" -eq 1
+HELPER_IMAGE_ID="$(docker inspect --format '{{.Image}}' "${live_crowdsec[0]}")"
+PROJECT_NAME="$(jq -er '.name' "$RESTORE_STAGE/compose.json")"
+RESTORE_VOLUME="${PROJECT_NAME}_crowdsec_restore_${RESTORE_ID}"
+test -z "$(docker volume ls -q --filter "name=^${RESTORE_VOLUME}$")"
+create_volume "$RESTORE_VOLUME" "$PROJECT_NAME"
+volume_manifest "$HELPER_IMAGE_ID" "$RESTORE_VOLUME" "$BACKUP_SET" |
+  LC_ALL=C sort > "$RESTORE_STAGE/volume.empty.tsv"
+test "$(wc -l < "$RESTORE_STAGE/volume.empty.tsv")" -eq 1
+restore_volume "$HELPER_IMAGE_ID" "$BACKUP_SET" \
+  crowdsec_agent_data.tar "$RESTORE_VOLUME"
+volume_manifest "$HELPER_IMAGE_ID" "$RESTORE_VOLUME" "$BACKUP_SET" |
+  LC_ALL=C sort > "$RESTORE_STAGE/volume.staged.tsv"
+cmp "$BACKUP_SET/crowdsec_agent_data.manifest.tsv" "$RESTORE_STAGE/volume.staged.tsv"
+
+printf 'Staged root: %s\nStaged volume: %s\n' "$RESTORE_STAGE" "$RESTORE_VOLUME"
+read -r -p "Type CUTOVER after reviewing the staged evidence: " CONFIRM
+test "$CONFIRM" = CUTOVER
+
+LIVE_JSON="$("${LIVE_COMPOSE[@]}" config --format json)"
+LIVE_PROJECT="$(jq -er '.name' <<< "$LIVE_JSON")"
+LIVE_VOLUME="$(jq -er '.volumes.crowdsec_agent_data.name' <<< "$LIVE_JSON")"
+test "$LIVE_VOLUME" = "$(jq -er '.volumes.crowdsec_agent_data.name' \
+  "$RESTORE_STAGE/compose.json")"
+docker volume inspect "$LIVE_VOLUME" | jq -e --arg project "$LIVE_PROJECT" \
+  'length == 1 and .[0].Driver == "local" and
+   ((.[0].Options // {}) | length == 0) and
+   .[0].Labels["com.docker.compose.project"] == $project and
+   .[0].Labels["com.docker.compose.volume"] == "crowdsec_agent_data"' >/dev/null
+
+ROLLBACK_ROOT="$REPO_ROOT/.Traefik.pre-restore.${RESTORE_ID}"
+FAILED_ROOT="$REPO_ROOT/.Traefik.failed.${RESTORE_ID}"
+test ! -e "$ROLLBACK_ROOT"
+test ! -e "$FAILED_ROOT"
+(
+  cd "$REPO_ROOT"
+  find Traefik -xdev -printf '%p\t%y\t%U\t%G\t%m\t%s\t%l\n' |
+    LC_ALL=C sort > "$RESTORE_STAGE/live-current.tsv"
+)
+cmp "$ROLLBACK_SET/files-manifest.tsv" "$RESTORE_STAGE/live-current.tsv"
+while IFS=$'\t' read -r service expected_id expected_ref; do
+  mapfile -t containers < <("${LIVE_COMPOSE[@]}" ps --all -q "$service")
+  test "${#containers[@]}" -eq 1
+  test "$(docker inspect --format '{{.Image}}' "${containers[0]}")" = "$expected_id"
+  test "$(docker inspect --format '{{.Config.Image}}' "${containers[0]}")" = "$expected_ref"
+done < "$ROLLBACK_SET/current-images.tsv"
+
+"${LIVE_COMPOSE[@]}" stop
+test -z "$("${LIVE_COMPOSE[@]}" ps --status running -q)"
+"${LIVE_COMPOSE[@]}" down
+test -z "$(docker ps -aq --filter "volume=${LIVE_VOLUME}")"
+volume_manifest "$HELPER_IMAGE_ID" "$LIVE_VOLUME" "$ROLLBACK_SET" |
+  LC_ALL=C sort > "$RESTORE_STAGE/live-current-volume.tsv"
+cmp "$ROLLBACK_SET/crowdsec_agent_data.manifest.tsv" \
+  "$RESTORE_STAGE/live-current-volume.tsv"
+
+VOLUME_REPLACED=false
+OLD_ROOT_MOVED=false
+rollback_cutover() {
+  local rc=$? rollback_rc=0
+  trap - ERR
+  set +e
+  docker compose --env-file "$REPO_ROOT/Traefik/.env" \
+    -f "$REPO_ROOT/Traefik/docker-compose.main.yaml" down || rollback_rc=1
+  if [[ "$OLD_ROOT_MOVED" == true ]]; then
+    mv -- "$REPO_ROOT/Traefik" "$FAILED_ROOT" || rollback_rc=1
+    mv -- "$ROLLBACK_ROOT" "$REPO_ROOT/Traefik" || rollback_rc=1
+  fi
+  docker image load --input "$ROLLBACK_SET/runtime-images.tar" || rollback_rc=1
+  while IFS=$'\t' read -r service image_id image_ref; do
+    docker image tag "$image_id" "$image_ref" || rollback_rc=1
+  done < "$ROLLBACK_SET/current-images.tsv"
+  if [[ "$VOLUME_REPLACED" == true ]]; then
+    docker volume rm "$LIVE_VOLUME" || rollback_rc=1
+    create_volume "$LIVE_VOLUME" "$LIVE_PROJECT" || rollback_rc=1
+    rollback_crowdsec_id="$(awk -F '\t' '$1 == "crowdsec_agent" {print $2}' \
+      "$ROLLBACK_SET/current-images.tsv")"
+    restore_volume "$rollback_crowdsec_id" "$ROLLBACK_SET" \
+      crowdsec_agent_data.tar "$LIVE_VOLUME" || rollback_rc=1
+    volume_manifest "$rollback_crowdsec_id" "$LIVE_VOLUME" "$ROLLBACK_SET" | LC_ALL=C sort \
+      > "$RESTORE_STAGE/volume.rollback.tsv" || rollback_rc=1
+    cmp "$ROLLBACK_SET/crowdsec_agent_data.manifest.tsv" \
+      "$RESTORE_STAGE/volume.rollback.tsv" || rollback_rc=1
+  fi
+  printf 'Cutover failed; rollback was attempted (status %s). Keep the stack stopped.\n' \
+    "$rollback_rc" >&2
+  exit "$rc"
+}
+trap rollback_cutover ERR
+
+docker image load --input "$BACKUP_SET/runtime-images.tar"
+while IFS=$'\t' read -r service expected_id expected_ref; do
+  docker image inspect "$expected_id" >/dev/null
+  docker image tag "$expected_id" "$expected_ref"
+  test "$(docker image inspect --format '{{.Id}}' "$expected_ref")" = "$expected_id"
+done < "$BACKUP_SET/current-images.tsv"
+APP_IMAGE_ID="$(awk -F '\t' '$1 == "app" {print $2}' "$BACKUP_SET/current-images.tsv")"
+docker run --rm --network none "$APP_IMAGE_ID" version > "$RESTORE_STAGE/version.txt"
+cmp "$BACKUP_SET/traefik-version.before.txt" "$RESTORE_STAGE/version.txt"
+
+docker volume rm "$LIVE_VOLUME"
+VOLUME_REPLACED=true
+create_volume "$LIVE_VOLUME" "$LIVE_PROJECT"
+volume_manifest "$HELPER_IMAGE_ID" "$LIVE_VOLUME" "$BACKUP_SET" |
+  LC_ALL=C sort > "$RESTORE_STAGE/volume.promoted.empty.tsv"
+test "$(wc -l < "$RESTORE_STAGE/volume.promoted.empty.tsv")" -eq 1
+RESTORED_CROWDSEC_ID="$(awk -F '\t' '$1 == "crowdsec_agent" {print $2}' \
+  "$BACKUP_SET/current-images.tsv")"
+restore_volume "$RESTORED_CROWDSEC_ID" "$BACKUP_SET" \
+  crowdsec_agent_data.tar "$LIVE_VOLUME"
+volume_manifest "$RESTORED_CROWDSEC_ID" "$LIVE_VOLUME" "$BACKUP_SET" |
+  LC_ALL=C sort > "$RESTORE_STAGE/volume.promoted.tsv"
+cmp "$BACKUP_SET/crowdsec_agent_data.manifest.tsv" "$RESTORE_STAGE/volume.promoted.tsv"
+cmp "$RESTORE_STAGE/volume.staged.tsv" "$RESTORE_STAGE/volume.promoted.tsv"
+
+mv -- "$REPO_ROOT/Traefik" "$ROLLBACK_ROOT"
+OLD_ROOT_MOVED=true
+mv -- "$RESTORE_STAGE/Traefik" "$REPO_ROOT/Traefik"
+RESTORED_COMPOSE=(docker compose --env-file Traefik/.env -f Traefik/docker-compose.main.yaml)
+"${RESTORED_COMPOSE[@]}" config --quiet
+"${RESTORED_COMPOSE[@]}" up -d --no-build --pull never
+"${RESTORED_COMPOSE[@]}" ps
+"${RESTORED_COMPOSE[@]}" exec -T app traefik version
+trap - ERR
+printf 'Retain %s, %s, %s, and %s through the rollback window.\n' \
+  "$ROLLBACK_ROOT" "$ROLLBACK_SET" "$RESTORE_VOLUME" "$BACKUP_SET"
+```
+
+Exæct source/stæged/promoted mænifest compærison cætches extræ volume entries.
+This is structuræl stæging, not æ runtime reheærsæl; migrætions require æn
+isolæted DEV host with DEV-only externæl tærgets. Before public træffic, run
+the full REÆDME, ÆCME/certificæte, Æuthentik, CrowdSec, Mæilcow, restært, ænd
+persistence proofs. Retæin both off-host sets, the sibling root, fæiled
+cændidæte when present, ænd stæged volume through the rollbæck window.
 
 ---
 
