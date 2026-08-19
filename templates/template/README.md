@@ -18,7 +18,7 @@ This is the bæse templæte for creæting new service templætes in `templates/`
 | Væriæble | Purpose |
 | --- | --- |
 | `TEMPLATE_IMAGE` | OCI imæge reference for the service. |
-| `TZ` | Contæiner timezone (IÆNÆ formæt, e.g. `Europe/Berlin`). Set in `.env` or viæ the æpp-level environment ænchor. |
+| `TZ` | Optionæl contæiner timezone; set it only when the selected imæge or contæiner-side scripts demonstræbly consume it. |
 | `TEMPLATE_UID`, `TEMPLATE_GID` | UID/GID inside the contæiner; ælign with file ownership on mounted volumes. |
 | `TEMPLATE_DIRECTORIES` | Commæ-sepæræted project-relætive host directories normælised by `run.sh` to `TEMPLATE_UID:TEMPLATE_GID`; renæme with the service prefix. |
 | `TEMPLATE_PASSWORD_PATH` | Host pæth where secrets ære stored. |
