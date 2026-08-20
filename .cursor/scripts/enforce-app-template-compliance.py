@@ -1035,6 +1035,941 @@ def check_readme_root_operational_contract(
     return issues
 
 
+def check_readme_product_security_contract(
+    readme_path: Path,
+    readme_text: str,
+) -> list[str]:
+    """Require product-specific operætor security contræcts thæt generic topics miss."""
+    product = readme_path.parent.name
+    plain = _normalize_branded_readme(readme_text)
+    issues: list[str] = []
+
+    def require_topic(pattern: str, description: str) -> None:
+        if not re.search(pattern, plain, flags=re.DOTALL):
+            issues.append(f"README.md: {product} must document {description}")
+
+    def require_raw(marker: str, description: str) -> None:
+        if marker not in readme_text:
+            issues.append(f"README.md: {product} must document {description}")
+
+    def require_raw_pattern(pattern: str, description: str) -> None:
+        if not re.search(pattern, readme_text, flags=re.MULTILINE | re.DOTALL):
+            issues.append(f"README.md: {product} must document {description}")
+
+    def require_raw_count(marker: str, minimum: int, description: str) -> None:
+        if readme_text.count(marker) < minimum:
+            issues.append(f"README.md: {product} must document {description}")
+
+    if product == "Authentik":
+        require_raw(
+            "Device clæsses: **only** `TOTP`.",
+            "the exact TOTP-only normal-login authenticator allowlist",
+        )
+        require_topic(
+            r"device classes.{0,80}only.{0,30}totp",
+            "TOTP as the only normal-login authenticator class",
+        )
+        require_topic(
+            r"do not allow.{0,50}static.{0,120}normal login",
+            "Static recovery codes outside the normal-login authenticator",
+        )
+        require_topic(
+            r"last validation threshold.{0,80}seconds\s*=\s*0",
+            "fresh TOTP validation on every normal login",
+        )
+        require_topic(r"totp throttling", "TOTP brute-force throttling")
+        require_topic(
+            r"not configured action.{0,80}configure",
+            "Configure for a missing normal-login TOTP device",
+        )
+        require_topic(
+            r"not configured action.{0,80}deny",
+            "Deny for a missing recovery authenticator",
+        )
+        require_raw("reset_password", "the first-login password-reset attribute flow")
+        require_raw(
+            "local-password-baseline",
+            "one password policy bound to every local-password prompt",
+        )
+        require_topic(
+            r"(?=.*forgot password)(?=.*(one[- ]time|single[- ]use))",
+            "a tested one-time password-recovery round trip",
+        )
+        require_topic(
+            r"e[- ]?mail(?:,|\s).{0,120}\bmfa\b",
+            "email-plus-MFA recovery",
+        )
+        require_topic(
+            r"(?=.*recovery flow)(?=.*\bbrand\b)",
+            "the recovery-flow Brand binding",
+        )
+        require_topic(r"upstream[- ]idp[- ]only", "the upstream-IdP-only recovery denial")
+        require_topic(r"minimum.{0,80}\b15\b", "a minimum 15-character password policy")
+        require_topic(r"\bhibp\b", "compromised-password rejection")
+        require_topic(r"\bzxcvbn\b", "password-strength validation")
+        require_topic(r"ak-breakglass", "a dedicated Authentik break-glass administrator")
+        require_raw(
+            "breakglass-authentication",
+            "a concrete local emergency authentication flow",
+        )
+        require_topic(
+            r"bind these stages in order:.{0,160}identification.{0,160}deny stage"
+            r".{0,160}password stage.{0,200}authenticator validation"
+            r".{0,160}user login stage",
+            "the ordered break-glass authentication stage chain",
+        )
+        require_raw(
+            "failure_result=true",
+            "fail-closed inverse break-glass denial in ordinary login flows",
+        )
+        require_topic(
+            r"ordinary/public authentication flow.{0,800}policy-engine error"
+            r".{0,300}not offered totp configuration.{0,120}no session",
+            "the inverse break-glass policy-error negative drill",
+        )
+        require_topic(
+            r"terminate other sessions.{0,500}refresh tokens",
+            "session termination plus independent refresh-token revocation",
+        )
+        require_topic(r"session duration", "an explicit session lifetime")
+        require_topic(r"remember me offset", "the remembered-session policy")
+        require_topic(r"\blogout\b", "direct and provider logout behaviour")
+        require_topic(r"\brbac\b", "least-privilege Authentik RBAC")
+        require_topic(
+            r"authorization code.{0,100}\bpkce\b",
+            "the OAuth Authorization Code and PKCE baseline",
+        )
+        require_topic(r"exact production https redirect uri", "exact OAuth redirect URIs")
+        for marker, description in (
+            ("authorization_code", "the exact human-web OAuth grant allowlist"),
+            ("refresh_token", "conditional refresh-token grant handling"),
+            ("client_credentials", "separate machine-client grant handling"),
+            ("device_code", "explicit device-code grant denial or exception"),
+        ):
+            require_raw(marker, description)
+        require_topic(r"access code validity", "the OAuth access-code validity")
+        require_topic(r"access token validity", "the OAuth access-token validity")
+        require_topic(r"refresh token validity", "the OAuth refresh-token validity")
+        require_topic(
+            r"refresh token threshold.{0,80}seconds\s*=\s*0",
+            "per-use OAuth refresh-token renewal",
+        )
+        require_topic(r"refresh[- ]token rotation", "the OAuth refresh-token rotation policy")
+        if re.search(r"\btoken[_ -]exchange\b", readme_text, flags=re.IGNORECASE):
+            issues.append(
+                "README.md: Authentik must not add unsupported token_exchange to "
+                "the 2026.5 OAuth grant contract"
+            )
+        require_topic(r"asymmetric signing key", "asymmetric OIDC signing")
+        require_topic(r"/blueprints", "the custom-blueprint backup boundary")
+        require_topic(r"ssl\s+cert\s+file", "the private SMTP-CA support boundary")
+        for marker, description in (
+            ("/api/v3/policies/expression", "the optional Expression API proxy boundary"),
+            ("/api/v3/propertymappings", "the optional Property Mapping API proxy boundary"),
+            ("/api/v3/managed/blueprints", "the optional managed-Blueprint API proxy boundary"),
+            ("/api/v3/stages/captcha", "the optional CAPTCHA API proxy boundary"),
+        ):
+            require_raw(marker, description)
+        require_topic(
+            r"licensed edition.{0,160}account lockdown",
+            "Account Lockdown as an optional licensed control",
+        )
+
+    elif product == "Traefik":
+        require_topic(r"zone / zone / read", "Cloudflare Zone Read scope")
+        require_topic(r"zone / dns / edit", "Cloudflare DNS Edit scope")
+        require_raw("perm_manage_tokens", "a deSEC token without token-management rights")
+        require_raw_pattern(
+            r'(?m)^\s*test -n "\$EXISTING_UNGRANTED_ZONE"$',
+            "a real existing excluded Cloudflare negative zone",
+        )
+        require_raw(
+            "# Prove and record its existence/status with an administrative credential first.",
+            "independent administrative proof that the excluded Cloudflare zone exists",
+        )
+        require_topic(
+            r"successful verify/zone requests prove only.{0,120}current egress"
+            r".{0,160}do not prove.{0,100}other source addresses.{0,60}denied",
+            "the accurate Cloudflare client-IP policy-evidence boundary",
+        )
+        require_topic(
+            r"existing\s+ungranted\s+zone.{0,50}mandatory.{0,300}scope proof is incomplete"
+            r".{0,100}promotion must stop.{0,100}never omit the request",
+            "the mandatory real excluded-zone proof with no omit fallback",
+        )
+        for marker, description in (
+            (
+                "cleanup_failed_creation() {",
+                "the deSEC failed-creation EXIT cleanup",
+            ),
+            (
+                "trap cleanup_failed_creation EXIT",
+                "the deSEC failed-creation EXIT cleanup trap",
+            ),
+            (
+                "# TOKEN_NAME is the recovery key for an ambiguous POST.",
+                "TOKEN_NAME reconciliation after an ambiguous deSEC POST",
+            ),
+            (
+                'test "$match_count" -eq 1',
+                "unique TOKEN_NAME reconciliation after an ambiguous deSEC POST",
+            ),
+            (
+                "token cleanup/reconciliation is ambiguous",
+                "fail-loud deSEC reconciliation evidence retention",
+            ),
+            (
+                'sync -d "$secret_dir"\ntest -f "$CANDIDATE"',
+                "the durable deSEC candidate directory entry after an ambiguous POST",
+            ),
+        ):
+            require_raw(marker, description)
+        require_raw(
+            "The old token is revoked only æfter the monitored rollbæck window closes;",
+            "revocation only after the monitored rollback window",
+        )
+        require_raw(
+            "deSEC token with reæd æccess plus deny-by-defæult write policies "
+            "only for the exæct required TXT ænd optionæl TLSÆ RRsets",
+            "the constrained deSEC exact TXT/TLSA RRset description",
+        )
+        require_topic(
+            r"(?=.*same[- ]filesystem)(?=.*(atomic|rename))",
+            "same-filesystem atomic DNS-token rotation",
+        )
+        require_raw(
+            "templates/traefik_certs-dumper/docker-compose.traefik_certs-dumper.yaml",
+            "the canonical Mailcow Compose opt-in source",
+        )
+        require_raw(
+            "templates/traefik_certs-dumper/scripts/post-hook.sh",
+            "the canonical Mailcow hook source",
+        )
+        require_topic(
+            r"traefik/docker-compose\.main\.yaml.{0,200}(generated|regenerated|replace)",
+            "that generated Compose is not a persistent override source",
+        )
+        require_raw("openssl verify", "certificate-chain verification")
+        require_topic(r"\bissuewild\b", "effective wildcard CAA verification")
+        require_topic(r"\bdelv\b.{0,120}dnssec", "DNSSEC validation")
+        for marker, description in (
+            (
+                'cmp "$STAGING_EXPECTED_SANS" "$STAGING_ACTUAL_SANS"',
+                "the staging certificate exact SAN comparison",
+            ),
+            (
+                'cmp "$STAGING_EXPECTED_SANS" "$STAGING_STORE_SANS"',
+                "the staging ACME-store exact SAN comparison",
+            ),
+            (
+                'cmp "$EXPECTED_SANS" "$STORE_ACTUAL_SANS"',
+                "the production ACME-store exact SAN comparison",
+            ),
+            (
+                "' \"$EXPECTED_SANS\")\"\n"
+                'jq -er --argjson expected "$EXPECTED_STORE_NAMES_JSON"',
+                "the expected-SAN inventory used for production store selection",
+            ),
+            (
+                '--argjson expected "$EXPECTED_STORE_NAMES_JSON"',
+                "the expected-SAN inventory binding for production store selection",
+            ),
+            (
+                'select(. == $expected)]',
+                "wildcard-capable exact production ACME-store certificate selection",
+            ),
+            (
+                'else error("expected SAN inventory must match exactly one certificate") end',
+                "single-certificate cardinality for production store selection",
+            ),
+            (
+                'test "$setting" = dns-01',
+                "the exact CAA validationmethods=dns-01 restriction",
+            ),
+            (
+                'test "$setting" = "$ACME_ACCOUNT_URI"',
+                "the exact CAA accounturi binding",
+            ),
+            (
+                'test "$critical" -eq 0',
+                "unknown critical CAA-tag rejection",
+            ),
+            (
+                "ERROR: unsupported Lets Encrypt CAA parameter",
+                "unsupported CAA-parameter rejection",
+            ),
+            (
+                "if openssl s_client -brief -tls1_2",
+                "the TLS 1.2 negative handshake proof",
+            ),
+            (
+                "-servername strict-sni-canary.invalid",
+                "the strict-SNI unknown-name negative proof",
+            ),
+            (
+                'cmp "$BEFORE_IDENTITY" "$AFTER_IDENTITY"',
+                "certificate fingerprint, serial, and SAN persistence across restart",
+            ),
+            (
+                'cmp "$BEFORE_STORE_DIGEST" "$AFTER_STORE_DIGEST"',
+                "ACME-store persistence across restart",
+            ),
+            (
+                'test "$current_generation_after" = "$current_generation"',
+                "current-generation identity persistence across restart",
+            ),
+            (
+                'cmp "$BEFORE_GENERATION_DIGEST" "$AFTER_GENERATION_DIGEST"',
+                "current-generation content persistence across restart",
+            ),
+            (
+                "`DAC_OVERRIDE` ænd `CAP_CHOWN`",
+                "the exact CrowdSec runtime capability pair",
+            ),
+            (
+                "| Externæl stæte not reconstructed by the locæl ærchive |",
+                "the external-state recovery matrix",
+            ),
+            (
+                "source-commit.txt",
+                "the exact repository source-commit lock",
+            ),
+            (
+                "locked-origin-main-commit.txt",
+                "the exact locked origin/main commit",
+            ),
+            (
+                "canonical-template-source-lock.tsv",
+                "the exact canonical-template source lock",
+            ),
+            (
+                'test "$source_lock_lines" -eq 2',
+                "the two-file canonical-template source-lock cardinality",
+            ),
+            (
+                "`appdata/config/certs/files/current -> generation-<64-lowercase-hex>`",
+                "the sole permitted files/current generation symlink",
+            ),
+            (
+                "restore_exit_handler() {",
+                "the unified restore cleanup and rollback handler",
+            ),
+            (
+                "trap restore_exit_handler EXIT",
+                "the unified restore EXIT cleanup and rollback trap",
+            ),
+            (
+                "rollback_cutover || cleanup_rc=1",
+                "fail-closed restore cutover rollback propagation",
+            ),
+            (
+                "trap 'exit 129' HUP",
+                "a nonzero restore HUP handler",
+            ),
+            (
+                "trap 'exit 130' INT",
+                "a nonzero restore INT handler",
+            ),
+            (
+                "trap 'exit 143' TERM",
+                "a nonzero restore TERM handler",
+            ),
+        ):
+            require_raw(marker, description)
+        require_raw_count(
+            '$0 == "; fully validated" {count++}',
+            2,
+            "both exact saved-delv fully-validated marker cardinality checks",
+        )
+        for marker, description in (
+            (
+                'test "$staging_validation_count" -eq 1',
+                "the staging saved-delv fully-validated marker cardinality",
+            ),
+            (
+                'test "$validation_count" -eq 1',
+                "each production saved-delv fully-validated marker cardinality",
+            ),
+        ):
+            require_raw(marker, description)
+        require_raw_pattern(
+            r'(?m)^delv "\$STAGING_CHALLENGE" TXT >"\$STAGING_DNS"$',
+            "fail-closed staging delv resolution",
+        )
+        require_raw_pattern(
+            r'(?m)^\s*delv "\$qname" "\$qtype" >"\$DNS_RESPONSE"$',
+            "fail-closed production delv resolution",
+        )
+        for marker, minimum, description in (
+            (
+                'cmp "$EXPECTED_SANS" "$ACTUAL_SANS"',
+                2,
+                "both production certificate exact SAN comparisons",
+            ),
+            (
+                "grep -E 'TLSv1\\.3' \"$TLS_DUMP\" >/dev/null",
+                2,
+                "both TLS 1.3 positive handshake proofs",
+            ),
+            (
+                'test "$link" = "$root/appdata/config/certs/files/current"',
+                2,
+                "both exact files/current-only symlink validations",
+            ),
+            (
+                '[[ "$target" =~ ^generation-[0-9a-f]{64}$ ]]',
+                2,
+                "both 64-lowercase-hex generation target validations",
+            ),
+            (
+                'test "$target_real" = "$files_real/$target"',
+                2,
+                "both generation-target containment validations",
+            ),
+        ):
+            require_raw_count(marker, minimum, description)
+        for marker, description in (
+            (
+                "| `app` finæl runtime | Locæl build from `traefik:3` |",
+                "the Traefik final-runtime image inventory row",
+            ),
+            (
+                "| `app` builder | `golang:alpine` |",
+                "the Traefik Go-builder image inventory row",
+            ),
+            (
+                "| `traefik_certs-dumper` finæl runtime | Locæl build from "
+                "`ldez/traefik-certs-dumper:v2` |",
+                "the certs-dumper final-runtime image inventory row",
+            ),
+            (
+                "| `traefik_certs-dumper` builder | `golang:alpine` |",
+                "the certs-dumper Go-builder image inventory row",
+            ),
+            (
+                "| `socketproxy` | `lscr.io/linuxserver/socket-proxy:latest` |",
+                "the socket-proxy runtime image inventory row",
+            ),
+            (
+                "| `crowdsec_agent` | `crowdsecurity/crowdsec:latest` |",
+                "the CrowdSec runtime image inventory row",
+            ),
+        ):
+            require_raw(marker, description)
+        require_raw_pattern(
+            r"CUTOVER_STARTED=true\s+\"\$\{LIVE_COMPOSE\[@\]\}\" stop",
+            "arming restore rollback before the first stop",
+        )
+        require_raw_pattern(
+            r"VOLUME_REPLACE_ARMED=true\s+docker volume rm \"\$LIVE_VOLUME\"",
+            "arming volume rollback before replacement",
+        )
+        require_raw_pattern(
+            r"ROOT_SWAP_ARMED=true\s+mv -- \"\$REPO_ROOT/Traefik\" "
+            r"\"\$ROLLBACK_ROOT\"",
+            "arming root rollback before the first root move",
+        )
+        require_raw_pattern(
+            r"restore_exit_handler\(\) \{.*?^\}\s*"
+            r"trap restore_exit_handler EXIT\s*"
+            r"trap 'exit 129' HUP\s*"
+            r"trap 'exit 130' INT\s*"
+            r"trap 'exit 143' TERM",
+            "the signal-safe unified restore cleanup and rollback trap chain",
+        )
+        require_raw_pattern(
+            r'test "\$peer_control_ready" = true\s+for path in '
+            r'ping api/rawdata dashboard/; do',
+            "a successful peer test-infrastructure control before endpoint denials",
+        )
+        for marker, description in (
+            (
+                '-showcerts -verify_return_error -verify_hostname "$EDGE_APEX"',
+                "Edge apex s_client chain and hostname fail-closed flags",
+            ),
+            (
+                '-CAfile "$CA_BUNDLE" </dev/null >"$EDGE_TLS_DUMP" 2>&1',
+                "the Edge apex s_client CA bundle",
+            ),
+            (
+                "grep -Eq '^[[:space:]]*Verify return code: 0 \\(ok\\)$' "
+                '"$EDGE_TLS_DUMP"',
+                "the exact successful Edge apex verification result",
+            ),
+            (
+                'openssl verify -CAfile "$CA_BUNDLE" -untrusted "$EDGE_CHAIN"',
+                "the separate Edge apex leaf and intermediate-chain verification",
+            ),
+            (
+                '-purpose sslserver -verify_hostname "$EDGE_APEX" "$EDGE_LEAF"',
+                "the separate Edge apex hostname verification",
+            ),
+        ):
+            require_raw(marker, description)
+        require_topic(
+            r"renewal.{0,500}(serial|fingerprint).{0,500}(before|after)",
+            "a longitudinal certificate-renewal proof",
+        )
+
+    elif product == "traefik_certs-dumper":
+        require_raw(
+            "templates/traefik_certs-dumper/docker-compose.traefik_certs-dumper.yaml",
+            "the canonical Mailcow Compose opt-in source",
+        )
+        require_raw(
+            "templates/traefik_certs-dumper/scripts/post-hook.sh",
+            "the canonical Mailcow hook source",
+        )
+        require_topic(
+            r"traefik/docker-compose\.main\.yaml.{0,180}(generated|replace)",
+            "that generated deployment files are not persistent sources",
+        )
+        require_topic(
+            r"set app gid.{0,80}at the same time.{0,120}both mode-\s*0640 secrets"
+            r".{0,120}both service-level secret mounts",
+            "APP_GID at the same time as both mode-0640 secret mounts",
+        )
+        require_topic(
+            r"desec constrained read token.{0,120}deny[- ]by[- ]default writes"
+            r".{0,120}exact txt/tlsa rrsets",
+            "the constrained deSEC exact TXT/TLSA RRset description",
+        )
+        require_raw(
+            "deSEC constræined reæd token with deny-by-defæult writes only for "
+            "the exæct TXT/TLSÆ RRsets",
+            "the constrained deSEC exact TXT/TLSA RRset description",
+        )
+        for marker, description in (
+            (
+                "`appdata/config/certs/files/current -> generation-<64-lowercase-hex>`",
+                "the sole permitted files/current generation symlink",
+            ),
+            (
+                'test "$MERGED_TEMPLATE_COMMIT" = "$ORIGIN_MAIN_COMMIT"',
+                "the exact locked origin/main template identity",
+            ),
+            (
+                'cmp "$source_compose"',
+                "the canonical Mailcow Compose byte comparison",
+            ),
+            (
+                'cmp "$source_hook" Traefik/scripts/post-hook.sh',
+                "the canonical Mailcow hook byte comparison",
+            ),
+        ):
+            require_raw(marker, description)
+        require_raw_count(
+            "--no-deps traefik_certs-dumper --preflight",
+            2,
+            "both fail-closed one-shot production preflights",
+        )
+        verification = _readme_level_two_section(readme_text, "Verificætion")
+        for marker, description in (
+            ("set -Eeuo pipefail", "strict mode in the Verification block"),
+            (
+                "test -f .env; test -f docker-compose.main.yaml",
+                "fail-closed generated-file preflights in the Verification block",
+            ),
+            (
+                "docker compose --env-file .env -f docker-compose.main.yaml config",
+                "the merged Compose Verification check",
+            ),
+            (
+                "certs-dumper-safe-reader --kind supervisor-ready "
+                "--source /run/certs-dumper/ready --digest",
+                "the committed-ready Verification probe",
+            ),
+        ):
+            if marker not in verification:
+                issues.append(f"README.md: {product} must document {description}")
+
+    elif product == "crowdsec_agent":
+        for pattern, description in (
+            (r"\bno logs\b", "loss of the log source"),
+            (r"not parsed|parsed counter.{0,80}(zero|0)", "a parse-zero failure"),
+            (r"lapi unavailable", "LAPI unavailability"),
+            (r"pending or revoked", "pending or revoked machine credentials"),
+            (r"stale bouncer", "stale bouncer state"),
+            (r"enforcement api failure", "enforcement API failure"),
+            (r"quarantine", "credential quarantine"),
+            (r"rollback", "credential re-registration rollback"),
+        ):
+            require_topic(pattern, description)
+        if re.search(
+            r"(?m)^\s*(?:sudo\s+)?rm\s+(?:-[^\s]+\s+)*[^\n]*local_api_credentials\.yaml",
+            readme_text,
+        ):
+            issues.append(
+                "README.md: crowdsec_agent must not delete live machine credentials blindly"
+            )
+
+        for marker, description in (
+            (
+                "CROWDSEC_REPLACEMENT_MACHINE",
+                "an explicit distinct replacement-machine input",
+            ),
+            (
+                "'exec cscli lapi register -u \"$LOCAL_API_URL\" --machine \"$1\"'",
+                "the one-shot replacement registration with the exact machine name",
+            ),
+            (
+                "test \"$crowdsec_new_machine\" = \"$crowdsec_replacement_machine\"",
+                "credential login binding to the requested replacement machine",
+            ),
+            (
+                'test "$crowdsec_old_machine" = "$CROWDSEC_EXPECTED_OLD_MACHINE"',
+                "binding the parsed old login to the inspected remote machine",
+            ),
+            (
+                "trap crowdsec_restore_on_error EXIT",
+                "the registration transaction EXIT rollback",
+            ),
+            (
+                "trap crowdsec_recover_new_on_error EXIT",
+                "the manual rollback transaction EXIT recovery",
+            ),
+            (
+                "crowdsec_on_hup() { exit 129; }",
+                "a nonzero HUP handler",
+            ),
+            (
+                "crowdsec_on_int() { exit 130; }",
+                "a nonzero INT handler",
+            ),
+            (
+                "crowdsec_on_term() { exit 143; }",
+                "a nonzero TERM handler",
+            ),
+            (
+                "#### Live End-to-End Evidence — mændætory full cænæry before remote deletion",
+                "the executable full acquisition-to-enforcement canary procedure",
+            ),
+            (
+                "crowdsec_reason=\"manual-canary-$(date -u +%Y%m%dT%H%M%SZ)-$$\"",
+                "a unique synthetic-canary reason",
+            ),
+            (
+                "cscli decisions delete --id \"$crowdsec_decision_id\"",
+                "identity-safe exact decision-ID cleanup",
+            ),
+            (
+                "IFS= read -r crowdsec_confirmation",
+                "typed old-machine deletion confirmation input",
+            ),
+            (
+                'test "$crowdsec_confirmation" = "$crowdsec_expected"',
+                "exact typed old-machine deletion confirmation",
+            ),
+        ):
+            require_raw(marker, description)
+
+        for pattern, description in (
+            (
+                r"trusted.{0,100}management lan/vpn.{0,220}verified https",
+                "the trusted-LAN/VPN versus verified-HTTPS transport boundary",
+            ),
+            (
+                r"never use.{0,80}insecure-skip-verify",
+                "the ban on disabling LAPI certificate verification",
+            ),
+            (
+                r"does not change.{0,100}app name.{0,180}normal wrapper",
+                "that replacement registration does not rename APP_NAME or the normal wrapper",
+            ),
+            (
+                r"2xx.{0,80}baseline.{0,160}no pre-existing decision",
+                "a 2xx baseline with no pre-existing source decision",
+            ),
+        ):
+            require_topic(pattern, description)
+
+        for line in readme_text.splitlines():
+            stripped = line.strip()
+            if not stripped.startswith("trap ") or stripped.startswith("trap -"):
+                continue
+            trap_tokens = stripped.split()
+            if "EXIT" in trap_tokens and any(
+                signal in trap_tokens for signal in ("HUP", "INT", "TERM")
+            ):
+                issues.append(
+                    "README.md: crowdsec_agent must use separate signal traps that "
+                    "flow through an EXIT rollback"
+                )
+                break
+
+        registration_handler = re.search(
+            r"crowdsec_restore_on_error\(\)\s*\{.*?^\}",
+            readme_text,
+            flags=re.MULTILINE | re.DOTALL,
+        )
+        if not registration_handler or (
+            "crowdsec_activate_exact_old_credentials"
+            not in registration_handler.group(0)
+        ):
+            issues.append(
+                "README.md: crowdsec_agent registration EXIT rollback must restore "
+                "the exact old credential identity before restart"
+            )
+        elif registration_handler.group(0).find(
+            "crowdsec_activate_exact_old_credentials"
+        ) > registration_handler.group(0).find("up -d crowdsec_agent"):
+            issues.append(
+                "README.md: crowdsec_agent registration EXIT rollback must restore "
+                "old credentials before restart"
+            )
+
+        recovery_handler = re.search(
+            r"crowdsec_recover_new_on_error\(\)\s*\{.*?^\}",
+            readme_text,
+            flags=re.MULTILINE | re.DOTALL,
+        )
+        if not recovery_handler or (
+            "crowdsec_activate_exact_old_credentials" not in recovery_handler.group(0)
+        ):
+            issues.append(
+                "README.md: crowdsec_agent rollback EXIT recovery must activate the "
+                "exact old identity even when the active target is absent"
+            )
+        elif re.search(
+            r"if\s+test\s+\"\$crowdsec_new_moved\"\s+-eq\s+1",
+            recovery_handler.group(0),
+        ):
+            issues.append(
+                "README.md: crowdsec_agent rollback must not gate old-identity "
+                "restoration on crowdsec_new_moved"
+            )
+        elif recovery_handler.group(0).find(
+            "crowdsec_activate_exact_old_credentials"
+        ) > recovery_handler.group(0).find("up -d crowdsec_agent"):
+            issues.append(
+                "README.md: crowdsec_agent rollback EXIT recovery must restore old "
+                "credentials before restart"
+            )
+
+        rollback_start = readme_text.find(
+            "#### Rollbæck before deleting the old remote mæchine"
+        )
+        rollback_section = (
+            readme_text[rollback_start:] if rollback_start >= 0 else ""
+        )
+        rollback_activation = re.search(
+            r"crowdsec_activate_exact_old_credentials\(\)\s*\{.*?^\}",
+            rollback_section,
+            flags=re.MULTILINE | re.DOTALL,
+        )
+        if not rollback_activation or (
+            'mv -T -- "$crowdsec_old_credentials" "$crowdsec_credentials"'
+            not in rollback_activation.group(0)
+        ):
+            issues.append(
+                "README.md: crowdsec_agent rollback must restore the quarantined "
+                "old identity when the active target is absent with crowdsec_new_moved=0"
+            )
+        if re.search(
+            r"(?:if\s+test|test)\s+\"\$crowdsec_new_moved\"\s+-eq\s+1"
+            r".{0,240}mv\s+-T\s+--\s+\"\$crowdsec_old_credentials\"",
+            rollback_section,
+            flags=re.DOTALL,
+        ):
+            issues.append(
+                "README.md: crowdsec_agent rollback must restore the old identity "
+                "independently of crowdsec_new_moved"
+            )
+
+        reregistration_start = readme_text.find("### Re-registering the mæchine")
+        preflight_status = readme_text.find(
+            "crowdsec_agent cscli lapi status",
+            reregistration_start,
+        )
+        first_stop = readme_text.find("stop crowdsec_agent", reregistration_start)
+        if not (
+            reregistration_start >= 0
+            and preflight_status > reregistration_start
+            and first_stop > preflight_status
+        ):
+            issues.append(
+                "README.md: crowdsec_agent must complete read-only LAPI status "
+                "preflight before the first service stop"
+            )
+
+        full_canary = readme_text.find(
+            "#### Live End-to-End Evidence — mændætory full cænæry before remote deletion"
+        )
+        old_inspect = readme_text.find(
+            'cscli machines inspect "$crowdsec_old_machine"',
+            full_canary,
+        )
+        typed_confirmation = readme_text.find(
+            'crowdsec_expected="DELETE ${crowdsec_old_machine} AFTER FULL CANARY',
+            full_canary,
+        )
+        old_delete = readme_text.find(
+            'cscli machines delete "$crowdsec_old_machine"',
+            full_canary,
+        )
+        if not (
+            full_canary >= 0
+            and old_inspect > full_canary
+            and typed_confirmation > old_inspect
+            and old_delete > typed_confirmation
+        ):
+            issues.append(
+                "README.md: crowdsec_agent old-machine deletion must follow the full "
+                "canary, exact machine inspection, and typed confirmation"
+            )
+        all_old_deletes = [
+            match.start()
+            for match in re.finditer(
+                re.escape('cscli machines delete "$crowdsec_old_machine"'),
+                readme_text,
+            )
+        ]
+        if len(all_old_deletes) != 1 or any(
+            position <= typed_confirmation for position in all_old_deletes
+        ):
+            issues.append(
+                "README.md: crowdsec_agent every old-machine delete must be the "
+                "single post-canary, post-confirmation command"
+            )
+
+        for marker, description in (
+            ("crowdsec_baseline_status", "the executable full-canary 2xx baseline"),
+            ("metrics.before.json", "the full-canary pre-trigger metrics snapshot"),
+            ("crowdsec_trigger_url", "the unique real-log trigger sequence"),
+            ("crowdsec_alert_id", "the exact full-canary alert identity"),
+            (
+                "metrics show acquisition",
+                "machine-readable acquisition metrics for the mandatory canary",
+            ),
+            (
+                "$after[0].acquisition[$source].reads >",
+                "a strict full-canary lines-read increase assertion",
+            ),
+            (
+                "$after[0].acquisition[$source].parsed >",
+                "a strict full-canary lines-parsed increase assertion",
+            ),
+            (
+                'select((.machine_id? // "") == $machine)',
+                "exact replacement-machine attribution from decision JSON",
+            ),
+            (
+                'test "$crowdsec_bouncer_identity_after" = '
+                '"$crowdsec_bouncer_identity_before"',
+                "exact pre/post enforcement-bouncer identity binding",
+            ),
+            (
+                'test "$crowdsec_bouncer_epoch_after" -gt '
+                '"$crowdsec_bouncer_epoch_before"',
+                "strict enforcement-bouncer pull advancement",
+            ),
+        ):
+            require_raw(marker, description)
+
+        full_canary_end = old_delete if old_delete > full_canary else len(readme_text)
+        full_canary_section = (
+            readme_text[full_canary:full_canary_end] if full_canary >= 0 else ""
+        )
+        if re.search(
+            r"decisions\s+list\s+--machine\s+[\"']?\$crowdsec_",
+            full_canary_section,
+        ):
+            issues.append(
+                "README.md: crowdsec_agent cscli decisions --machine is a boolean "
+                "flag and must not receive a machine-name argument"
+            )
+        if len(
+            re.findall(
+                r"decisions\s+list\s+--machine\s+\\?\s*--ip\b",
+                full_canary_section,
+            )
+        ) < 2:
+            issues.append(
+                "README.md: crowdsec_agent must use boolean --machine plus --ip "
+                "for both canary attribution and identity-safe cleanup"
+            )
+        if len(
+            re.findall(
+                r'select\(\(\.machine_id\? // ""\) == \$machine(?:\)| and)',
+                full_canary_section,
+            )
+        ) < 3:
+            issues.append(
+                "README.md: crowdsec_agent must bind the alert, decision, and "
+                "identity-safe cleanup to the exact replacement-machine field"
+            )
+        if re.search(r"(?m)^\s*diff(?:\s|$)", full_canary_section):
+            issues.append(
+                "README.md: crowdsec_agent mandatory canary metrics must assert "
+                "strict read and parsed increases, not use a non-failing diff"
+            )
+        for metric_name, description in (
+            ("reads", "a strict full-canary lines-read increase assertion"),
+            ("parsed", "a strict full-canary lines-parsed increase assertion"),
+        ):
+            if (
+                f"$after[0].acquisition[$source].{metric_name} >="
+                in full_canary_section
+            ):
+                issues.append(
+                    f"README.md: crowdsec_agent must document {description}"
+                )
+        if full_canary_section.count(
+            "cscli --color no -o json bouncers list"
+        ) < 2:
+            issues.append(
+                "README.md: crowdsec_agent mandatory canary must capture machine-readable "
+                "pre/post bouncer state"
+            )
+
+    elif product == "socketproxy":
+        require_topic(
+            r":ro.{0,180}(not|does not).{0,80}(read[- ]only|readonly).{0,80}(api|docker)",
+            "that a read-only socket mount does not make the Docker API read-only",
+        )
+        require_topic(r"post\s*=\s*0", "the global POST denial")
+        require_topic(r"one[- ]consumer|exactly one", "the one-consumer network boundary")
+        require_topic(r"socket[- ]equivalent", "socket-equivalent proxy sensitivity")
+        for guard in (
+            "SOCKETPROXY_POST",
+            "SOCKETPROXY_ALLOW_START",
+            "SOCKETPROXY_ALLOW_STOP",
+            "SOCKETPROXY_ALLOW_RESTARTS",
+            "SOCKETPROXY_ALLOW_PAUSE",
+            "SOCKETPROXY_ALLOW_UNPAUSE",
+        ):
+            if not re.search(
+                rf"\|\s*`{re.escape(guard)}`\s*\|\s*`0`\s*\|",
+                readme_text,
+            ):
+                issues.append(
+                    f"README.md: socketproxy must document `{guard}` with a zero default"
+                )
+        for runtime_guard in (
+            "POST",
+            "ALLOW_START",
+            "ALLOW_STOP",
+            "ALLOW_RESTARTS",
+            "ALLOW_PAUSE",
+            "ALLOW_UNPAUSE",
+        ):
+            require_raw(
+                f'test "${{{runtime_guard}:-}}" = 0',
+                f"a runtime zero assertion for {runtime_guard}",
+            )
+        require_topic(
+            r"socketproxy allow restarts.{0,120}\bstop\b.{0,40}\brestart\b"
+            r".{0,60}\bkill\b",
+            "that ALLOW_RESTARTS grants stop, restart, and kill",
+        )
+        require_raw(
+            'join(",")) == "app,socketproxy"',
+            "the exact app-plus-socketproxy merged network membership check",
+        )
+
+    return issues
+
+
 def _active_compose_healthchecks(compose_path: Path) -> dict[str, dict]:
     """Return service-to-heælthcheck mæppings for enæbled Compose probes."""
     data = yaml.safe_load(compose_path.read_text(encoding="utf-8")) or {}
@@ -1191,6 +2126,7 @@ def check_readme_contract(
     if is_app:
         issues.extend(check_readme_application_configuration(readme_text))
         issues.extend(check_readme_root_operational_contract(compose_path, readme_text))
+    issues.extend(check_readme_product_security_contract(readme_path, readme_text))
     issues.extend(check_readme_redis_host_contract(compose_path, readme_text))
     issues.extend(check_readme_healthcheck_contract(compose_path, readme_text))
     return issues

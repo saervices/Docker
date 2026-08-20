@@ -1004,6 +1004,933 @@ def test_application_configuration_contract(compliance: ModuleType) -> None:
         )
 
 
+def test_product_security_readme_contract(compliance: ModuleType) -> None:
+    targets = (
+        REPO_ROOT / "Authentik/README.md",
+        REPO_ROOT / "Traefik/README.md",
+        REPO_ROOT / "templates/traefik_certs-dumper/README.md",
+        REPO_ROOT / "templates/crowdsec_agent/README.md",
+        REPO_ROOT / "templates/socketproxy/README.md",
+    )
+    for readme in targets:
+        issues = compliance.check_readme_product_security_contract(
+            readme,
+            readme.read_text(encoding="utf-8"),
+        )
+        require(not issues, f"{readme.parent.name} security README contract failed: {issues}")
+
+    mutations = (
+        (
+            targets[0],
+            lambda text: text.replace("seconds=0", "seconds=90"),
+            "fresh TOTP validation",
+        ),
+        (
+            targets[0],
+            lambda text: text.replace(
+                "Device clæsses: **only** `TOTP`.",
+                "Device clæsses: **only** `TOTP` ænd `Static`.",
+            ),
+            "exact TOTP-only normal-login authenticator allowlist",
+        ),
+        (
+            targets[0],
+            lambda text: text.replace("Stætic", "RecoveryCode").replace(
+                "Static", "RecoveryCode"
+            ),
+            "Static recovery codes outside",
+        ),
+        (
+            targets[0],
+            lambda text: text.replace("Not configured æction", "Missing-device policy"),
+            "missing normal-login TOTP",
+        ),
+        (
+            targets[0],
+            lambda text: text.replace("reset_password", "first_login_marker"),
+            "first-login password-reset",
+        ),
+        (
+            targets[0],
+            lambda text: text.replace("upstreæm-IdP-only", "federated-only"),
+            "upstream-IdP-only recovery denial",
+        ),
+        (
+            targets[0],
+            lambda text: text.replace("MFÆ", "second fæctor").replace(
+                "MFA", "second factor"
+            ),
+            "email-plus-MFA recovery",
+        ),
+        (
+            targets[0],
+            lambda text: text.replace("Session durætion", "Login period").replace(
+                "session durætion", "login period"
+            ),
+            "explicit session lifetime",
+        ),
+        (
+            targets[0],
+            lambda text: text.replace("RBÆC", "role model").replace("RBAC", "role model"),
+            "least-privilege Authentik RBAC",
+        ),
+        (
+            targets[0],
+            lambda text: text.replace("breækglæss-æuthenticætion", "emergency-flow").replace(
+                "breakglass-authentication", "emergency-flow"
+            ),
+            "local emergency authentication flow",
+        ),
+        (
+            targets[0],
+            lambda text: text.replace("authorization_code", "web_grant"),
+            "human-web OAuth grant allowlist",
+        ),
+        (
+            targets[0],
+            lambda text: text.replace(
+                "`authorization_code`.",
+                "`authorization_code` ænd `token_exchange`.",
+                1,
+            ),
+            "must not add unsupported token_exchange",
+        ),
+        (
+            targets[0],
+            lambda text: re.sub(
+                r"Bind these stæges in order:.*?User Login stæge\.",
+                "Bind the reviewed emergency stæges.",
+                text,
+                count=1,
+                flags=re.DOTALL,
+            ),
+            "ordered break-glass authentication stage chain",
+        ),
+        (
+            targets[0],
+            lambda text: text.replace("failure_result=true", "failure_result=false"),
+            "fail-closed inverse break-glass denial",
+        ),
+        (
+            targets[0],
+            lambda text: text.replace("Æccess token vælidity", "Token period").replace(
+                "Access token validity", "Token period"
+            ),
+            "OAuth access-token validity",
+        ),
+        (
+            targets[0],
+            lambda text: text.replace(
+                "**`Refresh token threshold`** to `seconds=0`",
+                "**`Refresh token threshold`** to `seconds=90`",
+            ),
+            "per-use OAuth refresh-token renewal",
+        ),
+        (
+            targets[0],
+            lambda text: text.replace(
+                "/api/v3/policies/expression", "/api/v3/restricted-expression"
+            ),
+            "Expression API proxy boundary",
+        ),
+        (
+            targets[1],
+            lambda text: text.replace("openssl verify", "certificate check"),
+            "certificate-chain verification",
+        ),
+        (
+            targets[1],
+            lambda text: re.sub(
+                r'(?m)^(\s*)test -n "\$EXISTING_UNGRANTED_ZONE"$',
+                r'\1test -z "$EXISTING_UNGRANTED_ZONE"',
+                text,
+                count=1,
+            ),
+            "real existing excluded Cloudflare negative zone",
+        ),
+        (
+            targets[1],
+            lambda text: text.replace(
+                "# Prove and record its existence/status with an administrative "
+                "credential first.",
+                "# Assume the excluded zone exists.",
+                1,
+            ),
+            "independent administrative proof that the excluded Cloudflare zone exists",
+        ),
+        (
+            targets[1],
+            lambda text: text.replace(
+                "Cloudflære's successful verify/zone requests prove only thæt the "
+                "current\n"
+                "egress is ællowed; they do not prove thæt other source æddresses "
+                "ære denied.",
+                "Cloudflære's successful zone request proves æ configured "
+                "client-IP restriction.",
+                1,
+            ),
+            "accurate Cloudflare client-IP policy-evidence boundary",
+        ),
+        (
+            targets[1],
+            lambda text: text.replace(
+                "the scope proof is incomplete ænd promotion must stop;\n"
+                "never omit the request",
+                "the scope proof mæy continue;\nomit the request",
+                1,
+            ),
+            "mandatory real excluded-zone proof with no omit fallback",
+        ),
+        (
+            targets[1],
+            lambda text: text.replace(
+                "cleanup_failed_creation() {",
+                "cleanup_untracked_creation() {",
+                1,
+            ),
+            "deSEC failed-creation EXIT cleanup",
+        ),
+        (
+            targets[1],
+            lambda text: text.replace(
+                'test "$match_count" -eq 1',
+                'test "$match_count" -ge 1',
+                1,
+            ),
+            "unique TOKEN_NAME reconciliation",
+        ),
+        (
+            targets[1],
+            lambda text: re.sub(
+                r'(sync -f "/proc/\$\$/fd/\$\{candidate_fd\}"\n'
+                r'exec \{candidate_fd\}>&-\n)sync -d "\$secret_dir"',
+                r'\1: # candidate directory fsync removed',
+                text,
+                count=1,
+            ),
+            "durable deSEC candidate directory entry after an ambiguous POST",
+        ),
+        (
+            targets[1],
+            lambda text: text.replace(
+                "The old token is revoked only æfter the monitored rollbæck window closes;",
+                "The old token is revoked when cutover stærts;",
+                1,
+            ),
+            "revocation only after the monitored rollback window",
+        ),
+        (
+            targets[1],
+            lambda text: text.replace(
+                'cmp "$STAGING_EXPECTED_SANS" "$STAGING_ACTUAL_SANS"',
+                'diff "$STAGING_EXPECTED_SANS" "$STAGING_ACTUAL_SANS" || true',
+                1,
+            ),
+            "staging certificate exact SAN comparison",
+        ),
+        (
+            targets[1],
+            lambda text: text.replace(
+                'cmp "$STAGING_EXPECTED_SANS" "$STAGING_STORE_SANS"',
+                'diff "$STAGING_EXPECTED_SANS" "$STAGING_STORE_SANS" || true',
+                1,
+            ),
+            "staging ACME-store exact SAN comparison",
+        ),
+        (
+            targets[1],
+            lambda text: text.replace(
+                'staging_validation_count="$(awk \'\n'
+                '  $0 == "; fully validated" {count++}',
+                'staging_validation_count="$(awk \'\n'
+                '  /fully validated|resolution failed/ {count++}',
+                1,
+            ),
+            "exact saved-delv fully-validated marker cardinality checks",
+        ),
+        (
+            targets[1],
+            lambda text: text.replace(
+                'validation_count="$(awk \'\n'
+                '    $0 == "; fully validated" {count++}',
+                'validation_count="$(awk \'\n'
+                '    /fully validated|resolution failed/ {count++}',
+                1,
+            ),
+            "exact saved-delv fully-validated marker cardinality checks",
+        ),
+        (
+            targets[1],
+            lambda text: text.replace(
+                'test "$staging_validation_count" -eq 1',
+                'test "$staging_validation_count" -ge 1',
+                1,
+            ),
+            "staging saved-delv fully-validated marker cardinality",
+        ),
+        (
+            targets[1],
+            lambda text: text.replace(
+                'test "$validation_count" -eq 1',
+                'test "$validation_count" -ge 1',
+                1,
+            ),
+            "each production saved-delv fully-validated marker cardinality",
+        ),
+        (
+            targets[1],
+            lambda text: text.replace(
+                'delv "$STAGING_CHALLENGE" TXT >"$STAGING_DNS"',
+                'delv "$STAGING_CHALLENGE" TXT >"$STAGING_DNS" || true',
+                1,
+            ),
+            "fail-closed staging delv resolution",
+        ),
+        (
+            targets[1],
+            lambda text: text.replace(
+                '  delv "$qname" "$qtype" >"$DNS_RESPONSE"',
+                '  delv "$qname" "$qtype" >"$DNS_RESPONSE" || true',
+                1,
+            ),
+            "fail-closed production delv resolution",
+        ),
+        (
+            targets[1],
+            lambda text: text.replace(
+                'cmp "$EXPECTED_SANS" "$ACTUAL_SANS"',
+                'diff "$EXPECTED_SANS" "$ACTUAL_SANS" || true',
+                1,
+            ),
+            "production certificate exact SAN comparison",
+        ),
+        (
+            targets[1],
+            lambda text: text.replace(
+                'cmp "$EXPECTED_SANS" "$STORE_ACTUAL_SANS"',
+                'diff "$EXPECTED_SANS" "$STORE_ACTUAL_SANS" || true',
+                1,
+            ),
+            "production ACME-store exact SAN comparison",
+        ),
+        (
+            targets[1],
+            lambda text: text.replace(
+                'select(. == $expected)]',
+                'select(index("definitely-wrong.invalid"))]',
+                1,
+            ),
+            "wildcard-capable exact production ACME-store certificate selection",
+        ),
+        (
+            targets[1],
+            lambda text: text.replace(
+                "' \"$EXPECTED_SANS\")\"\n"
+                "jq -er --argjson expected \"$EXPECTED_STORE_NAMES_JSON\"",
+                "' \"$ACTUAL_SANS\")\"\n"
+                "jq -er --argjson expected \"$EXPECTED_STORE_NAMES_JSON\"",
+                1,
+            ),
+            "expected-SAN inventory used for production store selection",
+        ),
+        (
+            targets[1],
+            lambda text: text.replace(
+                'test "$setting" = dns-01',
+                'test -n "$setting"',
+                1,
+            ),
+            "exact CAA validationmethods=dns-01 restriction",
+        ),
+        (
+            targets[1],
+            lambda text: text.replace(
+                'test "$setting" = "$ACME_ACCOUNT_URI"',
+                'test -n "$setting"',
+                1,
+            ),
+            "exact CAA accounturi binding",
+        ),
+        (
+            targets[1],
+            lambda text: text.replace(
+                'test "$critical" -eq 0',
+                'test "$critical" -ge 0',
+                1,
+            ),
+            "unknown critical CAA-tag rejection",
+        ),
+        (
+            targets[1],
+            lambda text: text.replace(
+                "if openssl s_client -brief -tls1_2",
+                "openssl s_client -brief -tls1_2",
+                1,
+            ),
+            "TLS 1.2 negative handshake proof",
+        ),
+        (
+            targets[1],
+            lambda text: text.replace(
+                "grep -E 'TLSv1\\.3' \"$TLS_DUMP\" >/dev/null",
+                'test -s "$TLS_DUMP"',
+                1,
+            ),
+            "TLS 1.3 positive handshake proof",
+        ),
+        (
+            targets[1],
+            lambda text: text.replace(
+                "-servername strict-sni-canary.invalid",
+                '-servername "$HOST"',
+                1,
+            ),
+            "strict-SNI unknown-name negative proof",
+        ),
+        (
+            targets[1],
+            lambda text: text.replace(
+                'cmp "$BEFORE_IDENTITY" "$AFTER_IDENTITY"',
+                'test -s "$AFTER_IDENTITY"',
+                1,
+            ),
+            "certificate fingerprint, serial, and SAN persistence across restart",
+        ),
+        (
+            targets[1],
+            lambda text: text.replace(
+                'cmp "$BEFORE_STORE_DIGEST" "$AFTER_STORE_DIGEST"',
+                'test -s "$AFTER_STORE_DIGEST"',
+                1,
+            ),
+            "ACME-store persistence across restart",
+        ),
+        (
+            targets[1],
+            lambda text: text.replace(
+                'test "$current_generation_after" = "$current_generation"',
+                'test -n "$current_generation_after"',
+                1,
+            ),
+            "current-generation identity persistence across restart",
+        ),
+        (
+            targets[1],
+            lambda text: text.replace(
+                'cmp "$BEFORE_GENERATION_DIGEST" "$AFTER_GENERATION_DIGEST"',
+                'test -s "$AFTER_GENERATION_DIGEST"',
+                1,
+            ),
+            "current-generation content persistence across restart",
+        ),
+        (
+            targets[1],
+            lambda text: text.replace(
+                "`DAC_OVERRIDE` ænd `CAP_CHOWN`",
+                "`DAC_OVERRIDE`",
+            ),
+            "exact CrowdSec runtime capability pair",
+        ),
+        (
+            targets[1],
+            lambda text: text.replace(
+                "| Externæl stæte not reconstructed by the locæl ærchive |",
+                "| Locæl stæte only |",
+                1,
+            ),
+            "external-state recovery matrix",
+        ),
+        (
+            targets[1],
+            lambda text: text.replace(
+                "canonical-template-source-lock.tsv",
+                "unlocked-template-list.tsv",
+            ),
+            "exact canonical-template source lock",
+        ),
+        (
+            targets[1],
+            lambda text: text.replace(
+                "`appdata/config/certs/files/current -> "
+                "generation-<64-lowercase-hex>`",
+                "`appdata/config/certs/files/current -> generation-latest`",
+                1,
+            ),
+            "sole permitted files/current generation symlink",
+        ),
+        (
+            targets[1],
+            lambda text: text.replace(
+                '[[ "$target" =~ ^generation-[0-9a-f]{64}$ ]]',
+                '[[ "$target" == generation-* ]]',
+            ),
+            "64-lowercase-hex generation target validation",
+        ),
+        (
+            targets[1],
+            lambda text: text.replace(
+                'test "$target_real" = "$files_real/$target"',
+                'test -d "$target_real"',
+                1,
+            ),
+            "generation-target containment validation",
+        ),
+        (
+            targets[1],
+            lambda text: text.replace(
+                "trap restore_exit_handler EXIT",
+                "trap restore_exit_handler ERR",
+                1,
+            ),
+            "unified restore EXIT cleanup and rollback trap",
+        ),
+        (
+            targets[1],
+            lambda text: text.replace(
+                "trap restore_exit_handler EXIT\n"
+                "trap 'exit 129' HUP\n"
+                "trap 'exit 130' INT\n"
+                "trap 'exit 143' TERM",
+                "trap restore_exit_handler EXIT\n"
+                "trap ':' HUP\n"
+                "trap 'exit 130' INT\n"
+                "trap 'exit 143' TERM",
+                1,
+            ),
+            "signal-safe unified restore cleanup and rollback trap chain",
+        ),
+        (
+            targets[1],
+            lambda text: text.replace(
+                'CUTOVER_STARTED=true\n\n"${LIVE_COMPOSE[@]}" stop',
+                'CUTOVER_STARTED=false\n\n"${LIVE_COMPOSE[@]}" stop',
+                1,
+            ),
+            "arming restore rollback before the first stop",
+        ),
+        (
+            targets[1],
+            lambda text: text.replace(
+                'VOLUME_REPLACE_ARMED=true\ndocker volume rm "$LIVE_VOLUME"',
+                'VOLUME_REPLACE_ARMED=false\ndocker volume rm "$LIVE_VOLUME"',
+                1,
+            ),
+            "arming volume rollback before replacement",
+        ),
+        (
+            targets[1],
+            lambda text: text.replace(
+                'ROOT_SWAP_ARMED=true\nmv -- "$REPO_ROOT/Traefik" "$ROLLBACK_ROOT"',
+                'ROOT_SWAP_ARMED=false\nmv -- "$REPO_ROOT/Traefik" "$ROLLBACK_ROOT"',
+                1,
+            ),
+            "arming root rollback before the first root move",
+        ),
+        (
+            targets[1],
+            lambda text: text.replace(
+                'test "$peer_control_ready" = true',
+                'test "$peer_control_ready" = false',
+                1,
+            ),
+            "successful peer test-infrastructure control before endpoint denials",
+        ),
+        (
+            targets[1],
+            lambda text: text.replace(
+                '-showcerts -verify_return_error -verify_hostname "$EDGE_APEX"',
+                '-showcerts -verify_hostname "$EDGE_APEX"',
+                1,
+            ),
+            "Edge apex s_client chain and hostname fail-closed flags",
+        ),
+        (
+            targets[1],
+            lambda text: text.replace(
+                '-showcerts -verify_return_error -verify_hostname "$EDGE_APEX"',
+                "-showcerts -verify_return_error",
+                1,
+            ),
+            "Edge apex s_client chain and hostname fail-closed flags",
+        ),
+        (
+            targets[1],
+            lambda text: text.replace(
+                '  -CAfile "$CA_BUNDLE" </dev/null >"$EDGE_TLS_DUMP" 2>&1',
+                '  </dev/null >"$EDGE_TLS_DUMP" 2>&1',
+                1,
+            ),
+            "Edge apex s_client CA bundle",
+        ),
+        (
+            targets[1],
+            lambda text: text.replace(
+                "grep -Eq '^[[:space:]]*Verify return code: 0 \\(ok\\)$' "
+                '"$EDGE_TLS_DUMP"',
+                'test -s "$EDGE_TLS_DUMP"',
+                1,
+            ),
+            "exact successful Edge apex verification result",
+        ),
+        (
+            targets[1],
+            lambda text: text.replace(
+                'openssl verify -CAfile "$CA_BUNDLE" -untrusted "$EDGE_CHAIN"',
+                'openssl verify -CAfile "$CA_BUNDLE"',
+                1,
+            ),
+            "separate Edge apex leaf and intermediate-chain verification",
+        ),
+        (
+            targets[1],
+            lambda text: text.replace(
+                '-purpose sslserver -verify_hostname "$EDGE_APEX" "$EDGE_LEAF"',
+                '-purpose sslserver "$EDGE_LEAF"',
+                1,
+            ),
+            "separate Edge apex hostname verification",
+        ),
+        (
+            targets[1],
+            lambda text: text.replace(
+                "| `crowdsec_agent` | `crowdsecurity/crowdsec:latest` |",
+                "",
+                1,
+            ),
+            "CrowdSec runtime image inventory row",
+        ),
+        (
+            targets[1],
+            lambda text: text.replace(
+                "deSEC token with reæd æccess plus deny-by-defæult write policies "
+                "only for the exæct required TXT ænd optionæl TLSÆ RRsets",
+                "deSEC domæin-mænægement token",
+                1,
+            ),
+            "constrained deSEC exact TXT/TLSA RRset description",
+        ),
+        (
+            targets[2],
+            lambda text: text.replace(
+                "templates/traefik_certs-dumper/docker-compose.traefik_certs-dumper.yaml",
+                "canonical-compose-source",
+            ),
+            "canonical Mailcow Compose",
+        ),
+        (
+            targets[2],
+            lambda text: text.replace(
+                "templates/traefik_certs-dumper/scripts/post-hook.sh",
+                "canonical-hook-source",
+            ),
+            "canonical Mailcow hook source",
+        ),
+        (
+            targets[2],
+            lambda text: text.replace(
+                "Set `APP_GID` æt the sæme time for both",
+                "Set `APP_GID` in æ læter revision thæn both",
+                1,
+            ),
+            "APP_GID at the same time as both mode-0640 secret mounts",
+        ),
+        (
+            targets[2],
+            lambda text: re.sub(
+                r"(^## Verificætion\s*$.*?^```bash\s*$\n)set -Eeuo pipefail",
+                r"\1set -e",
+                text,
+                count=1,
+                flags=re.MULTILINE | re.DOTALL,
+            ),
+            "strict mode in the Verification block",
+        ),
+        (
+            targets[2],
+            lambda text: re.sub(
+                r"(^## Verificætion\s*$.*?)"
+                r"test -f \.env; test -f docker-compose\.main\.yaml",
+                r"\1test -f .env",
+                text,
+                count=1,
+                flags=re.MULTILINE | re.DOTALL,
+            ),
+            "fail-closed generated-file preflights in the Verification block",
+        ),
+        (
+            targets[2],
+            lambda text: text.replace(
+                'test "$MERGED_TEMPLATE_COMMIT" = "$ORIGIN_MAIN_COMMIT"',
+                'test -n "$MERGED_TEMPLATE_COMMIT"',
+                1,
+            ),
+            "exact locked origin/main template identity",
+        ),
+        (
+            targets[2],
+            lambda text: text.replace(
+                "--no-deps traefik_certs-dumper --preflight",
+                "--no-deps traefik_certs-dumper --version",
+                1,
+            ),
+            "fail-closed one-shot production preflights",
+        ),
+        (
+            targets[2],
+            lambda text: text.replace(
+                "deSEC constræined reæd token with deny-by-defæult writes "
+                "only for the exæct TXT/TLSÆ RRsets",
+                "deSEC domæin-mænægement token",
+                1,
+            ),
+            "constrained deSEC exact TXT/TLSA RRset description",
+        ),
+        (
+            targets[3],
+            lambda text: text.replace("Stæle bouncer", "Bouncer drift").replace(
+                "stæle bouncer", "bouncer drift"
+            ),
+            "stale bouncer state",
+        ),
+        (
+            targets[3],
+            lambda text: text.replace(
+                "trap crowdsec_restore_on_error EXIT",
+                "trap crowdsec_restore_on_error EXIT HUP INT TERM",
+                1,
+            ),
+            "separate signal traps",
+        ),
+        (
+            targets[3],
+            lambda text: text.replace(
+                'if test "$crowdsec_stop_completed" -eq 1 && \\\n'
+                "       crowdsec_activate_exact_old_credentials",
+                'if test "$crowdsec_new_moved" -eq 1 && \\\n'
+                "       crowdsec_activate_exact_old_credentials",
+                1,
+            ),
+            "must not gate old-identity restoration on crowdsec_new_moved",
+        ),
+        (
+            targets[3],
+            lambda text: text.replace(
+                '  mv -T -- "$crowdsec_old_credentials" "$crowdsec_credentials" || return 1',
+                '  test "$crowdsec_new_moved" -eq 1 && \\\n'
+                '    mv -T -- "$crowdsec_old_credentials" "$crowdsec_credentials" || return 1',
+                1,
+            ),
+            "restore the old identity independently of crowdsec_new_moved",
+        ),
+        (
+            targets[3],
+            lambda text: text.replace(
+                "CROWDSEC_REPLACEMENT_MACHINE",
+                "CROWDSEC_DEFAULT_MACHINE",
+            ),
+            "explicit distinct replacement-machine input",
+        ),
+        (
+            targets[3],
+            lambda text: text.replace(
+                'test "$crowdsec_old_machine" = "$CROWDSEC_EXPECTED_OLD_MACHINE"',
+                'test -n "$crowdsec_old_machine"',
+                1,
+            ),
+            "binding the parsed old login to the inspected remote machine",
+        ),
+        (
+            targets[3],
+            lambda text: text.replace(
+                "#### Live End-to-End Evidence — mændætory full cænæry before remote deletion",
+                "#### Remote deletion checklist",
+                1,
+            ),
+            "executable full acquisition-to-enforcement canary procedure",
+        ),
+        (
+            targets[3],
+            lambda text: text.replace(
+                'crowdsec_expected="DELETE ${crowdsec_old_machine} AFTER FULL CANARY',
+                'crowdsec_expected="DELETE ${crowdsec_old_machine} WITHOUT CANARY',
+                1,
+            ),
+            "old-machine deletion must follow the full canary",
+        ),
+        (
+            targets[3],
+            lambda text: text.replace(
+                "#### Live End-to-End Evidence",
+                'cscli machines delete "$crowdsec_old_machine"\n\n'
+                "#### Live End-to-End Evidence",
+                1,
+            ),
+            "every old-machine delete must be the single post-canary",
+        ),
+        (
+            targets[3],
+            lambda text: text.replace("verified HTTPS", "unchecked HTTP").replace(
+                "verified https", "unchecked http"
+            ),
+            "trusted-LAN/VPN versus verified-HTTPS transport boundary",
+        ),
+        (
+            targets[3],
+            lambda text: text.replace(
+                "decisions list --machine \\\n  --ip",
+                'decisions list --machine "$crowdsec_new_machine" \\\n  --ip',
+                1,
+            ),
+            "--machine is a boolean flag",
+        ),
+        (
+            targets[3],
+            lambda text: text.replace(
+                "$after[0].acquisition[$source].reads >",
+                "$after[0].acquisition[$source].reads >=",
+                1,
+            ),
+            "strict full-canary lines-read increase assertion",
+        ),
+        (
+            targets[3],
+            lambda text: text.replace(
+                "$after[0].acquisition[$source].parsed >",
+                "$after[0].acquisition[$source].parsed >=",
+                1,
+            ),
+            "strict full-canary lines-parsed increase assertion",
+        ),
+        (
+            targets[3],
+            lambda text: text.replace(
+                'select((.machine_id? // "") == $machine)',
+                'select((.machine_id? // "") != $machine)',
+                1,
+            ),
+            "alert, decision, and identity-safe cleanup to the exact replacement-machine field",
+        ),
+        (
+            targets[3],
+            lambda text: text.replace(
+                "printf 'CROWDSEC_E2E_RECORD_DIR=%s\\n' \"$crowdsec_record_dir\"",
+                "diff metrics.before.json metrics.after.json || true\\n"
+                "printf 'CROWDSEC_E2E_RECORD_DIR=%s\\n' \"$crowdsec_record_dir\"",
+                1,
+            ),
+            "strict read and parsed increases, not use a non-failing diff",
+        ),
+        (
+            targets[3],
+            lambda text: text.replace(
+                'test "$crowdsec_bouncer_epoch_after" -gt '
+                '"$crowdsec_bouncer_epoch_before"',
+                'test "$crowdsec_bouncer_epoch_after" -ge '
+                '"$crowdsec_bouncer_epoch_before"',
+                1,
+            ),
+            "strict enforcement-bouncer pull advancement",
+        ),
+        (
+            targets[3],
+            lambda text: text.replace(
+                'test "$crowdsec_bouncer_identity_after" = '
+                '"$crowdsec_bouncer_identity_before"',
+                'test "$crowdsec_bouncer_identity_after" != '
+                '"$crowdsec_bouncer_identity_before"',
+                1,
+            ),
+            "exact pre/post enforcement-bouncer identity binding",
+        ),
+        (
+            targets[4],
+            lambda text: text.replace("socket-equivælent", "high").replace(
+                "socket-equivalent", "high"
+            ),
+            "socket-equivalent proxy sensitivity",
+        ),
+        (
+            targets[4],
+            lambda text: text.replace(
+                "stop, restært, **ænd kill** operætions",
+                "restært operætions",
+                1,
+            ),
+            "ALLOW_RESTARTS grants stop, restart, and kill",
+        ),
+        (
+            targets[4],
+            lambda text: text.replace(
+                'join(",")) == "app,socketproxy"',
+                'join(",")) == "app,intruder,socketproxy"',
+                1,
+            ),
+            "exact app-plus-socketproxy merged network membership check",
+        ),
+        (
+            targets[4],
+            lambda text: text.replace(
+                'test "${ALLOW_UNPAUSE:-}" = 0',
+                'test "${ALLOW_UNPAUSE:-}" = 1',
+            ),
+            "runtime zero assertion for ALLOW_UNPAUSE",
+        ),
+    ) + tuple(
+        (
+            targets[4],
+            lambda text, guard=guard: text.replace(
+                f"| `{guard}` | `0` |",
+                f"| `{guard}` | `1` |",
+                1,
+            ),
+            f"`{guard}` with a zero default",
+        )
+        for guard in (
+            "SOCKETPROXY_POST",
+            "SOCKETPROXY_ALLOW_START",
+            "SOCKETPROXY_ALLOW_STOP",
+            "SOCKETPROXY_ALLOW_RESTARTS",
+            "SOCKETPROXY_ALLOW_PAUSE",
+            "SOCKETPROXY_ALLOW_UNPAUSE",
+        )
+    ) + tuple(
+        (
+            targets[4],
+            lambda text, guard=guard: text.replace(
+                next(
+                    line
+                    for line in text.splitlines()
+                    if line.startswith(f"| `{guard}` | `0` |")
+                ),
+                "",
+                1,
+            ),
+            f"`{guard}` with a zero default",
+        )
+        for guard in (
+            "SOCKETPROXY_POST",
+            "SOCKETPROXY_ALLOW_START",
+            "SOCKETPROXY_ALLOW_STOP",
+            "SOCKETPROXY_ALLOW_RESTARTS",
+            "SOCKETPROXY_ALLOW_PAUSE",
+            "SOCKETPROXY_ALLOW_UNPAUSE",
+        )
+    )
+    for readme, mutate, expected in mutations:
+        original = readme.read_text(encoding="utf-8")
+        mutated = mutate(original)
+        if readme in targets[1:3]:
+            require(
+                mutated != original,
+                f"{readme.parent.name} README mutation did not alter text for {expected}",
+            )
+        issues = compliance.check_readme_product_security_contract(readme, mutated)
+        require(
+            any(expected in issue for issue in issues),
+            f"{readme.parent.name} README mutation must fail for {expected}: {issues}",
+        )
+
+
 def test_branded_technical_token_recovery(branding: ModuleType) -> None:
     source = (
         "Actual apps use /vær/tmp, /heælthz, /æuth/openid/æuthentik, "
@@ -1610,6 +2537,7 @@ def main() -> None:
     test_anchor_reference_scope(anchors)
     test_redis_host_requirement(compliance)
     test_application_configuration_contract(compliance)
+    test_product_security_readme_contract(compliance)
     test_branded_technical_token_recovery(branding)
     test_short_code_inline_comment_alignment(branding)
     test_python_branding(branding)

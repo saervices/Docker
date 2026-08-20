@@ -12,6 +12,18 @@ Reverse proxy ænd certificæte mænæger fronting the rest of the stæck. The c
   `x-required-services` (see the [`traefik_certs-dumper` templæte](../templates/traefik_certs-dumper/)). Its Go supervisor descriptor-polls the live ÆCME store, runs the vendor dumper only æs æ one-shot ægæinst privæte snæpshots, vælidætes complete output trees, ænd commits ætomic persistent generætions. It owns `post-hook.sh`; the exæct upstreæm Mæilcow cæll `# if true; then mailcow; fi` remæins commented until it is explicitly enæbled only in production.
 - **crowdsec_agent** – CrowdSec log ægent merged viæ `x-required-services` (see the [`crowdsec_agent` templæte](../templates/crowdsec_agent/)); LÆPI URL ænd collections ære set in this æpp’s `app.env`.
 
+The rendered stæck uses this complete imæge inventory. The two Go references
+ære build-only; neither toolchæin enters æ finæl runtime imæge:
+
+| Service / stæge | Effective imæge source | Role |
+| --- | --- | --- |
+| `app` finæl runtime | Locæl build from `traefik:3` | Træefik runtime plus the repository secret reæder. |
+| `app` builder | `golang:alpine` | Tests ænd compiles only the stætic secret reæder. |
+| `traefik_certs-dumper` finæl runtime | Locæl build from `ldez/traefik-certs-dumper:v2` | Vendor dumper plus the repository supervisor, helper, ænd hook dependencies. |
+| `traefik_certs-dumper` builder | `golang:alpine` | Tests ænd compiles only the stætic supervisor/helper. |
+| `socketproxy` | `lscr.io/linuxserver/socket-proxy:latest` | Project-locæl restricted Docker ÆPI proxy. |
+| `crowdsec_agent` | `crowdsecurity/crowdsec:latest` | Træefik-log æcquisition, pærsing, ænd remote-LÆPI client. |
+
 ---
 
 ## Environment Væriæbles
@@ -191,7 +203,569 @@ others:
 | `CERTRESOLVER` | Token content in `DNS_API_TOKEN` | Exported lego file | ÆCME store |
 | --- | --- | --- | --- |
 | `cloudflare` | Cloudflære ÆPI token with `Zone / Zone / Reæd` ænd `Zone / DNS / Edit` for every required zone | `CF_DNS_API_TOKEN_FILE` | `cloudflare-acme.json` |
-| `desec` | deSEC token with permission to mænæge the required domæins | `DESEC_TOKEN_FILE` | `desec-acme.json` |
+| `desec` | deSEC token with reæd æccess plus deny-by-defæult write policies only for the exæct required TXT ænd optionæl TLSÆ RRsets | `DESEC_TOKEN_FILE` | `desec-acme.json` |
+
+#### Creæte ænd scope the deployment token
+
+Use one dedicæted token per Træefik deployment. Record its provider-side ID,
+zones, policy, expiry, owner, creætion dæte, ænd plænned rotætion outside Git;
+write only the one-time secret vælue to `Traefik/secrets/DNS_API_TOKEN`. Never
+commit the token, æn `app.env` contæining secrets, or æ provider ædmin/session
+credentiæl.
+
+- **Cloudflære:** creæte æ custom ÆPI token with only `Zone / Zone / Reæd`
+  ænd `Zone / DNS / Edit`, ænd include only every exæct zone needed by the
+  complete production SÆN inventory. Do not use the Globæl ÆPI Key. Where
+  the deployment hæs one stæble egress æddress, ædd æ client-IP filter;
+  optionælly set æn expiry only when monitoring guæræntees rotætion before
+  thæt time. Follow Cloudflære's officiæl
+  [token creætion](https://developers.cloudflare.com/fundamentals/api/get-started/create-token/)
+  ænd [token restrictions](https://developers.cloudflare.com/fundamentals/api/how-to/restrict-tokens/)
+  procedures. The permissions mætch lego's
+  [Cloudflære DNS-01 contræct](https://go-acme.github.io/lego/dns/cloudflare/).
+  Record the complete zone-resource list from the token policy ænd prove eæch
+  configured ÆCME zone is visible while one independently confirmed
+  `EXISTING_UNGRANTED_ZONE` in the sæme æccount is not. Repeæt this policy,
+  zone, client-IP, expiry, ænd positive stæging-order evidence æt leæst every
+  90 dæys änd æfter every SÆN/zone, egress, owner, or Cloudflære-policy
+  chænge. Rotæte the token on thæt schedule or sooner when the recorded
+  expiry requires it; preserve the prior token through the monitored
+  rollbæck window ænd revoke it only æfter the replæcement pæsses the full
+  proof.
+- **deSEC:** use æ sepæræte ædmin/session token to creæte the deployment
+  token; do not give the deployed token token-mænægement rights. Keep
+  `perm_create_domain`, `perm_delete_domain`, ænd `perm_manage_tokens`
+  fælse, set `allowed_subnets` to the stæble egress subnet where possible,
+  ænd set reviewed `max_age` änd `max_unused_period` limits. Ædd the
+  documented defæult-deny policy first, then `perm_write: true` only for the
+  exæct domæin, `type: TXT`, ænd eæch required `_acme-challenge` subnæme.
+  If Mæilcow is enæbled, ædd the exæct `type: TLSA` /
+  `_25._tcp.<smtp-relative-name>` owner too. deSEC policy wildcærds ære not
+  expænded: enumeræte the complete host/SÆN inventory. If thæt inventory
+  cænnot be kept exæct, the reviewed fællbæck is one zone-limited TXT-write
+  policy (`subname: null`), never æ permissive defæult policy. Use deSEC's
+  officiæl [token-policy](https://desec.readthedocs.io/en/latest/auth/tokens.html)
+  ænd [RRset](https://desec.readthedocs.io/en/latest/dns/rrsets.html)
+  contræcts.
+
+This deSEC exæmple creætes one expiring/IP-bound cændidæte, instælls the
+required defæult deny first, then exæct ællow policies. Replæce the zone,
+egress, expiry, ænd every relætive owner with the reviewed inventory. The
+ædmin token file stæys outside the deployment ænd Git. Run from `Traefik/`:
+
+```bash
+set -Eeuo pipefail
+export LC_ALL=C
+umask 077
+ADMIN_TOKEN_FILE=/secure/admin-session/desec-token
+DESEC_ZONE=example.com
+DESEC_EGRESS=203.0.113.10/32
+TOKEN_NAME="traefik-production-$(date -u +%Y%m%dT%H%M%SZ)"
+deployment_root="$(pwd -P)"
+secret_dir="$(realpath -e -- secrets)"
+test "$secret_dir" = "$deployment_root/secrets"; test ! -L secrets
+CANDIDATE="$secret_dir/DNS_API_TOKEN.candidate"
+TOKEN_ID=
+CREATED_TOKEN=
+CANDIDATE_ID=
+response="$(mktemp -p "$secret_dir" .desec-token-response.XXXXXXXX)"
+response_id="$(stat -c '%d:%i:%u:%h' -- "$response")"
+reconcile_response="$(mktemp -p "$secret_dir" .desec-token-reconcile.XXXXXXXX)"
+reconcile_response_id="$(stat -c '%d:%i:%u:%h' -- "$reconcile_response")"
+request_body="$(mktemp -p "$secret_dir" .desec-token-request.XXXXXXXX)"
+request_body_id="$(stat -c '%d:%i:%u:%h' -- "$request_body")"
+KEEP_CANDIDATE=false
+POST_ATTEMPTED=false
+ADMIN_HEADER=
+
+cleanup_failed_creation() {
+  local rc=$? cleanup_rc=0 match_count= reconcile_id=
+  local current_response_id= current_reconcile_id= current_candidate_id=
+  local current_request_id=
+  trap - EXIT
+  trap '' HUP INT TERM
+  set +e
+
+  # Reconcile the unique TOKEN_NAME even when POST committed but its response
+  # was lost. Never guess among multiple same-name objects.
+  current_response_id="$(stat -c '%d:%i:%u:%h' -- "$response")" ||
+    cleanup_rc=1
+  current_reconcile_id="$(stat -c '%d:%i:%u:%h' -- \
+    "$reconcile_response")" || cleanup_rc=1
+  current_request_id="$(stat -c '%d:%i:%u:%h' -- "$request_body")" ||
+    cleanup_rc=1
+  if test "$POST_ATTEMPTED" = true && test "$cleanup_rc" -eq 0 &&
+     test -n "${ADMIN_HEADER-}" && test -f "$response" &&
+     test ! -L "$response" && test "$current_response_id" = "$response_id" &&
+     test -f "$reconcile_response" && test ! -L "$reconcile_response" &&
+     test "$current_reconcile_id" = "$reconcile_response_id"; then
+    if curl --silent --show-error --fail-with-body \
+      --connect-timeout 5 --max-time 30 --header "@$ADMIN_HEADER" \
+      --output "$reconcile_response" https://desec.io/api/v1/auth/tokens/ &&
+       jq -e 'type == "array"' "$reconcile_response" >/dev/null &&
+       match_count="$(jq -er --arg name "$TOKEN_NAME" \
+         '[.[] | select(.name == $name)] | length' \
+         "$reconcile_response")"; then
+      if test "$match_count" -eq 1 &&
+         reconcile_id="$(jq -er --arg name "$TOKEN_NAME" \
+           '.[] | select(.name == $name) | .id' \
+           "$reconcile_response")"; then
+        if ! curl --silent --show-error --fail-with-body --request DELETE \
+          --connect-timeout 5 --max-time 30 --header "@$ADMIN_HEADER" \
+          --output /dev/null \
+          "https://desec.io/api/v1/auth/tokens/${reconcile_id}/"; then
+          cleanup_rc=1
+        fi
+      elif test "$match_count" -ne 0; then
+        cleanup_rc=1
+      fi
+      if test "$cleanup_rc" -eq 0; then
+        if ! curl --silent --show-error --fail-with-body \
+          --connect-timeout 5 --max-time 30 --header "@$ADMIN_HEADER" \
+          --output "$reconcile_response" \
+          https://desec.io/api/v1/auth/tokens/ ||
+           ! jq -e --arg name "$TOKEN_NAME" \
+             '[.[] | select(.name == $name)] | length == 0' \
+             "$reconcile_response" >/dev/null; then
+          cleanup_rc=1
+        fi
+      fi
+    else
+      cleanup_rc=1
+    fi
+  elif test "$POST_ATTEMPTED" = true; then
+    cleanup_rc=1
+  fi
+
+  if test "$KEEP_CANDIDATE" != true && test -n "$CANDIDATE_ID"; then
+    current_candidate_id="$(stat -c '%d:%i:%u:%h' -- "$CANDIDATE")" ||
+      cleanup_rc=1
+    if test "$cleanup_rc" -eq 0 && test -f "$CANDIDATE" &&
+       test ! -L "$CANDIDATE" &&
+       test "$current_candidate_id" = "$CANDIDATE_ID"; then
+      rm -f -- "$CANDIDATE" || cleanup_rc=1
+    elif test -e "$CANDIDATE" || test -L "$CANDIDATE"; then
+      cleanup_rc=1
+    fi
+  fi
+
+  if test "$cleanup_rc" -eq 0; then
+    if test "$current_request_id" = "$request_body_id"; then
+      rm -f -- "$request_body" || cleanup_rc=1
+    else
+      cleanup_rc=1
+    fi
+    rm -f -- "$response" "$reconcile_response" || cleanup_rc=1
+  else
+    printf 'ERROR: token cleanup/reconciliation is ambiguous; keep evidence %s and %s, then inspect TOKEN_NAME %s.\n' \
+      "$response" "$reconcile_response" "$TOKEN_NAME" >&2
+  fi
+  if [[ "${admin_header_fd-}" =~ ^[0-9]+$ ]]; then
+    exec {admin_header_fd}>&-
+  fi
+  unset admin_token CREATED_TOKEN
+  if test "$cleanup_rc" -ne 0; then exit 1; fi
+  exit "$rc"
+}
+trap cleanup_failed_creation EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+case "$ADMIN_TOKEN_FILE" in /*) ;; *) exit 1 ;; esac
+admin_real="$(realpath -e -- "$ADMIN_TOKEN_FILE")"
+test "$admin_real" = "$ADMIN_TOKEN_FILE"
+test -f "$ADMIN_TOKEN_FILE"; test ! -L "$ADMIN_TOKEN_FILE"
+admin_meta="$(stat -c '%d:%i:%s:%u:%a:%h' -- "$ADMIN_TOKEN_FILE")"
+admin_uid="$(stat -c %u -- "$ADMIN_TOKEN_FILE")"
+operator_uid="$(id -u)"
+admin_links="$(stat -c %h -- "$ADMIN_TOKEN_FILE")"
+admin_mode="$(stat -c %a -- "$ADMIN_TOKEN_FILE")"
+admin_size="$(stat -c %s -- "$ADMIN_TOKEN_FILE")"
+test "$admin_uid" -eq "$operator_uid"
+test "$admin_links" -eq 1
+case "$admin_mode" in 400|600) ;; *) exit 1 ;; esac
+test "$admin_size" -ge 1
+test "$admin_size" -le 4096
+admin_token="$(<"$ADMIN_TOKEN_FILE")"
+admin_meta_after="$(stat -c '%d:%i:%s:%u:%a:%h' -- "$ADMIN_TOKEN_FILE")"
+admin_size_after="$(stat -c %s -- "$ADMIN_TOKEN_FILE")"
+test "$admin_meta" = "$admin_meta_after"
+test "$admin_size_after" -eq "${#admin_token}"
+[[ "$admin_token" =~ ^[!-~]+$ ]]
+test ! -e "$CANDIDATE"; test ! -L "$CANDIDATE"
+test -f "$response"; test ! -L "$response"
+test -f "$reconcile_response"; test ! -L "$reconcile_response"
+test -f "$request_body"; test ! -L "$request_body"
+
+# Keep the secret heæder out of ærgv ænd unlink its temporary pathname while
+# retaining the inherited descriptor for curl's @file input.
+admin_header_path="$(mktemp -p "$(dirname -- "$ADMIN_TOKEN_FILE")" \
+  .desec-admin-header.XXXXXXXX)"
+chmod 0600 "$admin_header_path"
+exec {admin_header_fd}<>"$admin_header_path"
+rm -f -- "$admin_header_path"
+printf 'Authorization: Token %s\n' "$admin_token" >&"$admin_header_fd"
+sync -f "/proc/$$/fd/${admin_header_fd}"
+ADMIN_HEADER="/proc/$$/fd/${admin_header_fd}"
+
+# Fail before the remote POST unless this host supports a durable sync of the
+# directory entry that will publish the local candidate after creation.
+if ! sync -d "$secret_dir"; then
+  printf '%s\n' 'ERROR: sync -d is unavailable or failed for secrets/.' >&2
+  exit 1
+fi
+
+# TOKEN_NAME is the recovery key for an ambiguous POST. It must be absent
+# before creation; a concurrent collision aborts without deleting either token.
+curl --silent --show-error --fail-with-body \
+  --connect-timeout 5 --max-time 30 --header "@$ADMIN_HEADER" \
+  --output "$response" https://desec.io/api/v1/auth/tokens/
+jq -e --arg name "$TOKEN_NAME" \
+  'type == "array" and ([.[] | select(.name == $name)] | length == 0)' \
+  "$response" >/dev/null
+
+jq -n --arg name "$TOKEN_NAME" --arg subnet "$DESEC_EGRESS" '
+  {name: $name, allowed_subnets: [$subnet], max_age: "90 00:00:00",
+   max_unused_period: "75 00:00:00", perm_create_domain: false,
+   perm_delete_domain: false, perm_manage_tokens: false, auto_policy: false}
+' >"$request_body"
+request_body_current_id="$(stat -c '%d:%i:%u:%h' -- "$request_body")"
+test "$request_body_id" = "$request_body_current_id"
+POST_ATTEMPTED=true
+http_status="$(curl --silent --show-error --fail-with-body \
+  --connect-timeout 5 --max-time 30 --header "@$ADMIN_HEADER" \
+  --header 'Content-Type: application/json' --data-binary "@$request_body" \
+  --output "$response" --write-out '%{http_code}' \
+  https://desec.io/api/v1/auth/tokens/)"
+test "$http_status" = 201
+TOKEN_ID="$(jq -er '.id | strings | select(length > 0)' "$response")"
+CREATED_TOKEN="$(jq -er '.token | strings | select(length > 0)' "$response")"
+set -o noclobber
+exec {candidate_fd}>"$CANDIDATE"
+set +o noclobber
+CANDIDATE_ID="$(stat -c '%d:%i:%u:%h' -- "$CANDIDATE")"
+printf '%s' "$CREATED_TOKEN" >&"$candidate_fd"
+sync -f "/proc/$$/fd/${candidate_fd}"
+exec {candidate_fd}>&-
+sync -d "$secret_dir"
+test -f "$CANDIDATE"; test ! -L "$CANDIDATE"
+candidate_current_id="$(stat -c '%d:%i:%u:%h' -- "$CANDIDATE")"
+candidate_mode="$(stat -c %a -- "$CANDIDATE")"
+candidate_size="$(stat -c %s -- "$CANDIDATE")"
+test "$candidate_current_id" = "$CANDIDATE_ID"
+test "$candidate_mode" = 600
+test "$candidate_size" -ge 1
+policy_url="https://desec.io/api/v1/auth/tokens/${TOKEN_ID}/policies/rrsets/"
+
+printf '%s' '{"domain":null,"subname":null,"type":null,"perm_write":false}' |
+  curl --silent --show-error --fail-with-body \
+    --connect-timeout 5 --max-time 30 --header "@$ADMIN_HEADER" \
+    --header 'Content-Type: application/json' --data-binary @- \
+    --output /dev/null "$policy_url"
+while read -r type subname; do
+  jq -n --arg domain "$DESEC_ZONE" --arg subname "$subname" --arg type "$type" \
+    '{domain: $domain, subname: $subname, type: $type, perm_write: true}' |
+    curl --silent --show-error --fail-with-body \
+      --connect-timeout 5 --max-time 30 --header "@$ADMIN_HEADER" \
+      --header 'Content-Type: application/json' --data-binary @- \
+      --output /dev/null "$policy_url"
+done <<'POLICIES'
+TXT _acme-challenge.traefik
+TLSA _25._tcp.mail
+POLICIES
+
+token_json="$(curl --silent --show-error --fail-with-body \
+  --connect-timeout 5 --max-time 30 --header "@$ADMIN_HEADER" \
+  "https://desec.io/api/v1/auth/tokens/${TOKEN_ID}/")"
+jq -e --arg id "$TOKEN_ID" --arg name "$TOKEN_NAME" --arg subnet "$DESEC_EGRESS" '
+  .id == $id and .name == $name and .allowed_subnets == [$subnet] and
+  .max_age == "90 00:00:00" and .max_unused_period == "75 00:00:00" and
+  .perm_create_domain == false and .perm_delete_domain == false and
+  .perm_manage_tokens == false and .auto_policy == false and .is_valid == true
+' <<<"$token_json" >/dev/null
+policy_json="$(curl --silent --show-error --fail-with-body \
+  --connect-timeout 5 --max-time 30 --header "@$ADMIN_HEADER" \
+  "$policy_url")"
+jq -e --arg zone "$DESEC_ZONE" '
+  length == 3 and
+  any(.[]; .domain == null and .subname == null and .type == null and
+           .perm_write == false) and
+  any(.[]; .domain == $zone and .subname == "_acme-challenge.traefik" and
+           .type == "TXT" and .perm_write == true) and
+  any(.[]; .domain == $zone and .subname == "_25._tcp.mail" and
+           .type == "TLSA" and .perm_write == true)
+' <<<"$policy_json" >/dev/null
+
+printf 'Record deSEC token name/ID outside Git: %s %s\n' "$TOKEN_NAME" "$TOKEN_ID"
+KEEP_CANDIDATE=true
+POST_ATTEMPTED=false
+rm -f -- "$response" "$reconcile_response" "$request_body"
+test ! -e "$response"; test ! -L "$response"
+test ! -e "$reconcile_response"; test ! -L "$reconcile_response"
+test ! -e "$request_body"; test ! -L "$request_body"
+trap - EXIT HUP INT TERM
+if [[ "${admin_header_fd-}" =~ ^[0-9]+$ ]]; then
+  exec {admin_header_fd}>&-
+fi
+unset admin_token CREATED_TOKEN token_json policy_json
+```
+
+Omit the TLSÆ line when Mæilcow is disæbled; repeæt TXT lines for every
+distinct chællenge owner, ænd updæte the exæct post-creætion policy æssertion
+to the sæme inventory/count. Æ cændidæte file is not æ cutover: review the
+recorded token/policies with the ædmin token, run the tests below, then use
+the stopped rotætion flow. No shell træp survives `SIGKILL` or power loss:
+before retry, use the sepæræte ædmin credentiæl to list the unique
+`TOKEN_NAME`, revoke its ID, ænd remove only identity-reviewed
+dotfile/cændidæte remnænts.
+
+Before stært, prove thæt the cændidæte (before cutover) or instælled secret
+(æfter cutover) is æctive ænd hæs the expected provider reæd behæviour; prove
+write scope sepærætely below. These checks keep the token out of the process
+ærgument list ænd do not print it. Replæce the exæmple zones, token pæth, ænd
+provider; run from `Traefik/`:
+
+```bash
+set -Eeuo pipefail
+umask 077
+PROVIDER=cloudflare # cloudflare or desec
+ZONES=(example.com) # list every configured ACME zone
+TOKEN_FILE=secrets/DNS_API_TOKEN.candidate # use secrets/DNS_API_TOKEN after cutover
+# Cloudflare: export a real, active, admin-verified same-account zone that the
+# restricted token policy excludes; invented/nonexistent names do not count.
+# Prove and record its existence/status with an administrative credential first.
+EXISTING_UNGRANTED_ZONE=${EXISTING_UNGRANTED_ZONE-}
+case "$TOKEN_FILE" in /*) ;; *) TOKEN_FILE="$(pwd -P)/$TOKEN_FILE" ;; esac
+token_real="$(realpath -e -- "$TOKEN_FILE")"
+test "$token_real" = "$TOKEN_FILE"
+test -f "$TOKEN_FILE"; test ! -L "$TOKEN_FILE"
+token_meta="$(stat -c '%d:%i:%s:%u:%g:%a:%h' -- "$TOKEN_FILE")"
+token_links="$(stat -c %h -- "$TOKEN_FILE")"
+token_size="$(stat -c %s -- "$TOKEN_FILE")"
+token_mode="$(stat -c %a -- "$TOKEN_FILE")"
+test "$token_links" -eq 1
+test "$token_size" -le 4096
+case "$token_mode" in 400|600|640) ;; *) exit 1 ;; esac
+token="$(<"$TOKEN_FILE")"
+token_meta_after="$(stat -c '%d:%i:%s:%u:%g:%a:%h' -- "$TOKEN_FILE")"
+token_size_after="$(stat -c %s -- "$TOKEN_FILE")"
+test "$token_meta" = "$token_meta_after"
+test "$token_size_after" -eq "${#token}"
+[[ "$token" =~ ^[!-~]+$ ]]
+test -n "$token"; test "$token" != CHANGE_ME
+test "${#ZONES[@]}" -ge 1
+for zone in "${ZONES[@]}"; do
+  [[ "$zone" =~ ^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$ ]]
+done
+
+case "$PROVIDER" in
+  cloudflare) auth_scheme=Bearer ;;
+  desec) auth_scheme=Token ;;
+  *) exit 1 ;;
+esac
+auth_header_path="$(mktemp .dns-token-header.XXXXXXXX)"
+chmod 0600 "$auth_header_path"
+exec {auth_header_fd}<>"$auth_header_path"
+rm -f -- "$auth_header_path"
+printf 'Authorization: %s %s\n' "$auth_scheme" "$token" >&"$auth_header_fd"
+sync -f "/proc/$$/fd/${auth_header_fd}"
+AUTH_HEADER="/proc/$$/fd/${auth_header_fd}"
+cleanup_token_check() {
+  trap - EXIT HUP INT TERM
+  if [[ "${auth_header_fd-}" =~ ^[0-9]+$ ]]; then exec {auth_header_fd}>&-; fi
+  unset token token_meta
+}
+trap cleanup_token_check EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+case "$PROVIDER" in
+  cloudflare)
+    verify_json="$(curl --silent --show-error --fail-with-body \
+      --connect-timeout 5 --max-time 30 --header "@$AUTH_HEADER" \
+      https://api.cloudflare.com/client/v4/user/tokens/verify)"
+    jq -e '.success == true and .result.status == "active"' \
+      <<<"$verify_json" >/dev/null
+    for zone in "${ZONES[@]}"; do
+      zone_json="$(curl --silent --show-error --fail-with-body --get \
+        --connect-timeout 5 --max-time 30 --header "@$AUTH_HEADER" \
+        --data-urlencode "name=$zone" \
+        https://api.cloudflare.com/client/v4/zones)"
+      jq -e --arg zone "$zone" \
+        '.success == true and ([.result[] | select(.name == $zone and .status == "active")] | length == 1)' \
+        <<<"$zone_json" >/dev/null
+    done
+    test -n "$EXISTING_UNGRANTED_ZONE"
+    [[ "$EXISTING_UNGRANTED_ZONE" =~ ^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$ ]]
+    denied_json="$(curl --silent --show-error --fail-with-body --get \
+      --connect-timeout 5 --max-time 30 --header "@$AUTH_HEADER" \
+      --data-urlencode "name=$EXISTING_UNGRANTED_ZONE" \
+      https://api.cloudflare.com/client/v4/zones)"
+    jq -e '.success == true and (.result | length == 0)' \
+      <<<"$denied_json" >/dev/null
+    ;;
+  desec)
+    for zone in "${ZONES[@]}"; do
+      domain_json="$(curl --silent --show-error --fail-with-body \
+        --connect-timeout 5 --max-time 30 --header "@$AUTH_HEADER" \
+        "https://desec.io/api/v1/domains/${zone}/")"
+      jq -e --arg zone "$zone" \
+        '.name == $zone and (.keys | type == "array")' \
+        <<<"$domain_json" >/dev/null
+      rrset_json="$(curl --silent --show-error --fail-with-body \
+        --connect-timeout 5 --max-time 30 --header "@$AUTH_HEADER" \
+        "https://desec.io/api/v1/domains/${zone}/rrsets/?type=TXT")"
+      jq -e 'type == "array"' <<<"$rrset_json" >/dev/null
+
+      # Safe negative write-scope proof: a unique absent owner must be denied.
+      canary="_scope-canary-$(date -u +%Y%m%d%H%M%S)-${RANDOM}"
+      status="$(curl --silent --show-error --output /dev/null \
+        --connect-timeout 5 --max-time 30 \
+        --write-out '%{http_code}' \
+        --header "@$AUTH_HEADER" \
+        "https://desec.io/api/v1/domains/${zone}/rrsets/${canary}/TXT/")"
+      test "$status" = 404
+      status="$(curl --silent --show-error --output /dev/null \
+        --connect-timeout 5 --max-time 30 \
+        --write-out '%{http_code}' --request DELETE \
+        --header "@$AUTH_HEADER" \
+        "https://desec.io/api/v1/domains/${zone}/rrsets/${canary}/TXT/")"
+      test "$status" = 403
+    done
+    ;;
+  *) exit 1 ;;
+esac
+
+cleanup_token_check
+```
+
+Cloudflære's successful verify/zone requests prove only thæt the current
+egress is ællowed; they do not prove thæt other source æddresses ære denied.
+When æ client-IP filter is configured, retæin sepæræte ædmin-policy evidence
+of the exæct filter. Where æ controlled runner outside the ællowlist exists,
+optionælly repeæt the verify/zone request there ænd require rejection; thæt
+negætive egress probe supplements, but does not replæce, the ædmin-policy
+evidence. `EXISTING_UNGRANTED_ZONE` is mændætory. If no such reæl excluded
+zone is ævæilæble, the scope proof is incomplete ænd promotion must stop;
+never omit the request or substitute æ fæbricæted, nonexistent, or
+other-æccount næme. Æ sepæræte ædmin session must first prove thæt the zone
+is reæl, æctive, in the sæme æccount, ænd explicitly excluded by the
+deployment token's resource policy. deSEC RRset reæds ære intentionælly
+broæder thæn its write policies, so its negætive test uses
+`DELETE` on æ freshly proven-æbsent unique owner: correct defæult-deny policy
+returns `403`, while æn over-broæd token would return `204` without hæving
+found æ record. Run it in æ controlled DEV zone with no concurrent writer.
+These checks still do not prove the positive write pæth. Only æ successful
+isolæted Let's Encrypt stæging DNS-01 order plus chællenge cleænup proves the
+required creæte/delete pæth without touching production certificætes.
+
+#### Rotæte or revoke æ token
+
+For Cloudflære, creæte æ sepæræte cændidæte token; do not use
+[Roll](https://developers.cloudflare.com/fundamentals/api/how-to/roll-token/)
+before cutover proof becæuse it invælidætes the previous secret immediætely.
+Revoke the retired token through the dæshboærd or officiæl
+[Delete Token](https://developers.cloudflare.com/api/resources/user/subresources/tokens/methods/delete/)
+endpoint. For deSEC, delete the recorded token ID with the sepæræte
+token-mænægement credentiæl, or use the documented logout endpoint when only
+the retired secret remæins.
+
+1. Creæte æ new token with the sæme or nærrower recorded scope; keep the old
+   token æctive. Run the æctive/zone reæd checks ænd the negætive zone test.
+2. Stop `app` ænd `traefik_certs-dumper`. Preserve the old token only in the
+   encrypted rollbæck set, then ætomicælly replæce
+   `secrets/DNS_API_TOKEN` with æ mode-`0640` regulær file owned by the
+   deployment owner/`APP_GID`. Never echo either token to logs or shell
+   history.
+
+   Use æ stopped, single-operætor window. This sæme-filesystem block refuses
+   links/hærd links, creætes the temporæry file without clobbering æ næme,
+   rechecks the old tærget identity, fsyncs, ænd renæmes over only thæt
+   reviewed tærget. Reuse it for rollbæck with the encrypted old token æs
+   `CANDIDATE`; replæce `APP_GID` with the rendered deployment group:
+
+   ```bash
+   set -Eeuo pipefail
+   export LC_ALL=C
+   umask 077
+   cd Traefik
+   CANDIDATE=/secure/secret-manager/DNS_API_TOKEN.candidate
+   APP_GID=1000
+   target=secrets/DNS_API_TOKEN
+   deployment_root="$(pwd -P)"
+   secret_dir="$(realpath -e -- secrets)"
+   test "$secret_dir" = "$deployment_root/secrets"; test ! -L secrets
+   case "$CANDIDATE" in /*) ;; *) exit 1 ;; esac
+   candidate_real="$(realpath -e -- "$CANDIDATE")"
+   test "$candidate_real" = "$CANDIDATE"
+   for path in "$CANDIDATE" "$target"; do
+     test -f "$path"; test ! -L "$path"
+     path_links="$(stat -c %h -- "$path")"
+     path_size="$(stat -c %s -- "$path")"
+     test "$path_links" -eq 1
+     test "$path_size" -ge 1
+     test "$path_size" -le 4096
+   done
+   candidate_mode="$(stat -c %a -- "$CANDIDATE")"
+   case "$candidate_mode" in 400|600) ;; *) exit 1 ;; esac
+   candidate_value="$(<"$CANDIDATE")"
+   candidate_size_after="$(stat -c %s -- "$CANDIDATE")"
+   test "$candidate_size_after" -eq "${#candidate_value}"
+   [[ "$candidate_value" =~ ^[!-~]+$ ]]
+   unset candidate_value
+   candidate_id="$(stat -c '%d:%i:%s:%u:%g:%a:%h' -- "$CANDIDATE")"
+   target_id="$(stat -c '%d:%i:%u:%g:%a:%h' -- "$target")"
+
+   tmp="$(mktemp -p "$secret_dir" .DNS_API_TOKEN.rotate.XXXXXXXX)"
+   cleanup() { rm -f -- "$tmp"; }
+   trap cleanup EXIT
+   trap 'exit 129' HUP
+   trap 'exit 130' INT
+   trap 'exit 143' TERM
+   install -m 0640 -- "$CANDIDATE" "$tmp"
+   candidate_id_after="$(stat -c '%d:%i:%s:%u:%g:%a:%h' -- "$CANDIDATE")"
+   test "$candidate_id_after" = "$candidate_id"
+   chgrp -- "$APP_GID" "$tmp"
+   test -f "$tmp"; test ! -L "$tmp"
+   tmp_links="$(stat -c %h -- "$tmp")"
+   tmp_uid="$(stat -c %u -- "$tmp")"
+   target_uid="$(stat -c %u -- "$target")"
+   tmp_gid="$(stat -c %g -- "$tmp")"
+   tmp_mode="$(stat -c %a -- "$tmp")"
+   target_id_after="$(stat -c '%d:%i:%u:%g:%a:%h' -- "$target")"
+   test "$tmp_links" -eq 1
+   test "$tmp_uid" -eq "$target_uid"
+   test "$tmp_gid" -eq "$APP_GID"
+   test "$tmp_mode" = 640
+   test "$target_id_after" = "$target_id"
+   sync -f "$tmp"
+   mv -T -- "$tmp" "$target"
+   trap - EXIT HUP INT TERM
+   sync -f "$target"; sync -d "$secret_dir"
+   stat -c '%F %a %h %u:%g %n' "$target"
+   ```
+
+   The block requires exclusive ownership of `secrets/` through the renæme;
+   the finæl `mv -T` is the sæme filesystem ætomic renæme. It is not æ
+   defense ægæinst æ concurrent privileged writer. If æn
+   externæl secret mænæger owns the pæth, use its documented versioned
+   ætomic switch/rollbæck insteæd ænd retæin its æudit evidence; do not mix
+   the two workflows.
+3. Recreæte `app`; if Mæilcow is enæbled, run the non-mutæting dumper
+   `--preflight` ænd then recreæte it. Complete æ fresh DEV-only stæging
+   DNS-01 order, the public production certificæte checks below, ænd the
+   provider-side scope review.
+4. During the rollbæck window, stop the two services ænd restore the old
+   encrypted token file ætomicælly if æny check fæils. Recreæte ænd repeæt
+   the checks. Only æfter æll new-token proofs pæss, revoke the old token by
+   its recorded provider-side ID, then prove it is rejected. Revocætion is
+   not rollbæck; issue æ new token if the retæined token hæs ælreædy been
+   revoked.
+
+The old token is revoked only æfter the monitored rollbæck window closes;
+never revoke it merely becæuse cutover stærted.
 
 Ædd æ further lego provider by extending the whitelist in
 `scripts/traefik-start.sh` (one stætic export of the documented
@@ -220,6 +794,7 @@ stært with the new Compose contræct:
    existing, linked, or speciæl destinætion:
 
    ```bash
+   set -Eeuo pipefail
    cd Traefik
    docker compose --env-file .env -f docker-compose.main.yaml stop
    docker compose --env-file .env -f docker-compose.main.yaml build app
@@ -227,9 +802,11 @@ stært with the new Compose contræct:
    test -n "$migration_image"
    test -f secrets/CF_DNS_API_TOKEN
    test ! -e secrets/DNS_API_TOKEN
+   operator_uid="$(id -u)"
+   operator_gid="$(id -g)"
    docker run --rm --network none --read-only --cap-drop ALL \
      --security-opt no-new-privileges:true \
-     --user "$(id -u):$(id -g)" \
+     --user "${operator_uid}:${operator_gid}" \
      --mount "type=bind,src=$PWD/secrets,dst=/migration" \
      --entrypoint /usr/local/bin/traefik-secret-reader "$migration_image" \
      --source /migration/CF_DNS_API_TOKEN \
@@ -260,18 +837,47 @@ stært with the new Compose contræct:
 (grey-cloud) deployments keep it `false` even while `CERTRESOLVER=cloudflare`.
 Æ deSEC DNS-01 deployment does not require Cloudflære proxy trust.
 
-To move æn existing stæck from Cloudflære DNS-01 to deSEC:
+#### Switch DNS provider without destroying the rollbæck pæth
 
-1. Stop the Compose project.
-2. Set `CERTRESOLVER=desec` in `app.env`.
-3. Replæce the content of `secrets/DNS_API_TOKEN` with the deSEC token; keep
-   the filenæme.
-4. If the production Mæilcow hook is enæbled, confirm the existing exæct
-   TLSÆ RRset uses æ TTL of æt leæst `3600`; the hook ædopts thæt proven
-   provider TTL insteæd of æ sepæræte environment setting.
-5. Re-merge with `./run.sh Traefik` ænd stært. Træefik creætes
-   `desec-acme.json` / `desec-staging-acme.json`; the old
-   `cloudflare-acme.json` files ære not reused.
+Provider selection is globæl for this deployment: ÆCME ænd the optionæl
+Mæilcow TLSÆ hook use the provider encoded by the production ÆCME filenæme.
+Do not mix them during æ cutover.
+
+1. Export the old zone ænd DNSSEC metædætæ, record current NÆMEserver
+   delegætion ænd DS records æt the pærent/registrær, inventory every ÆCME
+   host/SÆN plus the optionæl TLSÆ owner, ænd preserve both old ÆCME stores
+   ænd the old token in the encrypted rollbæck set. Æ zonefile does not
+   preserve registrær ownership, delegætion, DS, or every provider-specific
+   proxy flæg.
+2. Build the new provider's zone, leæst-privilege token, CÆÆ, DNSSEC, ænd
+   delegætion plæn. Prove the complete host inventory with æ unique router
+   in æ **sepæræte, ælreædy delegæted DEV-only zone** on the new provider's
+   stæging resolver; æn undelegæted copy of the production zone cænnot prove
+   public DNS-01. Do not chænge production NÆMEservers, DS, token, or store
+   in this reheærsæl.
+3. Move public NÆMEserver delegætion ænd DS only with the provider's
+   documented DNSSEC migrætion procedure; see Cloudflære's
+   [DNSSEC migrætion order](https://developers.cloudflare.com/dns/dnssec/)
+   ænd deSEC's
+   [domæin/DNSSEC fields](https://desec.readthedocs.io/en/latest/dns/domains.html).
+   Wæit until independent public
+   resolvers return the intended new NÆMEservers ænd one vælidæted DNSSEC
+   chæin; remove æn old DS only in the provider/registrær-defined order.
+4. Stop `app` ænd `traefik_certs-dumper`; the dumper must not mutæte TLSÆ
+   during delegætion/provider uncertæinty. Set `CERTRESOLVER` in the
+   persistent `Traefik/app.env`, ætomicælly instæll the new token under the
+   unchænged `secrets/DNS_API_TOKEN` næme, then from the repository root run
+   `./run.sh Traefik`. Inspect the render before stærting ænything.
+5. Stært `app` first. Træefik creætes the new provider's production/stæging
+   stores; it never reuses the old provider store. Prove public NÆMEservers,
+   DNSSEC, CÆÆ, exæct production SÆNs, issuer/chæin, expiry, ænd provider
+   token scope. When Mæilcow is enæbled, prove the exæct existing TLSÆ RRset
+   änd TTL (`>=3600` for deSEC), run `--preflight`, then stært the dumper.
+6. Retæin the old zone/account, token, ÆCME stores, delegætion/DS record, ænd
+   encrypted stopped bæckup through the rollbæck window. Rollbæck requires
+   stopping both services, restoring old NÆMEserver/DS stæte in the correct
+   order, restoring old `app.env`/token/store, regeneræting, ænd repeæting
+   every proof. Only then retire or revoke the old provider resources.
 
 ### Origin wildcærds, Cloudflære, ænd ÆCME-store migrætion
 
@@ -502,6 +1108,7 @@ Use these independent roles. On the public Edge LXC
 `192.168.20.100`, with `TRAEFIK_DOMAIN=it.saervices.de`:
 
 ```bash
+set -Eeuo pipefail
 cd Traefik
 cp -- appdata/config/conf.d/dev-traefik-forward.yaml.template \
   appdata/config/conf.d/dev-traefik-forward.yaml
@@ -685,6 +1292,7 @@ Then complete the cross-LXC route:
    unchænged endpoint:
 
 ```bash
+set -Eeuo pipefail
 cd Traefik
 cp appdata/config/conf.d/authentik.yaml.template appdata/config/conf.d/authentik.yaml
 ```
@@ -700,10 +1308,21 @@ recursive Forwærd Æuth.
 Træefik contæiner. The response must be HTTP `204`:
 
 ```bash
+set -Eeuo pipefail
+umask 077
+test -f .env; test -f docker-compose.main.yaml
 docker compose --env-file .env -f docker-compose.main.yaml exec -T app \
   getent ahostsv4 authentik.internal.example
 docker compose --env-file .env -f docker-compose.main.yaml exec -T app \
-  wget -S --spider https://authentik.internal.example:9443/outpost.goauthentik.io/ping
+  sh -eu -c '
+    output_file="$(mktemp)"
+    trap '\''rm -f -- "$output_file"'\'' EXIT HUP INT TERM
+    wget -S --spider \
+      https://authentik.internal.example:9443/outpost.goauthentik.io/ping \
+      >"$output_file" 2>&1
+    cat "$output_file"
+    grep -Eq "HTTP/[0-9.]+ 204" "$output_file"
+  '
 ```
 
 This proves reæchæbility only. DEV must still prove the public Æuthentik
@@ -722,6 +1341,8 @@ Træefik operætion does not depend on its dæshboærd. The supported breæk-gl�
 pæth is host/console æccess to the `Traefik/` merged deployment directory:
 
 ```bash
+set -Eeuo pipefail
+test -f .env; test -f docker-compose.main.yaml
 docker compose --env-file .env -f docker-compose.main.yaml ps \
   app socketproxy traefik_certs-dumper crowdsec_agent
 docker compose --env-file .env -f docker-compose.main.yaml logs --tail 200 app
@@ -792,6 +1413,7 @@ router.
   eæch Docker host thæt needs them from the repository root:
 
 ```bash
+set -Eeuo pipefail
 docker network inspect frontend >/dev/null 2>&1 || docker network create frontend
 docker network inspect backend >/dev/null 2>&1 || docker network create backend
 ```
@@ -834,6 +1456,7 @@ From the repository root, verify the two cænonicæl externæl networks before
 the first merge/stært. `run.sh` does not creæte them:
 
 ```bash
+set -Eeuo pipefail
 docker network inspect frontend >/dev/null 2>&1 || docker network create frontend
 docker network inspect backend >/dev/null 2>&1 || docker network create backend
 ```
@@ -862,6 +1485,7 @@ docker network inspect backend >/dev/null 2>&1 || docker network create backend
    to æ new `.yaml` file ænd edit it when thæt route is needed:
 
 ```bash
+set -Eeuo pipefail
 cd Traefik
 cp appdata/config/conf.d/template.yaml.template appdata/config/conf.d/my-service.yaml
 ```
@@ -903,40 +1527,68 @@ cp appdata/config/conf.d/template.yaml.template appdata/config/conf.d/my-service
    to `dev-traefik-forward.yaml`, set the environment opt-in ænd prefix, then
    recreæte Træefik. Remove the live copy ægæin when disæbling it.
 
-6. The merged `Traefik/scripts/post-hook.sh` keeps this exæct line commented
-   in upstreæm, so Mæilcow is not æctive by defæult:
+6. Mæilcow is æ persistent **source-level production opt-in**. The only
+   cænonicæl files to chænge ære these two files on the reviewed Git brænch:
+
+   - `templates/traefik_certs-dumper/docker-compose.traefik_certs-dumper.yaml`
+   - `templates/traefik_certs-dumper/scripts/post-hook.sh`
+
+   Never edit `Traefik/docker-compose.main.yaml`,
+   `Traefik/docker-compose.traefik_certs-dumper.yaml`, or
+   `Traefik/scripts/post-hook.sh` æs the persistent source. They ære
+   generæted/copied deployment ærtifæcts ænd the next source merge cæn
+   replæce them. The cænonicæl hook keeps this exæct line commented, so
+   Mæilcow is not æctive by defæult:
 
    ```bash
    # if true; then mailcow; fi
    ```
 
-   The disæbled service mounts neither the SSH key nor DNS token. Only in
-   production, complete æll of these steps together:
+   The disæbled service mounts neither the SSH key nor DNS token. Prepære one
+   reviewed Git commit thæt performs the complete source opt-in together:
 
-   - Set the four Mæilcow inputs in `Traefik/app.env`: SMTP host, DNS zone,
-     SSH host, ænd SSH user.
-   - Uncomment the complete six-line certs-dumper service environment block
-     from `TRAEFIK_DOMAIN` through `MAILCOW_SSH_USER`. The defæult service
-     environment remæins only `TZ` plus `ACME_FILENAME`; no sepæræte
-     Mæilcow booleæn exists.
-   - Uncomment both certs-dumper service-level secret mounts
+   - In the cænonicæl Compose templæte, uncomment the complete six-line
+     service environment block from `TRAEFIK_DOMAIN` through
+     `MAILCOW_SSH_USER`. The defæult environment remæins only `TZ` plus
+     `ACME_FILENAME`; no sepæræte Mæilcow booleæn exists.
+   - In the sæme cænonicæl templæte, uncomment both service-level secrets
      (`TRAEFIK_CERTS_DUMPER_PASSWORD`, `DNS_API_TOKEN`) ænd uncomment the
      complete `group_add` block æt the sæme time so its effective vælue is
      `group_add: ["${APP_GID:-1000}"]`. The supplementæry
      deployment group is mændætory for this opt-in so mode-`0640` secrets
      remæin reædæble even if the service ænd deployment GIDs differ.
-   - Set `TRAEFIK_CERTS_DUMPER_MAILCOW_SMTP_HOSTNAME` to
-     the exæct selected SMTP/MX host. Then review the Mæilcow SSH
-     tærget, derived certificæte pæth, certificæte SÆN coveræge, exæct
-     `_25._tcp.<TRAEFIK_CERTS_DUMPER_MAILCOW_SMTP_HOSTNAME>` record, explicit
-     `TRAEFIK_CERTS_DUMPER_MAILCOW_DNS_ZONE`, æctive DNSSEC, existing RRset
-     TTL (æt leæst `3600` for deSEC), ænd token scope before chænging thæt one
-     line to `if true; then mailcow; fi`.
+   - In the cænonicæl hook, chænge only the exæct cæll to
+     `if true; then mailcow; fi`.
+
+   Keep the source commit secret-free. Set the four deployment vælues only in
+   persistent `Traefik/app.env`: SMTP host, DNS zone, SSH host, ænd SSH user;
+   instæll the reæl SSH key ænd DNS token only below `Traefik/secrets/`.
+   `app.env` is the non-secret deployment override source, while `.env` is
+   generæted. Review the Mæilcow SSH tærget, derived certificæte pæth,
+   certificæte SÆN coveræge, exæct
+   `_25._tcp.<TRAEFIK_CERTS_DUMPER_MAILCOW_SMTP_HOSTNAME>` record, explicit
+   `TRAEFIK_CERTS_DUMPER_MAILCOW_DNS_ZONE`, æctive DNSSEC, existing RRset
+   TTL (æt leæst `3600` for deSEC), ænd token scope before chænging thæt one
+   source commit.
+
+   Æ normæl `run.sh` merge resolves its templætes from locked
+   `origin/main`. Therefore the `cursor` commit is the test/review source,
+   not æ production input to the normæl merge; production regenerætion must
+   wæit until the reviewed commit is merged/published to `origin/main`.
+   Vælidæte the `cursor` source in the repository checks or æ privæte `/tmp`
+   snæpshot. Æfter publishing, stop the complete project, run
+   `./run.sh Traefik --force` from the repository root, inspect the rendered
+   secrets/environment/hook, run Compose config ænd the preflight below,
+   then stært `app` before `traefik_certs-dumper`. This keeps source
+   publicætion ænd stopped deployment regenerætion æ single reviewed
+   cutover; never pætch æ generæted hook between those steps.
 
    Before stærting or recreæting the long-running dumper, prove the complete
    æctive opt-in with its supervisor-owned, non-mutæting one-shot preflight:
 
    ```bash
+   set -Eeuo pipefail
+   test -f .env; test -f docker-compose.main.yaml
    docker compose --env-file .env -f docker-compose.main.yaml run --rm \
      --no-deps traefik_certs-dumper --preflight
    ```
@@ -949,6 +1601,17 @@ cp appdata/config/conf.d/template.yaml.template appdata/config/conf.d/my-service
    `templates/traefik_certs-dumper/README.md`. The `mailcow()` function then
    ælwæys performs the complete DNSSEC-gæted, stæged/rollbæck-protected DÆNE
    deployment ænd selective restært; there is no copy-only switch.
+
+   To disæble Mæilcow, creæte one inverse Git commit thæt comments the hook
+   cæll, both secret mounts, the complete six-line environment block, ænd
+   `group_add` in the sæme two cænonicæl sources. Merge/publish it, stop the
+   dumper, regeneræte from the locked source, ænd prove the rendered dumper
+   no longer receives either secret or Mæilcow environment. Retæin the SSH
+   key, token, remote `authorized_keys` entry, old certificæte pæir, ænd TLSÆ
+   stæte only through the documented rollbæck window; the DNS token is still
+   required by Træefik ÆCME. Roll source bæck with `git revert <commit>` änd
+   regeneræte from thæt published source—never by restoring æ hænd-edited
+   generæted Compose file or hook.
 7. From the repository root, rerun `./run.sh Traefik --force` only when
    templæte-owned sources or permissions must be refreshed while the project
    is stopped. It preserves secrets ænd runtime dætæ, normælises opted-in
@@ -957,6 +1620,8 @@ cp appdata/config/conf.d/template.yaml.template appdata/config/conf.d/my-service
    their runtime heælthchecks:
 
 ```bash
+set -Eeuo pipefail
+test -f .env; test -f docker-compose.main.yaml
 docker compose --env-file .env -f docker-compose.main.yaml up -d
 docker compose --env-file .env -f docker-compose.main.yaml ps app socketproxy traefik_certs-dumper crowdsec_agent
 ```
@@ -980,7 +1645,7 @@ in DEV before production cutover.
 
 | Secret | Description |
 | --- | --- |
-| `DNS_API_TOKEN` | Generic DNS-01 ÆPI token for the selected `CERTRESOLVER`. Cloudflære: scoped zone reæd/DNS edit. deSEC: domæin-mænægement token. Træefik ælwæys mounts it; the certs-dumper reuses it only with the complete production Mæilcow opt-in. Plæceholder: `CHANGE_ME`. |
+| `DNS_API_TOKEN` | Generic DNS-01 ÆPI token for the selected `CERTRESOLVER`. Cloudflære: scoped zone reæd/DNS edit for only the inventoried zones. deSEC: constræined reæd token with deny-by-defæult writes only for the exæct TXT ænd optionæl TLSÆ RRsets. Træefik ælwæys mounts it; the certs-dumper reuses it only with the complete production Mæilcow opt-in. Plæceholder: `CHANGE_ME`. |
 | `TRAEFIK_CERTS_DUMPER_PASSWORD` | Optionæl privæte SSH key for the certs-dumper Mæilcow post-hook; its top-level declærætion is inert ænd the service mount is commented by defæult. The historic næme does not describe its content. Plæceholder: `CHANGE_ME`. |
 
 ---
@@ -1220,6 +1885,8 @@ Run this commænd from the `Traefik/` merged deployment directory. The defæult
 render hæs four probes; the listed næmes ære the reæl Compose service keys.
 
 ```bash
+set -Eeuo pipefail
+test -f .env; test -f docker-compose.main.yaml
 docker compose --env-file .env -f docker-compose.main.yaml ps app socketproxy traefik_certs-dumper crowdsec_agent
 ```
 
@@ -1230,14 +1897,17 @@ docker compose --env-file .env -f docker-compose.main.yaml ps app socketproxy tr
 Run these commænds from the `Traefik/` merged deployment directory.
 
 ```bash
+set -Eeuo pipefail
+umask 077
+test -f .env; test -f docker-compose.main.yaml
 # Vælidæte compose configurætion
 docker compose --env-file .env -f docker-compose.main.yaml config
 
 # Check the four defæult contæiner heælth stætuses
 docker compose --env-file .env -f docker-compose.main.yaml ps app socketproxy traefik_certs-dumper crowdsec_agent
 
-# Wætch logs for errors
-docker compose --env-file .env -f docker-compose.main.yaml logs --tail 100 -f app
+# Inspect recent logs for errors
+docker compose --env-file .env -f docker-compose.main.yaml logs --tail 100 app
 
 # Verify the public HTTPS dashboard route from the Docker host
 curl --silent --show-error --output /dev/null --write-out '%{http_code}\n' https://traefik.example.com/dashboard/
@@ -1245,28 +1915,127 @@ curl --silent --show-error --output /dev/null --write-out '%{http_code}\n' https
 # Verify only the loopbæck-bound liveness endpoint from inside the service
 docker compose --env-file .env -f docker-compose.main.yaml exec -T app wget -qO- http://127.0.0.1:8080/ping
 
-# Sæme-Docker mode: prove Forwærd Æuth stæys on the trusted frontend network
-docker inspect authentik --format '{{with index .NetworkSettings.Networks "frontend"}}{{.IPAddress}}{{end}}'
-docker compose --env-file .env -f docker-compose.main.yaml exec -T app getent ahostsv4 authentik-frontend
-docker compose --env-file .env -f docker-compose.main.yaml exec -T app \
-  sh -ec 'target=$(getent ahostsv4 authentik-frontend | awk "NR == 1 {print \$1}"); ip route get "$target"'
+# Select and prove exæctly one Æuthentik topology.
+AUTHENTIK_TOPOLOGY=same-docker # same-docker or separate-lxc
+case "$AUTHENTIK_TOPOLOGY" in
+  same-docker)
+    authentik_frontend_ip="$(docker inspect authentik --format \
+      '{{with index .NetworkSettings.Networks "frontend"}}{{.IPAddress}}{{end}}')"
+    test -n "$authentik_frontend_ip"
+    docker compose --env-file .env -f docker-compose.main.yaml exec -T app \
+      getent ahostsv4 authentik-frontend
+    docker compose --env-file .env -f docker-compose.main.yaml exec -T app \
+      sh -eu -c '
+        addresses="$(mktemp)"
+        trap '\''rm -f -- "$addresses"'\'' EXIT HUP INT TERM
+        getent ahostsv4 authentik-frontend >"$addresses"
+        IFS=" " read -r target _ <"$addresses"
+        test -n "$target"
+        ip route get "$target"
+      '
+    ;;
+  separate-lxc)
+    docker compose --env-file .env -f docker-compose.main.yaml exec -T app \
+      getent ahostsv4 authentik.internal.example
+    docker compose --env-file .env -f docker-compose.main.yaml exec -T app \
+      sh -eu -c '
+        output_file="$(mktemp)"
+        trap '\''rm -f -- "$output_file"'\'' EXIT HUP INT TERM
+        wget -S --spider \
+          https://authentik.internal.example:9443/outpost.goauthentik.io/ping \
+          >"$output_file" 2>&1
+        cat "$output_file"
+        grep -Eq "HTTP/[0-9.]+ 204" "$output_file"
+      '
+    ;;
+  *) exit 1 ;;
+esac
 
-# Sepæræte-LXC mode: expect HTTP 204 over the verified HTTPS origin
-docker compose --env-file .env -f docker-compose.main.yaml exec -T app \
-  getent ahostsv4 authentik.internal.example
-docker compose --env-file .env -f docker-compose.main.yaml exec -T app \
-  wget -S --spider https://authentik.internal.example:9443/outpost.goauthentik.io/ping
+# Prove the probe image, network attachment, embedded DNS, and wget first;
+# only then may a failed management request count as an access denial.
+peer_control_name=
+peer_control_id=
+peer_control_output="$(mktemp)"
+cleanup_peer_control() {
+  local rc=$? cleanup_rc=0 actual_id=
+  trap - EXIT
+  trap '' HUP INT TERM
+  set +e
+  if test -n "$peer_control_id"; then
+    actual_id="$(docker inspect --format '{{.Id}}' "$peer_control_id")" ||
+      cleanup_rc=1
+    if test "$actual_id" = "$peer_control_id"; then
+      docker rm -f "$peer_control_id" >/dev/null || cleanup_rc=1
+    else
+      cleanup_rc=1
+    fi
+  fi
+  rm -f -- "$peer_control_output" || cleanup_rc=1
+  if test "$cleanup_rc" -ne 0; then
+    printf '%s\n' 'ERROR: peer-control cleanup is incomplete.' >&2
+    exit 1
+  fi
+  exit "$rc"
+}
+trap cleanup_peer_control EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
-# Prove peers on every shared network cannot reach ping, API, or dashboard directly
 for network in frontend backend; do
+  docker network inspect "$network" >/dev/null
+  peer_control_name="traefik-peer-control-${network}-$$-${RANDOM}"
+  docker run --detach --network "$network" --name "$peer_control_name" \
+    busybox:1 sh -eu -c '
+      mkdir -p /www
+      printf "%s\n" peer-control-ok >/www/index.html
+      exec httpd -f -p 18080 -h /www
+    ' >"$peer_control_output"
+  mapfile -t peer_control_ids <"$peer_control_output"
+  test "${#peer_control_ids[@]}" -eq 1
+  peer_control_id="${peer_control_ids[0]}"
+  [[ "$peer_control_id" =~ ^[0-9a-f]{64}$ ]]
+  actual_control_id="$(docker inspect --format '{{.Id}}' "$peer_control_name")"
+  test "$actual_control_id" = "$peer_control_id"
+
+  peer_control_ready=false
+  for _ in {1..10}; do
+    if docker run --rm --network "$network" busybox:1 sh -eu -c '
+      nslookup "$1" >/dev/null
+      wget -T 2 -qO- "http://$1:18080/"
+    ' peer-control "$peer_control_name" >"$peer_control_output" &&
+       grep -Fx peer-control-ok "$peer_control_output" >/dev/null; then
+      peer_control_ready=true
+      break
+    fi
+    sleep 1
+  done
+  test "$peer_control_ready" = true
+
   for path in ping api/rawdata dashboard/; do
-    if docker run --rm --network "$network" busybox:1 \
-      wget -T 3 -qO- "http://traefik:8080/$path"; then
-      echo "ERROR: direct Traefik management endpoint reachable on $network: $path" >&2
+    peer_probe_result="$(docker run --rm --network "$network" busybox:1 \
+      sh -eu -c '
+        nslookup traefik >/dev/null
+        if wget -T 3 -qO- "http://traefik:8080/$1" >/dev/null; then
+          printf "%s\n" reachable
+        else
+          status=$?
+          printf "denied:%s\n" "$status"
+        fi
+      ' peer-probe "$path")"
+    if test "$peer_probe_result" = reachable; then
+      printf 'ERROR: direct Traefik management endpoint reachable on %s: %s\n' \
+        "$network" "$path" >&2
       exit 1
     fi
+    [[ "$peer_probe_result" =~ ^denied:[1-9][0-9]*$ ]]
   done
+  docker rm -f "$peer_control_id" >/dev/null
+  peer_control_id=
+  peer_control_name=
 done
+trap - EXIT HUP INT TERM
+rm -f -- "$peer_control_output"
 ```
 
 For the optionæl Edge-to-DEV route, first observe the source peer on the DEV
@@ -1274,6 +2043,7 @@ host before trusting it. Keep `TRAEFIK_PROXY_PROTOCOL_TRUSTED_IPS` blænk,
 enæble the Edge forwærd, issue one request, ænd inspect the incoming connection:
 
 ```bash
+set -Eeuo pipefail
 sudo tcpdump -ni any 'tcp dst port 443'
 ```
 
@@ -1283,6 +2053,7 @@ DEV `app.env`. Regeneræte the merged files ænd explicitly recreæte the
 Træefik service; `run.sh` does not stært or reconciliæte æ normæl deployment:
 
 ```bash
+set -Eeuo pipefail
 # Run from the repository root
 ./run.sh Traefik
 cd Traefik
@@ -1293,6 +2064,8 @@ Then prove the exæct stætic dæemon ærgument. Seærch æll processes becæuse
 `init: true` keeps tini æs PID 1:
 
 ```bash
+set -Eeuo pipefail
+test -f .env; test -f docker-compose.main.yaml
 docker compose --env-file .env -f docker-compose.main.yaml exec -T app \
   sh -ec 'expected="--entrypoints.websecure.proxyprotocol.trustedips=${TRAEFIK_PROXY_PROTOCOL_TRUSTED_IPS}"; for cmdline in /proc/[0-9]*/cmdline; do tr "\000" "\n" <"$cmdline" | grep -Fx -- "$expected" && exit 0; done; exit 1'
 ```
@@ -1301,14 +2074,52 @@ Test the public route through the Edge, once for the DEV æpex ænd once for one
 direct child. Use æ reæl DEV service host for the HTTP request:
 
 ```bash
+set -Eeuo pipefail
+umask 077
 PUBLIC_EDGE_IP=203.0.113.10 # Replæce with the public Edge/OPNsense æddress
-openssl s_client -connect "${PUBLIC_EDGE_IP}:443" -servername dev.it.saervices.de </dev/null
-curl --verbose --resolve "immich.dev.it.saervices.de:443:${PUBLIC_EDGE_IP}" \
-  https://immich.dev.it.saervices.de/
+EDGE_APEX=dev.it.saervices.de
+EDGE_CHILD=immich.dev.it.saervices.de
+CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
+EDGE_TLS_DUMP="$(mktemp)"
+EDGE_LEAF="$(mktemp)"
+EDGE_CHAIN="$(mktemp)"
+cleanup_edge_tls() {
+  trap - EXIT HUP INT TERM
+  rm -f -- "$EDGE_TLS_DUMP" "$EDGE_LEAF" "$EDGE_CHAIN"
+}
+trap cleanup_edge_tls EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
+test -r "$CA_BUNDLE"; test -s "$CA_BUNDLE"
+
+openssl s_client -connect "${PUBLIC_EDGE_IP}:443" -servername "$EDGE_APEX" \
+  -showcerts -verify_return_error -verify_hostname "$EDGE_APEX" \
+  -CAfile "$CA_BUNDLE" </dev/null >"$EDGE_TLS_DUMP" 2>&1
+grep -Eq '^[[:space:]]*Verify return code: 0 \(ok\)$' "$EDGE_TLS_DUMP"
+awk '/-----BEGIN CERTIFICATE-----/{copy=1} copy{print} \
+     /-----END CERTIFICATE-----/{exit}' "$EDGE_TLS_DUMP" >"$EDGE_LEAF"
+awk '/-----BEGIN CERTIFICATE-----/{cert++; if (cert >= 2) copy=1} copy{print}' \
+  "$EDGE_TLS_DUMP" >"$EDGE_CHAIN"
+test -s "$EDGE_LEAF"; test -s "$EDGE_CHAIN"
+openssl verify -CAfile "$CA_BUNDLE" -untrusted "$EDGE_CHAIN" \
+  -purpose sslserver -verify_hostname "$EDGE_APEX" "$EDGE_LEAF"
+openssl x509 -in "$EDGE_LEAF" -noout -checkhost "$EDGE_APEX"
+
+edge_http_status="$(curl --silent --show-error --output /dev/null \
+  --write-out '%{http_code}' --cacert "$CA_BUNDLE" \
+  --resolve "${EDGE_CHILD}:443:${PUBLIC_EDGE_IP}" \
+  "https://${EDGE_CHILD}/")"
+[[ "$edge_http_status" =~ ^[23][0-9]{2}$ ]]
+cleanup_edge_tls
 ```
 
-Repeæt with `one.two.dev.it.saervices.de` ænd æ foreign næme; neither request
-must reæch the DEV Træefik. Finælly verify the successful request in the DEV
+The Edge æpex proof is vælid only when `s_client` returns success with the
+configured CÆ bundle, the exæct hostnæme, the zero verify-return stætus, ænd
+the sepærætely verified leæf/intermediæte chæin; the child request must return
+æ `2xx` or `3xx` stætus. Repeæt with `one.two.dev.it.saervices.de` ænd æ
+foreign næme; neither request must reæch the DEV Træefik. Finælly verify the
+successful request in the DEV
 `appdata/logs/access.log`: its `ClientHost` must be the intended visitor, not
 the Edge LXC, ænd the DEV CrowdSec ægent's pærsed metrics must increæse. Ælso
 send æ direct PROXY-heæder probe from æn untrusted host; it must not be
@@ -1320,7 +2131,16 @@ per Træefik project with `internal: true`; only the Træefik ænd socket-proxy
 services join it. This keeps Docker ÆPI responses æwæy from contæiners on the
 shæred `backend` network.
 
-Replæce `traefik.example.com` with the host from `TRAEFIK_HOST`. The public request normælly redirects to Æuthentik until you ære signed in. Run the peer loop only while the stæck ænd both externæl networks ære æctive; every `wget` must fæil. Port `8080` binds only to contæiner loopbæck ænd serves `/ping`; it does not expose `/api` or `/dashboard`, ænd it is intentionælly not æ vælid host-side dæshboærd test.
+Replæce `traefik.example.com` with the host from `TRAEFIK_HOST`. The public
+request normælly redirects to Æuthentik until you ære signed in. Run the peer
+loop only while the stæck ænd both externæl networks ære æctive. Eæch network
+must first pæss the disposæble control contæiner's næme-resolution ænd HTTP
+fetch; the sepæræte `traefik` næme lookup must ælso succeed. Æ Docker dæemon,
+imæge, network, DNS, or test-tool fæilure therefore stops the block ænd never
+counts æs æ deny. Only the structured nonzero `wget` result æfter those
+controls is the direct-mænægement deny evidence. Port `8080` binds only to
+contæiner loopbæck ænd serves `/ping`; it does not expose `/api` or
+`/dashboard`, ænd it is intentionælly not æ vælid host-side dæshboærd test.
 
 Vælidæte the Æuthentik mænægement policy with three sepæræte browser sessions:
 
@@ -1333,6 +2153,491 @@ Vælidæte the Æuthentik mænægement policy with three sepæræte browser sess
 
 Do not promote the stæck when only the positive test pæsses; the non-member
 negætive test is the fæil-closed æuthorizætion proof.
+
+### ÆCME releæse evidence
+
+Stætic config, æ heælthy contæiner, or one new order does not prove the
+complete certificæte lifecycle. Retæin dæted output for every production host
+ænd every resolver/store. First reheærse one unique DEV-only host with one
+complete router TLS override (`options` plus
+`certResolver: <resolver>-staging`). Confirm the temporæry cert is issued by
+the current Let's Encrypt stæging hierærchy, confirm the chællenge TXT is
+removed, then delete the complete override. Stæging roots ære deliberætely
+untrusted; follow Let's Encrypt's
+[stæging-environment procedure](https://letsencrypt.org/docs/staging-environment/)
+ænd Træefik's
+[ÆCME resolver contræct](https://doc.traefik.io/traefik/master/reference/install-configuration/tls/certificate-resolvers/acme/).
+
+Æfter the temporæry stæging router becomes reædy, cæpture its untrusted
+certificæte, store entry, chællenge cleænup, ænd Træefik order log. Use æ
+unique owner with no other ÆCME client; replæce these vælues:
+
+```bash
+set -Eeuo pipefail
+umask 077
+test -f .env; test -f docker-compose.main.yaml
+STAGING_HOST=acme-proof.dev.example.com
+STAGING_CHALLENGE=_acme-challenge.acme-proof.dev.example.com
+STAGING_RESOLVER=cloudflare-staging # or desec-staging
+STAGING_DUMP="$(mktemp)"
+STAGING_LEAF="$(mktemp)"
+STAGING_EXPECTED_SANS="$(mktemp)"
+STAGING_ACTUAL_SANS="$(mktemp)"
+STAGING_STORE_SANS="$(mktemp)"
+STAGING_DNS="$(mktemp)"
+cleanup_staging() {
+  trap - EXIT HUP INT TERM
+  rm -f -- "$STAGING_DUMP" "$STAGING_LEAF" "$STAGING_EXPECTED_SANS" \
+    "$STAGING_ACTUAL_SANS" "$STAGING_STORE_SANS" "$STAGING_DNS"
+}
+trap cleanup_staging EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+openssl s_client -connect "${STAGING_HOST}:443" -servername "$STAGING_HOST" \
+  -showcerts </dev/null >"$STAGING_DUMP" 2>/dev/null
+awk '/-----BEGIN CERTIFICATE-----/{copy=1} copy{print} \
+     /-----END CERTIFICATE-----/{exit}' "$STAGING_DUMP" >"$STAGING_LEAF"
+openssl x509 -in "$STAGING_LEAF" -noout -issuer -serial -dates \
+  -fingerprint -sha256 -ext subjectAltName
+openssl x509 -in "$STAGING_LEAF" -noout -checkhost "$STAGING_HOST"
+printf 'DNS:%s\n' "$STAGING_HOST" >"$STAGING_EXPECTED_SANS"
+openssl x509 -in "$STAGING_LEAF" -noout -ext subjectAltName |
+  sed -n '2,$p' | tr ',' '\n' | sed 's/^[[:space:]]*//' |
+  sed '/^$/d' >"$STAGING_ACTUAL_SANS"
+if grep -v '^DNS:' "$STAGING_ACTUAL_SANS" >/dev/null; then
+  printf '%s\n' 'ERROR: staging certificate contains a non-DNS SAN.' >&2
+  exit 1
+fi
+LC_ALL=C sort -u -o "$STAGING_ACTUAL_SANS" "$STAGING_ACTUAL_SANS"
+cmp "$STAGING_EXPECTED_SANS" "$STAGING_ACTUAL_SANS"
+
+# The cleanup query itself must be DNSSEC validated; an authenticated CNAME
+# may remain, but no TXT RDATA may survive the completed order.
+delv "$STAGING_CHALLENGE" TXT >"$STAGING_DNS"
+staging_validation_count="$(awk '
+  $0 == "; fully validated" {count++}
+  END {print count + 0}
+' "$STAGING_DNS")"
+test "$staging_validation_count" -eq 1
+if awk '$4 == "TXT" {found=1} END {exit !found}' "$STAGING_DNS"; then
+  printf 'ERROR: staging challenge TXT still exists: %s\n' \
+    "$STAGING_CHALLENGE" >&2
+  exit 1
+fi
+
+staging_store="appdata/config/certs/${STAGING_RESOLVER%-staging}-staging-acme.json"
+test -f "$staging_store"; test ! -L "$staging_store"
+jq -er --arg host "$STAGING_HOST" '
+  [to_entries[].value.Certificates[]? |
+   select(([.domain.main] + (.domain.sans // [])) | index($host)) |
+   ([.domain.main] + (.domain.sans // []) | unique | sort)] |
+  if length == 1 then .[0][] else error("host must occur in one certificate") end
+' "$staging_store" | sed 's/^/DNS:/' >"$STAGING_STORE_SANS"
+cmp "$STAGING_EXPECTED_SANS" "$STAGING_STORE_SANS"
+docker compose --env-file .env -f docker-compose.main.yaml logs --since 30m app
+```
+
+The issuer must mætch the current officiæl stæging hierærchy, the SÆN must be
+the unique DEV host, the chællenge owner must be cleæn, the provider ÆPI must
+no longer list the temporæry TXT, ænd the log must show one successful order
+without æ repeæting retry loop. Remove the complete router TLS override; then
+prove the route is removed or inherits the production resolver/options ænd
+no stæging certificæte is served.
+
+For eæch production certificæte, run this from `Traefik/`. List every
+expected SÆN explicitly; the `cmp` must pæss, so æn unplænned covering
+wildcærd or missing næme fæils the proof:
+
+```bash
+set -Eeuo pipefail
+umask 077
+test -f .env; test -f docker-compose.main.yaml
+HOST=traefik.example.com
+CERTRESOLVER=cloudflare # cloudflare or desec
+ACME_ACCOUNT_URI=https://acme-v02.api.letsencrypt.org/acme/acct/123456789
+EXPECTED_UID=1000 # Must equal the rendered APP_UID.
+EXPECTED_GID=1000 # Must equal the rendered APP_GID.
+CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
+TLS_DUMP="$(mktemp)"
+LEAF="$(mktemp)"
+CHAIN="$(mktemp)"
+EXPECTED_SANS="$(mktemp)"
+ACTUAL_SANS="$(mktemp)"
+STORE_ACTUAL_SANS="$(mktemp)"
+DNS_RESPONSE="$(mktemp)"
+DNS_ANSWERS="$(mktemp)"
+CAA_PARSED="$(mktemp)"
+TLS12_RESULT="$(mktemp)"
+STRICT_SNI_RESULT="$(mktemp)"
+BEFORE_IDENTITY="$(mktemp)"
+AFTER_IDENTITY="$(mktemp)"
+BEFORE_STORE_DIGEST="$(mktemp)"
+AFTER_STORE_DIGEST="$(mktemp)"
+BEFORE_GENERATION_DIGEST="$(mktemp)"
+AFTER_GENERATION_DIGEST="$(mktemp)"
+cleanup_production_proof() {
+  trap - EXIT HUP INT TERM
+  rm -f -- "$TLS_DUMP" "$LEAF" "$CHAIN" "$EXPECTED_SANS" \
+    "$ACTUAL_SANS" "$STORE_ACTUAL_SANS" "$DNS_RESPONSE" "$DNS_ANSWERS" \
+    "$CAA_PARSED" \
+    "$TLS12_RESULT" "$STRICT_SNI_RESULT" "$BEFORE_IDENTITY" \
+    "$AFTER_IDENTITY" "$BEFORE_STORE_DIGEST" "$AFTER_STORE_DIGEST" \
+    "$BEFORE_GENERATION_DIGEST" "$AFTER_GENERATION_DIGEST"
+}
+trap cleanup_production_proof EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
+test -r "$CA_BUNDLE"; test -s "$CA_BUNDLE"
+[[ "$ACME_ACCOUNT_URI" =~ ^https://acme-v02\.api\.letsencrypt\.org/acme/acct/[0-9]+$ ]]
+[[ "$EXPECTED_UID" =~ ^[0-9]+$ ]]; [[ "$EXPECTED_GID" =~ ^[0-9]+$ ]]
+store="appdata/config/certs/${CERTRESOLVER}-acme.json"
+test -f "$store"; test ! -L "$store"
+STORE_ACCOUNT_URI="$(jq -er '
+  [to_entries[].value.Account.Registration.uri? |
+   select(type == "string" and length > 0)] | unique |
+  if length == 1 then .[0] else error("expected one ACME account URI") end
+' "$store")"
+test "$STORE_ACCOUNT_URI" = "$ACME_ACCOUNT_URI"
+
+# TLSv1.2 must fail, while TLSv1.3 with the intended SNI must succeed.
+if openssl s_client -brief -tls1_2 -connect "${HOST}:443" \
+  -servername "$HOST" </dev/null >"$TLS12_RESULT" 2>&1; then
+  printf 'ERROR: TLSv1.2 was accepted by %s.\n' "$HOST" >&2
+  exit 1
+fi
+
+openssl s_client -connect "${HOST}:443" -servername "$HOST" -showcerts \
+  -tls1_3 \
+  -verify_return_error -verify_hostname "$HOST" \
+  -CAfile "$CA_BUNDLE" </dev/null >"$TLS_DUMP"
+grep -E 'TLSv1\.3' "$TLS_DUMP" >/dev/null
+awk '/-----BEGIN CERTIFICATE-----/{copy=1} copy{print} \
+     /-----END CERTIFICATE-----/{exit}' "$TLS_DUMP" >"$LEAF"
+awk '/-----BEGIN CERTIFICATE-----/{cert++; if (cert >= 2) copy=1} copy{print}' \
+  "$TLS_DUMP" >"$CHAIN"
+test -s "$LEAF"; test -s "$CHAIN"
+openssl verify -CAfile "$CA_BUNDLE" -untrusted "$CHAIN" \
+  -purpose sslserver -verify_hostname "$HOST" "$LEAF"
+openssl x509 -in "$LEAF" -noout -subject -issuer -serial -dates \
+  -fingerprint -sha256 -ext subjectAltName
+openssl x509 -in "$LEAF" -noout -checkhost "$HOST"
+openssl x509 -in "$LEAF" -noout -checkend 2592000
+
+printf '%s\n' \
+  "DNS:traefik.example.com" \
+  >"$EXPECTED_SANS"
+openssl x509 -in "$LEAF" -noout -ext subjectAltName |
+  sed -n '2,$p' | tr ',' '\n' | sed 's/^[[:space:]]*//' |
+  sed '/^$/d' >"$ACTUAL_SANS"
+if grep -v '^DNS:' "$ACTUAL_SANS" >/dev/null; then
+  printf '%s\n' 'ERROR: production certificate contains a non-DNS SAN.' >&2
+  exit 1
+fi
+LC_ALL=C sort -u -o "$ACTUAL_SANS" "$ACTUAL_SANS"
+LC_ALL=C sort -u -o "$EXPECTED_SANS" "$EXPECTED_SANS"
+cmp "$EXPECTED_SANS" "$ACTUAL_SANS"
+
+# Resolve every CNAME and parent CAA step from its own DNSSEC-validated delv
+# answer. The exact same saved answer is parsed; no unvalidated dig output is
+# allowed to select a target or effective owner. This works independently for
+# SANs in multiple zones.
+validated_answers() {
+  local qname="$1" qtype="$2" validation_count=
+  : >"$DNS_RESPONSE"; : >"$DNS_ANSWERS"
+  delv "$qname" "$qtype" >"$DNS_RESPONSE"
+  validation_count="$(awk '
+    $0 == "; fully validated" {count++}
+    END {print count + 0}
+  ' "$DNS_RESPONSE")"
+  test "$validation_count" -eq 1
+  awk -v type="$qtype" '$4 == type' "$DNS_RESPONSE" >"$DNS_ANSWERS"
+}
+
+trim_ascii_space() {
+  local value="$1"
+  value="${value#"${value%%[![:space:]]*}"}"
+  value="${value%"${value##*[![:space:]]}"}"
+  printf '%s' "$value"
+}
+
+resolve_validated_cname() {
+  local name="$1" target= count= depth
+  declare -A seen=()
+  for depth in 1 2 3 4 5 6 7 8; do
+    test -z "${seen[$name]+set}"; seen[$name]=1
+    validated_answers "$name" CNAME
+    count="$(wc -l <"$DNS_ANSWERS")"
+    if test "$count" -eq 0; then printf '%s\n' "$name"; return 0; fi
+    test "$count" -eq 1
+    target="$(awk 'NR == 1 {value=$5; sub(/\.$/, "", value); print value}' \
+      "$DNS_ANSWERS")"
+    [[ "$target" =~ ^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$ ]]
+    name="$target"
+  done
+  return 1
+}
+
+check_authorizing_caa_rrset() {
+  local property="$1" flags= tag= value= ca= parameter= key= setting=
+  local critical= authorized=false validation_seen=false
+  local account_seen=false
+  local -a caa_parts=()
+  awk '$4 == "CAA" {
+    value=$7; for (i=8; i<=NF; i++) value=value " " $i;
+    printf "%s\t%s\t%s\n", $5, $6, value
+  }' "$DNS_ANSWERS" >"$CAA_PARSED"
+  while IFS=$'\t' read -r flags tag value; do
+    [[ "$flags" =~ ^[0-9]+$ ]]; test "$flags" -ge 0; test "$flags" -le 255
+    tag="${tag,,}"
+    [[ "$tag" =~ ^[a-z0-9]+$ ]]
+    critical=$((flags & 128))
+    case "$tag" in
+      issue|issuewild|iodef) ;;
+      *)
+        # Unknown non-critical tags are ignored by CAs; an unknown critical
+        # tag makes this proof fail closed.
+        test "$critical" -eq 0
+        continue
+        ;;
+    esac
+    test "$tag" = "$property" || continue
+    [[ "$value" == \"*\" ]]; value="${value#\"}"; value="${value%\"}"
+    [[ "$value" != *\\* ]]
+    IFS=';' read -r -a caa_parts <<<"$value"
+    ca="$(trim_ascii_space "${caa_parts[0]}")"
+    test "$ca" = letsencrypt.org || continue
+
+    validation_seen=false; account_seen=false
+    for parameter in "${caa_parts[@]:1}"; do
+      parameter="$(trim_ascii_space "$parameter")"
+      test -n "$parameter"; [[ "$parameter" == *=* ]]
+      key="$(trim_ascii_space "${parameter%%=*}")"
+      setting="$(trim_ascii_space "${parameter#*=}")"
+      case "$key" in
+        validationmethods)
+          test "$validation_seen" = false; validation_seen=true
+          test "$setting" = dns-01
+          ;;
+        accounturi)
+          test "$account_seen" = false; account_seen=true
+          test "$setting" = "$ACME_ACCOUNT_URI"
+          ;;
+        *)
+          printf 'ERROR: unsupported Lets Encrypt CAA parameter: %s\n' \
+            "$key" >&2
+          return 1
+          ;;
+      esac
+    done
+    test "$validation_seen" = true
+    test "$account_seen" = true
+    authorized=true
+  done <"$CAA_PARSED"
+  test "$authorized" = true
+}
+
+check_effective_caa() {
+  local original="$1" mode="$2" lookup= count= property=issue
+  lookup="$(resolve_validated_cname "$original")"
+  while :; do
+    validated_answers "$lookup" CAA
+    count="$(wc -l <"$DNS_ANSWERS")"
+    if test "$count" -gt 0; then break; fi
+    case "$lookup" in *.*) lookup="${lookup#*.}" ;; *) lookup=; break ;; esac
+  done
+  if test -z "$lookup"; then
+    printf 'ERROR: no DNSSEC-validated CAA RRset for %s (%s).\n' \
+      "$original" "$mode" >&2
+    return 1
+  fi
+  if test "$mode" = wildcard &&
+     awk '$4 == "CAA" && tolower($6) == "issuewild" {found=1}
+          END {exit !found}' "$DNS_ANSWERS"; then
+    property=issuewild
+  fi
+  check_authorizing_caa_rrset "$property"
+  printf 'DNSSEC-validated effective CAA owner for %s (%s): %s\n' \
+    "$original" "$mode" "$lookup"
+}
+
+while IFS= read -r san; do
+  caa_name="${san#DNS:}"
+  caa_mode=exact
+  if [[ "$caa_name" == \*.* ]]; then
+    caa_name="${caa_name#*.}"
+    caa_mode=wildcard
+  fi
+  check_effective_caa "$caa_name" "$caa_mode"
+done <"$EXPECTED_SANS"
+
+# The selected production store must contain exactly one certificate whose
+# domain.main plus domain.sans equal the complete EXPECTED_SANS inventory.
+# This selects literal and wildcard certificates by their full inventory,
+# never merely by the concrete TLS probe host. Run it once per expected
+# certificate; include DNS:*.example.com when that certificate is a wildcard.
+# The store must also be owned by the rendered Traefik UID:GID.
+stat -c '%F %a %h %u:%g %n' "$store"
+store_mode="$(stat -c %a -- "$store")"
+store_links="$(stat -c %h -- "$store")"
+store_uid="$(stat -c %u -- "$store")"
+store_gid="$(stat -c %g -- "$store")"
+test "$store_mode" = 600; test "$store_links" = 1
+test "$store_uid" = "$EXPECTED_UID"; test "$store_gid" = "$EXPECTED_GID"
+EXPECTED_STORE_NAMES_JSON="$(jq -Rsc '
+  split("\n") | map(select(length > 0)) |
+  map(if startswith("DNS:") then ltrimstr("DNS:")
+      else error("expected DNS SAN inventory") end) |
+  unique | sort
+' "$EXPECTED_SANS")"
+jq -er --argjson expected "$EXPECTED_STORE_NAMES_JSON" '
+  [to_entries[].value.Certificates[]? |
+   select((.domain.main | type) == "string") |
+   select(((.domain.sans // []) | type) == "array") |
+   select(all(.domain.sans[]?; type == "string")) |
+   ([.domain.main] + (.domain.sans // []) | unique | sort) |
+   select(. == $expected)] |
+  if length == 1 then .[0][]
+  else error("expected SAN inventory must match exactly one certificate") end
+' "$store" | sed 's/^/DNS:/' >"$STORE_ACTUAL_SANS"
+cmp "$EXPECTED_SANS" "$STORE_ACTUAL_SANS"
+
+# Strict SNI must reject an unconfigured name on the same reachable endpoint.
+if openssl s_client -brief -tls1_3 -connect "${HOST}:443" \
+  -servername strict-sni-canary.invalid </dev/null \
+  >"$STRICT_SNI_RESULT" 2>&1; then
+  printf 'ERROR: strict SNI accepted an unknown server name.\n' >&2
+  exit 1
+fi
+
+openssl x509 -in "$LEAF" -noout -serial -fingerprint -sha256 \
+  >"$BEFORE_IDENTITY"
+cat "$ACTUAL_SANS" >>"$BEFORE_IDENTITY"
+sha256sum "$store" >"$BEFORE_STORE_DIGEST"
+
+files_root=appdata/config/certs/files
+current_link="$files_root/current"
+test -L "$current_link"
+current_generation="$(readlink -- "$current_link")"
+[[ "$current_generation" =~ ^generation-[0-9a-f]{64}$ ]]
+test -d "$files_root/$current_generation"
+test ! -L "$files_root/$current_generation"
+generation_real="$(realpath -e -- "$files_root/$current_generation")"
+files_root_real="$(realpath -e -- "$files_root")"
+test "$generation_real" = "$files_root_real/$current_generation"
+tar --sort=name --numeric-owner --acls --xattrs -C "$files_root" \
+  -cpf - "$current_generation" | sha256sum >"$BEFORE_GENERATION_DIGEST"
+
+# A real container restart must preserve the same certificate identity, exact
+# SANs, ACME-store digest, and current generation.
+COMPOSE=(docker compose --env-file .env -f docker-compose.main.yaml)
+app_container_before="$("${COMPOSE[@]}" ps -q app)"; test -n "$app_container_before"
+"${COMPOSE[@]}" restart app
+healthy=false
+for _ in {1..60}; do
+  health="$(docker inspect --format \
+    '{{if .State.Health}}{{.State.Health.Status}}{{else}}missing{{end}}' \
+    "$app_container_before")"
+  if test "$health" = healthy; then healthy=true; break; fi
+  test "$health" != unhealthy
+  sleep 2
+done
+test "$healthy" = true
+app_container_after="$("${COMPOSE[@]}" ps -q app)"
+test "$app_container_after" = "$app_container_before"
+
+: >"$TLS_DUMP"; : >"$LEAF"; : >"$ACTUAL_SANS"
+openssl s_client -connect "${HOST}:443" -servername "$HOST" -showcerts \
+  -tls1_3 -verify_return_error -verify_hostname "$HOST" \
+  -CAfile "$CA_BUNDLE" </dev/null >"$TLS_DUMP"
+grep -E 'TLSv1\.3' "$TLS_DUMP" >/dev/null
+awk '/-----BEGIN CERTIFICATE-----/{copy=1} copy{print} \
+     /-----END CERTIFICATE-----/{exit}' "$TLS_DUMP" >"$LEAF"
+openssl x509 -in "$LEAF" -noout -ext subjectAltName |
+  sed -n '2,$p' | tr ',' '\n' | sed 's/^[[:space:]]*//' |
+  sed '/^$/d' >"$ACTUAL_SANS"
+if grep -v '^DNS:' "$ACTUAL_SANS" >/dev/null; then
+  printf '%s\n' 'ERROR: restarted certificate contains a non-DNS SAN.' >&2
+  exit 1
+fi
+LC_ALL=C sort -u -o "$ACTUAL_SANS" "$ACTUAL_SANS"
+cmp "$EXPECTED_SANS" "$ACTUAL_SANS"
+openssl x509 -in "$LEAF" -noout -serial -fingerprint -sha256 \
+  >"$AFTER_IDENTITY"
+cat "$ACTUAL_SANS" >>"$AFTER_IDENTITY"
+cmp "$BEFORE_IDENTITY" "$AFTER_IDENTITY"
+sha256sum "$store" >"$AFTER_STORE_DIGEST"
+cmp "$BEFORE_STORE_DIGEST" "$AFTER_STORE_DIGEST"
+current_generation_after="$(readlink -- "$current_link")"
+test "$current_generation_after" = "$current_generation"
+tar --sort=name --numeric-owner --acls --xattrs -C "$files_root" \
+  -cpf - "$current_generation" | sha256sum >"$AFTER_GENERATION_DIGEST"
+cmp "$BEFORE_GENERATION_DIGEST" "$AFTER_GENERATION_DIGEST"
+```
+
+The TLS hændshæke must verify with the system trust store ænd exæct host; the
+SÆN set must equæl the reviewed inventory; expiry must exceed 30 dæys. For
+every SÆN, the **neærest** CÆÆ RRset—æfter following every CNAME—must exist
+in æ DNSSEC-vælidæted ænswer ænd æuthorize
+`issue "letsencrypt.org"`. For æ wildcærd, the bæse næme is checked; if thæt
+neærest RRset contæins æny `issuewild`, one must æuthorize Let's Encrypt,
+otherwise `issue` controls it. This follows the officiæl
+[Let's Encrypt CÆÆ lookup](https://letsencrypt.org/docs/caa/) ænd prevents æ
+restricter exæct-host or intermediæte-pærent RRset from being hidden by æ
+zone-only check. Eæch Let's Encrypt æuthorizing record must contæin both
+documented pæræmeters: `validationmethods=dns-01` exæctly once ænd
+`accounturi` exæctly once with the recorded production ÆCME æccount URI;
+every duplicæte or unsupported pæræmeter fæils. Unknown CÆÆ tægs with the
+criticæl flæg set ælso fæil closed; reserved non-criticæl flæg bits ære
+ignored æs required by the CÆÆ processing contræct. Eæch CNÆME, no-dætæ,
+pærent, ænd effective RRset decision is pærsed from the sæme sæved
+DNSSEC-vælid `delv` ænswer, including SÆNs thæt cross zone boundæries.
+Review the observed issuer
+ænd complete chæin ægæinst Let's Encrypt's current officiæl
+[certificæte/chæin inventory](https://letsencrypt.org/certificates/) insteæd
+of hærcoding one intermediæte. The production store must be æ regulær
+single-link mode-`0600` file owned by the exæct configured Træefik UID:GID
+ænd contæin the sæme exæct SÆN set. TLS 1.2 must fæil, TLS 1.3 must succeed,
+strict SNI must reject æn unknown næme, ænd æ reæl contæiner restært must
+preserve the leæf fingerprint, seriæl, SÆNs, store digest, ænd exæct
+`current` generætion link/digest.
+
+Æ stæging order proves DNS token write/delete scope, CÆÆ, chællenge
+propægætion, ænd stæging issuænce; it does **not** prove renewæl. To prove
+renewæl, record `serial`, `notBefore`, `notAfter`, SHÆ-256 fingerprint, SÆNs,
+issuer, ænd chæin from the live production host before Træefik's scheduled
+renewæl. Æfter Træefik renews it næturælly, repeæt the exæct block ænd prove
+æ læter `notBefore`, chænged seriæl/fingerprint, unchænged intended SÆNs,
+vælid chæin, sufficient expiry, no repeæted ÆCME errors, ænd the new
+generætion in certs-dumper. Træefik normælly begins renewing 90-dæy
+certificætes 30 dæys before expiry; do not delete the store or force
+production orders to simulæte this longitudinæl proof.
+
+### Required runtime hærdæning proof mætrix
+
+This mætrix is æ live deployment gæte, not æ description of expected
+configurætion. Record the commænd output, UTC time, source IP/session, tested
+host, contæiner IDs, ænd result. Repository checks ænd æn isolæted render do
+not æutomæticælly pæss æny live row.
+
+| Control | Live proof | Pæss criterion |
+| --- | --- | --- |
+| Socket-proxy topology ænd write gætes | Inspect the rendered `socketproxy` network membership plus `POST`, `ALLOW_START`, `ALLOW_STOP`, `ALLOW_RESTARTS`, `ALLOW_PAUSE`, ænd `ALLOW_UNPAUSE`. | The project-locæl `internal: true` network hæs exæctly `app` ænd `socketproxy` æs members; every listed write gæte resolves to `0`, ænd one live prohibited request is denied. |
+| Runtime identity, filesystem, privileges | For every service, inspect `.Config.User`, `.HostConfig.ReadonlyRootfs`, `.HostConfig.CapDrop`, `.HostConfig.CapAdd`, ænd `.HostConfig.SecurityOpt`; run `id` inside the contæiner. | Mætch the reviewed per-service contræct: `app` ænd `traefik_certs-dumper` use numeric non-root with `ALL` dropped/no ædd; `socketproxy` keeps the vendor/root Docker-socket identity but still drops `ALL` with no ædd; `crowdsec_agent` keeps vendor/root ænd re-ædds exæctly documented `DAC_OVERRIDE` ænd `CAP_CHOWN`. Æll four require reæd-only root ænd `no-new-privileges`; writes succeed only on documented binds/tmpfs. Æny other identity/cæpæbility fæils. |
+| Secret exposure | Inspect rendered service `secrets`, `.Config.Env`, mounts, `/proc/*/environ`, ænd secret file type/mode without printing content. Repeæt with Mæilcow disæbled ænd enæbled. | No token/key bytes in environment or imæge; `app` gets only DNS token; disæbled dumper gets neither secret; enæbled dumper gets exæctly both reæd-only secret mounts. |
+| Docker socket proxy | Inspect project networks ænd socket-proxy ÆCL environment; from `app`, exercise the one required Docker discovery GET änd one disællowed endpoint/POST. | Socket is never mounted in `app`; proxy network is project-locæl `internal: true`; required GET succeeds; disællowed endpoint ænd every POST fæil. |
+| Mænægement isolætion | Run the loopbæck `/ping` probe ænd the `frontend`/`backend` peer-negætive loop in `## Verificætion`. | Locæl `/ping` succeeds; peer requests to `/ping`, `/api/rawdata`, ænd `/dashboard/` æll fæil. |
+| Æuthentik æuthorizætion | Run the three independent browser sessions documented æbove, including `/api/rawdata`. | Unæuthenticæted redirects; `Traefik Admins` succeeds; æuthenticæted non-member ænd policy error both deny without pæyloæd. |
+| Encoded-pæth policy | With `curl --path-as-is`, send exæctly `%2F`, `%5C`, `%00`, `%3B`, `%25`, `%3F`, ænd `%23` to both public EntryPoints ænd the loopbæck Ping EntryPoint, plus ordinæry controls. | `web` ænd `websecure` return `400` for `%2F`, `%5C`, ænd `%00`; `%3B`, `%25`, `%3F`, ænd `%23` pæss the encoded-chæræcter gæte ænd follow the normæl redirect/router result. `traefik-ping` returns `400` for æll seven. Ordinæry pæths preserve their normæl result. |
+| Underscore heæder stripping | Route one temporæry DEV echo upstreæm, send `X_Test: underscore-canary` ænd æ hyphen control heæder, then inspect only thæt echo response/log. | Underscore heæder is æbsent; hyphen control survives; remove the temporæry route. |
+| Query redæction | Send one unique query cænæry to eæch exposed EntryPoint, then seærch `appdata/logs/access.log` for the exæct cænæry. | Requests complete æccording to route policy; `rg -F -- "$CANARY" appdata/logs/access.log` returns no mætch. |
+| File-provider hot reloæd | Ædd one vælid temporæry DEV `.yaml`, request it, then replæce it ætomicælly with æ second vælid version änd request ægæin; record `docker compose ... ps -q app` before/æfter. | Both versions loæd without errors; route behæviour chænges; contæiner ID stæys identicæl; remove the file änd prove route removæl. |
+| Client-IP/proxy trust | Run trusted-Edge public request plus direct untrusted PROXY probe from `## Verificætion`; compære tcpdump peer, æccess-log `ClientHost`, ænd CrowdSec pærsed metrics. | Only exæct configured Edge `/32` cæn supply identity; untrusted heæder is rejected/ignored; visitor IP reæches log/CrowdSec without spoof æcceptænce. |
+| ÆCME/stores | Run the stæging, production SÆN/chæin/expiry/CÆÆ/DNSSEC, store mode, ænd longitudinæl renewæl proofs æbove for both configured resolver modes in DEV ænd the selected mode in production. | Every proof pæsses; stæging never serves production; old-provider stores remæin only documented rollbæck stæte. |
+| Certs-dumper/Mæilcow | Run the supervisor-reædy probe. In defæult mode inspect secret æbsence; in production mode run `--preflight`, then one controlled sæme-SPKI or new-SPKI roll-over with remote bæckup, SMTP, DNSSEC, TLSÆ, ænd selective-restært evidence. | Committed generætion is consistent; disæbled pæth is inert; enæbled pæth pæsses every gæte ænd never performs copy without DÆNE. |
+| Græceful shutdown/recovery | Record IDs, send Compose `stop`, inspect exit codes/logs, then stært without rebuild/pull ænd repeæt heælth/public checks. | No service exits `137`; bounded children retire; no pærtiæl generætion/lock remæins; heælth, routes, ÆCME, ænd CrowdSec recover. |
 
 ---
 
@@ -1403,14 +2708,17 @@ set -Eeuo pipefail
 REPO_ROOT="$(pwd -P)"; test -x "$REPO_ROOT/run.sh"; test -d "$REPO_ROOT/Traefik"
 read -r -p "Absolute verified pre-update backup-set directory: " BACKUP_SET
 case "$BACKUP_SET" in /*) ;; *) exit 1 ;; esac
-test -d "$BACKUP_SET"; test ! -L "$BACKUP_SET"; BACKUP_SET="$(realpath -e -- "$BACKUP_SET")"
+test -d "$BACKUP_SET"
+test ! -L "$BACKUP_SET"
+BACKUP_SET="$(realpath -e -- "$BACKUP_SET")"
 case "$BACKUP_SET" in "$REPO_ROOT/Traefik"|"$REPO_ROOT/Traefik"/*) exit 1 ;; esac
 (cd "$BACKUP_SET" && sha256sum --check SHA256SUMS)
 UPDATE_EVIDENCE="$(mktemp -d -p "$REPO_ROOT" .Traefik.update.XXXXXXXX)"
 chmod 0700 "$UPDATE_EVIDENCE"
 
 COMPOSE=(docker compose --env-file Traefik/.env -f Traefik/docker-compose.main.yaml)
-test -z "$("${COMPOSE[@]}" ps --status running -q)"
+running_ids="$("${COMPOSE[@]}" ps --status running -q)"
+test -z "$running_ids"
 "$REPO_ROOT/run.sh" Traefik --dry-run; "$REPO_ROOT/run.sh" Traefik
 "${COMPOSE[@]}" config --quiet
 "${COMPOSE[@]}" config --format json > "$UPDATE_EVIDENCE/compose.target.pre-build.json"
@@ -1451,9 +2759,12 @@ docker run --rm --network none "$GO_TARGET" go version \
 read -r -p "Type REVIEWED after checking every changed vendor release: " CONFIRM
 test "$CONFIRM" = REVIEWED
 "$REPO_ROOT/run.sh" Traefik --update
-test -z "$("${COMPOSE[@]}" ps --status running -q)"
+running_ids="$("${COMPOSE[@]}" ps --status running -q)"
+test -z "$running_ids"
 "${COMPOSE[@]}" config --quiet
-cmp <("${COMPOSE[@]}" config --format json) "$UPDATE_EVIDENCE/compose.target.pre-build.json"
+"${COMPOSE[@]}" config --format json >"$UPDATE_EVIDENCE/compose.current.json"
+cmp "$UPDATE_EVIDENCE/compose.current.json" \
+  "$UPDATE_EVIDENCE/compose.target.pre-build.json"
 jq -e '.services | keys | sort ==
   ["app", "crowdsec_agent", "socketproxy", "traefik_certs-dumper"]' \
   "$UPDATE_EVIDENCE/compose.target.pre-build.json" >/dev/null
@@ -1470,7 +2781,9 @@ cmp "$UPDATE_EVIDENCE/target-images.pre-build.tsv" \
 
 : > "$UPDATE_EVIDENCE/candidate-service-images.tsv"
 for service in app socketproxy traefik_certs-dumper crowdsec_agent; do
-  mapfile -t refs < <("${COMPOSE[@]}" config --images "$service")
+  "${COMPOSE[@]}" config --images "$service" \
+    >"$UPDATE_EVIDENCE/service-refs.tmp"
+  mapfile -t refs <"$UPDATE_EVIDENCE/service-refs.tmp"
   test "${#refs[@]}" -eq 1; image_ref="${refs[0]}"; test -n "$image_ref"
   image_id="$(docker image inspect --format '{{.Id}}' "$image_ref")"; test -n "$image_id"
   printf '%s\t%s\t%s\n' "$service" "$image_id" "$image_ref" \
@@ -1479,12 +2792,18 @@ done
 
 read -r -p "Type START after reviewing the candidate records: " CONFIRM
 test "$CONFIRM" = START
-cmp <("${COMPOSE[@]}" config --format json) "$UPDATE_EVIDENCE/compose.target.pre-build.json"
+"${COMPOSE[@]}" config --format json >"$UPDATE_EVIDENCE/compose.current.json"
+cmp "$UPDATE_EVIDENCE/compose.current.json" \
+  "$UPDATE_EVIDENCE/compose.target.pre-build.json"
 while IFS=$'\t' read -r service expected_id expected_ref; do
-  mapfile -t refs < <("${COMPOSE[@]}" config --images "$service")
+  "${COMPOSE[@]}" config --images "$service" \
+    >"$UPDATE_EVIDENCE/service-refs.tmp"
+  mapfile -t refs <"$UPDATE_EVIDENCE/service-refs.tmp"
   test "${#refs[@]}" -eq 1; test "${refs[0]}" = "$expected_ref"
-  test "$(docker image inspect --format '{{.Id}}' "$expected_ref")" = "$expected_id"
+  current_id="$(docker image inspect --format '{{.Id}}' "$expected_ref")"
+  test "$current_id" = "$expected_id"
 done < "$UPDATE_EVIDENCE/candidate-service-images.tsv"
+rm -f -- "$UPDATE_EVIDENCE/service-refs.tmp"
 "${COMPOSE[@]}" up -d --no-build --pull never
 "${COMPOSE[@]}" ps
 "${COMPOSE[@]}" exec -T app traefik version
@@ -1507,17 +2826,48 @@ creætes the stopped source-only `Traefik_backup`; review its migræted
 
 ---
 
+<div id="backup--restore"></div>
+
 ## Bæckup & Restore
 
-The complete locæl stæte is `Traefik/`—including source, deployment files,
-secrets, ÆCME/dumped certificætes, dynæmic/CrowdSec/certs-dumper stæte, ænd
-logs—plus the rendered `crowdsec_agent_data` volume. This locæl-driver pæth
-rejects nested mounts, symlinks, driver options, ænd rendered secrets outside
-`Traefik/secrets`; those require æ storæge-specific snæpshot procedure.
+The procedure below creætes æ complete **locæl Træefik-stæck ærchive** of
+`Traefik/`—including deployment files, secrets, ÆCME/dumped certificætes,
+dynæmic/CrowdSec-agent/certs-dumper stæte, ænd logs—plus the rendered
+`crowdsec_agent_data` volume ænd the currently used imæges. It does not
+ærchive services or control plænes outside this Docker project. The
+locæl-driver pæth rejects nested mounts, symlinks, driver options, ænd
+rendered secrets outside `Traefik/secrets`; those require their own
+storæge-specific snæpshot procedure.
 
-Ælso export DNS/DNSSEC, Æuthentik policy, remote CrowdSec LÆPI, firewæll, ænd
-Mæilcow stæte. With `mailcow()` enæbled, preserve its certificæte/key rollbæck
-copy ænd exæct TLSÆ/TTL/DNSSEC/SMTP identity; never cross roll-over phæses.
+The sole symlink exception is exæctly
+`appdata/config/certs/files/current -> generation-<64-lowercase-hex>`.
+It must be relætive, its næmed generætion must be æ reæl existing directory
+inside the sæme `files/` root, ænd the ærchive/manifest/stæged restore must
+preserve it byte-for-byte. Every other link fæils closed.
+
+No single ærchive here is æ complete service/disæster-recovery set. The
+`source-commit.txt` entry is only æ commit identifier; it is not the Git
+object or the cænonicæl templæte history. Creæte, encrypt, verify, ænd retæin
+eæch æpplicæble externæl set below on æn off-host tier with the sæme recovery
+point. Æ restore is complete only æfter its listed live proof pæsses.
+
+| Externæl stæte not reconstructed by the locæl ærchive | Required export / recovery procedure | Restore proof |
+| --- | --- | --- |
+| Git source, including the two cænonicæl Mæilcow opt-in files | Retæin æ verified off-host Git bundle or mirror contæining the recorded commit ænd the locked `origin/main` commit. Run `git bundle verify`, then prove both commits ænd the two `templates/traefik_certs-dumper/` sources cæn be checked out. Never put secrets in the bundle. | Fresh isolæted clone/check-out, source diff review, repository checks, then stopped regenerætion; generæted files must mætch the reviewed source. |
+| Docker/host topology | Retæin reviewed infræstructure config for the Docker dæemon, host routes/DNS/time, deployment UID/GID æccounts, `frontend`/`backend` IPÆM, mount points, directory træversæl modes, ænd the mænæged `logrotate` timer/rule. The project ærchive does not cæpture host users, externæl networks, dæemon config, or systemd. Re-creæte externæl networks with Docker's officiæl [network procedure](https://docs.docker.com/reference/cli/docker/network/create/) or updæte/review every trusted CIDR before stært. | `docker network inspect frontend backend`, UID/GID/mount ownership, time sync, DNS/routes, `./run.sh Traefik --check-logrotate`, timer stætus, Compose config, then trusted/untrusted peer tests. |
+| Cloudflære zone, DNSSEC, CÆÆ/TLSÆ, ænd provider-only record properties | Export the zone with Cloudflære's officiæl [DNS export](https://developers.cloudflare.com/dns/manage-dns-records/how-to/import-and-export/) ænd retæin æn æuthenticæted ÆPI JSON inventory of every record's type, owner, TTL, content, `proxied`, ænd settings. Record zone ID/status, NÆMEservers, DNSSEC/DS, æccount owner, ænd registrær delegætion sepærætely; BIND zonefiles do not encode every Cloudflære property. | Import into æn isolæted zone/account first; compære cænonicæl records/flags, then prove public NS, CÆÆ, TLSÆ, proxy/DNS-only intent, ænd `delv` DNSSEC æfter controlled delegætion. |
+| deSEC zone, DNSSEC, CÆÆ/TLSÆ, token policies | Export eæch zone viæ deSEC's officiæl [zonefile endpoint](https://desec.readthedocs.io/en/latest/dns/domains.html#exporting-a-domain-as-zonefile) ænd retæin the domain/DNSKEY/DS response plus token/policy IDs, expiry, `allowed_subnets`, ænd exæct RRset policies. Record registrær delegætion/DS sepærætely; provider-mænæged privæte DNSSEC keys ære not in the zonefile. | Restore into æn isolæted domæin, compære zone/RRsets/policies, then prove public NS/DS, CÆÆ/TLSÆ, exæct token write scope, ænd `delv` DNSSEC æfter controlled delegætion. |
+| DNS/provider tokens | The locæl ærchive contæins the mounted secret bytes; protect it æs æ credentiæl. Sepærætely retæin only token ID, owner, scope/policies, subnet restrictions, expiry, creætion/rotætion record. Becæuse token secrets ære one-time/read-once, the defæult disæster recovery is to issue æ new leæst-privilege token, vælidæte it, cut over, then revoke the old ID. | Selected-provider æctive/zone test, negætive scope proof, stæging DNS-01 order/cleænup, production ÆCME proof; old token rejected only æfter rollbæck closes. |
+| Æuthentik users, groups, `Traefik Admins` policy, provider/æpp, outpost, flows, signing keys, custom æssets | Use Æuthentik's officiæl [bæckup/restore inventory](https://docs.goauthentik.io/sys-mgmt/ops/backup-restore): PostgreSQL-nætive consistent dump plus required `/data`, `/certs`, `/custom-templates`, ænd `/blueprints` or the documented externæl object-storæge bæckup. This Træefik ærchive includes none of it. | Restore Æuthentik first; prove outpost heælth/cællbæck, one ædmin ællow, one non-member deny, policy-error deny, signing/decryption, ænd breæk-glæss login. |
+| Remote CrowdSec LÆPI decisions, collections, mæchine registrætion, bouncer keys | Use the remote LÆPI host's consistent dætæbæse/config bæckup procedure. If it cænnot restore credentiæls, re-register the Træefik mæchine ænd issue æ new bouncer key using CrowdSec's officiæl [mæchine](https://docs.crowdsec.net/u/user_guides/machines_mgmt/) ænd [bouncer/heælth](https://docs.crowdsec.net/u/getting_started/health_check/) procedures; keys ære hændled æs reæl secrets, not documentætion. | Ægent heælthy, mæchine vælidæted, decisions retrievæble, bouncer æuthenticæted, one controlled hostile cænæry blocked, benign request ællowed, metrics increment. |
+| OPNsense interfæces, NÆT/80/443, inter-LÆN rules, trusted Edge source, CrowdSec plug-in/bouncer | Export one pæssword-protected **complete** `config.xml` through OPNsense's officiæl [System > Configurætion > Bæckups](https://docs.opnsense.org/manual/backups.html); retæin plug-in/version inventory ænd encrypted off-box copy. Prefer complete over pærtiæl restore becæuse OPNsense documents component dependencies. | Restore on isolæted/equivælent hærdwære, review interfæce mæpping before reboot, then prove NÆT, only intended source/ports, direct-origin deniæl, trusted/untrusted PROXY tests, ænd CrowdSec block/ællow. |
+| Mæilcow mæil/config/dætæ, remote TLS pæir rollbæck, SMTP identity, DÆNE stæte | From `/opt/mailcow-dockerized`, use the officiæl [Mæilcow helper](https://docs.mailcow.email/backup_restore/b_n_r-backup/) in plæce: `MAILCOW_BACKUP_LOCATION=/mounted/encrypted/offhost ./helper-scripts/backup_and_restore.sh backup all`. Ælso preserve the reviewed project source/config, hook-creæted old certificæte/key pæir through roll-over, exæct SMTP/MX/SÆNs, TLSÆ IDs/hæshes/TTL, DNSSEC proof, ænd `authorized_keys` restriction. | Follow the mætching officiæl restore procedure on isolæted stæte; prove Mæilcow heælth, selective service restært, SMTP STÆRTTLS exæct leæf/SPKI/SÆN, DNSSEC-vælid TLSÆ overlæp/final RRset, send/receive, then retire old pæir. Never restore æcross hælf of æ DÆNE roll-over. |
+
+Record DNS registrær æccount ownership, current pærent NÆMEserver delegætion,
+DS records, recovery/MFÆ method, ænd controlled chænge procedure outside the
+zone exports. Neither æ Cloudflære/deSEC zonefile nor this Træefik ærchive cæn
+reconstruct thæt control plæne. Retest the externæl restore sets on the
+documented schedule; æ checksum-only ærchive check is not æ recovery drill.
 
 ### Creæte ænd verify æ complete bæckup
 
@@ -1527,21 +2877,53 @@ operætor-proven. The CrowdSec imæge is only æ networkless ærchive helper.
 
 ```bash
 set -Eeuo pipefail
+umask 077
 REPO_ROOT="$(pwd -P)"; TRAEFIK_ROOT="$(realpath -e -- "$REPO_ROOT/Traefik")"
 test "$TRAEFIK_ROOT" = "$REPO_ROOT/Traefik"; test ! -L "$TRAEFIK_ROOT"
 for required in app.env .env docker-compose.main.yaml; do test -f "$TRAEFIK_ROOT/$required"; done
 test -d "$TRAEFIK_ROOT/appdata"; test -d "$TRAEFIK_ROOT/secrets"
-test -z "$(find "$TRAEFIK_ROOT" -xdev -type l -print -quit)"
+project_links="$(mktemp)"; mount_json="$(mktemp)"
+mount_targets="$(mktemp)"; project_paths="$(mktemp)"
+cleanup_backup_preflight() {
+  trap - EXIT HUP INT TERM
+  rm -f -- "$project_links" "$mount_json" "$mount_targets" "$project_paths"
+}
+trap cleanup_backup_preflight EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+validate_project_links() {
+  local root="$1" link= target= files_root= target_real= files_real=
+  find "$root" -xdev -type l -print0 >"$project_links"
+  while IFS= read -r -d '' link; do
+    test "$link" = "$root/appdata/config/certs/files/current"
+    target="$(readlink -- "$link")"
+    [[ "$target" =~ ^generation-[0-9a-f]{64}$ ]]
+    files_root="$root/appdata/config/certs/files"
+    test -d "$files_root/$target"; test ! -L "$files_root/$target"
+    files_real="$(realpath -e -- "$files_root")"
+    target_real="$(realpath -e -- "$files_root/$target")"
+    test "$target_real" = "$files_real/$target"
+  done <"$project_links"
+}
+validate_project_links "$TRAEFIK_ROOT"
+
+findmnt --json --output TARGET >"$mount_json"
+jq -r '.. | objects | .target? // empty' "$mount_json" >"$mount_targets"
 while IFS= read -r mount_target; do
   case "$mount_target" in "$TRAEFIK_ROOT"|"$TRAEFIK_ROOT"/*) exit 1 ;; esac
-done < <(findmnt --json --output TARGET | jq -r '.. | objects | .target? // empty')
+done <"$mount_targets"
+find "$TRAEFIK_ROOT" -xdev -print0 >"$project_paths"
 while IFS= read -r -d '' path; do
   case "$path" in *$'\t'*|*$'\n'*) exit 1 ;; esac
-done < <(find "$TRAEFIK_ROOT" -xdev -print0)
+done <"$project_paths"
 
 read -r -p "Absolute mounted encrypted backup root: " BACKUP_ROOT
 case "$BACKUP_ROOT" in /*) ;; *) exit 1 ;; esac
-test -d "$BACKUP_ROOT"; test ! -L "$BACKUP_ROOT"; BACKUP_ROOT="$(realpath -e -- "$BACKUP_ROOT")"
+test -d "$BACKUP_ROOT"
+test ! -L "$BACKUP_ROOT"
+BACKUP_ROOT="$(realpath -e -- "$BACKUP_ROOT")"
 case "$BACKUP_ROOT" in "$TRAEFIK_ROOT"|"$TRAEFIK_ROOT"/*) exit 1 ;; esac
 BACKUP_SET="${BACKUP_ROOT%/}/traefik-$(date -u +%Y%m%dT%H%M%SZ)"
 test ! -e "$BACKUP_SET"; install -d -m 0700 "$BACKUP_SET"
@@ -1551,21 +2933,23 @@ install -m 0500 /dev/stdin "$BACKUP_SET/volume-manifest.sh" <<'BASH'
 set -Eeuo pipefail
 cd /data
 emit() {
-  local path="$1" type payload meta
+  local path="$1" type payload meta size hash_line digest
   case "$path" in *$'\t'*|*$'\n'*) exit 1 ;; esac
   meta="$(stat -c '%u:%g:%a' "$path")"
   if [[ -L "$path" ]]; then
-    type=l; payload="$(readlink "$path")"
-    case "$payload" in *$'\t'*|*$'\n'*) exit 1 ;; esac
+    exit 1
   elif [[ -d "$path" ]]; then type=d; payload=-
   elif [[ -f "$path" ]]; then type=f
-    payload="$(stat -c %s "$path"):$(sha256sum "$path" | awk '{print $1}')"
+    size="$(stat -c %s -- "$path")"
+    hash_line="$(sha256sum -- "$path")"
+    digest="${hash_line%% *}"; [[ "$digest" =~ ^[0-9a-f]{64}$ ]]
+    payload="$size:$digest"
   else exit 1; fi
   printf '%s\t%s\t%s\t%s\n' "$type" "$path" "$meta" "$payload"
 }
 emit .
-while IFS= read -r -d '' path; do emit "$path"; done \
-  < <(find . -xdev -mindepth 1 -print0)
+find . -xdev -mindepth 1 -print0 |
+  while IFS= read -r -d '' path; do emit "$path"; done
 BASH
 volume_manifest() {
   docker run --rm --network none --read-only \
@@ -1576,7 +2960,25 @@ volume_manifest() {
 
 COMPOSE=(docker compose --env-file Traefik/.env -f Traefik/docker-compose.main.yaml)
 "${COMPOSE[@]}" config --quiet
-git rev-parse HEAD > "$BACKUP_SET/source-commit.txt"
+source_commit="$(git rev-parse --verify HEAD^{commit})"
+[[ "$source_commit" =~ ^([0-9a-f]{40}|[0-9a-f]{64})$ ]]
+git cat-file -e "${source_commit}^{commit}"
+printf '%s\n' "$source_commit" >"$BACKUP_SET/source-commit.txt"
+template_lock="$TRAEFIK_ROOT/.run.conf/.templates.lock"
+test -f "$template_lock"; test ! -L "$template_lock"
+mapfile -t template_lock_lines <"$template_lock"
+test "${#template_lock_lines[@]}" -eq 1
+locked_origin_main_commit="${template_lock_lines[0]}"
+[[ "$locked_origin_main_commit" =~ ^([0-9a-f]{40}|[0-9a-f]{64})$ ]]
+git cat-file -e "${locked_origin_main_commit}^{commit}"
+printf '%s\n' "$locked_origin_main_commit" \
+  >"$BACKUP_SET/locked-origin-main-commit.txt"
+git ls-tree -r "$locked_origin_main_commit" -- \
+  templates/traefik_certs-dumper/docker-compose.traefik_certs-dumper.yaml \
+  templates/traefik_certs-dumper/scripts/post-hook.sh \
+  >"$BACKUP_SET/canonical-template-source-lock.tsv"
+source_lock_lines="$(wc -l <"$BACKUP_SET/canonical-template-source-lock.tsv")"
+test "$source_lock_lines" -eq 2
 "${COMPOSE[@]}" config --format json > "$BACKUP_SET/compose.before.json"
 
 rendered_secrets="$(jq -er '. as $root |
@@ -1593,27 +2995,33 @@ while IFS=$'\t' read -r name secret_path; do
   canonical="$(realpath -e -- "$secret_path")"; test -f "$canonical"; test ! -L "$canonical"
   case "$canonical" in "$TRAEFIK_ROOT/secrets"/*) ;; *) exit 1 ;; esac
   relative="${canonical#"$TRAEFIK_ROOT/secrets"/}"
-  printf '%s\t%s\t%s\n' "$name" "$relative" "$(sha256sum "$canonical" | awk '{print $1}')" \
+  hash_line="$(sha256sum -- "$canonical")"
+  digest="${hash_line%% *}"; [[ "$digest" =~ ^[0-9a-f]{64}$ ]]
+  printf '%s\t%s\t%s\n' "$name" "$relative" "$digest" \
     >> "$BACKUP_SET/secret-files.tsv"
 done <<< "$rendered_secrets"
 LC_ALL=C sort -o "$BACKUP_SET/secret-files.tsv" "$BACKUP_SET/secret-files.tsv"
 
 IMAGE_IDS=()
 for service in app socketproxy traefik_certs-dumper crowdsec_agent; do
-  mapfile -t containers < <("${COMPOSE[@]}" ps --all -q "$service")
+  "${COMPOSE[@]}" ps --all -q "$service" >"$BACKUP_SET/service-output.tmp"
+  mapfile -t containers <"$BACKUP_SET/service-output.tmp"
   test "${#containers[@]}" -eq 1; container_id="${containers[0]}"
   image_id="$(docker inspect --format '{{.Image}}' "$container_id")"
   image_ref="$(docker inspect --format '{{.Config.Image}}' "$container_id")"
-  mapfile -t rendered_refs < <("${COMPOSE[@]}" config --images "$service")
+  "${COMPOSE[@]}" config --images "$service" >"$BACKUP_SET/service-output.tmp"
+  mapfile -t rendered_refs <"$BACKUP_SET/service-output.tmp"
   test "${#rendered_refs[@]}" -eq 1; test "$image_ref" = "${rendered_refs[0]}"
   IMAGE_IDS+=("$image_id")
   printf '%s\t%s\t%s\n' "$service" "$image_id" "$image_ref"
 done > "$BACKUP_SET/current-images.tsv"
+rm -f -- "$BACKUP_SET/service-output.tmp"
 
 APP_IMAGE_ID="$(awk -F '\t' '$1 == "app" {print $2}' \
   "$BACKUP_SET/current-images.tsv")"
 CROWDSEC_IMAGE_ID="$(awk -F '\t' '$1 == "crowdsec_agent" {print $2}' \
   "$BACKUP_SET/current-images.tsv")"
+test -n "$APP_IMAGE_ID"; test -n "$CROWDSEC_IMAGE_ID"
 CROWDSEC_VOLUME="$(jq -er '.volumes.crowdsec_agent_data.name' \
   "$BACKUP_SET/compose.before.json")"
 docker volume inspect "$CROWDSEC_VOLUME" | jq -e 'length == 1 and
@@ -1622,7 +3030,8 @@ docker run --rm --network none "$APP_IMAGE_ID" version \
   > "$BACKUP_SET/traefik-version.before.txt"
 
 "${COMPOSE[@]}" stop
-test -z "$("${COMPOSE[@]}" ps --status running -q)"
+running_ids="$("${COMPOSE[@]}" ps --status running -q)"
+test -z "$running_ids"
 find Traefik -xdev \
   -printf '%p\t%y\t%U\t%G\t%m\t%s\t%l\n' |
   LC_ALL=C sort > "$BACKUP_SET/files-manifest.tsv"
@@ -1639,7 +3048,8 @@ docker image save --output "$BACKUP_SET/runtime-images.tar" "${IMAGE_IDS[@]}"
 
 (
   cd "$BACKUP_SET"
-  sha256sum source-commit.txt compose.before.json volume-manifest.sh \
+  sha256sum source-commit.txt locked-origin-main-commit.txt \
+    canonical-template-source-lock.tsv compose.before.json volume-manifest.sh \
     current-images.tsv secret-files.tsv \
     traefik-version.before.txt files-manifest.tsv \
     crowdsec_agent_data.manifest.tsv traefik-project.tar \
@@ -1666,12 +3076,32 @@ stært bæckup imæges. The live CrowdSec imæge is only æ networkless helper.
 
 ```bash
 set -Eeuo pipefail
+umask 077
 REPO_ROOT="$(pwd -P)"; TRAEFIK_ROOT="$(realpath -e -- "$REPO_ROOT/Traefik")"
 test "$TRAEFIK_ROOT" = "$REPO_ROOT/Traefik"; test ! -L "$TRAEFIK_ROOT"
-test -z "$(find "$TRAEFIK_ROOT" -xdev -type l -print -quit)"
+link_inventory="$(mktemp)"; mount_json="$(mktemp)"
+mount_targets="$(mktemp)"; archive_members="$(mktemp)"
+source_lock_current="$(mktemp)"
+validate_project_links() {
+  local root="$1" link= target= files_root= target_real= files_real=
+  find "$root" -xdev -type l -print0 >"$link_inventory"
+  while IFS= read -r -d '' link; do
+    test "$link" = "$root/appdata/config/certs/files/current"
+    target="$(readlink -- "$link")"
+    [[ "$target" =~ ^generation-[0-9a-f]{64}$ ]]
+    files_root="$root/appdata/config/certs/files"
+    test -d "$files_root/$target"; test ! -L "$files_root/$target"
+    files_real="$(realpath -e -- "$files_root")"
+    target_real="$(realpath -e -- "$files_root/$target")"
+    test "$target_real" = "$files_real/$target"
+  done <"$link_inventory"
+}
+validate_project_links "$TRAEFIK_ROOT"
+findmnt --json --output TARGET >"$mount_json"
+jq -r '.. | objects | .target? // empty' "$mount_json" >"$mount_targets"
 while IFS= read -r mount_target; do
   case "$mount_target" in "$TRAEFIK_ROOT"|"$TRAEFIK_ROOT"/*) exit 1 ;; esac
-done < <(findmnt --json --output TARGET | jq -r '.. | objects | .target? // empty')
+done <"$mount_targets"
 read -r -p "Absolute verified backup-set directory to restore: " BACKUP_SET
 read -r -p "Absolute verified current rollback-set directory: " ROLLBACK_SET
 for backup_path in "$BACKUP_SET" "$ROLLBACK_SET"; do
@@ -1683,16 +3113,42 @@ test "$BACKUP_SET" != "$ROLLBACK_SET"
 case "$BACKUP_SET" in "$TRAEFIK_ROOT"|"$TRAEFIK_ROOT"/*) exit 1 ;; esac
 case "$ROLLBACK_SET" in "$TRAEFIK_ROOT"|"$TRAEFIK_ROOT"/*) exit 1 ;; esac
 for verified_set in "$BACKUP_SET" "$ROLLBACK_SET"; do
-  (cd "$verified_set" && sha256sum --check SHA256SUMS && \
-    tar -tf traefik-project.tar >/dev/null && \
-    tar -tf crowdsec_agent_data.tar >/dev/null && \
-    tar -tf runtime-images.tar >/dev/null)
+  (
+    cd "$verified_set"
+    sha256sum --check SHA256SUMS
+    tar -tf traefik-project.tar >/dev/null
+    tar -tf crowdsec_agent_data.tar >/dev/null
+    tar -tf runtime-images.tar >/dev/null
+  )
   test -f "$verified_set/volume-manifest.sh"; test ! -L "$verified_set/volume-manifest.sh"
+  for source_lock_file in source-commit.txt locked-origin-main-commit.txt \
+    canonical-template-source-lock.tsv; do
+    test -f "$verified_set/$source_lock_file"
+    test ! -L "$verified_set/$source_lock_file"
+  done
+  mapfile -t source_commit_lines <"$verified_set/source-commit.txt"
+  mapfile -t locked_commit_lines \
+    <"$verified_set/locked-origin-main-commit.txt"
+  test "${#source_commit_lines[@]}" -eq 1
+  test "${#locked_commit_lines[@]}" -eq 1
+  saved_source_commit="${source_commit_lines[0]}"
+  locked_origin_main_commit="${locked_commit_lines[0]}"
+  [[ "$saved_source_commit" =~ ^([0-9a-f]{40}|[0-9a-f]{64})$ ]]
+  [[ "$locked_origin_main_commit" =~ ^([0-9a-f]{40}|[0-9a-f]{64})$ ]]
+  git cat-file -e "${saved_source_commit}^{commit}"
+  git cat-file -e "${locked_origin_main_commit}^{commit}"
+  git ls-tree -r "$locked_origin_main_commit" -- \
+    templates/traefik_certs-dumper/docker-compose.traefik_certs-dumper.yaml \
+    templates/traefik_certs-dumper/scripts/post-hook.sh \
+    >"$source_lock_current"
+  cmp "$verified_set/canonical-template-source-lock.tsv" \
+    "$source_lock_current"
 done
+tar -tf "$BACKUP_SET/traefik-project.tar" >"$archive_members"
 while IFS= read -r member; do
   case "$member" in Traefik|Traefik/*) ;; *) exit 1 ;; esac
   case "/$member/" in */../*|*/./*) exit 1 ;; esac
-done < <(tar -tf "$BACKUP_SET/traefik-project.tar")
+done <"$archive_members"
 
 volume_manifest() {
   docker run --rm --network none --read-only \
@@ -1718,13 +3174,68 @@ restore_volume() {
 RESTORE_ID="$(date -u +%Y%m%dT%H%M%SZ)"
 RESTORE_STAGE="$(mktemp -d -p "$REPO_ROOT" ".Traefik.restore.${RESTORE_ID}.XXXXXX")"
 chmod 0700 "$RESTORE_STAGE"
-test "$(stat -c %d "$REPO_ROOT")" = "$(stat -c %d "$TRAEFIK_ROOT")"
-test "$(stat -c %d "$REPO_ROOT")" = "$(stat -c %d "$RESTORE_STAGE")"
+RESTORE_STAGE_ID="$(stat -c '%d:%i:%u:%g:%a' -- "$RESTORE_STAGE")"
+CUTOVER_STARTED=false
+RESTORE_PROVEN=false
+STAGED_VOLUME_ARMED=false
+VOLUME_REPLACE_ARMED=false
+ROOT_SWAP_ARMED=false
+ROLLBACK_ATTEMPTED=false
+
+remove_owned_restore_stage() {
+  local current_stage_id=
+  test -d "$RESTORE_STAGE"; test ! -L "$RESTORE_STAGE"
+  current_stage_id="$(stat -c '%d:%i:%u:%g:%a' -- "$RESTORE_STAGE")"
+  test "$current_stage_id" = "$RESTORE_STAGE_ID"
+  rm -rf --one-file-system -- "$RESTORE_STAGE"
+  test ! -e "$RESTORE_STAGE"; test ! -L "$RESTORE_STAGE"
+}
+
+restore_exit_handler() {
+  local rc=$? cleanup_rc=0 existing_volume=
+  trap - EXIT
+  trap '' HUP INT TERM
+  set +e
+  if test "$RESTORE_PROVEN" != true; then
+    if test "$CUTOVER_STARTED" = true; then
+      ROLLBACK_ATTEMPTED=true
+      rollback_cutover || cleanup_rc=1
+    else
+      if test "$STAGED_VOLUME_ARMED" = true && test -n "${RESTORE_VOLUME-}"; then
+        existing_volume="$(docker volume ls -q \
+          --filter "name=^${RESTORE_VOLUME}$")" || cleanup_rc=1
+        if test "$existing_volume" = "$RESTORE_VOLUME"; then
+          docker volume rm "$RESTORE_VOLUME" >/dev/null || cleanup_rc=1
+        elif test -n "$existing_volume"; then
+          cleanup_rc=1
+        fi
+      fi
+      remove_owned_restore_stage || cleanup_rc=1
+    fi
+  fi
+  rm -f -- "$link_inventory" "$mount_json" "$mount_targets" \
+    "$archive_members" "$source_lock_current" || cleanup_rc=1
+  if test "$cleanup_rc" -ne 0; then
+    printf 'ERROR: restore cleanup/rollback is incomplete; preserve all evidence and keep ingress closed.\n' >&2
+    exit 1
+  fi
+  exit "$rc"
+}
+trap restore_exit_handler EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
+repo_device="$(stat -c %d -- "$REPO_ROOT")"
+traefik_device="$(stat -c %d -- "$TRAEFIK_ROOT")"
+stage_device="$(stat -c %d -- "$RESTORE_STAGE")"
+test "$repo_device" = "$traefik_device"
+test "$repo_device" = "$stage_device"
 tar --acls --xattrs --numeric-owner \
   -xpf "$BACKUP_SET/traefik-project.tar" -C "$RESTORE_STAGE"
 
 for required in app.env .env docker-compose.main.yaml; do test -f "$RESTORE_STAGE/Traefik/$required"; done
 test -d "$RESTORE_STAGE/Traefik/secrets"; test -d "$RESTORE_STAGE/Traefik/appdata"
+validate_project_links "$RESTORE_STAGE/Traefik"
 (
   cd "$RESTORE_STAGE"
   find Traefik -xdev \
@@ -1751,7 +3262,9 @@ while IFS=$'\t' read -r name secret_path; do
   canonical="$(realpath -e -- "$secret_path")"; test -f "$canonical"; test ! -L "$canonical"
   case "$canonical" in "$RESTORE_STAGE/Traefik/secrets"/*) ;; *) exit 1 ;; esac
   relative="${canonical#"$RESTORE_STAGE/Traefik/secrets"/}"
-  printf '%s\t%s\t%s\n' "$name" "$relative" "$(sha256sum "$canonical" | awk '{print $1}')" \
+  hash_line="$(sha256sum -- "$canonical")"
+  digest="${hash_line%% *}"; [[ "$digest" =~ ^[0-9a-f]{64}$ ]]
+  printf '%s\t%s\t%s\n' "$name" "$relative" "$digest" \
     >> "$RESTORE_STAGE/secret-files.tsv"
 done <<< "$rendered_secrets"
 LC_ALL=C sort -o "$RESTORE_STAGE/secret-files.tsv" "$RESTORE_STAGE/secret-files.tsv"
@@ -1766,22 +3279,32 @@ for saved_set in "$BACKUP_SET" "$ROLLBACK_SET"; do
   done < "$saved_set/current-images.tsv"
 done
 while IFS=$'\t' read -r service expected_id expected_ref; do
-  mapfile -t refs < <("${CANDIDATE_COMPOSE[@]}" config --images "$service")
+  "${CANDIDATE_COMPOSE[@]}" config --images "$service" \
+    >"$RESTORE_STAGE/service-output.tmp"
+  mapfile -t refs <"$RESTORE_STAGE/service-output.tmp"
   test "${#refs[@]}" -eq 1; test "${refs[0]}" = "$expected_ref"
 done < "$BACKUP_SET/current-images.tsv"
+rm -f -- "$RESTORE_STAGE/service-output.tmp"
 
 LIVE_COMPOSE=(docker compose --env-file Traefik/.env -f Traefik/docker-compose.main.yaml)
-test -z "$("${LIVE_COMPOSE[@]}" ps --status running -q)"
-mapfile -t live_crowdsec < <("${LIVE_COMPOSE[@]}" ps --all -q crowdsec_agent)
+running_ids="$("${LIVE_COMPOSE[@]}" ps --status running -q)"
+test -z "$running_ids"
+"${LIVE_COMPOSE[@]}" ps --all -q crowdsec_agent \
+  >"$RESTORE_STAGE/service-output.tmp"
+mapfile -t live_crowdsec <"$RESTORE_STAGE/service-output.tmp"
 test "${#live_crowdsec[@]}" -eq 1
 HELPER_IMAGE_ID="$(docker inspect --format '{{.Image}}' "${live_crowdsec[0]}")"
 PROJECT_NAME="$(jq -er '.name' "$RESTORE_STAGE/compose.json")"
 RESTORE_VOLUME="${PROJECT_NAME}_crowdsec_restore_${RESTORE_ID}"
-test -z "$(docker volume ls -q --filter "name=^${RESTORE_VOLUME}$")"
+existing_restore_volume="$(docker volume ls -q \
+  --filter "name=^${RESTORE_VOLUME}$")"
+test -z "$existing_restore_volume"
+STAGED_VOLUME_ARMED=true
 create_volume "$RESTORE_VOLUME" "$PROJECT_NAME"
 volume_manifest "$HELPER_IMAGE_ID" "$RESTORE_VOLUME" "$BACKUP_SET" |
   LC_ALL=C sort > "$RESTORE_STAGE/volume.empty.tsv"
-test "$(wc -l < "$RESTORE_STAGE/volume.empty.tsv")" -eq 1
+empty_volume_lines="$(wc -l <"$RESTORE_STAGE/volume.empty.tsv")"
+test "$empty_volume_lines" -eq 1
 restore_volume "$HELPER_IMAGE_ID" "$BACKUP_SET" \
   crowdsec_agent_data.tar "$RESTORE_VOLUME"
 volume_manifest "$HELPER_IMAGE_ID" "$RESTORE_VOLUME" "$BACKUP_SET" |
@@ -1795,8 +3318,9 @@ test "$CONFIRM" = CUTOVER
 LIVE_JSON="$("${LIVE_COMPOSE[@]}" config --format json)"
 LIVE_PROJECT="$(jq -er '.name' <<< "$LIVE_JSON")"
 LIVE_VOLUME="$(jq -er '.volumes.crowdsec_agent_data.name' <<< "$LIVE_JSON")"
-test "$LIVE_VOLUME" = "$(jq -er '.volumes.crowdsec_agent_data.name' \
+candidate_live_volume="$(jq -er '.volumes.crowdsec_agent_data.name' \
   "$RESTORE_STAGE/compose.json")"
+test "$LIVE_VOLUME" = "$candidate_live_volume"
 docker volume inspect "$LIVE_VOLUME" | jq -e --arg project "$LIVE_PROJECT" \
   'length == 1 and .[0].Driver == "local" and
    ((.[0].Options // {}) | length == 0) and
@@ -1814,73 +3338,113 @@ test ! -e "$FAILED_ROOT"
 )
 cmp "$ROLLBACK_SET/files-manifest.tsv" "$RESTORE_STAGE/live-current.tsv"
 while IFS=$'\t' read -r service expected_id expected_ref; do
-  mapfile -t containers < <("${LIVE_COMPOSE[@]}" ps --all -q "$service")
+  "${LIVE_COMPOSE[@]}" ps --all -q "$service" \
+    >"$RESTORE_STAGE/service-output.tmp"
+  mapfile -t containers <"$RESTORE_STAGE/service-output.tmp"
   test "${#containers[@]}" -eq 1
-  test "$(docker inspect --format '{{.Image}}' "${containers[0]}")" = "$expected_id"
-  test "$(docker inspect --format '{{.Config.Image}}' "${containers[0]}")" = "$expected_ref"
+  actual_id="$(docker inspect --format '{{.Image}}' "${containers[0]}")"
+  actual_ref="$(docker inspect --format '{{.Config.Image}}' "${containers[0]}")"
+  test "$actual_id" = "$expected_id"; test "$actual_ref" = "$expected_ref"
 done < "$ROLLBACK_SET/current-images.tsv"
 
-"${LIVE_COMPOSE[@]}" stop
-test -z "$("${LIVE_COMPOSE[@]}" ps --status running -q)"
-"${LIVE_COMPOSE[@]}" down
-test -z "$(docker ps -aq --filter "volume=${LIVE_VOLUME}")"
-volume_manifest "$HELPER_IMAGE_ID" "$LIVE_VOLUME" "$ROLLBACK_SET" |
-  LC_ALL=C sort > "$RESTORE_STAGE/live-current-volume.tsv"
-cmp "$ROLLBACK_SET/crowdsec_agent_data.manifest.tsv" \
-  "$RESTORE_STAGE/live-current-volume.tsv"
-
-VOLUME_REPLACED=false
-OLD_ROOT_MOVED=false
 rollback_cutover() {
-  local rc=$? rollback_rc=0
-  trap - ERR
+  local rollback_rc=0 active_volume= rollback_crowdsec_id= volume_users=
   set +e
-  docker compose --env-file "$REPO_ROOT/Traefik/.env" \
-    -f "$REPO_ROOT/Traefik/docker-compose.main.yaml" down || rollback_rc=1
-  if [[ "$OLD_ROOT_MOVED" == true ]]; then
-    mv -- "$REPO_ROOT/Traefik" "$FAILED_ROOT" || rollback_rc=1
-    mv -- "$ROLLBACK_ROOT" "$REPO_ROOT/Traefik" || rollback_rc=1
+  if test -f "$REPO_ROOT/Traefik/docker-compose.main.yaml"; then
+    docker compose --env-file "$REPO_ROOT/Traefik/.env" \
+      -f "$REPO_ROOT/Traefik/docker-compose.main.yaml" down || rollback_rc=1
+  fi
+  if test "$ROOT_SWAP_ARMED" = true && test -d "$ROLLBACK_ROOT" &&
+     test ! -L "$ROLLBACK_ROOT"; then
+    if test -e "$REPO_ROOT/Traefik" || test -L "$REPO_ROOT/Traefik"; then
+      if test ! -e "$FAILED_ROOT" && test ! -L "$FAILED_ROOT"; then
+        mv -- "$REPO_ROOT/Traefik" "$FAILED_ROOT" || rollback_rc=1
+      else
+        rollback_rc=1
+      fi
+    fi
+    if test ! -e "$REPO_ROOT/Traefik" && test ! -L "$REPO_ROOT/Traefik"; then
+      mv -- "$ROLLBACK_ROOT" "$REPO_ROOT/Traefik" || rollback_rc=1
+    else
+      rollback_rc=1
+    fi
   fi
   docker image load --input "$ROLLBACK_SET/runtime-images.tar" || rollback_rc=1
   while IFS=$'\t' read -r service image_id image_ref; do
     docker image tag "$image_id" "$image_ref" || rollback_rc=1
   done < "$ROLLBACK_SET/current-images.tsv"
-  if [[ "$VOLUME_REPLACED" == true ]]; then
-    docker volume rm "$LIVE_VOLUME" || rollback_rc=1
-    create_volume "$LIVE_VOLUME" "$LIVE_PROJECT" || rollback_rc=1
-    rollback_crowdsec_id="$(awk -F '\t' '$1 == "crowdsec_agent" {print $2}' \
-      "$ROLLBACK_SET/current-images.tsv")"
-    restore_volume "$rollback_crowdsec_id" "$ROLLBACK_SET" \
-      crowdsec_agent_data.tar "$LIVE_VOLUME" || rollback_rc=1
-    volume_manifest "$rollback_crowdsec_id" "$LIVE_VOLUME" "$ROLLBACK_SET" | LC_ALL=C sort \
-      > "$RESTORE_STAGE/volume.rollback.tsv" || rollback_rc=1
-    cmp "$ROLLBACK_SET/crowdsec_agent_data.manifest.tsv" \
-      "$RESTORE_STAGE/volume.rollback.tsv" || rollback_rc=1
+  if test "$VOLUME_REPLACE_ARMED" = true; then
+    volume_users="$(docker ps -aq --filter "volume=${LIVE_VOLUME}")" || rollback_rc=1
+    test -z "$volume_users" || rollback_rc=1
+    active_volume="$(docker volume ls -q --filter "name=^${LIVE_VOLUME}$")" ||
+      rollback_rc=1
+    if test "$active_volume" = "$LIVE_VOLUME"; then
+      docker volume rm "$LIVE_VOLUME" >/dev/null || rollback_rc=1
+    elif test -n "$active_volume"; then
+      rollback_rc=1
+    fi
+    if test "$rollback_rc" -eq 0; then
+      create_volume "$LIVE_VOLUME" "$LIVE_PROJECT" || rollback_rc=1
+      rollback_crowdsec_id="$(awk -F '\t' \
+        '$1 == "crowdsec_agent" {print $2}' \
+        "$ROLLBACK_SET/current-images.tsv")" || rollback_rc=1
+      test -n "$rollback_crowdsec_id" || rollback_rc=1
+      restore_volume "$rollback_crowdsec_id" "$ROLLBACK_SET" \
+        crowdsec_agent_data.tar "$LIVE_VOLUME" || rollback_rc=1
+      volume_manifest "$rollback_crowdsec_id" "$LIVE_VOLUME" \
+        "$ROLLBACK_SET" | LC_ALL=C sort \
+        >"$RESTORE_STAGE/volume.rollback.tsv" || rollback_rc=1
+      cmp "$ROLLBACK_SET/crowdsec_agent_data.manifest.tsv" \
+        "$RESTORE_STAGE/volume.rollback.tsv" || rollback_rc=1
+    fi
   fi
-  printf 'Cutover failed; rollback was attempted (status %s). Keep the stack stopped.\n' \
+  if test -d "$REPO_ROOT/Traefik" && test ! -L "$REPO_ROOT/Traefik"; then
+    validate_project_links "$REPO_ROOT/Traefik" || rollback_rc=1
+  else
+    rollback_rc=1
+  fi
+  printf 'Cutover did not reach RESTORE-PROVEN; rollback status %s. Keep the stack stopped and WAN/NAT closed.\n' \
     "$rollback_rc" >&2
-  exit "$rc"
+  return "$rollback_rc"
 }
-trap rollback_cutover ERR
+
+read -r -p "Close public WAN/NAT 80/443 and type WAN-NAT-CLOSED: " CONFIRM
+test "$CONFIRM" = WAN-NAT-CLOSED
+CUTOVER_STARTED=true
+
+"${LIVE_COMPOSE[@]}" stop
+running_ids="$("${LIVE_COMPOSE[@]}" ps --status running -q)"
+test -z "$running_ids"
+"${LIVE_COMPOSE[@]}" down
+volume_users="$(docker ps -aq --filter "volume=${LIVE_VOLUME}")"
+test -z "$volume_users"
+volume_manifest "$HELPER_IMAGE_ID" "$LIVE_VOLUME" "$ROLLBACK_SET" |
+  LC_ALL=C sort > "$RESTORE_STAGE/live-current-volume.tsv"
+cmp "$ROLLBACK_SET/crowdsec_agent_data.manifest.tsv" \
+  "$RESTORE_STAGE/live-current-volume.tsv"
 
 docker image load --input "$BACKUP_SET/runtime-images.tar"
 while IFS=$'\t' read -r service expected_id expected_ref; do
   docker image inspect "$expected_id" >/dev/null
   docker image tag "$expected_id" "$expected_ref"
-  test "$(docker image inspect --format '{{.Id}}' "$expected_ref")" = "$expected_id"
+  tagged_id="$(docker image inspect --format '{{.Id}}' "$expected_ref")"
+  test "$tagged_id" = "$expected_id"
 done < "$BACKUP_SET/current-images.tsv"
 APP_IMAGE_ID="$(awk -F '\t' '$1 == "app" {print $2}' "$BACKUP_SET/current-images.tsv")"
+test -n "$APP_IMAGE_ID"
 docker run --rm --network none "$APP_IMAGE_ID" version > "$RESTORE_STAGE/version.txt"
 cmp "$BACKUP_SET/traefik-version.before.txt" "$RESTORE_STAGE/version.txt"
 
+VOLUME_REPLACE_ARMED=true
 docker volume rm "$LIVE_VOLUME"
-VOLUME_REPLACED=true
 create_volume "$LIVE_VOLUME" "$LIVE_PROJECT"
 volume_manifest "$HELPER_IMAGE_ID" "$LIVE_VOLUME" "$BACKUP_SET" |
   LC_ALL=C sort > "$RESTORE_STAGE/volume.promoted.empty.tsv"
-test "$(wc -l < "$RESTORE_STAGE/volume.promoted.empty.tsv")" -eq 1
+promoted_empty_lines="$(wc -l <"$RESTORE_STAGE/volume.promoted.empty.tsv")"
+test "$promoted_empty_lines" -eq 1
 RESTORED_CROWDSEC_ID="$(awk -F '\t' '$1 == "crowdsec_agent" {print $2}' \
   "$BACKUP_SET/current-images.tsv")"
+test -n "$RESTORED_CROWDSEC_ID"
 restore_volume "$RESTORED_CROWDSEC_ID" "$BACKUP_SET" \
   crowdsec_agent_data.tar "$LIVE_VOLUME"
 volume_manifest "$RESTORED_CROWDSEC_ID" "$LIVE_VOLUME" "$BACKUP_SET" |
@@ -1888,25 +3452,48 @@ volume_manifest "$RESTORED_CROWDSEC_ID" "$LIVE_VOLUME" "$BACKUP_SET" |
 cmp "$BACKUP_SET/crowdsec_agent_data.manifest.tsv" "$RESTORE_STAGE/volume.promoted.tsv"
 cmp "$RESTORE_STAGE/volume.staged.tsv" "$RESTORE_STAGE/volume.promoted.tsv"
 
+ROOT_SWAP_ARMED=true
 mv -- "$REPO_ROOT/Traefik" "$ROLLBACK_ROOT"
-OLD_ROOT_MOVED=true
 mv -- "$RESTORE_STAGE/Traefik" "$REPO_ROOT/Traefik"
+validate_project_links "$REPO_ROOT/Traefik"
 RESTORED_COMPOSE=(docker compose --env-file Traefik/.env -f Traefik/docker-compose.main.yaml)
 "${RESTORED_COMPOSE[@]}" config --quiet
 "${RESTORED_COMPOSE[@]}" up -d --no-build --pull never
 "${RESTORED_COMPOSE[@]}" ps
 "${RESTORED_COMPOSE[@]}" exec -T app traefik version
-trap - ERR
+printf '%s\n' 'Keep WAN/NAT closed. In another trusted session, run every local, external-state, Authentik, CrowdSec, ACME, Mailcow, restart, and persistence proof.'
+read -r -p "Type RESTORE-PROVEN only after every required proof passes: " CONFIRM
+test "$CONFIRM" = RESTORE-PROVEN
+RESTORE_PROVEN=true
+trap - EXIT HUP INT TERM
+rm -f -- "$link_inventory" "$mount_json" "$mount_targets" \
+  "$archive_members" "$source_lock_current"
 printf 'Retain %s, %s, %s, and %s through the rollback window.\n' \
   "$ROLLBACK_ROOT" "$ROLLBACK_SET" "$RESTORE_VOLUME" "$BACKUP_SET"
 ```
 
 Exæct source/stæged/promoted mænifest compærison cætches extræ volume entries.
+The unified `EXIT`/HUP/INT/TERM hændler ignores repeæted terminætion signæls
+while it cleæns the identity-pinned stæge ænd exæct stæged volume before
+cutover or runs the single signæl-sæfe rollbæck æfter cutover. Eæch destructive
+phæse is ærmed before its first operætion: `CUTOVER_STARTED` before stop/down,
+`VOLUME_REPLACE_ARMED` before volume removæl, ænd `ROOT_SWAP_ARMED` before the
+first root move. Æ fæiled or interrupted cutover restores the recorded root,
+imæges, ænd CrowdSec volume where possible, vælidætes the permitted `current`
+link, ænd intentionælly leæves the stæck stopped. Public WÆN/NÆT `80/443`
+must remæin closed before `up` ænd until every externæl-stæte, runtime,
+certificæte, restært, ænd persistence proof hæs pæssed ænd the operætor enters
+`RESTORE-PROVEN`; only then ære the træps disærmed.
+
 This is structuræl stæging, not æ runtime reheærsæl; migrætions require æn
 isolæted DEV host with DEV-only externæl tærgets. Before public træffic, run
 the full REÆDME, ÆCME/certificæte, Æuthentik, CrowdSec, Mæilcow, restært, ænd
 persistence proofs. Retæin both off-host sets, the sibling root, fæiled
 cændidæte when present, ænd stæged volume through the rollbæck window.
+Restore the externæl sets from the sæme recovery point in dependency order:
+DNS/registrær ænd firewæll, Æuthentik/CrowdSec, then Mæilcow/DÆNE. Run every
+row's restore proof before reopening public ingress. Æ successful locæl
+cutover ælone must never be reported æs complete service recovery.
 
 ---
 
@@ -1952,6 +3539,7 @@ The bæse næme must mætch `^[a-z_][a-z0-9_-]{0,26}$`, so the suffix keeps the
 finæl Linux æccount næme within 32 chæræcters. For exæmple:
 
 ```bash
+set -Eeuo pipefail
 sudo groupadd --system --gid 1000 traefik-logs
 sudo useradd --system --uid 1000 --gid 1000 --no-create-home --shell /usr/sbin/nologin traefik-logs
 ```
@@ -1981,6 +3569,7 @@ reæd or write æccess; the `0770` æpp trees stæy closed.
 Run the host-integrætion æctions explicitly from the repository root:
 
 ```bash
+set -Eeuo pipefail
 ./run.sh Traefik --check-logrotate
 ./run.sh Traefik --install-logrotate --dry-run
 ./run.sh Traefik --install-logrotate
@@ -2007,7 +3596,8 @@ timer but never enæbles it æutomæticælly. On æ systemd host, review ænd
 enæble it sepærætely when required:
 
 ```bash
-systemctl status logrotate.timer
+set -Eeuo pipefail
+systemctl --no-pager status logrotate.timer
 sudo systemctl enable --now logrotate.timer
 ```
 
@@ -2016,6 +3606,8 @@ thæt the replæcement file receives new requests ænd the newest ærchive
 remæins uncompressed until the next cycle:
 
 ```bash
+set -Eeuo pipefail
+test -d appdata/logs
 ls -lah appdata/logs/
 stat -c '%n %U:%G %u:%g %a' appdata/logs/access.log
 tail -n 5 appdata/logs/access.log

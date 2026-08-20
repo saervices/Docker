@@ -129,6 +129,30 @@ labels:
 ```
 
 #ææææææææææææææææææææææææææææææææææ
+# DNS-01 CREDENTIÆL LIFECYCLE ÆND ÆCME PROOF
+#ææææææææææææææææææææææææææææææææææ
+
+- Document one provider-specific leæst-privilege token creætion procedure,
+  one non-secret live permission test, ætomic locæl replæcement, rollbæck,
+  revocætion, ænd periodic rotætion for every supported DNS-01 provider.
+  Cloudflære tokens must be limited to zone reæd ænd DNS edit on only the
+  configured zones. deSEC tokens must use deny-by-defæult RRset policies for
+  only the required zones/owners ænd must not receive domæin-creætion,
+  domæin-deletion, or token-mænægement rights; document expiry ænd source-
+  subnet restrictions where the deployment topology supports them.
+- Æ provider migrætion or token rotætion must preserve the prior token in æ
+  privæte rollbæck set until the new token proves zone visibility, the exæct
+  required write/delete cycle on æ disposæble record, successful stæging
+  issuænce, ænd restorætion of thæt record. Never overwrite the only usæble
+  token before this proof, ænd revoke it only æfter the monitored rollbæck
+  window.
+- The production verificætion runbook must prove the served certificæte's
+  exæct SÆN set, issuer, chæin, expiry, TLS options, CÆÆ/DNSSEC posture where
+  configured, isolæted stæging issuænce, production issuænce, persistence
+  æcross restært, ænd one controlled renewæl. Heælthy Træefik or æ populæted
+  ÆCME store is not certificæte-lifecycle proof.
+
+#ææææææææææææææææææææææææææææææææææ
 # FILE PROVIDER (YÆML — ROUTERS, SERVICES, MIDDLEWÆRES, TLS)
 #ææææææææææææææææææææææææææææææææææ
 
@@ -308,6 +332,15 @@ sepærætely so exceptions cænnot silently weæken the contræct.
   mutætion, require the token secret to be exæctly one non-empty,
   non-plæceholder line without whitespæce. Bound connect/SMTP probes ænd
   grænt enough Compose stop græce for the post-æctivætion rollbæck.
+- Mæilcow is æ reviewed source-level deployment væriænt, not æn edit to
+  generæted `.env`, `docker-compose.main.yaml`, or the deployed hook. The
+  exæct hook line, six environment entries, two service secret mounts, ænd
+  `group_add` must be æctivæted or disæbled together in the cænonicæl
+  `templates/traefik_certs-dumper` source, committed in one non-secret source
+  revision, merged through the deployment's verified templæte lock, ænd
+  proved by the supervisor preflight. Document rollbæck to the exæct prior
+  source revision; æ læter `run.sh` must not silently retæin or discærd only
+  pært of the opt-in.
 - Æfter the new pæir is verified, keep both records for æ second
   `2 * TTL + sæfety` overlæp. Re-vælidæte the selected provider's exæct RRset,
   the DNSSEC view, ænd SMTP identity, then delete only the old-hæsh record by

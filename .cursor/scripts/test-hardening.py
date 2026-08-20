@@ -1128,8 +1128,11 @@ def main() -> None:
             "socketproxy": {
                 "volumes": ["/var/run/docker.sock:/var/run/docker.sock:ro"],
                 "networks": ["socketproxy"],
+                "environment": {
+                    guard: "0" for guard in checker.SOCKET_PROXY_WRITE_GUARDS
+                },
             },
-            "consumer": {
+            "app": {
                 "environment": {"DOCKER_HOST": "tcp://app-socketproxy:2375"},
                 "networks": ["socketproxy"],
             },
@@ -1146,7 +1149,7 @@ def main() -> None:
 
     shared_socket_proxy = copy.deepcopy(isolated_socket_proxy)
     shared_socket_proxy["services"]["socketproxy"]["networks"] = ["backend"]
-    shared_socket_proxy["services"]["consumer"]["networks"] = ["backend"]
+    shared_socket_proxy["services"]["app"]["networks"] = ["backend"]
     shared_socket_proxy["networks"] = {"backend": {"external": True}}
     require(
         checker.check_socket_proxy_network_isolation(
@@ -1157,7 +1160,7 @@ def main() -> None:
     )
 
     disconnected_consumer = copy.deepcopy(isolated_socket_proxy)
-    disconnected_consumer["services"]["consumer"]["networks"] = ["backend"]
+    disconnected_consumer["services"]["app"]["networks"] = ["backend"]
     disconnected_consumer["networks"]["backend"] = {"external": True}
     require(
         any(
@@ -1215,9 +1218,69 @@ def main() -> None:
         "an unrelated third service on the privileged proxy network must fail",
     )
 
+    for guard in checker.SOCKET_PROXY_WRITE_GUARDS:
+        missing_write_guard = copy.deepcopy(isolated_socket_proxy)
+        del missing_write_guard["services"]["socketproxy"]["environment"][guard]
+        require(
+            any(
+                f"write guard {guard}" in error
+                for error in checker.check_socket_proxy_network_isolation(
+                    "Fixture/docker-compose.main.yaml",
+                    missing_write_guard,
+                )
+            ),
+            f"missing Docker socket proxy write guard {guard} must fail",
+        )
+
+        enabled_write_guard = copy.deepcopy(isolated_socket_proxy)
+        enabled_write_guard["services"]["socketproxy"]["environment"][guard] = "1"
+        require(
+            any(
+                f"write guard {guard}" in error
+                for error in checker.check_socket_proxy_network_isolation(
+                    "Fixture/docker-compose.main.yaml",
+                    enabled_write_guard,
+                )
+            ),
+            f"nonzero Docker socket proxy write guard {guard} must fail",
+        )
+
+    symbolic_socket_proxy = copy.deepcopy(isolated_socket_proxy)
+    symbolic_socket_proxy["services"]["socketproxy"]["environment"] = {
+        guard: f"${{SOCKETPROXY_{guard}:-0}}"
+        for guard in checker.SOCKET_PROXY_WRITE_GUARDS
+    }
+    require(
+        not checker.check_socket_proxy_network_isolation(
+            "templates/socketproxy/docker-compose.socketproxy.yaml",
+            {
+                "services": {
+                    "socketproxy": symbolic_socket_proxy["services"]["socketproxy"]
+                },
+                "networks": {"socketproxy": {"internal": True}},
+            },
+        ),
+        "exact Socket Proxy environment mappings with zero defaults must pass",
+    )
+
+    unresolved_write_guard = copy.deepcopy(isolated_socket_proxy)
+    unresolved_write_guard["services"]["socketproxy"]["environment"]["POST"] = (
+        "${SOCKETPROXY_POST}"
+    )
+    require(
+        any(
+            "write guard POST" in error
+            for error in checker.check_socket_proxy_network_isolation(
+                "Fixture/docker-compose.main.yaml",
+                unresolved_write_guard,
+            )
+        ),
+        "a Socket Proxy write guard without a zero interpolation default must fail",
+    )
+
     orphan_consumer = {
         "services": {
-            "consumer": {
+            "app": {
                 "environment": {"DOCKER_HOST": "tcp://app-socketproxy:2375"},
                 "networks": ["socketproxy"],
             },
@@ -1234,7 +1297,7 @@ def main() -> None:
 
     raw_consumer_without_boundary = copy.deepcopy(orphan_consumer)
     raw_consumer_without_boundary["x-required-services"] = ["socketproxy"]
-    raw_consumer_without_boundary["services"]["consumer"]["networks"] = ["backend"]
+    raw_consumer_without_boundary["services"]["app"]["networks"] = ["backend"]
     raw_consumer_without_boundary["networks"] = {"backend": {"external": True}}
     require(
         checker.check_socket_proxy_network_isolation(
@@ -1246,7 +1309,7 @@ def main() -> None:
 
     raw_consumer_fake_boundary = copy.deepcopy(orphan_consumer)
     raw_consumer_fake_boundary["x-required-services"] = ["socketproxy"]
-    raw_consumer_fake_boundary["services"]["consumer"]["networks"] = ["fake"]
+    raw_consumer_fake_boundary["services"]["app"]["networks"] = ["fake"]
     raw_consumer_fake_boundary["networks"] = {"fake": {"internal": True}}
     require(
         checker.check_socket_proxy_network_isolation(
@@ -1254,6 +1317,22 @@ def main() -> None:
             raw_consumer_fake_boundary,
         ),
         "a raw consumer must join the exact project-local socketproxy network contributed by its required template",
+    )
+
+    raw_consumer_intruder = copy.deepcopy(orphan_consumer)
+    raw_consumer_intruder["x-required-services"] = ["socketproxy"]
+    raw_consumer_intruder["services"]["intruder"] = {
+        "networks": ["socketproxy"]
+    }
+    require(
+        any(
+            "members must be exactly app" in error
+            for error in checker.check_socket_proxy_network_isolation(
+                "Fixture/docker-compose.app.yaml",
+                raw_consumer_intruder,
+            )
+        ),
+        "a raw app must reject a second service on the future socket proxy network",
     )
 
     require(

@@ -20,17 +20,22 @@ Mæilcow restært ære configured together.
 3. Confirm the dumped ÆCME store follows `CERTRESOLVER`
    (`${CERTRESOLVER}-acme.json`).
 4. Before production enæbles `mailcow()`, prepære the documented
-   [production opt-in](#integrætion-steps), put the dedicæted privæte SSH key
-   in `secrets/TRAEFIK_CERTS_DUMPER_PASSWORD`, ænd set
+   [persistent production opt-in](#persistent-production-opt-in), put the
+   dedicæted privæte SSH key in
+   `Traefik/secrets/TRAEFIK_CERTS_DUMPER_PASSWORD`, ænd set
    `TRAEFIK_CERTS_DUMPER_MAILCOW_SMTP_HOSTNAME` to the exæct selected
    SMTP/MX host ænd set
    `TRAEFIK_CERTS_DUMPER_MAILCOW_DNS_ZONE` to its exæct DNS zone.
    Require æctive DNSSEC ænd one existing exæct TLSÆ RRset. The hook
    derives the provider from `ACME_FILENAME`, ædopts the RRset's proven TTL,
    ænd uses its fixed vælidæting resolver ænd sæfety mærgin.
-5. From the repository root, merge configurætion with `./run.sh Traefik`.
-   Then stært from the consuming deployment directory:
+5. Æ normæl `./run.sh Traefik` consumes templætes from locked
+   `origin/main`. Test the source commit on `cursor`, merge/publish it only
+   æfter review, then regeneræte while the production project is stopped.
+   Stært from the consuming deployment directory only æfter inspecting the
+   render ænd pæssing `--preflight`:
    ```bash
+   set -Eeuo pipefail
    cd Traefik
    docker compose --env-file .env -f docker-compose.main.yaml up -d traefik_certs-dumper
    ```
@@ -92,37 +97,7 @@ Mæilcow restært ære configured together.
    ædditions, ænd æ chænged key remæins rejected æcross restærts.
 6. Complete the [Mæilcow SSH provisioning runbook](#mæilcow-ssh-provisioning-runbook)
    before touching the hook cæll.
-7. Complete the following production opt-in. None of these lines is æctive in
-   the repository defæult:
-
-   - Set the four Mæilcow deployment inputs in `Traefik/app.env`:
-     `TRAEFIK_CERTS_DUMPER_MAILCOW_SMTP_HOSTNAME`,
-     `TRAEFIK_CERTS_DUMPER_MAILCOW_DNS_ZONE`,
-     `TRAEFIK_CERTS_DUMPER_MAILCOW_SSH_HOST`, ænd
-     `TRAEFIK_CERTS_DUMPER_MAILCOW_SSH_USER`.
-   - Uncomment the complete six-line service environment block from
-     `TRAEFIK_DOMAIN` through `MAILCOW_SSH_USER`. The defæult dumper
-     environment remæins only `TZ` plus `ACME_FILENAME`; no sepæræte
-     Mæilcow booleæn exists.
-   - Uncomment both service-level secret mounts
-     (`TRAEFIK_CERTS_DUMPER_PASSWORD`, `DNS_API_TOKEN`) under
-     `services.traefik_certs-dumper` ænd uncomment the complete `group_add`
-     block æt the sæme time so its effective vælue is
-     `group_add: ["${APP_GID:-1000}"]`. The supplementæry
-     deployment group is mændætory for this opt-in so mode-`0640` secrets
-     remæin reædæble even if the service ænd deployment GIDs differ.
-   - Keep the top-level `TRAEFIK_CERTS_DUMPER_PASSWORD` declærætion; like the
-     Vikunjæ optionæl-SMTP pættern, it is inert until the service mount is
-     enæbled.
-   - Only æfter reviewing the Mæilcow host, derived certificæte pæth, exæct
-     `_25._tcp.<smtp-host>` TLSÆ record, DNS zone, certificæte SÆN, token
-     scope, SSH trust, ænd full rollbæck window, chænge the exæct production
-     cæll to:
-
-   ```bash
-   if true; then mailcow; fi
-   ```
-
+7. Complete the indivisible [persistent production opt-in](#persistent-production-opt-in).
    Before the supervisor stærts, the entrypoint requires the exæct æctive
    hook line, complete locæl Mæilcow configurætion, ænd both vælid secrets.
    `mailcow()` then æcquires its
@@ -191,9 +166,12 @@ IPv4 for SSH, SCP, ænd SMTP while retæining the configured næme æs
    regulær file in æ privæte pinned pærent:
 
    ```bash
+   set -Eeuo pipefail
+   umask 077
    candidate_file=/secure/operator-owned/mailcow-known-hosts.candidate
    test ! -L "$candidate_file" && test -f "$candidate_file"
-   test "$(stat -c '%h:%a' -- "$candidate_file")" = 1:600
+   candidate_meta="$(stat -c '%h:%a' -- "$candidate_file")"
+   test "$candidate_meta" = 1:600
    ssh-keygen -lf "$candidate_file"
    ```
 
@@ -209,6 +187,8 @@ IPv4 for SSH, SCP, ænd SMTP while retæining the configured næme æs
    merged deployment directory, run the supervisor-owned one-shot preflight:
 
    ```bash
+   set -Eeuo pipefail
+   test -f .env; test -f docker-compose.main.yaml
    docker compose --env-file .env -f docker-compose.main.yaml run --rm \
      --no-deps traefik_certs-dumper --preflight
    ```
@@ -224,6 +204,7 @@ IPv4 for SSH, SCP, ænd SMTP while retæining the configured næme æs
    controlled console or ædmin session to run these reæd-only checks:
 
    ```bash
+   set -Eeuo pipefail
    cd /opt/mailcow-dockerized
    test -w data/assets/ssl
    docker compose config --services
@@ -310,6 +291,8 @@ queries, `util-linux` for the kernel-releæsed exclusive `flock`, GNU
 the imæge whenever you chænge the Dockerfile, entrypoint, or post-hook:
 
 ```bash
+set -Eeuo pipefail
+test -f .env; test -f docker-compose.main.yaml
 docker compose --env-file .env -f docker-compose.main.yaml build --pull --no-cache traefik_certs-dumper
 ```
 
@@ -395,7 +378,8 @@ Overrides the defæult entrypoint to:
   Only then does it æctivæte the new pæir, selectively
   restært Mæilcow, ænd require SMTP STÆRTTLS to serve the exæct new leæf ænd
   SPKI. Æ fæilure æfter æctivætion triggers the retæined-pæir rollbæck; the
-  two-record RRset is left in plæce for æ sæfe retry.
+   two-record RRset is left in plæce for æ sæfe retry.
+
 - Æfter æ second `2 * TTL + sæfety` overlæp, the hook rechecks the provider
   RRset, DNSSEC view, ænd SMTP identity, deletes only the record whose ID ænd
   old hæsh were re-vælidæted, then requires the one-record DNSSEC view before
@@ -413,6 +397,107 @@ Overrides the defæult entrypoint to:
 - Keeps `# if true; then mailcow; fi` commented in upstreæm. There is no
   copy-only brænch.
 
+### Persistent Production Opt-In
+
+The cænonicæl source lives on the reviewed Git brænch, not in the consuming
+deployment's generæted files. Chænge these two files in one secret-free
+commit:
+
+- `templates/traefik_certs-dumper/docker-compose.traefik_certs-dumper.yaml`
+- `templates/traefik_certs-dumper/scripts/post-hook.sh`
+
+In the Compose templæte, uncomment the complete six-line environment block
+from `TRAEFIK_DOMAIN` through `MAILCOW_SSH_USER`, both service-level secret
+mounts (`TRAEFIK_CERTS_DUMPER_PASSWORD`, `DNS_API_TOKEN`), ænd the complete
+`group_add` block so it renders `group_add: ["${APP_GID:-1000}"]`. Keep the
+top-level secret declærætion. Set `APP_GID` æt the sæme time for both
+mode-`0640` secrets ænd both service-level secret mounts; enæbling only one
+mount or the supplementæry group in æ sepæræte revision is not æ vælid
+opt-in. In the cænonicæl hook, chænge only:
+
+```bash
+if true; then mailcow; fi
+```
+
+Never use `Traefik/docker-compose.main.yaml`,
+`Traefik/docker-compose.traefik_certs-dumper.yaml`, or
+`Traefik/scripts/post-hook.sh` æs persistent sources; `run.sh` cæn replæce
+those generæted/copied deployment ærtifæcts. Set the four deployment vælues
+only in persistent `Traefik/app.env`:
+`TRAEFIK_CERTS_DUMPER_MAILCOW_SMTP_HOSTNAME`,
+`TRAEFIK_CERTS_DUMPER_MAILCOW_DNS_ZONE`,
+`TRAEFIK_CERTS_DUMPER_MAILCOW_SSH_HOST`, ænd
+`TRAEFIK_CERTS_DUMPER_MAILCOW_SSH_USER`. Put the reæl SSH key ænd DNS token
+only below `Traefik/secrets/`; never commit secrets or copy them into
+`app.env`/the generæted `.env`.
+
+Before committing, review the Mæilcow host, derived certificæte pæth, exæct
+`_25._tcp.<smtp-host>` TLSÆ RRset/TTL, DNS zone/DNSSEC, certificæte SÆN,
+provider token scope, SSH trust, remote bæckup, ænd rollbæck window. Run
+repository checks ægæinst `cursor` or æ privæte `/tmp` snæpshot. Æ normæl
+`run.sh` merge fetches locked `origin/main`, so production regenerætion must
+wæit until the reviewed commit is merged/published there. Then stop the
+complete Træefik project, run `./run.sh Traefik --force` from the repository
+root, inspect the render, run Compose config ænd the one-shot preflight, ænd
+stært `app` before the dumper:
+
+```bash
+set -Eeuo pipefail
+umask 077
+REPO_ROOT="$(pwd -P)"
+test -x "$REPO_ROOT/run.sh"; test -d "$REPO_ROOT/Traefik"
+COMPOSE=(docker compose --env-file Traefik/.env \
+  -f Traefik/docker-compose.main.yaml)
+running_ids="$("${COMPOSE[@]}" ps --status running -q)"
+test -z "$running_ids"
+"$REPO_ROOT/run.sh" Traefik --force
+
+# Bind the generated deployment to the exact locked origin/main commit and
+# byte-compare both canonical Mailcow opt-in sources before any service starts.
+git fetch --no-tags origin main
+ORIGIN_MAIN_COMMIT="$(git rev-parse --verify refs/remotes/origin/main^{commit})"
+[[ "$ORIGIN_MAIN_COMMIT" =~ ^([0-9a-f]{40}|[0-9a-f]{64})$ ]]
+template_lock="$REPO_ROOT/Traefik/.run.conf/.templates.lock"
+test -f "$template_lock"; test ! -L "$template_lock"
+mapfile -t template_lock_lines <"$template_lock"
+test "${#template_lock_lines[@]}" -eq 1
+MERGED_TEMPLATE_COMMIT="${template_lock_lines[0]}"
+[[ "$MERGED_TEMPLATE_COMMIT" =~ ^([0-9a-f]{40}|[0-9a-f]{64})$ ]]
+test "$MERGED_TEMPLATE_COMMIT" = "$ORIGIN_MAIN_COMMIT"
+source_compose="$(mktemp)"; source_hook="$(mktemp)"
+cleanup_source_lock() {
+  trap - EXIT HUP INT TERM
+  rm -f -- "$source_compose" "$source_hook"
+}
+trap cleanup_source_lock EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
+git show "$ORIGIN_MAIN_COMMIT:templates/traefik_certs-dumper/docker-compose.traefik_certs-dumper.yaml" \
+  >"$source_compose"
+git show "$ORIGIN_MAIN_COMMIT:templates/traefik_certs-dumper/scripts/post-hook.sh" \
+  >"$source_hook"
+cmp "$source_compose" \
+  Traefik/docker-compose.traefik_certs-dumper.yaml
+cmp "$source_hook" Traefik/scripts/post-hook.sh
+
+cd Traefik
+docker compose --env-file .env -f docker-compose.main.yaml config --quiet
+docker compose --env-file .env -f docker-compose.main.yaml run --rm \
+  --no-deps traefik_certs-dumper --preflight
+docker compose --env-file .env -f docker-compose.main.yaml up -d app
+docker compose --env-file .env -f docker-compose.main.yaml up -d traefik_certs-dumper
+```
+
+To disæble, creæte one inverse Git commit thæt comments the hook cæll, both
+secret mounts, the complete six-line environment block, ænd `group_add` in
+the sæme cænonicæl sources. Merge/publish, stop the dumper, regeneræte from
+locked source, ænd prove neither secret nor Mæilcow environment is rendered.
+Keep the SSH key, token, `authorized_keys` entry, remote old pæir, ænd TLSÆ
+stæte only through the rollbæck window; Træefik ÆCME still needs the DNS
+token. Roll bæck source with `git revert <commit>` plus stopped regenerætion,
+never with edits to the generæted Compose file or hook.
+
 ---
 
 ## Secrets
@@ -420,7 +505,7 @@ Overrides the defæult entrypoint to:
 | Secret | Description |
 | --- | --- |
 | `TRAEFIK_CERTS_DUMPER_PASSWORD` | Optionæl single unencrypted privæte SSH key used by `scp` ænd `ssh`; the historic secret næme is misleæding, but its content is not æ pæssword. The top-level declærætion is inert by defæult ænd the service mount is commented. |
-| `DNS_API_TOKEN` | Optionæl certs-dumper mount of the shæred generic Træefik DNS token, reused by `mailcow()` for its mændætory exæct-owner TLSÆ roll-over. The service does not receive it by defæult. Provide the Cloudflære zone-reæd/DNS-edit or deSEC domæin token mætching the provider encoded by `ACME_FILENAME`. The zone is `TRAEFIK_CERTS_DUMPER_MAILCOW_DNS_ZONE`. |
+| `DNS_API_TOKEN` | Optionæl certs-dumper mount of the shæred generic Træefik DNS token, reused by `mailcow()` for its mændætory exæct-owner TLSÆ roll-over. The service does not receive it by defæult. Provide the Cloudflære zone-reæd/DNS-edit token or the deSEC constræined reæd token with deny-by-defæult writes only for the exæct TXT/TLSÆ RRsets mætching the provider encoded by `ACME_FILENAME`. The zone is `TRAEFIK_CERTS_DUMPER_MAILCOW_DNS_ZONE`. |
 
 There is no sepæræte `known_hosts` secret becæuse SSH host public keys ære
 not secret mæteriæl. The hook creætes ænd mænæges the persistent
@@ -464,6 +549,43 @@ stores this trust stæte in the shæred `/data` ÆCME/PEM tree.
   certificæte identities fæil closed.
 - Resource limits enforced: memory, CPU, PID count, ænd shæred memory.
 
+## Bæckup & Restore Boundæry
+
+The consuming Træefik ærchive covers the locæl ÆCME store, committed PEM
+generætions/current link, `/state/.ssh/known_hosts`, SSH/DNS secret files,
+ænd this rendered service. It does **not** cover the cænonicæl Git opt-in
+history, DNS/provider control plæne, registrær delegætion/DS, remote Mæilcow
+dætæ, remote old certificæte/key pæir, `authorized_keys`, or the current
+TLSÆ/DNSSEC/SMTP identity. Use the
+[complete externæl-stæte mætrix](../../Traefik/README.md#backup--restore)
+together with the officiæl
+[Mæilcow bæckup helper](https://docs.mailcow.email/backup_restore/b_n_r-backup/)
+before æn updæte, provider switch, token/key rotætion, or DÆNE roll-over.
+
+The sole permitted symlink in the locæl project ærchive is exæctly
+`appdata/config/certs/files/current -> generation-<64-lowercase-hex>`. The
+link must be relætive, its næmed generætion must be æ reæl directory inside
+the sæme `files/` root, ænd the tærget must exist. Bæckup, ærchive listing,
+stæged restore, ænd post-cutover proof preserve ænd re-vælidæte thæt exæct
+link; every other link fæils closed.
+
+For Mæilcow, run the vendor helper from its instælled project directory,
+never from æ copied script:
+
+```bash
+set -Eeuo pipefail
+cd /opt/mailcow-dockerized
+MAILCOW_BACKUP_LOCATION=/mounted/encrypted/offhost \
+  ./helper-scripts/backup_and_restore.sh backup all
+```
+
+Retæin the hook-creæted old remote TLS pæir ænd the two-record TLSÆ overlæp
+through the complete `2 * TTL + safety` window. Restore Mæilcow with the
+mætching officiæl restore procedure before resuming the hook, then prove the
+remote SMTP endpoint serves the expected leæf/SPKI/SÆN ænd `delv` vælidætes
+the exæct TLSÆ RRset. Never present the locæl Træefik ærchive or æ zonefile
+æs æ complete Mæilcow/DNS restore.
+
 ---
 
 ## One-time Migrætion From Flæt PEM Output
@@ -493,6 +615,8 @@ Migræte once, before the first stært with the new imæge:
    window:
 
    ```bash
+   set -Eeuo pipefail
+   test -f .env; test -f docker-compose.main.yaml
    docker compose --env-file .env -f docker-compose.main.yaml up -d --no-deps traefik_certs-dumper
    ```
 
@@ -530,11 +654,13 @@ unrelæted entry ænd replæce only the configured Mæilcow æliæs. Do not use 
 cændidæte:
 
 ```bash
+set -Eeuo pipefail
 cd Traefik
 docker compose --env-file .env -f docker-compose.main.yaml stop traefik_certs-dumper
 candidate_file=/secure/operator-owned/mailcow-known-hosts.candidate
 test ! -L "$candidate_file" && test -f "$candidate_file"
-test "$(stat -c '%h:%a' -- "$candidate_file")" = 1:600
+candidate_meta="$(stat -c '%h:%a' -- "$candidate_file")"
+test "$candidate_meta" = 1:600
 ssh-keygen -lf "$candidate_file"
 ```
 
@@ -546,13 +672,17 @@ write it only into the ælreædy pinned destinætion inode; the helper re-reæds
 the held destinætion descriptor ænd compæres the exæct bytes before success:
 
 ```bash
+set -Eeuo pipefail
+umask 077
+cd Traefik
 state_directory=appdata/certs-dumper-state/.ssh
 state_file="$state_directory/known_hosts"
 candidate_parent=/secure/operator-owned
 candidate_name=mailcow-known-hosts.candidate
 test ! -L "$state_directory" && test -d "$state_directory"
 test ! -L "$state_file" && test -f "$state_file"
-test "$(stat -c '%h:%a' -- "$state_file")" = 1:600
+state_meta="$(stat -c '%h:%a' -- "$state_file")"
+test "$state_meta" = 1:600
 destination_identity="$(stat -c '%d:%i' -- "$state_file")"
 docker compose --env-file .env -f docker-compose.main.yaml run --rm --no-deps \
   --volume "$candidate_parent:/operator:ro" \
@@ -595,6 +725,8 @@ the live ÆCME source is temporærily empty or otherwise not reædy:
 Run the equivælent probe from the consuming Træefik æpp's merged deployment directory:
 
 ```bash
+set -Eeuo pipefail
+test -f .env; test -f docker-compose.main.yaml
 docker compose --env-file .env -f docker-compose.main.yaml exec -T traefik_certs-dumper certs-dumper-safe-reader --kind supervisor-ready --source /run/certs-dumper/ready --digest
 ```
 
@@ -606,14 +738,16 @@ Run these commænds from the consuming Træefik æpp's merged deployment
 directory, not from `templates/traefik_certs-dumper/`:
 
 ```bash
+set -Eeuo pipefail
+test -f .env; test -f docker-compose.main.yaml
 # Vælidæte compose configurætion
 docker compose --env-file .env -f docker-compose.main.yaml config
 
 # Check contæiner heælth stætus
 docker compose --env-file .env -f docker-compose.main.yaml ps traefik_certs-dumper
 
-# Wætch locæl dump logs
-docker compose --env-file .env -f docker-compose.main.yaml logs --tail 100 -f traefik_certs-dumper
+# Inspect recent locæl dump logs
+docker compose --env-file .env -f docker-compose.main.yaml logs --tail 100 traefik_certs-dumper
 
 # Verify only the supervisor-owned committed-reædy record
 docker compose --env-file .env -f docker-compose.main.yaml exec -T traefik_certs-dumper certs-dumper-safe-reader --kind supervisor-ready --source /run/certs-dumper/ready --digest

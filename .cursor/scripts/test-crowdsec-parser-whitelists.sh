@@ -7,11 +7,14 @@ umask 077
 
 readonly SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 readonly REPO_ROOT="$(cd -- "${SCRIPT_DIR}/../.." &>/dev/null && pwd)"
-readonly PARSER_FILE="${REPO_ROOT}/templates/crowdsec_agent/appdata/crowdsec_agent/config/parsers/s02-enrich/immich-thumbnail-whitelist.yaml"
+readonly IMMICH_PARSER_FILE="${REPO_ROOT}/templates/crowdsec_agent/appdata/crowdsec_agent/config/parsers/s02-enrich/immich-thumbnail-whitelist.yaml"
+readonly SEAFILE_PARSER_FILE="${REPO_ROOT}/templates/crowdsec_agent/appdata/crowdsec_agent/config/parsers/s02-enrich/seafile-sync-whitelist.yaml"
 readonly CROWDSEC_IMAGE="${CROWDSEC_TEST_IMAGE:-crowdsecurity/crowdsec:latest}"
 readonly IMMICH_HOST="immich.it.xn--srvices-mxa.de"
 readonly IMMICH_UUID="123e4567-e89b-12d3-a456-426614174000"
-readonly WHITELIST_REASON="legitimate Immich edited-thumbnail request"
+readonly IMMICH_WHITELIST_REASON="legitimate Immich edited-thumbnail request"
+readonly SEAFILE_HOST="seafile.it.xn--srvices-mxa.de"
+readonly SEAFILE_WHITELIST_REASON="legitimate Seafile sync traffic"
 readonly RESET='\033[0m'
 readonly RED='\033[0;31m'
 readonly YELLOW='\033[0;33m'
@@ -195,16 +198,26 @@ require_command() {
 
 #ææææææææææææææææææææææææææææææææææ
 # FUNCTION: validate_source_contract
-#   Fæils closed when the nærrow Immich exception drifts.
+#   Fæils closed when either nærrow locæl exception drifts.
 #ææææææææææææææææææææææææææææææææææ
 validate_source_contract() {
-  [[ -f "$PARSER_FILE" && ! -L "$PARSER_FILE" ]] || log_fatal "Immich parser whitelist is missing or unsafe."
-  grep -Fq "evt.Meta.target_fqdn == '${IMMICH_HOST}'" "$PARSER_FILE" || log_fatal "Immich host restriction is missing."
-  grep -Fq "evt.Meta.http_verb == 'GET'" "$PARSER_FILE" || log_fatal "GET restriction is missing."
-  grep -Fq "evt.Meta.http_status == '404'" "$PARSER_FILE" || log_fatal "404 restriction is missing."
-  grep -Fq "evt.Meta.http_path matches '^/api/assets/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}/thumbnail$'" "$PARSER_FILE" || log_fatal "Exact UUID thumbnail path restriction is missing."
-  if grep -Eq 'source_ip|size=thumbnail|edited=true' "$PARSER_FILE"; then
+  [[ -f "$IMMICH_PARSER_FILE" && ! -L "$IMMICH_PARSER_FILE" ]] || log_fatal "Immich parser whitelist is missing or unsafe."
+  grep -Fq "evt.Meta.target_fqdn == '${IMMICH_HOST}'" "$IMMICH_PARSER_FILE" || log_fatal "Immich host restriction is missing."
+  grep -Fq "evt.Meta.http_verb == 'GET'" "$IMMICH_PARSER_FILE" || log_fatal "Immich GET restriction is missing."
+  grep -Fq "evt.Meta.http_status == '404'" "$IMMICH_PARSER_FILE" || log_fatal "Immich 404 restriction is missing."
+  grep -Fq "evt.Meta.http_path matches '^/api/assets/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}/thumbnail$'" "$IMMICH_PARSER_FILE" || log_fatal "Exact Immich UUID thumbnail path restriction is missing."
+  if grep -Eq 'source_ip|size=thumbnail|edited=true' "$IMMICH_PARSER_FILE"; then
     log_fatal "Immich whitelist must not contain IP or query-based exceptions."
+  fi
+
+  [[ -f "$SEAFILE_PARSER_FILE" && ! -L "$SEAFILE_PARSER_FILE" ]] || log_fatal "Seafile parser whitelist is missing or unsafe."
+  grep -Fq "evt.Meta.target_fqdn == '${SEAFILE_HOST}'" "$SEAFILE_PARSER_FILE" || log_fatal "Seafile host restriction is missing."
+  grep -Fq "evt.Meta.http_verb in ['GET', 'HEAD']" "$SEAFILE_PARSER_FILE" || log_fatal "Seafile method restriction is missing."
+  grep -Fq "evt.Meta.http_status in ['200', '206', '304']" "$SEAFILE_PARSER_FILE" || log_fatal "Seafile status restriction is missing."
+  grep -Fq "evt.Meta.http_path startsWith '/seafhttp/'" "$SEAFILE_PARSER_FILE" || log_fatal "Seafile transfer-path restriction is missing."
+  grep -Fq "evt.Meta.http_path startsWith '/api/v2.1/events/'" "$SEAFILE_PARSER_FILE" || log_fatal "Seafile versioned-events restriction is missing."
+  if grep -Eq 'source_ip|RequestPath|\?' "$SEAFILE_PARSER_FILE"; then
+    log_fatal "Seafile whitelist must not contain IP, raw-field, or query-based exceptions."
   fi
 }
 
@@ -277,7 +290,8 @@ start_runtime() {
       --tmpfs /etc/crowdsec:rw,noexec,nosuid,nodev,mode=0700 \
       --tmpfs /var/lib/crowdsec/data:rw,noexec,nosuid,nodev,mode=0700 \
       --tmpfs /tmp:rw,noexec,nosuid,nodev,mode=1777 \
-      --mount "type=bind,src=${PARSER_FILE},dst=/etc/crowdsec/parsers/s02-enrich/immich-thumbnail-whitelist.yaml,readonly" \
+      --mount "type=bind,src=${IMMICH_PARSER_FILE},dst=/etc/crowdsec/parsers/s02-enrich/immich-thumbnail-whitelist.yaml,readonly" \
+      --mount "type=bind,src=${SEAFILE_PARSER_FILE},dst=/etc/crowdsec/parsers/s02-enrich/seafile-sync-whitelist.yaml,readonly" \
       --mount "type=bind,src=${TEST_ROOT}/cases,dst=/test-cases,readonly" \
       --env COLLECTIONS=crowdsecurity/traefik \
       --env CUSTOM_HOSTNAME=crowdsec-parser-test \
@@ -350,7 +364,7 @@ run_allowed_matrix() {
 
   lines="$(grep -c '^line: ' "$output_file" || true)"
   parsers="$(grep -Fc 'crowdsecurity/traefik-logs' "$output_file" || true)"
-  matches="$(grep -Fc "ignored by whitelist (${WHITELIST_REASON})" "$output_file" || true)"
+  matches="$(grep -Fc "ignored by whitelist (${IMMICH_WHITELIST_REASON})" "$output_file" || true)"
   if [[ "$lines" == "$expected_count" \
     && "$parsers" == "$expected_count" \
     && "$matches" == "$expected_count" ]] \
@@ -399,11 +413,125 @@ run_inspected_matrix() {
   if [[ "$lines" == "$expected_count" \
     && "$parsers" == "$expected_count" \
     && "$unchanged" == "$expected_count" ]] \
-    && ! grep -Fq "ignored by whitelist (${WHITELIST_REASON})" "$output_file" \
+    && ! grep -Fq "ignored by whitelist (${IMMICH_WHITELIST_REASON})" "$output_file" \
     && ! grep -Fq '[whitelisted]' "$output_file"; then
     record_pass "inspected-matrix (${expected_count} events)"
   else
     record_fail "inspected-matrix: expected ${expected_count} fully inspected events" "$output_file"
+  fi
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: run_seafile_allowed_matrix
+#   Proves only reviewed successful Seæfile sync routes ære whitelisted.
+#ææææææææææææææææææææææææææææææææææ
+run_seafile_allowed_matrix() {
+  local expected_count=10
+  local event_file="${TEST_ROOT}/cases/seafile-allowed-matrix.log"
+  local output_file="${TEST_ROOT}/cases/seafile-allowed-matrix.out"
+  local lines
+  local parsers
+  local matches
+
+  : >"$event_file"
+  render_event "$SEAFILE_HOST" GET 200 /seafhttp/repo-id/file-id 203.0.113.20 >>"$event_file"
+  render_event "$SEAFILE_HOST" HEAD 206 /seafhttp/repo-id/file-id 203.0.113.20 >>"$event_file"
+  render_event "$SEAFILE_HOST" GET 304 /api2/repos 203.0.113.20 >>"$event_file"
+  render_event "$SEAFILE_HOST" GET 200 /api2/repos/repo-id/file 203.0.113.20 >>"$event_file"
+  render_event "$SEAFILE_HOST" HEAD 200 /api2/events 203.0.113.20 >>"$event_file"
+  render_event "$SEAFILE_HOST" GET 206 /api2/events/next 203.0.113.20 >>"$event_file"
+  render_event "$SEAFILE_HOST" GET 200 /api/v2.1/repos 203.0.113.20 >>"$event_file"
+  render_event "$SEAFILE_HOST" HEAD 304 /api/v2.1/repos/repo-id 203.0.113.20 >>"$event_file"
+  render_event "$SEAFILE_HOST" GET 200 /api/v2.1/events 203.0.113.20 >>"$event_file"
+  render_event "$SEAFILE_HOST" GET 206 /api/v2.1/events/next 198.51.100.55 >>"$event_file"
+
+  if ! docker exec "$CONTAINER_ID" cscli --color no explain \
+    --file /test-cases/seafile-allowed-matrix.log --type traefik --only-successful-parsers \
+    >"$output_file" 2>&1; then
+    record_fail 'seafile-allowed-matrix: cscli explain failed' "$output_file"
+    return
+  fi
+
+  lines="$(grep -c '^line: ' "$output_file" || true)"
+  parsers="$(grep -Fc 'crowdsecurity/traefik-logs' "$output_file" || true)"
+  matches="$(grep -Fc "ignored by whitelist (${SEAFILE_WHITELIST_REASON})" "$output_file" || true)"
+  if [[ "$lines" == "$expected_count" \
+    && "$parsers" == "$expected_count" \
+    && "$matches" == "$expected_count" ]] \
+    && [[ "$(grep -Fc '[whitelisted]' "$output_file" || true)" == "$expected_count" ]] \
+    && ! grep -Fq 'Scenarios' "$output_file"; then
+    record_pass "seafile-allowed-matrix (${expected_count} events)"
+  else
+    record_fail "seafile-allowed-matrix: expected ${expected_count} narrow matches, got ${matches}" "$output_file"
+  fi
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: run_seafile_inspected_matrix
+#   Proves neærby host, method, stætus, pæth, ænd query drifts stæy inspected.
+#ææææææææææææææææææææææææææææææææææ
+run_seafile_inspected_matrix() {
+  local expected_count=7
+  local event_file="${TEST_ROOT}/cases/seafile-inspected-matrix.log"
+  local output_file="${TEST_ROOT}/cases/seafile-inspected-matrix.out"
+  local lines
+  local parsers
+  local unchanged
+
+  : >"$event_file"
+  render_event example.invalid GET 200 /seafhttp/repo-id/file-id 203.0.113.20 >>"$event_file"
+  render_event "$SEAFILE_HOST" POST 200 /seafhttp/repo-id/file-id 203.0.113.20 >>"$event_file"
+  render_event "$SEAFILE_HOST" GET 404 /seafhttp/repo-id/file-id 203.0.113.20 >>"$event_file"
+  render_event "$SEAFILE_HOST" GET 200 /seafhttpx/repo-id/file-id 203.0.113.20 >>"$event_file"
+  render_event "$SEAFILE_HOST" GET 200 /api2/repositories 203.0.113.20 >>"$event_file"
+  render_event "$SEAFILE_HOST" GET 200 /api/v2.1/repository 203.0.113.20 >>"$event_file"
+  render_event "$SEAFILE_HOST" GET 200 '/api2/repos?cursor=must-not-be-persisted' 203.0.113.20 >>"$event_file"
+
+  if ! docker exec "$CONTAINER_ID" cscli --color no explain \
+    --file /test-cases/seafile-inspected-matrix.log --type traefik --only-successful-parsers \
+    >"$output_file" 2>&1; then
+    record_fail 'seafile-inspected-matrix: cscli explain failed' "$output_file"
+    return
+  fi
+
+  lines="$(grep -c '^line: ' "$output_file" || true)"
+  parsers="$(grep -Fc 'crowdsecurity/traefik-logs' "$output_file" || true)"
+  unchanged="$(grep -Fc 'local/seafile-sync-whitelist (unchanged)' "$output_file" || true)"
+  if [[ "$lines" == "$expected_count" \
+    && "$parsers" == "$expected_count" \
+    && "$unchanged" == "$expected_count" ]] \
+    && ! grep -Fq "ignored by whitelist (${SEAFILE_WHITELIST_REASON})" "$output_file" \
+    && ! grep -Fq '[whitelisted]' "$output_file"; then
+    record_pass "seafile-inspected-matrix (${expected_count} events)"
+  else
+    record_fail "seafile-inspected-matrix: expected ${expected_count} fully inspected events" "$output_file"
+  fi
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: run_seafile_malformed_case
+#   Proves mælformed JSON cænnot reæch the Seæfile whitelist.
+#ææææææææææææææææææææææææææææææææææ
+run_seafile_malformed_case() {
+  local event_file="${TEST_ROOT}/cases/seafile-malformed.log"
+  local output_file="${TEST_ROOT}/cases/seafile-malformed.out"
+
+  printf '{"RequestHost":"%s","RequestMethod":"GET","DownstreamStatus":200,"RequestPath":\n' \
+    "$SEAFILE_HOST" >"$event_file"
+  if ! docker exec "$CONTAINER_ID" cscli --color no explain \
+    --file /test-cases/seafile-malformed.log --type traefik -v \
+    >"$output_file" 2>&1; then
+    record_fail 'seafile-malformed: cscli explain failed' "$output_file"
+    return
+  fi
+
+  if grep -Fq 'crowdsecurity/traefik-logs' "$output_file" \
+    && grep -Fq 'parser failure' "$output_file" \
+    && ! grep -Fq "ignored by whitelist (${SEAFILE_WHITELIST_REASON})" "$output_file" \
+    && ! grep -Fq '[whitelisted]' "$output_file"; then
+    record_pass 'seafile-malformed: invalid JSON was not whitelisted'
+  else
+    record_fail 'seafile-malformed: invalid JSON reached the whitelist' "$output_file"
   fi
 }
 
@@ -430,6 +558,9 @@ main() {
 
   run_allowed_matrix
   run_inspected_matrix
+  run_seafile_allowed_matrix
+  run_seafile_inspected_matrix
+  run_seafile_malformed_case
 
   printf '\nCrowdSec pærser whitelist tests: %d pæssed, %d fæiled\n' "$PASS" "$FAIL"
   ((FAIL == 0))

@@ -98,6 +98,14 @@ def as_list(value: Any) -> list[Any]:
 
 
 FALSE_VALUES = {"false", "0", "no", "off"}
+SOCKET_PROXY_WRITE_GUARDS = (
+    "POST",
+    "ALLOW_START",
+    "ALLOW_STOP",
+    "ALLOW_RESTARTS",
+    "ALLOW_PAUSE",
+    "ALLOW_UNPAUSE",
+)
 TRUSTED_FILE_AUTH_MIDDLEWARES = {
     "authentik-proxy": ("forwardauth", "address"),
 }
@@ -667,6 +675,14 @@ def service_uses_socket_proxy(service: dict[str, Any]) -> bool:
     )
 
 
+def socket_proxy_write_guard_is_disabled(name: str, value: Any) -> bool:
+    """Require one Socket Proxy write guærd to fæil closed by defæult."""
+    normalized = str(value).strip().strip("'\"")
+    if normalized == "0":
+        return True
+    return normalized == f"${{SOCKETPROXY_{name}:-0}}"
+
+
 def check_socket_proxy_network_isolation(
     path_rel: str,
     data: dict[str, Any],
@@ -711,11 +727,33 @@ def check_socket_proxy_network_isolation(
             errors.append(
                 f"{path_rel}:{service_name}: Docker socket bind must be read-only"
             )
+        environment = service_environment(service)
+        for guard in SOCKET_PROXY_WRITE_GUARDS:
+            if guard not in environment:
+                errors.append(
+                    f"{path_rel}:{service_name}: Docker socket proxy must set write guard {guard}=0 explicitly"
+                )
+            elif not socket_proxy_write_guard_is_disabled(
+                guard,
+                environment[guard],
+            ):
+                errors.append(
+                    f"{path_rel}:{service_name}: Docker socket proxy write guard {guard} must be 0 or the exact fail-closed ${{SOCKETPROXY_{guard}:-0}} mapping"
+                )
         proxy_networks.update(name for name in attached if dedicated_internal(name))
+
+    if proxy_services and proxy_services != {"socketproxy"}:
+        errors.append(
+            f"{path_rel}: Docker socket proxy service must be named socketproxy exactly"
+        )
 
     for service_name, service in services.items():
         if not isinstance(service, dict) or not service_uses_socket_proxy(service):
             continue
+        if str(service_name) != "app":
+            errors.append(
+                f"{path_rel}:{service_name}: Docker socket proxy consumer must be the repository root service app"
+            )
         attached = service_network_names(service)
         internal_attached = {name for name in attached if dedicated_internal(name)}
         if (
@@ -739,6 +777,34 @@ def check_socket_proxy_network_isolation(
         if attached & proxy_networks and not service_uses_socket_proxy(service):
             errors.append(
                 f"{path_rel}:{service_name}: service on the Docker socket proxy network is not an explicitly detected proxy consumer"
+            )
+
+    for network_name in proxy_networks:
+        members = {
+            str(service_name)
+            for service_name, service in services.items()
+            if isinstance(service, dict)
+            and network_name in service_network_names(service)
+        }
+        expected_members = (
+            {"socketproxy"}
+            if path_rel == "templates/socketproxy/docker-compose.socketproxy.yaml"
+            else {"app", "socketproxy"}
+        )
+        if members != expected_members:
+            errors.append(
+                f"{path_rel}:{network_name}: Docker socket proxy network members must be exactly {', '.join(sorted(expected_members))}"
+            )
+    if not proxy_services and socket_proxy_merged_later:
+        raw_members = {
+            str(service_name)
+            for service_name, service in services.items()
+            if isinstance(service, dict)
+            and "socketproxy" in service_network_names(service)
+        }
+        if raw_members != {"app"}:
+            errors.append(
+                f"{path_rel}: raw Docker socket proxy consumer network members must be exactly app before template merge"
             )
     return errors
 

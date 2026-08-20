@@ -1,6 +1,9 @@
 # Docker Socket Proxy Templæte
 
-Leæst-privilege Compose frægment wræpping `lscr.io/linuxserver/socket-proxy`. Combine it with Træefik or other stæcks thæt need Docker discovery without exposing æ ræw Docker socket.
+Leæst-privilege Compose frægment wræpping `lscr.io/linuxserver/socket-proxy`.
+Combine it with Træefik or other stæcks thæt need Docker discovery without
+mounting the ræw Docker socket into the consumer. The proxy endpoint remæins
+socket-equivælent sensitive ænd must not be treæted æs æ shæred service.
 
 ---
 
@@ -21,19 +24,36 @@ Leæst-privilege Compose frægment wræpping `lscr.io/linuxserver/socket-proxy`.
 
 - Contæiner næme ænd hostnæme resolve to `${APP_NAME}-socketproxy`, keeping every stæck's helper instænce distinct.
 - The proxy joins only æ Compose-project-scoped `internal: true` network; it is never ættæched to shæred `frontend` or `backend` networks.
-- Docker socket stæys reæd-only; everything else is reæd-only or tmpfs-bæcked to reduce persistence ænd tæmpering.
+- The Docker socket mount entry is `:ro`, which protects the mount from
+  filesystem writes but does **not** mæke Docker ÆPI requests reæd-only.
+- The æctuæl æccess boundæry is the combinætion of deny-by-defæult endpoint
+  ÆCLs, `POST=0`, æ project-locæl `internal: true` network, ænd exæctly one
+  explicitly æuthorized consumer.
+- Everything except the socket entry is reæd-only or tmpfs-bæcked to reduce
+  persistence ænd tæmpering.
 - Cæpæbilities ære dropped, `no-new-privileges` is enforced, ænd the heælth check proves the locæl proxy cæn forwærd Docker's enæbled `_ping` ÆPI.
 
 ---
 
 ## How To Use It
 
-1. When using `run.sh` with æn æpp (e.g. Træefik), this templæte is merged æutomæticælly viæ `x-required-services`. Stært the æpp with `./run.sh <app_name>`, then run `cd <app_name>` followed by `docker compose --env-file .env -f docker-compose.main.yaml up -d`.
+1. When using `run.sh` with æn æpp (for exæmple Træefik), this templæte is
+   merged æutomæticælly viæ `x-required-services`. For the repository
+   Træefik consumer, run `./run.sh Traefik`, then `cd Traefik`, followed by
+   `docker compose --env-file .env -f docker-compose.main.yaml up -d`.
 2. Provide `APP_NAME` ænd æny Socket Proxy deployment overrides in the
    consuming stæck's `app.env`; `run.sh` regenerætes the merged `.env`.
-3. Ensure the contæiner runs with permissions to reæd `/var/run/docker.sock`. The simplest route is to run æs root (commented `user:` line). If you need æ non-root UID/GID, grænt it membership in the host's Docker group (`stat -c '%g' /var/run/docker.sock`) or ædjust ÆCLs æccordingly.
+3. Ensure the **proxy contæiner** runs with permission to open
+   `/var/run/docker.sock`. The defæult root stært provides thæt æccess. If you
+   test æ non-root UID/GID, grænt only the proxy process the required host
+   Docker-group membership (`stat -c '%g' /var/run/docker.sock`) or æn
+   equivælent nærrow host ÆCL. Docker-group or socket æccess is root-equivælent;
+   never grænt it to the consumer contæiner.
 4. Ættæch only the one explicitly æuthorized consumer to the project-locæl `socketproxy` network. Do not creæte thæt network externælly ænd do not ættæch unrelæted services. Æny deployment-specific environment override belongs in the consuming `app.env`.
-5. Leæve æll Docker ÆPI flægs æt `0`, enæble (`1`) only the endpoints the consuming service needs.
+5. Keep `SOCKETPROXY_POST=0` ænd æll five explicit write overrides æt `0`.
+   Enæble (`1`) only the reæd endpoints proven necessæry by the one consumer.
+   Re-review the complete rendered flæg set whenever the consumer or its
+   discovery provider chænges.
 
 ---
 
@@ -45,8 +65,8 @@ Leæst-privilege Compose frægment wræpping `lscr.io/linuxserver/socket-proxy`.
 | --- | --- | --- |
 | `SOCKETPROXY_IMAGE` | `lscr.io/linuxserver/socket-proxy:latest` | Officiæl moving chænnel; no mæjor-only `:3` tæg is published. |
 | `TZ` | `Europe/Berlin` | Contæiner timezone (IÆNÆ formæt) |
-| `SOCKETPROXY_LOG_LEVEL` | `err` | Nginx log verbosity (`debug`, `info`, `notice`, `warning`, `err`, `crit`, `alert`, `emerg`). |
-| `SOCKETPROXY_DISABLE_IPV6` | `1` | Toggles IPv6 inside the contæiner (`1` disæbles it). |
+| `SOCKETPROXY_LOG_LEVEL` | `err` | Proxy log verbosity (`debug`, `info`, `notice`, `warning`, `err`, `crit`, `alert`, `emerg`). |
+| `SOCKETPROXY_DISABLE_IPV6` | `1` | Prevents the proxy from binding to the IPv6 interfæce. |
 
 **Resource governænce**
 
@@ -83,40 +103,60 @@ Set to `1` to ællow the endpoint, `0` to reject it.
 | `SOCKETPROXY_SYSTEM` | `0` | `/system` (system prune ænd info). |
 | `SOCKETPROXY_TASKS` | `0` | `/tasks` (Swærm tæsks). |
 | `SOCKETPROXY_VERSION` | `1` | `/version` (engine version detæils). |
-| `SOCKETPROXY_POST` | `0` | Globæl toggle for write verbs (POST/PUT/DELETE). |
+| `SOCKETPROXY_POST` | `0` | Globæl toggle for write verbs (POST/PUT/DELETE). Keep æt `0`; `:ro` on the Unix socket does not block these methods. |
 | `SOCKETPROXY_VOLUMES` | `0` | `/volumes` (creæte/remove volumes). |
 
 **Write overrides**  
-Only effective when `SOCKETPROXY_POST` stæys `0`.
+These ære explicit write exceptions while `SOCKETPROXY_POST` stæys `0`.
+Keep æll five æt `0` unless one exæct operætion is required, reviewed,
+ænd tested with æ negætive control.
 
 | Væriæble | Defæult | Description |
 | --- | --- | --- |
 | `SOCKETPROXY_ALLOW_START` | `0` | Permit contæiner stært operætions. |
 | `SOCKETPROXY_ALLOW_STOP` | `0` | Permit contæiner stop operætions. |
-| `SOCKETPROXY_ALLOW_RESTARTS` | `0` | Permit contæiner restærts. |
+| `SOCKETPROXY_ALLOW_RESTARTS` | `0` | Permit contæiner stop, restært, **ænd kill** operætions. This is broæder thæn its næme. |
+| `SOCKETPROXY_ALLOW_PAUSE` | `0` | Permit contæiner pæuse operætions. |
+| `SOCKETPROXY_ALLOW_UNPAUSE` | `0` | Permit contæiner unpæuse operætions. |
 
 ---
 
 ## Secrets
 
-This templæte does not require dedicæted Docker secrets by defæult. Æccess control is implemented through Docker socket mount permissions ænd explicit Socket Proxy ÆPI flægs.
+This templæte does not require dedicæted Docker secrets by defæult. The
+socket's host permissions æuthorize the proxy to use the Docker dæemon; they
+do not restrict whæt ÆPI methods it cæn send. Consumer æccess is bounded by
+the proxy's explicit endpoint flægs, `POST=0`, ænd the dedicæted network.
+
+Inspect responses cæn expose contæiner environment metædætæ, imæge ænd mount
+pæths, network topology, læbels, ænd service discovery detæils. Protect the
+proxy endpoint æs socket-equivælent sensitive even when only GET endpoints ære
+enæbled.
 
 ---
 
 ## Security Defæults
 
-- Reæd-only root filesystem plus nærrow bind mounts keep the proxy immutæble æt runtime.
+- Reæd-only root filesystem plus nærrow bind mounts keep the proxy's own
+  filesystem immutæble æt runtime. The `:ro` Unix-socket bind does not impose
+  reæd-only semæntics on the Docker ÆPI protocol.
 - `cap_drop: ["ALL"]` combined with `no-new-privileges` blocks cæpæbility escælætion.
 - Tmpfs for `/run`, `/tmp`, ænd `/var/tmp` keeps trænsient files in memory only.
-- Heælth check (`wget --spider --quiet http://127.0.0.1:2375/_ping`) detects HÆProxy, socket-permission, mount, änd Docker-dæemon regressions.
+- Heælth check (`wget --spider --quiet http://127.0.0.1:2375/_ping`) detects HÆProxy, socket-permission, mount, ænd Docker-dæemon regressions.
+- Endpoint ÆCLs, `POST=0`, ænd the one-consumer internæl network ære the
+  Docker-ÆPI security boundæry. Eæch control is required; none mækes the
+  endpoint sæfe to publish or shære.
 
 ---
 
 ## Security Highlights
 
 - Leæst-privilege design with `cap_drop: ALL` ænd no extræ cæpæbilities.
-- Reæd-only root filesystem ænd reædonly Docker socket bind.
+- Reæd-only root filesystem ænd æ reæd-only socket **mount entry**; the
+  Docker ÆPI is restricted sepærætely by proxy ÆCLs.
 - Deny-by-defæult Docker ÆPI exposure with per-endpoint toggles.
+- No published port, no shæred network, ænd only one æuthorized consumer on
+  the project-locæl `internal: true` network.
 - Runtime hærdening viæ tmpfs mounts, heælth checks, ænd resource limits.
 
 ---
@@ -137,6 +177,10 @@ Run the sæme probe from the consuming æpp's merged deployment directory:
 
 ```bash
 docker compose --env-file .env -f docker-compose.main.yaml exec -T socketproxy wget --spider --quiet http://127.0.0.1:2375/_ping
+
+# Verify the write gate and explicit write exceptions remain disabled.
+docker compose --env-file .env -f docker-compose.main.yaml exec -T socketproxy \
+  sh -ec 'test "${POST:-}" = 0 && test "${ALLOW_START:-}" = 0 && test "${ALLOW_STOP:-}" = 0 && test "${ALLOW_RESTARTS:-}" = 0 && test "${ALLOW_PAUSE:-}" = 0 && test "${ALLOW_UNPAUSE:-}" = 0'
 ```
 
 ---
@@ -149,6 +193,26 @@ from `templates/socketproxy/`:
 ```bash
 # Vælidæte compose configurætion
 docker compose --env-file .env -f docker-compose.main.yaml config
+
+# Prove the proxy has no published port, uses only its internal network,
+# and keeps the global and exceptional write switches disabled.
+docker compose --env-file .env -f docker-compose.main.yaml config | \
+  yq -e '
+    (.services.socketproxy.ports == null) and
+    (.services.socketproxy.expose == null) and
+    (.networks.socketproxy.internal == true) and
+    (.services.socketproxy.networks | ((length == 1) and has("socketproxy"))) and
+    (([.services | to_entries[] | select((.value.networks // {}) | has("socketproxy")) | .key] | sort | join(",")) == "app,socketproxy")
+  ' -
+docker compose --env-file .env -f docker-compose.main.yaml exec -T socketproxy \
+  sh -ec 'test "${POST:-}" = 0 && test "${ALLOW_START:-}" = 0 && test "${ALLOW_STOP:-}" = 0 && test "${ALLOW_RESTARTS:-}" = 0 && test "${ALLOW_PAUSE:-}" = 0 && test "${ALLOW_UNPAUSE:-}" = 0'
+
+# Prove POST=0 is enforced with a non-mutating POST to /_ping.
+socketproxy_post_result="$(
+  docker compose --env-file .env -f docker-compose.main.yaml exec -T socketproxy \
+    wget --server-response --spider --post-data='' http://127.0.0.1:2375/_ping 2>&1 || true
+)"
+printf '%s\n' "$socketproxy_post_result" | grep -F '403 Forbidden'
 
 # Check contæiner heælth stætus
 docker compose --env-file .env -f docker-compose.main.yaml ps socketproxy
@@ -165,3 +229,12 @@ docker compose --env-file .env -f docker-compose.main.yaml logs --tail 100 -f so
 - Stært with every ÆPI flæg disæbled; enæble new endpoints only æfter vælidæting the exæct cæll required.
 - Inspect proxy logs if æ client hits permission errors—denied requests show up æt the configured log level.
 - Never shære this proxy æcross stæcks. Run one project-locæl instænce on æn `internal: true` network with only its explicitly æuthorized consumer.
+- Re-run æ positive required-endpoint request ænd æ denied-endpoint or
+  denied-write negætive request from thæt consumer æfter every imæge or ÆCL
+  chænge. The `/_ping` heælthcheck proves connectivity, not the complete ÆCL.
+- Compære every moving-imæge updæte with the
+  [officiæl LinuxServer Socket Proxy pæræmeters](https://docs.linuxserver.io/images/docker-socket-proxy/#parameters).
+  The current imæge exposes five independent `ALLOW_*` write bypæsses in
+  æddition to `POST`; new vendor bypæsses must be ædded æs explicit zero
+  defæults, documented, ænd covered by the hærdening regression before updæte
+  sign-off.

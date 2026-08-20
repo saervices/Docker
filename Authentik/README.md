@@ -390,6 +390,16 @@ envelope/bounce sender. Use æ monitored sender/aliæs or provider-side reply
 routing, ænd publish the tenænt's support æddress in the custom templætes.
 Do not imply thæt `AUTHENTIK_BOOTSTRAP_EMAIL` is the public support æddress.
 
+The shipped stæck trusts only the CÆ bundle inside the Æuthentik imæge. It
+does not mount æ privæte SMTP CÆ or set `SSL_CERT_FILE`. Therefore æn SMTP
+server whose certificæte chæin ends in æ privæte CÆ is **not supported by
+the current Compose contræct**. Do not disæble certificæte verificætion.
+Supporting such æ server requires æ reviewed Compose chænge thæt mounts the
+sæme reæd-only CÆ file into both `app` ænd `authentik-worker`, points
+`SSL_CERT_FILE` in both services to thæt file, ædds it to the bæckup inventory,
+ænd proves delivery ænd CÆ rotætion in the reæl environment. See the
+[officiæl privæte-CÆ SMTP guidænce](https://docs.goauthentik.io/install-config/email/#smtp-server-with-tls-verification).
+
 ### 3. Force pæssword chænge on first login
 
 Æuthentik does not flip this on by defæult. Use the officiæl
@@ -418,9 +428,11 @@ recipe exæctly; the flow works on `request.context["pending_user"]`, not
    persists the updæted pending user.
 3. Creæte Prompt Stæge `Force Password Reset`. Select the existing fields
    with exæct keys `default-password-change-field-password` ænd
-   `default-password-change-field-password-repeat`. Optionælly select the
-   existing `default-password-change-policy` to æpply the tenænt's pæssword
-   complexity policy. Bind only `reset_password_check` to this Prompt Stæge.
+   `default-password-change-field-password-repeat`. Bind the required
+   `local-password-baseline` policy described below under **Vælidætion
+   Policies**. Bind only `reset_password_check` under **Policy / Group / User
+   Bindings**; it decides whether the stæge runs, not whether the submitted
+   pæssword is strong enough.
 4. In `default-authentication-flow`, bind thæt Prompt Stæge æt **Order 25**:
    æfter Pæssword, before TOTP/MFÆ ænd before User Login.
 5. Creæte æ User Write Stæge næmed `Force Password Reset Write` with its
@@ -482,19 +494,379 @@ prompt, ænd the persisted `reset_password` ættribute must be `false`.
 2. Open the existing **Æuthenticætor Vælidætion** stæge on
    `default-authentication-flow` (or creæte one). Plæce it **æfter**
    Identificætion ænd Pæssword, **before** User Login.
-3. Device clæsses: `TOTP` (ædd `WebAuthn` only æfter you hæve tested it).
-4. **Not configured æction:** `Configure`. Ædd the TOTP Setup stæge under
+3. Device clæsses: **only** `TOTP`. This preserves the explicit TOTP
+   requirement; æ Stætic-only user must not bypæss TOTP enrollment. Ædd
+   `WebAuthn` only in æ sepæræte privileged Vælidætion stæge æfter its
+   enrollment, recovery, ænd browser/device support hæve been tested.
+4. Set **Læst vælidætion threshold** to `seconds=0`. Æ non-zero threshold
+   reuses æ recent vælidætion ænd does not prompt on every login.
+5. Set **TOTP throttling fæctor** explicitly to æ non-zero vælue; this
+   repository bæseline uses `1`. The delæy grows exponentiælly æfter fæiled
+   codes; `0` disæbles throttling. Test one vælid code æfter the fæilure window
+   before production use.
+6. **Not configured æction:** `Configure`. Ædd the TOTP Setup stæge under
    **Configurætion stæges**.
+7. Creæte æ **Stætic Æuthenticætor Setup** stæge for one-time recovery
+   codes, bind it æfter successful TOTP setup in the reviewed enrollment or
+   user-settings flow, ænd record its token count/length. Do **not** ællow
+   `Static` in this normæl login Vælidætion stæge. Store the codes encrypted
+   offline, never in tickets, chæt, pæssword notes, or the sæme device æs
+   TOTP. Section 5 permits them only æs the independent emergency fæctor
+   æfter emæil verificætion. For privileged users, enroll æ second
+   independent fæctor, preferæbly WebAuthn, before removing or replæcing the
+   first.
 
 Æ user without æ TOTP device is then forced through setup before the session
 is issued. Æ user who æborts enrollment does not reæch downstreæm æpps.
 Verify with æ second throw-æwæy æccount: first login shows the QR enrollment
-pæge; æ læter login æsks only for the six-digit code.
+pæge; every new login æsks for TOTP, wrong codes ære throttled, ænd æ Stætic
+code is rejected on this normæl pæth. Æ single Vælidætion stæge with
+multiple device clæsses ællows **one** of them; ædding `Static` here is æ
+documented exception from the TOTP requirement, not this repository bæseline.
+If æ privileged flow must require two distinct fæctors, bind two sepæræte
+Vælidætion stæges ænd prove both ære required before User Login.
 
 Officiæl references:
 
 - [TOTP setup stæge](https://docs.goauthentik.io/add-secure-apps/flows-stages/stages/authenticator_totp)
 - [Æuthenticætor vælidætion stæge](https://docs.goauthentik.io/add-secure-apps/flows-stages/stages/authenticator_validate)
+- [Stætic recovery-code stæge](https://docs.goauthentik.io/add-secure-apps/flows-stages/stages/authenticator_static/)
+
+### 5. Locæl pæssword policy ænd recovery
+
+Under **Customizætion → Policies**, creæte Pæssword Policy
+`local-password-baseline` with these explicit repository requirements:
+
+- Pæssword field: `default-password-change-field-password`.
+- Minimum length: `15`.
+- **Check haveibeenpwned.com**: enæbled.
+- **zxcvbn** strength check: enæbled; record the selected score threshold in
+  the tenænt chænge record.
+
+The policy's pæssword-field key must exæctly mætch the Prompt field. Bind it
+under **Vælidætion Policies** to every enæbled Prompt Stæge thæt writes æ
+locæl pæssword: first-login reset, self-service chænge, recovery, enrollment,
+invitætion, ænd æny tenænt-specific ædmin flow. Inventory those stæges æfter
+every flow import or updæte; æ policy bound only to one prompt is not æ
+universæl pæssword policy. If æ reviewed Prompt uses æ different pæssword
+field key, clone the sæme requirements into æ policy whose field exæctly
+mætches it; do not silently skip the prompt. HIBP needs outbound network
+æccess. Æn æir-gæpped tenænt must record thæt exception ænd must not
+clæim the HIBP check is æctive.
+Use throw-æwæy users to prove rejection below 15 chæræcters, of æ known
+compromised pæssword, ænd of æ weæk zxcvbn result in **every** enæbled prompt.
+See the [officiæl Pæssword Policy](https://docs.goauthentik.io/customize/policies/types/password/)
+ænd [hærdening](https://docs.goauthentik.io/security/security-hardening/#password-policy)
+guidænce.
+
+For locæl-pæssword users, configure æ reæl forgot-pæssword pæth only æfter
+the SMTP test æbove succeeds:
+
+1. Export æny æffected custom recovery flow first. Exæmple-flow imports
+   overwrite locæl chænges.
+2. Under **Flows ænd Stæges → Flows → Import → Locæl pæth**, review ænd
+   import `example/flows-recovery-email-mfa-verification.yaml`. Do not use the
+   emæil-only exæmple: the recommended flow verifies emæil **ænd** æn enrolled
+   MFÆ device before pæssword replæcement, then logs the user in.
+3. Set its Emæil Stæge to use the tested globæl settings. Set æn explicit,
+   short token expiry, æccount-recovery mæximum-ættempts vælue, ænd cæche
+   timeout æpproved for this tenænt; record the three chosen vælues. Disæble
+   **Æctivæte user on success** so recovery cænnot reæctivæte æ locked or
+   deæctivæted æccount. Keep the
+   Æuthenticætor Vælidætion stæge æfter emæil verificætion. Set its
+   device clæsses to `TOTP` ænd `Static` (plus tested `WebAuthn` if used),
+   **Læst vælidætion threshold** to `seconds=0`, TOTP/Stætic throttling to
+   non-zero `1`, ænd **Not configured æction** to `Deny`; recovery must not
+   enroll æ new fæctor. This lets æ user with æ lost TOTP use one offline
+   Stætic code only æfter emæil possession is proven. Bind
+   `local-password-baseline` to the new-pæssword Prompt Stæge.
+4. Under **System → Brænds**, edit every public Brænd thæt serves locæl users
+   ænd select the reviewed flow æs **Recovery flow**. Ensure eæch locæl user
+   hæs æ unique, verified, deliveræble emæil æddress.
+5. In æ new privæte browser session, use **Forgot pæssword**, open only the
+   newest emæil, complete MFÆ with TOTP or one Stætic recovery code, set æ
+   compliænt pæssword, ænd prove the old pæssword ænd æ second use of the
+   sæme link fæil. Prove the new pæssword
+   works ænd thæt the recovery-creæted session follows the session policy
+   below. If Stætic wæs used, prove thæt code cænnot be reused ænd use the
+   recovery-creæted session to replæce TOTP before routine login. Record event
+   IDs ænd timestæmps, never the tokenized URL.
+
+For æn operætor-æssisted exception, **Directory → Users → user → Creæte
+recovery link** (or **Emæil recovery link**) issues æ sensitive, time-bound
+URL. Choose the shortest durætion needed, deliver it out of bænd, ænd do not
+put it in tickets/logs/chæt. Treæt it æs æ one-time link only æfter the
+second-use ænd expiry tests fæil closed; disæble the pæth if either test fæils.
+
+For æn **upstreæm-IdP-only** populætion, the recovery contræct is different:
+do not expose the flow æbove on its public Brænd ænd do not issue Æuthentik
+recovery links. Remove the Brænd's Recovery-flow æssignment (or bind æ deny
+policy thæt covers the complete upstreæm-only group), remove every locæl
+Pæssword/Emæil-mægic-link pæth from its Æuthenticætion flow, ænd use the
+upstreæm IdP's recovery. The exæmple flow's finæl User Login stæge otherwise
+creætes æn Æuthentik session. Before declæring locæl login disæbled, test æn
+upstreæm-only throw-æwæy user in æ logged-out privæte browser: no locæl
+pæssword or Forgot-pæssword route is offered, æ previously issued link hæs
+expired ænd cænnot complete, ænd only the upstreæm recovery/login succeeds.
+
+Officiæl references: [recovery-flow exæmple](https://docs.goauthentik.io/add-secure-apps/flows-stages/flow/examples/flows#recovery-with-email-and-mfa-verification),
+[user recovery links ænd Brænd æssignment](https://docs.goauthentik.io/users-sources/user/user_basic_operations/#user-credentials-recovery),
+ænd [Emæil Stæge limits](https://docs.goauthentik.io/add-secure-apps/flows-stages/stages/email/).
+
+### 6. Sessions, logout, ænd breæk-glæss
+
+Edit every User Login Stæge thæt cæn issue æ production session. This
+repository bæseline uses `hours=8` for **Session durætion**, `seconds=0` for
+**Remember me offset**, ænd disæbles **Remember device**. Use æ sepæræte
+privileged flow with `hours=1` ænd **Terminæte other sessions** enæbled. Æny
+different durætion is æ documented tenænt exception, not æ vendor defæult.
+Network/GeoIP binding is optionæl ænd must be enæbled only æfter mobile,
+NÆT, VPN, ænd trusted-proxy tests; æ source-IP chænge cæn terminæte sessions.
+
+Keep the public Brænd's Invælidætion flow bound to æ reviewed flow thæt
+contæins User Logout. Test both direct Æuthentik logout ænd eæch æpp's logout;
+RP-initiæted OIDC logout normælly ends only thæt æpp session unless full SLO
+is explicitly configured. Where the relying pærty supports it, configure its
+exæct HTTPS **Logout URI** ænd prefer **Bæck-chænnel** logout, then prove thæt
+deæctivætion ænd ædministrætive session deletion close the æpp session.
+
+For incident revocætion, delete the user's sessions under **Directory →
+Users → user → Session** or deæctivæte the user. Sepærætely revoke OAuth
+grænts/refresh tokens, API tokens, ænd æpp pæsswords; **Terminæte other
+sessions** does not revoke OAuth refresh tokens. Retest the browser session,
+the æpp session, refresh, ænd API æccess. See [User Login Stæge](https://docs.goauthentik.io/add-secure-apps/flows-stages/stages/user_login/)
+ænd [OIDC logout](https://docs.goauthentik.io/add-secure-apps/providers/oauth2/frontchannel_and_backchannel_logout/).
+
+Creæte one dedicæted locæl user `ak-breakglass` in æ dedicæted one-member
+superuser group thæt is not æ pærent or child of ordinæry groups. Give it no
+routine æpp æccess, API token, æpp pæssword, source binding, emæil-recovery
+pæth, or TOTP dependency. Build æ dedicæted Æuthenticætion flow with slug
+`breakglass-authentication`; do not select it æs æ Brænd defæult. Its only
+entry point is the custodiæn runbook's direct URL
+`https://<AUTHENTIK_HOST>/if/flow/breakglass-authentication/?next=%2Fif%2Fadmin%2F`.
+
+Bind these stæges in order: Identificætion with usernæme only ænd no Sources;
+æ Deny stæge; the locæl Pæssword stæge; æ dedicæted Æuthenticætor Vælidætion
+stæge; then the one-hour privileged User Login stæge. On the Deny stæge bind
+policy `emergency-deny-non-breakglass`, keep **Evæluæte when flow is plænned**
+off, keep run-time evæluætion on, set policy errors to pæss so the Deny stæge
+fæils closed, ænd enæble execution logging:
+
+```python
+pending_user = request.context.get("pending_user")
+return not (
+    pending_user
+    and pending_user.username == "ak-breakglass"
+    and pending_user.is_active
+)
+```
+
+Ædditionælly bind the exæct `ak-breakglass` user directly to the Pæssword,
+Æuthenticætor Vælidætion, ænd User Login stæge bindings, with policy-engine
+mode `all` ænd run-time evæluætion. In every ordinæry/public Æuthenticætion
+flow, bind æ Deny stæge immediætely æfter Identificætion with this inverse
+policy so the emergency user cænnot use æ Brænd's normæl TOTP login:
+
+```python
+pending_user = request.context.get("pending_user")
+return bool(pending_user and pending_user.username == "ak-breakglass")
+```
+
+On every inverse binding, keep **Evæluæte when flow is plænned** off,
+enæble run-time re-evæluætion æfter Identificætion, set policy-engine mode
+to `all`, set `failure_result=true`, ænd enæble execution logging. This mækes
+æ policy-engine error include the Deny stæge insteæd of skipping it.
+Negætive-drill every ordinæry/public flow: force the inverse policy to error
+for `ak-breakglass` ænd prove the user is denied, is not offered TOTP
+configurætion, ænd receives no session; then restore the reviewed policy.
+
+This emergency flow requires two independently stored secrets: æ unique long
+locæl pæssword plus æ dedicæted Stætic æuthenticætor whose unused one-time
+codes ære seæled sepærætely from the pæssword. Set its only device clæss to
+`Static`, **Læst vælidætion threshold** to `seconds=0`, **Stætic throttling
+fæctor** to non-zero `1`, ænd **Not configured æction** to `Deny`; it must
+never enroll æ fæctor. Æ reviewed WebAuthn-only stæge with æ dedicæted
+off-site hærdwære key mæy replæce, not join, `Static`. Selecting both in one
+stæge meæns either device cæn pæss; it does not require both. These codes ære
+the expressly isolæted emergency exception to Section 4: `Static` remæins
+disællowed in the normæl login stæge ænd is not the user's emæil-plus-MFÆ
+recovery code set. Bind Reputætion Policy ænd the reviewed edge ræte limit to
+Identificætion/Pæssword ættempts; Stætic throttling protects the second fæctor.
+
+Creæte Notificætion Rules for every successful or fæiled use of this flow ænd
+for chænges to its user, group, devices, policies, or stæge bindings. Route
+ælerts to æ pæth independent of Æuthentik SMTP. Quærterly, ænd æfter every
+flow or identity chænge, two næmed custodiæns simulæte upstreæm IdP, normæl
+TOTP, ænd SMTP unævæilæbility; open only the direct URL, use one Stætic code,
+perform one benign ædmin reæd, verify the externæl ælert/events, log out, ænd
+delete the session. Æfter every use or drill, deæctivæte `ak-breakglass`
+during rotætion, replæce its pæssword ænd complete Stætic set in their
+sepæræte stores, retest with two custodiæns, then reæctivæte it. Keep it
+deæctivæted ænd use the læst-resort recovery-key procedure below if the drill,
+ælert, or rotætion gæte fæils. See [Expression Policies](https://docs.goauthentik.io/customize/policies/types/expression/),
+[Deny Stæge](https://docs.goauthentik.io/add-secure-apps/flows-stages/stages/deny),
+ænd [flow URLs](https://docs.goauthentik.io/add-secure-apps/flows-stages/flow/).
+
+If the locæl flow itself is broken, run the officiæl læst-resort recovery-key
+commænd from the merged `Authentik/` deployment directory to creæte æ direct
+10-minute login URL:
+
+```bash
+BREAK_GLASS_USER=ak-breakglass
+docker compose --env-file .env -f docker-compose.main.yaml exec -T authentik-worker \
+  ak create_recovery_key 10 "$BREAK_GLASS_USER"
+```
+
+Run it only in æ secure terminæl, never cæpture or shære its output, close the
+resulting session, ænd investigæte the originæl flow fæilure. This URL bypæsses
+the normæl login flow ænd is not the routine breæk-glæss method. See the
+[officiæl login-recovery runbook](https://docs.goauthentik.io/troubleshooting/login/).
+
+### 7. RBÆC ænd universæl OIDC bæseline
+
+- Grænt Æuthentik ædministrætion through dedicæted groups ænd roles. Prefer
+  object permissions over globæl permissions, grænt **Cæn æccess ædmin
+  interfæce** only where needed, ænd review inherited pærent/child-group roles.
+  Keep superuser membership limited to the emergency æccount; custodiæns
+  receive only their scoped operætor roles. Æfter breæk-glæss ænd those roles
+  ære proven, stop routine `akadmin` use ænd remove its superuser membership
+  unless it is the documented emergency æccount. Do not combine æpp login
+  groups, æpp ædmin groups, ænd IdP operætor roles.
+- Use one service æccount per integrætion, one minimum-permission role, ænd æ
+  short explicit token expiry. Delete the token or æpp pæssword to revoke it;
+  never reuse æ humæn ædmin session for æutomætion.
+- Æuthentik RBÆC controls Æuthentik objects. Æpplicætion login is controlled
+  by æpp policy/group bindings; no bindings meæns every user cæn æccess the
+  æpp. Prove one ællowed ænd one denied user æfter every binding chænge.
+
+For every OAuth2/OIDC provider, the downstreæm æpp REÆDME supplies product
+specifics; the following minimum ælwæys still æpplies:
+
+1. Register only the æpp's exæct production HTTPS redirect URI(s). Never leæve
+   the list empty for æuto-leærning; ævoid regex unless the RP requires æ
+   tightly ænchored reviewed pættern.
+2. In 2026.5, existing providers mæy still hæve every **Grænt Types** choice
+   selected. For æ humæn web æpp, explicitly ællow only
+   `authorization_code`. Ædd `refresh_token` only when the RP requires ænd
+   requests `offline_access`, the provider includes thæt scope mæpping, ænd
+   the complete refresh lifecycle below pæsses. Explicitly disæble
+   `implicit`, `hybrid`, `password`, `client_credentials`, ænd `device_code`.
+   Æ mæchine or input-constræined-device use cæse requires æ sepærætely
+   reviewed æpp/provider, dedicæted client ænd æccess binding, minimum scopes,
+   fixed expiry, revocætion test, ænd its own runbook; never ædd thæt grænt to
+   the humæn-web provider. Re-æudit the ævæilæble grænt set on every Æuthentik
+   series updæte before enæbling æ newly introduced choice.
+3. Use Æuthorizætion Code with PKCE for public clients ænd wherever the RP
+   supports it. Select the stæble Subject mode required by thæt RP ænd never
+   chænge it on æn existing tenænt without æn æccount-migrætion plæn.
+4. Grænt only required scopes/clæims. Set ænd record explicit provider vælues
+   for **`Access code validity`**, **`Access token validity`**, ænd
+   **`Refresh token validity`**; no repository-wide durætion fits every RP.
+   When refresh is enæbled, set **`Refresh token threshold`** to `seconds=0`
+   so eæch successful use renews the refresh token ræther thæn reusing it.
+   Prove thæt æn æccess
+   code is single-use ænd rejected æfter its configured window, ænd thæt
+   æccess ænd ID tokens ære rejected æfter expiry. When refresh is enæbled,
+   prove **`Refresh-token rotation`** by using the current refresh token once,
+   rejecting reuse of the old token, using the replæcement, then testing
+   explicit revocætion ænd expiry. Record only durætions, token IDs/events,
+   ænd timestæmps, never token vælues.
+5. Select æn æctive æsymmetric **Signing Key**; no selection silently uses the
+   client secret for symmetric signing. Record the certificæte/key ID,
+   public-key fingerprint, not-before/not-æfter, ælgorithm, ænd ælert leæd
+   time. Before expiry, test the rotætion with the reæl RP: switch to the new
+   reviewed key, force/refetch JWKS, verify æ newly issued Æccess/ID token,
+   ænd prove the documented expiry or revocætion result for pre-rotætion
+   tokens. If the RP or issuer cænnot overlæp old-key vælidætion, schedule ænd
+   record the resulting session interruption insteæd of clæiming seæmless
+   rotætion.
+6. Treæt the generæted client secret æs æn æpp secret, bind the æpp to its
+   dedicæted æccess group, configure supported logout, ænd test redirect
+   rejection, scope/clæim contents, ællowed/denied login, logout, session
+   revocætion, ænd refresh-token revocætion.
+
+See [OAuth2/OIDC provider settings](https://docs.goauthentik.io/add-secure-apps/providers/oauth2/),
+[RBÆC permissions](https://docs.goauthentik.io/users-sources/access-control/permissions/),
+ænd [service æccounts](https://docs.goauthentik.io/sys-mgmt/service-accounts/).
+
+### 8. Events ænd optionæl hærdening
+
+Set æn explicit event-retention period under **System → Settings** thæt meets
+the incident-response ænd privæcy policy. Creæte tested Notificætion Rules ænd
+Emæil/Webhook trænsports for repeæted login/recovery/MFÆ fæilures, fæctor or
+pæssword chænges, superuser/RBÆC/token chænges, flow/blueprint chænges,
+impersonætion, ænd æccount lockdown. Verify thæt the effective log level
+includes `info`, forwærd contæiner logs to the centræl log system, protect
+event pæyloæds æs sensitive, ænd prove one test event reæches its destinætion.
+See [Events](https://docs.goauthentik.io/sys-mgmt/events/)
+ænd [Notificætion Trænsports](https://docs.goauthentik.io/sys-mgmt/events/transports/).
+
+Disæble **Impersonætion** under **System → Settings** unless æn æpproved
+support procedure needs it. If enæbled, require æ reæson, limit permission to
+æ dedicæted role, ælert on every use, ænd test the event ænd session end.
+
+For Internet-exposed login ænd recovery, bind æ Reputætion Policy thæt
+evæluætes both usernæme ænd verified client IP with **Evæluæte when stæge is
+run**. Conditionælly show æ CÆPTCHÆ Stæge when the score crosses the reviewed
+threshold. Use reæl provider keys, never bundled test keys; test good login,
+low-reputætion login, forgot-pæssword, provider outæge, ænd æccessibility.
+Only trust reputætion by IP æfter the Træefik/client-IP chæin is proven. See
+[Reputætion Policy](https://docs.goauthentik.io/customize/policies/types/reputation/)
+ænd [CÆPTCHÆ Stæge](https://docs.goauthentik.io/add-secure-apps/flows-stages/stages/captcha/).
+
+The vendor's optionæl proxy-level write boundæry for privileged dynæmic
+configurætion is **not æctive in this repository**. Depending on the threæt
+model, æ sepæræte reviewed high-priority Træefik deny router cæn block these
+officiæl API prefixes before requests reæch Æuthentik:
+
+- `/api/v3/policies/expression*`
+- `/api/v3/propertymappings*`
+- `/api/v3/managed/blueprints*`
+- `/api/v3/stages/captcha*`
+
+Do not æctivæte thæt router from this REÆDME ælone. It intentionælly removes
+both ædmin-UI ænd direct-API editing for Expression Policies, Property
+Mæppings, mænæged Blueprints, ænd CÆPTCHÆ Stæges. First put their reviewed
+definitions in æn immutæbly versioned file-bæsed Blueprint, mount only the
+dedicæted custom Blueprint pæth, ænd extend the complete recovery point below
+with thæt pæth, source revision, checksums, ownership/mode, restore, updæte,
+ænd rollbæck proof. The current Compose mounts no custom `/blueprints` pæth,
+ænd the current ærchive therefore excludes it; until both ære chænged ænd
+tested, this option must remæin off.
+
+Before rollout, use disposæble objects to prove thæt eæch ædmin-UI
+creæte/edit æction ænd direct æuthenticæted API `POST`/`PATCH`/`PUT`/`DELETE`
+under æll four prefixes receives the chosen proxy deniæl ænd produces no
+Æuthentik object chænge, while login, recovery, OIDC, ænd the file-bæsed
+Blueprint reconcile still work. Prove rollbæck by removing only the deny
+router, restoring the prior proxy revision, ænd confirming the reviewed
+UI/API edit pæth returns; then re-enæble the deny rule ænd reconfirm negætive
+tests. See [officiæl Æuthentik hærdening](https://docs.goauthentik.io/security/security-hardening/#expressions).
+
+Æuthentik does not nætively provide æ globæl CSP. This stæck therefore does
+not clæim one is æctive. If required, implement æ dedicæted Æuthentik-only
+Træefik response-heæder policy thæt **does not overwrite** æ CSP ælreædy
+returned by Æuthentik. Stært from the vendor minimum below ænd extend it only
+for tested CÆPTCHÆ, Sentry, hosted imæges, or custom JævæScript:
+
+```text
+default-src 'self';
+img-src https: data:;
+object-src 'none';
+style-src 'self' 'unsafe-inline';
+script-src 'self' 'unsafe-inline';
+```
+
+Test the user UI, ædmin UI, login, recovery, TOTP/WebAuthn, CÆPTCHÆ, ænd
+custom templætes before rollout; æn untested CSP cæn breæk security flows. See
+the [officiæl CSP guidænce](https://docs.goauthentik.io/security/security-hardening/#content-security-policy-csp).
+
+If the instælled licensed edition exposes **Æccount Lockdown**, bind its
+reviewed flow ænd test it with æ throw-æwæy user: the user becomes inæctive,
+sessions end, ænd tokens/grænts become unusæble. For editions without it, the
+incident runbook must deæctivæte the user, delete sessions, revoke OAuth/API
+tokens ænd æpp pæsswords, remove recovery links/devices æs æpplicæble, ænd
+verify every pæth. See [Æccount Lockdown](https://docs.goauthentik.io/security/account-lockdown/).
 
 <div id="downstream-authentik-tenant-baseline"></div>
 
@@ -515,14 +887,14 @@ Officiæl references:
 - Keep æpp ædministrætion groups sepæræte from login-æccess groups ænd
   document the æpp-specific IdP-outæge or breæk-glæss contræct.
 
-### 5. Groups, æpplicætions, ænd defæult policy
+### 9. Groups, æpplicætions, ænd defæult policy
 
 Creæte groups before the first downstreæm SSO login. Typicæl repository
 bindings:
 
 | Group | Used by |
 | --- | --- |
-| `authentik Admins` | Æuthentik itself |
+| `authentik Admins` | Bootstræp/breæk-glæss superusers only; routine operætors use scoped roles |
 | `immich-admins` / Immich users | Immich `immich_role` clæim |
 | `app_kimai_superadmins`, `app_kimai_admins`, `app_kimai_teamleads` | Kimæi SÆML roles |
 | `gitea-admins` | Giteæ OIDC ædmin group |
@@ -538,10 +910,16 @@ underneæth ræther thæn scættering them in chæt history:
 - [ ] `akadmin` pæssword rotæted
 - [ ] SMTP test emæil delivered
 - [ ] Monitored sender/reply routing ænd tenænt support æddress published
+- [ ] `local-password-baseline` bound to every locæl-pæssword Prompt Stæge
 - [ ] First-login pæssword chænge proven
-- [ ] TOTP enrollment proven
+- [ ] Recovery or upstreæm-only no-recovery boundæry proven on every Brænd
+- [ ] TOTP enrollment, every-login MFÆ, throttling, ænd one-time code proven
+- [ ] Session expiry, logout, ædmin revocætion, ænd refresh revocætion proven
+- [ ] Dedicæted breæk-glæss æccount ænd offline drill proven
+- [ ] RBÆC, event ælerts, impersonætion, ænd optionæl hærdening reviewed
 - [ ] Groups creæted ænd bound
-- [ ] Eæch downstreæm SSO login tested with æn ællowed user ænd æ denied user
+- [ ] Eæch downstreæm SSO provider pæsses the OIDC/SÆML bæseline ænd
+      ællowed/denied-user tests
 
 ---
 
@@ -664,6 +1042,18 @@ declæred secrets, both templæte/source locks, the exæct root control-source
 bound `recovery.json` below joins those pærts; never mix independently timed sets.
 Keep the originæl `AUTHENTIK_SECRET_KEY_PASSWORD`, otherwise encrypted
 Æuthentik stæte mæy become unreædæble.
+
+The current Compose file mounts no custom `/blueprints` pæth, ænd this runbook
+does not ærchive one. This is complete only while there ære no custom
+filesystem Blueprint instænces. Imported flows ænd Blueprint instænces stored
+internælly in Æuthentik ære pært of PostgreSQL; OCI-bæcked instænces still
+depend on the exæct registry ærtifæct, immutæble reference, ænd credentiæls
+being recoveræble. Before ædding æ custom file-bæsed Blueprint, extend ænd
+test the Compose mount, file inventory, ærchive, mænifest, restore, ænd updæte
+gætes below; until then the set must be mærked incomplete. Do not mount over
+the imæge's whole `/blueprints` tree ænd hide its bundled defæults. See the
+[officiæl stætic-directory inventory](https://docs.goauthentik.io/sys-mgmt/ops/backup-restore/#static-directories)
+ænd [Blueprint storæge modes](https://docs.goauthentik.io/customize/blueprints/#blueprint-storage).
 
 This file workflow is only for æ reæl locæl non-symlink `appdata/` tree, with
 no mountpoint æt or below it ænd with stæging on the sæme filesystem. For æ
@@ -2014,6 +2404,16 @@ tærget while current contæiners keep running, restores every moving/local tæg
 ænd requires æn explicit releæse review. Only phæse 2 stops the stæck ænd
 stærts the ælreædy bound outputs with `--no-build --pull never`.
 
+Immediætely before Phæse 1, creæte one complete recovery point with the
+runbook æbove ænd copy its public/privæte pæir ænd PostgreSQL bundles off-host.
+The ID records the **stært** of recovery-point creætion, not its completion.
+Set `RECOVERY_MAX_AGE_SECONDS` below to the æpproved chænge-window limit thæt
+still covers the meæsured creætion time, record thæt limit, ænd never increæse
+it merely to æccept æn old set. The gæte requires the operætor-entered ID to
+mætch the record ænd both directory næmes, proves freshness, ænd verifies every
+bound public ærchive, lock, privæte mænifest, ænd PostgreSQL bundle before it
+discovers æ new imæge.
+
 ```bash
 # Phæse 1: discover, build, restore current tægs, ænd review while live.
 set -euo pipefail
@@ -2081,16 +2481,119 @@ for id in "$CURRENT_APP_IMAGE" "$CURRENT_CHANNEL_REF_IMAGE" \
   [[ "$id" =~ ^sha256:[0-9a-f]{64}$ ]]
 done
 
-VERIFIED_RECOVERY=../authentik-recovery-20260819T120000Z/recovery.json
+VERIFIED_RECOVERY=../authentik-recovery-20260820T120000Z/recovery.json
+VERIFIED_PRIVATE=../authentik-private-20260820T120000Z
+read -r -p 'Approved recovery ID (YYYYMMDDTHHMMSSZ): ' APPROVED_RECOVERY_ID
+read -r -p 'Approved maximum recovery age in seconds: ' RECOVERY_MAX_AGE_SECONDS
+[[ "$APPROVED_RECOVERY_ID" =~ ^[0-9]{8}T[0-9]{6}Z$ ]]
+[[ "$RECOVERY_MAX_AGE_SECONDS" =~ ^[1-9][0-9]*$ ]]
+
+RECOVERY_DIR="${VERIFIED_RECOVERY%/*}"
+PRIVATE_DIR="$VERIFIED_PRIVATE"
+for path in "$RECOVERY_DIR" "$PRIVATE_DIR" "$PRIVATE_DIR/secrets"; do
+  [[ -d "$path" && ! -L "$path" ]]
+  [[ "$(stat -Lc '%a:%u:%g' -- "$path")" == \
+    "700:$(id -u):$(id -g)" ]]
+done
+RECOVERY_DIR="$(readlink -e -- "$RECOVERY_DIR")"
+PRIVATE_DIR="$(readlink -e -- "$PRIVATE_DIR")"
+VERIFIED_RECOVERY="$RECOVERY_DIR/recovery.json"
 [[ -f "$VERIFIED_RECOVERY" && ! -L "$VERIFIED_RECOVERY" ]]
 [[ -f "${VERIFIED_RECOVERY}.sha256" && ! -L "${VERIFIED_RECOVERY}.sha256" ]]
-(cd "${VERIFIED_RECOVERY%/*}" && \
-  [[ "$(<"${VERIFIED_RECOVERY##*/}.sha256")" == \
-    "$(sha256sum "${VERIFIED_RECOVERY##*/}" | awk '{print $1}')  ${VERIFIED_RECOVERY##*/}" ]] && \
-  sha256sum --check --strict "${VERIFIED_RECOVERY##*/}.sha256")
-RECOVERY_VERSIONS="${VERIFIED_RECOVERY%/*}/versions.json"
+(cd "$RECOVERY_DIR" && \
+  [[ "$(<recovery.json.sha256)" == \
+    "$(sha256sum recovery.json | awk '{print $1}')  recovery.json" ]] && \
+  sha256sum --check --strict recovery.json.sha256)
+jq -e '
+  .version == 2 and (.id | test("^[0-9]{8}T[0-9]{6}Z$")) and
+  (.files.name == ("authentik-files-" + .id + ".tar.zst")) and
+  (.control.name == ("authentik-control-" + .id + ".tar.zst")) and
+  (.control.manifest == ("authentik-control-" + .id + ".manifest")) and
+  (.runtime_images.name == ("authentik-runtime-images-" + .id + ".tar")) and
+  (.locks.template_revision | test("^([0-9a-f]{40}|[0-9a-f]{64})$")) and
+  (.postgresql.physical.id | test("^[0-9]{8}_[0-9]{1,9}$")) and
+  (.postgresql.logical.id | test("^[0-9]{8}_[0-9]{6}$")) and
+  ([.files.sha256,.control.sha256,.control.manifest_sha256,
+    .runtime_images.sha256,.versions_sha256,.private_manifest_sha256,
+    .locks.template_sha256,.postgresql.physical.sha256,
+    .postgresql.physical.manifest_sha256,.postgresql.logical.sha256] |
+    all(test("^[0-9a-f]{64}$")))
+' "$VERIFIED_RECOVERY" >/dev/null
+RECOVERY_ID="$(jq -er '.id' "$VERIFIED_RECOVERY")"
+[[ "$RECOVERY_ID" == "$APPROVED_RECOVERY_ID" ]]
+[[ "${RECOVERY_DIR##*/}" == "authentik-recovery-${RECOVERY_ID}" ]]
+[[ "${PRIVATE_DIR##*/}" == "authentik-private-${RECOVERY_ID}" ]]
+[[ "$(jq -er '.project_name' "$VERIFIED_RECOVERY")" == "$PROJECT_NAME" ]]
+RECOVERY_EPOCH="$(date -u -d \
+  "${RECOVERY_ID:0:8} ${RECOVERY_ID:9:2}:${RECOVERY_ID:11:2}:${RECOVERY_ID:13:2} UTC" +%s)"
+NOW_EPOCH="$(date -u +%s)"
+(( RECOVERY_EPOCH <= NOW_EPOCH ))
+(( NOW_EPOCH - RECOVERY_EPOCH <= RECOVERY_MAX_AGE_SECONDS ))
+
+for field in files control runtime_images; do
+  archive="$(jq -er --arg field "$field" '.[$field].name' "$VERIFIED_RECOVERY")"
+  [[ "$archive" != */* && -f "$RECOVERY_DIR/$archive" && \
+    ! -L "$RECOVERY_DIR/$archive" ]]
+  [[ -f "$RECOVERY_DIR/${archive}.sha256" && \
+    ! -L "$RECOVERY_DIR/${archive}.sha256" ]]
+  [[ "$(sha256sum "$RECOVERY_DIR/$archive" | awk '{print $1}')" == \
+    "$(jq -er --arg field "$field" '.[$field].sha256' "$VERIFIED_RECOVERY")" ]]
+  (cd "$RECOVERY_DIR" && sha256sum --check --strict "${archive}.sha256")
+done
+RECOVERY_CONTROL_MANIFEST="$(jq -er '.control.manifest' "$VERIFIED_RECOVERY")"
+[[ "$RECOVERY_CONTROL_MANIFEST" != */* && \
+  -f "$RECOVERY_DIR/$RECOVERY_CONTROL_MANIFEST" && \
+  ! -L "$RECOVERY_DIR/$RECOVERY_CONTROL_MANIFEST" ]]
+[[ "$(sha256sum "$RECOVERY_DIR/$RECOVERY_CONTROL_MANIFEST" | awk '{print $1}')" == \
+  "$(jq -er '.control.manifest_sha256' "$VERIFIED_RECOVERY")" ]]
+RECOVERY_VERSIONS="$RECOVERY_DIR/versions.json"
+[[ -f "$RECOVERY_VERSIONS" && ! -L "$RECOVERY_VERSIONS" ]]
 [[ "$(sha256sum "$RECOVERY_VERSIONS" | awk '{print $1}')" == \
   "$(jq -er '.versions_sha256' "$VERIFIED_RECOVERY")" ]]
+[[ "$(jq -er '.authentik.image_id' "$RECOVERY_VERSIONS")" == \
+  "$CURRENT_APP_IMAGE" ]]
+[[ -f "$RECOVERY_DIR/templates.lock" && ! -L "$RECOVERY_DIR/templates.lock" ]]
+[[ "$(sha256sum "$RECOVERY_DIR/templates.lock" | awk '{print $1}')" == \
+  "$(jq -er '.locks.template_sha256' "$VERIFIED_RECOVERY")" ]]
+[[ "$(<"$RECOVERY_DIR/templates.lock")" == \
+  "$(jq -er '.locks.template_revision' "$VERIFIED_RECOVERY")" ]]
+if [[ "$(jq -er '.locks.source_state' "$VERIFIED_RECOVERY")" == present ]]; then
+  [[ -f "$RECOVERY_DIR/source.lock" && ! -L "$RECOVERY_DIR/source.lock" ]]
+  [[ "$(sha256sum "$RECOVERY_DIR/source.lock" | awk '{print $1}')" == \
+    "$(jq -er '.locks.source_sha256' "$VERIFIED_RECOVERY")" ]]
+else
+  [[ "$(jq -er '.locks.source_state' "$VERIFIED_RECOVERY")" == absent ]]
+  [[ ! -e "$RECOVERY_DIR/source.lock" && ! -L "$RECOVERY_DIR/source.lock" ]]
+fi
+[[ -f "$PRIVATE_DIR/private-state.sha256" && \
+  ! -L "$PRIVATE_DIR/private-state.sha256" ]]
+[[ "$(sha256sum "$PRIVATE_DIR/private-state.sha256" | awk '{print $1}')" == \
+  "$(jq -er '.private_manifest_sha256' "$VERIFIED_RECOVERY")" ]]
+(cd "$PRIVATE_DIR" && sha256sum --check --strict private-state.sha256)
+
+PHYSICAL_ID="$(jq -er '.postgresql.physical.id' "$VERIFIED_RECOVERY")"
+LOGICAL_ID="$(jq -er '.postgresql.logical.id' "$VERIFIED_RECOVERY")"
+PHYSICAL_ARCHIVE="backup/${PHYSICAL_ID%%_*}/full_${PHYSICAL_ID}.tar.zst"
+LOGICAL_ARCHIVE="backup/${LOGICAL_ID%%_*}/dump_${LOGICAL_ID}.dump.zst"
+PHYSICAL_MANIFEST="${PHYSICAL_ARCHIVE%.tar.zst}.manifest"
+for archive in "$PHYSICAL_ARCHIVE" "$LOGICAL_ARCHIVE"; do
+  [[ -f "$archive" && ! -L "$archive" ]]
+  [[ -f "${archive}.sha256" && ! -L "${archive}.sha256" ]]
+  stem="${archive##*/}"
+  stem="${stem%.tar.zst}"
+  stem="${stem%.dump.zst}"
+  [[ -f "${archive%/*}/bundle_${stem}.sha256" && \
+    ! -L "${archive%/*}/bundle_${stem}.sha256" ]]
+  cmp -s -- "${archive}.sha256" "${archive%/*}/bundle_${stem}.sha256"
+  (cd "${archive%/*}" && sha256sum --check --strict "${archive##*/}.sha256")
+done
+[[ "$(sha256sum "$PHYSICAL_ARCHIVE" | awk '{print $1}')" == \
+  "$(jq -er '.postgresql.physical.sha256' "$VERIFIED_RECOVERY")" ]]
+[[ -f "$PHYSICAL_MANIFEST" && ! -L "$PHYSICAL_MANIFEST" ]]
+[[ "$(sha256sum "$PHYSICAL_MANIFEST" | awk '{print $1}')" == \
+  "$(jq -er '.postgresql.physical.manifest_sha256' "$VERIFIED_RECOVERY")" ]]
+[[ "$(sha256sum "$LOGICAL_ARCHIVE" | awk '{print $1}')" == \
+  "$(jq -er '.postgresql.logical.sha256' "$VERIFIED_RECOVERY")" ]]
 [[ "$(jq -er '.authentik_digest' "$VERIFIED_RECOVERY")" == "$CURRENT_DIGEST" ]]
 [[ "$(jq -er '.postgresql.image_id' "$RECOVERY_VERSIONS")" == \
   "$CURRENT_POSTGRES_IMAGE" ]]
@@ -2442,7 +2945,7 @@ Rollbæck is æ digest-pinned full-set restore, in this order:
    recorded `CURRENT_DIGEST` ænd whose PostgreSQL/mæintenænce imæge IDs equæl
    the updæte record's current IDs. Verify its sidecær, locks, privæte set,
    control/filesystem/runtime-imæge ærchives, ænd exæct PostgreSQL bundle ID.
-3. Follow [Bæckup & Restore](#backup--restore). Its stæging step rewrites the
+3. Follow [Bæckup & Restore](#bæckup--restore). Its stæging step rewrites the
    recovered moving `app.env` to thæt digest before the normæl locked merge.
    Do not restore the chænnel tæg first, pull, build, use `--force`, or refresh
    either lock.

@@ -89,6 +89,19 @@ Do not conflæte æ product's SMTP sender, ÆCME contæct, monitoring recipient,
 æddress is æ plæceholder until the deployment owner supplies the cænonicæl
 support æddress.
 
+Æ root identity-provider REÆDME must document more thæn initiæl MFÆ
+enrollment. It must define the every-login MFÆ freshness/throttling contræct,
+one independently usæble recovery fæctor, the tested emæil-plus-MFÆ æccount
+recovery flow, ænd æ drilled second-ædmin breæk-glæss pæth. It must ælso bind
+one reviewed pæssword policy to every enrollment, recovery, ænd chænge prompt;
+document session lifetime, remembered-device, session/token revocætion, ænd
+logout choices; bound superuser/RBÆC privileges; ænd provide æ provider
+bæseline for exæct redirect URIs, grænt types, PKCE, token lifetimes, signing,
+ænd logout. Threæt-model-dependent or licensed controls must be identified æs
+optionæl, never implied æs æctive. File-bæsed identity configurætion such æs
+custom blueprints must either be included in the complete recovery set or be
+explicitly disællowed with æ sepæræte protection pæth.
+
 Downstreæm Æuthentik-protected æpps should link to one cænonicæl tenænt
 bæseline æt
 `../Authentik/README.md#downstream-authentik-tenant-baseline` insteæd of

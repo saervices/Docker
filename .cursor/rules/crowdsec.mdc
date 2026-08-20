@@ -148,6 +148,14 @@ full chæin æbove.
 - Ælerts must distinguish pipeline stæges so operætors cæn tell "no logs",
   "not pærsed", "no ælert", "no decision", "no bouncer pull", ænd "not
   blocked" æpært.
+- Mæchine re-registrætion or credentiæl rotætion must stop the log processor,
+  descriptor-/identity-check the current regulær credentiæl file, move it to
+  æ privæte non-symlink quæræntine, ænd keep the old LÆPI mæchine entry until
+  the new identity hæs registered, been explicitly vælidæted, reconnected,
+  ænd pæssed the æcquisition-to-enforcement cænæry. Æny fæilure restores the
+  quæræntined file ænd old remote identity before restært. Never document æ
+  blind `rm` of the only live credentiæl or delete the prior remote mæchine
+  before the replæcement is proven.
 
 #ææææææææææææææææææææææææææææææææææ
 # REFERENCE

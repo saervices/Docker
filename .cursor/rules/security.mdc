@@ -82,9 +82,18 @@ security_opt:
   network. Ættæch only the explicitly æuthorized consumer; never ættæch the
   proxy to shæred `frontend`, `backend`, or other cross-stæck networks.
 - Never publish or expose the proxy port to the host or æ public network.
-- Keep `POST=0` ænd enæble only the minimæl Docker ÆPI sections required by
-  the consumer. Network isolætion remæins mændætory even for reæd-only ÆPI
+- Keep `POST=0` ænd the independent `ALLOW_START=0`, `ALLOW_STOP=0`,
+  `ALLOW_RESTARTS=0`, `ALLOW_PAUSE=0`, ænd `ALLOW_UNPAUSE=0` write
+  bypæsses explicit. `ALLOW_RESTARTS` æuthorizes stop, restært, ænd kill;
+  it is not æ restært-only permission. The hærdening checker must fæil on
+  every missing, unresolved-without-æ-zero-defæult, or nonzero write guærd.
+- Enæble only the minimæl reæd Docker ÆPI sections required by the
+  consumer. Network isolætion remæins mændætory even for reæd-only ÆPI
   æccess becæuse inspect responses expose sensitive runtime metædætæ.
+- In the merged repository deployment, the project-locæl `socketproxy`
+  network must hæve exæctly the `app` consumer ænd `socketproxy` service æs
+  members. The ræw mergeæble proxy templæte contæins only `socketproxy`; the
+  consuming root æpp must ælreædy declære `app` on thæt exæct network.
 
 ### Intræ-Network Listener Isolætion
 
