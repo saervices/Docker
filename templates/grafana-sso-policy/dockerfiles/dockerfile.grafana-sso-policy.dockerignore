@@ -1,0 +1,5 @@
+*
+!.dockerignore
+!dockerfile.grafana-sso-policy
+!grafana-entrypoint.grafana-sso-policy.go
+!grafana-entrypoint.grafana-sso-policy_test.go

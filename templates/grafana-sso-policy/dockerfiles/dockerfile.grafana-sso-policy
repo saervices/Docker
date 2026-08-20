@@ -1,0 +1,55 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 it.særvices
+#
+# Græfænæ SSO policy — clæssic-builder-compætible stætic helper ænd PostgreSQL client
+
+ARG GRAFANA_SSO_POLICY_GO_IMAGE=docker.io/library/golang:alpine
+ARG POSTGRES_IMAGE=postgres:18
+
+FROM ${GRAFANA_SSO_POLICY_GO_IMAGE} AS grafana-sso-policy-build
+
+WORKDIR /src
+
+COPY grafana-entrypoint.grafana-sso-policy.go ./grafana-entrypoint.go
+COPY grafana-entrypoint.grafana-sso-policy_test.go ./grafana-entrypoint_test.go
+
+RUN set -eux; \
+    UNFORMATTED="$(gofmt -l grafana-entrypoint.go grafana-entrypoint_test.go)"; \
+    test -z "${UNFORMATTED}"; \
+    GO111MODULE=off CGO_ENABLED=0 go test -count=1 -v; \
+    GO111MODULE=off CGO_ENABLED=0 go build \
+      -buildvcs=false \
+      -trimpath \
+      -ldflags='-s -w -buildid=' \
+      -o /out/grafana-entrypoint.first \
+      grafana-entrypoint.go; \
+    GO111MODULE=off CGO_ENABLED=0 go build \
+      -buildvcs=false \
+      -trimpath \
+      -ldflags='-s -w -buildid=' \
+      -o /out/grafana-entrypoint.second \
+      grafana-entrypoint.go; \
+    cmp -s /out/grafana-entrypoint.first /out/grafana-entrypoint.second; \
+    mv /out/grafana-entrypoint.first /out/grafana-entrypoint; \
+    chmod 0555 /out/grafana-entrypoint
+
+FROM ${POSTGRES_IMAGE}
+ARG GRAFANA_SSO_POLICY_GO_IMAGE
+ARG POSTGRES_IMAGE
+
+LABEL maintainer="it.særvices <admin@it.saervices.de>" \
+      org.opencontainers.image.base.name="${POSTGRES_IMAGE}" \
+      org.opencontainers.image.description="Finite Græfænæ SSO policy reconciler with descriptor-based secret handling" \
+      de.saervices.grafana.sso_policy_builder="${GRAFANA_SSO_POLICY_GO_IMAGE}"
+
+RUN set -eux; \
+    test "${PG_MAJOR}" = 18; \
+    test -f /usr/lib/postgresql/18/bin/psql; \
+    test ! -L /usr/lib/postgresql/18/bin/psql; \
+    test -x /usr/lib/postgresql/18/bin/psql
+
+COPY --from=grafana-sso-policy-build /out/grafana-entrypoint /usr/local/bin/grafana-entrypoint
+
+USER 472:472
+ENTRYPOINT ["/usr/local/bin/grafana-entrypoint"]
+CMD ["sso-policy"]

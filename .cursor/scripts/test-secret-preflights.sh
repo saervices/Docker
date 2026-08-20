@@ -4518,15 +4518,24 @@ for name, expected in {
     "GF_AUTH_GENERIC_OAUTH_VALIDATE_ID_TOKEN": "true",
     "GF_AUTH_GENERIC_OAUTH_LOGIN_ATTRIBUTE_PATH": "sub",
     "GF_AUTH_GENERIC_OAUTH_ROLE_ATTRIBUTE_STRICT": "true",
+    "GF_AUTH_OAUTH_ALLOW_INSECURE_EMAIL_LOOKUP": "false",
     "GF_AUTH_BASIC_ENABLED": "false",
     "GF_AUTH_ANONYMOUS_ENABLED": "false",
+    "GF_DATABASE_SKIP_MIGRATIONS": "false",
+    "GF_DATABASE_MIGRATION_LOCKING": "true",
+    "GF_DATABASE_LOCKING_ATTEMPT_TIMEOUT_SEC": "0",
+    "GF_METRICS_ENABLED": "false",
+    "GF_PUBLIC_DASHBOARDS_ENABLED": "false",
+    "GF_SNAPSHOTS_ENABLED": "false",
+    "GF_PLUGINS_PLUGIN_ADMIN_ENABLED": "false",
 }.items():
     if grafana_environment.get(name) != expected:
         raise SystemExit(f"{grafana_path}: {name} must equal {expected!r}")
 if "GRAFANA_OIDC_ENABLED" in grafana_environment:
     raise SystemExit(f"{grafana_path}: mandatory OIDC must not retain a false toggle")
-if grafana_app.get("depends_on", {}).get("grafana-bootstrap", {}).get("condition") != "service_completed_successfully":
-    raise SystemExit(f"{grafana_path}: app must wait for verified grafana-bootstrap completion")
+for dependency in ("grafana-bootstrap", "grafana-migrator", "grafana-sso-policy"):
+    if grafana_app.get("depends_on", {}).get(dependency, {}).get("condition") != "service_completed_successfully":
+        raise SystemExit(f"{grafana_path}: app must wait for verified {dependency} completion")
 
 grafana_bootstrap_path = root / "templates/grafana-bootstrap/docker-compose.grafana-bootstrap.yaml"
 grafana_bootstrap_document = yaml.safe_load(
@@ -4554,6 +4563,56 @@ if "./appdata/bootstrap-state" not in bootstrap_volumes:
     raise SystemExit(f"{grafana_bootstrap_path}: bootstrap-state marker bind is missing")
 if grafana_bootstrap.get("restart") != "no" or grafana_bootstrap.get("command") != ["bootstrap"]:
     raise SystemExit(f"{grafana_bootstrap_path}: bootstrap must remain a finite one-shot")
+for name, expected in {
+    "GF_DATABASE_SKIP_MIGRATIONS": "false",
+    "GF_DATABASE_MIGRATION_LOCKING": "true",
+    "GF_DATABASE_LOCKING_ATTEMPT_TIMEOUT_SEC": "0",
+}.items():
+    if grafana_bootstrap.get("environment", {}).get(name) != expected:
+        raise SystemExit(f"{grafana_bootstrap_path}: {name} must equal {expected!r}")
+
+grafana_migrator_path = root / "templates/grafana-migrator/docker-compose.grafana-migrator.yaml"
+grafana_migrator_document = yaml.safe_load(
+    grafana_migrator_path.read_text(encoding="utf-8")
+)
+grafana_migrator = grafana_migrator_document["services"]["grafana-migrator"]
+grafana_migrator_mounts = {
+    item if isinstance(item, str) else item.get("source")
+    for item in grafana_migrator.get("secrets", [])
+}
+expected_migrator_mounts = {"POSTGRES_PASSWORD", "GRAFANA_SECRET_KEY"}
+if grafana_migrator_mounts != expected_migrator_mounts:
+    raise SystemExit(
+        f"{grafana_migrator_path}: migrator secret mounts must be exactly "
+        f"{sorted(expected_migrator_mounts)!r}"
+    )
+if grafana_migrator.get("restart") != "no" or grafana_migrator.get("command") != ["migrate"]:
+    raise SystemExit(f"{grafana_migrator_path}: migrator must remain a finite one-shot")
+if grafana_migrator.get("depends_on", {}).get("grafana-bootstrap", {}).get("condition") != "service_completed_successfully":
+    raise SystemExit(f"{grafana_migrator_path}: migrator must wait for verified bootstrap completion")
+if "frontend" in grafana_migrator.get("networks", []):
+    raise SystemExit(f"{grafana_migrator_path}: migrator must remain backend-only")
+for name, expected in {
+    "GF_DATABASE_SKIP_MIGRATIONS": "false",
+    "GF_DATABASE_MIGRATION_LOCKING": "true",
+    "GF_DATABASE_LOCKING_ATTEMPT_TIMEOUT_SEC": "0",
+}.items():
+    if grafana_migrator.get("environment", {}).get(name) != expected:
+        raise SystemExit(f"{grafana_migrator_path}: {name} must equal {expected!r}")
+
+grafana_policy_path = root / "templates/grafana-sso-policy/docker-compose.grafana-sso-policy.yaml"
+grafana_policy_document = yaml.safe_load(
+    grafana_policy_path.read_text(encoding="utf-8")
+)
+grafana_policy = grafana_policy_document["services"]["grafana-sso-policy"]
+grafana_policy_mounts = {
+    item if isinstance(item, str) else item.get("source")
+    for item in grafana_policy.get("secrets", [])
+}
+if grafana_policy_mounts != {"POSTGRES_PASSWORD"}:
+    raise SystemExit(f"{grafana_policy_path}: policy must mount only POSTGRES_PASSWORD")
+if grafana_policy.get("depends_on", {}).get("grafana-migrator", {}).get("condition") != "service_completed_successfully":
+    raise SystemExit(f"{grafana_policy_path}: policy must wait for verified migrator completion")
 
 authentik_path = root / "Authentik/docker-compose.app.yaml"
 authentik_document = yaml.safe_load(authentik_path.read_text(encoding="utf-8"))

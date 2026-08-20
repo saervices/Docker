@@ -32,7 +32,7 @@ RUN set -eux; \
     mv /out/grafana-entrypoint.first /out/grafana-entrypoint; \
     chmod 0555 /out/grafana-entrypoint
 
-FROM ${GRAFANA_BASE_IMAGE}
+FROM ${GRAFANA_BASE_IMAGE} AS grafana-runtime
 ARG GRAFANA_BASE_IMAGE
 ARG GRAFANA_GO_IMAGE
 
@@ -41,11 +41,17 @@ LABEL maintainer="it.særvices <admin@it.saervices.de>" \
       org.opencontainers.image.description="Græfænæ with bounded descriptor-based secret preflight and verified bootstrap" \
       de.saervices.grafana.entrypoint_builder="${GRAFANA_GO_IMAGE}"
 
+USER root
 RUN set -eux; \
+    mkdir -p /usr/share/grafana/plugins-reviewed; \
+    chown 472:0 /usr/share/grafana/plugins-reviewed; \
+    chmod 0555 /usr/share/grafana/plugins-reviewed; \
     test -x /run.sh; \
     test -x /usr/share/grafana/bin/grafana; \
     test "$(command -v grafana)" = /usr/share/grafana/bin/grafana
 
 COPY --from=grafana-entrypoint-build /out/grafana-entrypoint /usr/local/bin/grafana-entrypoint
 
+ENV GF_PATHS_PLUGINS=/usr/share/grafana/plugins-reviewed
+USER 472
 ENTRYPOINT ["/usr/local/bin/grafana-entrypoint"]

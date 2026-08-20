@@ -1,7 +1,10 @@
 *
 !Dockerfile
+!dockerfile.grafana-sso-policy
 !grafana-entrypoint.go
 !grafana-entrypoint_test.go
+!grafana-entrypoint.grafana-sso-policy.go
+!grafana-entrypoint.grafana-sso-policy_test.go
 !dockerfile.postgresql
 !dockerfile.supercronic.postgresql
 !init_extensions.postgresql.sh

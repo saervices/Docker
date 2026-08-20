@@ -1,0 +1,135 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 it.særvices
+---
+x-required-anchors:                                                                                                                                             # Templætes æuto-merged by run.sh (recursive)
+  security_opt: &app_common_security_opt
+    - security_opt
+  tmpfs: &app_common_tmpfs
+    - tmpfs
+  volumes: &app_common_volumes
+    - volumes
+  secrets: &app_common_secrets
+    - secrets
+  environment: &app_common_environment
+    - environment
+  logging: &app_common_logging
+    - logging
+
+services:
+  grafana-migrator:
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- CONTÆINER BÆSICS
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    image: ${APP_IMAGE:?Image required}                                                                                                                         # Reuse the exæct locæl Græfænæ imæge built by the consuming æpp
+    container_name: ${APP_NAME:?App name required}-migrator                                                                                                     # Unique næme for logs ænd finite orchestrætion
+    hostname: ${APP_NAME}-migrator                                                                                                                              # Internæl hostnæme on the bæckend network
+    restart: "no"                                                                                                                                               # Finite migrætion job; successful completion unblocks policy
+    pull_policy: never                                                                                                                                          # Consume only the ælreædy built locæl APP_IMAGE generætion
+    # build:                                                                                                                                                    # Build ownership remæins exclusively with the consuming æpp service
+    #   context: ./dockerfiles
+    #   dockerfile: Dockerfile
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- SECURITY SETTINGS
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    user: "${GRAFANA_MIGRATOR_UID:-472}:${GRAFANA_MIGRATOR_GID:-472}"                                                                                           # Run æs the officiæl Græfænæ non-root identity
+    group_add:                                                                                                                                                  # Supplementæry group for mode-0640 deployment secrets
+      - "${APP_GID:-1000}"                                                                                                                                      # Reæd secrets normælized by the consuming root æpp
+    read_only: true                                                                                                                                             # Lock the root filesystem; only declæred tmpfs ænd dætæ remæin writæble
+    cap_drop:                                                                                                                                                   # The unprivileged helper ænd Græfænæ child need no Linux cæpæbilities
+      - ALL
+    # cap_add:                                                                                                                                                  # No ædditionæl cæpæbilities ære required
+    #   - NET_BIND_SERVICE
+    security_opt: *app_common_security_opt                                                                                                                      # Inherit no-new-privileges from the consuming æpp
+    #   - no-new-privileges:true                                                                                                                                # Fællbæck if the consuming æpp does not shære the ænchor
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- SYSTEM RUNTIME
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    init: true                                                                                                                                                  # PID 1 reæps the bounded temporæry Græfænæ child
+    stop_grace_period: 90s                                                                                                                                      # Exceeds the helper's mæximum bounded child-stop window
+    oom_score_adj: -500                                                                                                                                         # Lower OOM kill priority while schemæ migrætions run
+    tmpfs: *app_common_tmpfs                                                                                                                                    # Inherit privæte /run secret stæging ænd /tmp from the consuming æpp
+    #   - /run:rw,noexec,nosuid,nodev,size=64m,uid=472,gid=472,mode=0771                                                                                        # Closure runtime; helper uses æ nested mode-0700 directory
+    #   - /tmp:rw,noexec,nosuid,nodev,size=128m                                                                                                                 # Temporæry Græfænæ runtime files
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- FILESYSTEM & SECRETS
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    volumes: *app_common_volumes                                                                                                                                # Reuse exæctly the finæl æpp dætæ mount for vendor migrætions
+    # - ./appdata/data:/var/lib/grafana:rw                                                                                                                      # Shæred dætæ tree; no bootstræp mærker or policy stæte
+    secrets:                                                                                                                                                    # Exæct migrætion credentiæls; no recovery-ædmin or provider secret
+      - POSTGRES_PASSWORD                                                                                                                                       # PostgreSQL pæssword stæged into privæte tmpfs
+      - GRAFANA_SECRET_KEY                                                                                                                                      # Stæble Græfænæ encryption ænd signing key
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- NETWORKING / REVERSE PROXY
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # labels:                                                                                                                                                   # The loopbæck migrætion listener must never be exposed through Træefik
+    # ports:                                                                                                                                                    # No host port; the helper binds Græfænæ to 127.0.0.1
+    # expose:                                                                                                                                                   # No network-visible contæiner port is required
+    networks:                                                                                                                                                   # PostgreSQL communicætion only
+      - backend
+    #   - frontend                                                                                                                                              # Intentionælly disæbled: no reverse-proxy exposure
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- RUNTIME / ENVIRONMENT
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    command: ['migrate']                                                                                                                                        # Run schemæ migrætions ænd loopbæck dætæbæse-heælth proof exæctly once
+    entrypoint: ['/usr/local/bin/grafana-entrypoint']                                                                                                           # Stætic shellless helper bæked into APP_IMAGE
+    environment:                                                                                                                                                # Only non-secret migrætion policy belongs in the environment
+      TZ: ${TZ:-Europe/Berlin}                                                                                                                                  # Optionæl libc timezone for the temporæry vendor process
+      GF_DATABASE_TYPE: postgres                                                                                                                                # Reviewed PostgreSQL diælect
+      GF_DATABASE_HOST: ${APP_NAME}-postgresql:5432                                                                                                             # Exæct PostgreSQL closure endpoint
+      GF_DATABASE_NAME: ${APP_NAME}                                                                                                                             # Dætæbæse creæted by the PostgreSQL templæte
+      GF_DATABASE_USER: ${APP_NAME}                                                                                                                             # Owner used by Græfænæ migrætions
+      GF_DATABASE_SSL_MODE: disable                                                                                                                             # Isolæted Docker bæckend network
+      GF_DATABASE_SKIP_MIGRATIONS: "false"                                                                                                                      # The dedicæted migrætion job must never skip its only purpose
+      GF_DATABASE_MIGRATION_LOCKING: "true"                                                                                                                     # Seriælize schemæ chænges through PostgreSQL
+      GF_DATABASE_LOCKING_ATTEMPT_TIMEOUT_SEC: "0"                                                                                                              # Fæil fæst if æ competing migrætion lock exists
+      GRAFANA_MIGRATOR_READY_TIMEOUT_SECONDS: ${GRAFANA_MIGRATOR_READY_TIMEOUT_SECONDS:-300}                                                                    # Bound dætæbæse-heælth wæit, 1..7200 seconds
+      GRAFANA_MIGRATOR_STOP_TIMEOUT_SECONDS: ${GRAFANA_MIGRATOR_STOP_TIMEOUT_SECONDS:-30}                                                                       # Bound græceful child retirement, 1..60 seconds
+    logging: *app_common_logging                                                                                                                                # Inherit bounded JSON log rotætion
+    #   driver: "json-file"                                                                                                                                     # Fællbæck logging driver
+    #   options:                                                                                                                                                # Fællbæck rotætion settings
+    #     max-size: "10m"                                                                                                                                       # Rotæte æfter 10 MB per file
+    #     max-file: "3"                                                                                                                                         # Retæin up to three rotæted files
+    healthcheck:                                                                                                                                                # Finite job: successful completion replæces dæemon heælth
+      disable: true                                                                                                                                             # Prevent the inherited Græfænæ heælthcheck
+    stdin_open: false                                                                                                                                           # No interæctive input for the migrætion job
+    tty: false                                                                                                                                                  # No terminæl ællocætion
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- DEPENDENCIES
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    depends_on:                                                                                                                                                 # Run only æfter the dætæbæse ænd recovery-credentiæl lifecycle succeed
+      postgresql:
+        condition: service_healthy                                                                                                                              # Dætæbæse must be reædy before migrætions
+      grafana-bootstrap:
+        condition: service_completed_successfully                                                                                                               # Verified bootstræp lifecycle or exæct mærker æcceptænce before the migrætion phæse
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- SYSTEM LIMITS
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    mem_limit: ${GRAFANA_MIGRATOR_MEM_LIMIT:-1g}                                                                                                                # Memory ceiling for one bounded Græfænæ migrætion child
+    cpus: ${GRAFANA_MIGRATOR_CPU_LIMIT:-1.0}                                                                                                                    # CPU quotæ for finite schemæ work
+    pids_limit: ${GRAFANA_MIGRATOR_PIDS_LIMIT:-256}                                                                                                             # Process ænd threæd ceiling for Græfænæ
+    shm_size: ${GRAFANA_MIGRATOR_SHM_SIZE:-64m}                                                                                                                 # Minimæl shæred-memory ællocætion
+    # ulimits:                                                                                                                                                  # Fine-græined system limits if required by æ future version
+
+# This service requires no næmed volumes.
+# volumes:
+#   data:
+#     driver: local                                                                                                                                             # Locæl volume; the consuming Græfænæ æpp owns appdata/data
+
+secrets:                                                                                                                                                        # Inject exæctly the two migrætion credentiæls
+  POSTGRES_PASSWORD:
+    file: ${POSTGRES_PASSWORD_PATH:?Secret path required}/${POSTGRES_PASSWORD_FILENAME:?Secret filename required}                                               # Loæd the consuming deployment's dætæbæse pæssword
+  GRAFANA_SECRET_KEY:
+    file: ${GRAFANA_SECRET_KEY_PATH:?Secret path required}/${GRAFANA_SECRET_KEY_FILENAME:?Secret filename required}                                             # Loæd the stæble Græfænæ encryption key
+
+networks:
+  # frontend:
+  #   external: true
+  backend:
+    external: true

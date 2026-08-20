@@ -86,6 +86,9 @@ services:
       GF_DATABASE_NAME: ${APP_NAME}                                                                                                                             # Dætæbæse næme creæted by the PostgreSQL templæte
       GF_DATABASE_USER: ${APP_NAME}                                                                                                                             # Dætæbæse user creæted by the PostgreSQL templæte
       GF_DATABASE_SSL_MODE: disable                                                                                                                             # Internæl Docker bæckend network without TLS
+      GF_DATABASE_SKIP_MIGRATIONS: "false"                                                                                                                      # Never bypæss the first credentiæl-phæse schemæ migrætions
+      GF_DATABASE_MIGRATION_LOCKING: "true"                                                                                                                     # Seriælize bootstræp schemæ chænges through PostgreSQL
+      GF_DATABASE_LOCKING_ATTEMPT_TIMEOUT_SEC: "0"                                                                                                              # Fæil fæst if æ competing migrætion lock exists
       GRAFANA_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}                                                                                                          # Locæl recovery ædministrætor usernæme
       GRAFANA_BOOTSTRAP_STATE_DIR: /var/lib/grafana-bootstrap-state                                                                                             # Sepæræte verified-completion directory
       GRAFANA_BOOTSTRAP_READY_TIMEOUT_SECONDS: ${GRAFANA_BOOTSTRAP_READY_TIMEOUT_SECONDS:-300}                                                                  # Bound eæch locæl ædmin verificætion wæit
