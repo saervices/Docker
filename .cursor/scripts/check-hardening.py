@@ -686,6 +686,7 @@ def socket_proxy_write_guard_is_disabled(name: str, value: Any) -> bool:
 def check_socket_proxy_network_isolation(
     path_rel: str,
     data: dict[str, Any],
+    membership_data: dict[str, Any] | None = None,
 ) -> list[str]:
     errors: list[str] = []
     services = data.get("services")
@@ -693,14 +694,27 @@ def check_socket_proxy_network_isolation(
         return errors
     networks = data.get("networks")
     network_definitions = networks if isinstance(networks, dict) else {}
+    membership_services = services
+    membership_network_definitions = network_definitions
+    if isinstance(membership_data, dict):
+        candidate_services = membership_data.get("services")
+        candidate_networks = membership_data.get("networks")
+        if isinstance(candidate_services, dict):
+            membership_services = candidate_services
+            membership_network_definitions = (
+                candidate_networks if isinstance(candidate_networks, dict) else {}
+            )
     required_services = {
         str(name)
         for name in as_list(data.get("x-required-services"))
     }
     socket_proxy_merged_later = "socketproxy" in required_services
 
-    def dedicated_internal(network_name: str) -> bool:
-        definition = network_definitions.get(network_name)
+    def dedicated_internal(
+        network_name: str,
+        definitions: dict[str, Any] = network_definitions,
+    ) -> bool:
+        definition = definitions.get(network_name)
         return (
             isinstance(definition, dict)
             and definition.get("internal") is True
@@ -747,7 +761,7 @@ def check_socket_proxy_network_isolation(
             f"{path_rel}: Docker socket proxy service must be named socketproxy exactly"
         )
 
-    for service_name, service in services.items():
+    for service_name, service in membership_services.items():
         if not isinstance(service, dict) or not service_uses_socket_proxy(service):
             continue
         if str(service_name) != "app":
@@ -755,7 +769,11 @@ def check_socket_proxy_network_isolation(
                 f"{path_rel}:{service_name}: Docker socket proxy consumer must be the repository root service app"
             )
         attached = service_network_names(service)
-        internal_attached = {name for name in attached if dedicated_internal(name)}
+        internal_attached = {
+            name
+            for name in attached
+            if dedicated_internal(name, membership_network_definitions)
+        }
         if (
             not proxy_networks
             and (
@@ -770,7 +788,7 @@ def check_socket_proxy_network_isolation(
                 f"{path_rel}:{service_name}: Docker socket proxy consumer must share the proxy's dedicated project-local internal network"
             )
 
-    for service_name, service in services.items():
+    for service_name, service in membership_services.items():
         if not isinstance(service, dict) or str(service_name) in proxy_services:
             continue
         attached = service_network_names(service)
@@ -782,7 +800,7 @@ def check_socket_proxy_network_isolation(
     for network_name in proxy_networks:
         members = {
             str(service_name)
-            for service_name, service in services.items()
+            for service_name, service in membership_services.items()
             if isinstance(service, dict)
             and network_name in service_network_names(service)
         }
@@ -2379,7 +2397,42 @@ def check_file(path: Path) -> tuple[list[str], list[str]]:
         errors.append(f"{path_rel}: uses obsolete fixed secret mode comment")
 
     data = load_yaml(path)
-    errors.extend(check_socket_proxy_network_isolation(path_rel, data))
+    membership_data: dict[str, Any] | None = None
+    services = data.get("services")
+    if (
+        path.name == "docker-compose.socketproxy.yaml"
+        and not path_rel.startswith("templates/")
+        and isinstance(services, dict)
+        and set(services) == {"socketproxy"}
+    ):
+        sibling_main = path.with_name("docker-compose.main.yaml")
+        if sibling_main.is_file() and not sibling_main.is_symlink():
+            candidate_data = load_yaml(sibling_main)
+            candidate_services = candidate_data.get("services")
+            component_proxy = services.get("socketproxy")
+            candidate_proxy = (
+                candidate_services.get("socketproxy")
+                if isinstance(candidate_services, dict)
+                else None
+            )
+            if (
+                isinstance(candidate_services, dict)
+                and set(services).issubset(candidate_services)
+                and isinstance(component_proxy, dict)
+                and isinstance(candidate_proxy, dict)
+                and service_mounts_docker_socket(candidate_proxy)
+                and all(docker_socket_mount_read_only_states(candidate_proxy))
+                and service_network_names(candidate_proxy)
+                == service_network_names(component_proxy)
+            ):
+                membership_data = candidate_data
+    errors.extend(
+        check_socket_proxy_network_isolation(
+            path_rel,
+            data,
+            membership_data,
+        )
+    )
     errors.extend(
         check_traefik_router_priority_overlaps(
             path_rel,

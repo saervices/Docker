@@ -1263,6 +1263,115 @@ def main() -> None:
         "exact Socket Proxy environment mappings with zero defaults must pass",
     )
 
+    with tempfile.TemporaryDirectory(
+        prefix="hardening-socketproxy-component.",
+        dir="/tmp",
+    ) as raw_root:
+        fixture_root = Path(raw_root)
+        fixture_dir = fixture_root / "Fixture"
+        fixture_dir.mkdir()
+        component_path = fixture_dir / "docker-compose.socketproxy.yaml"
+        main_path = fixture_dir / "docker-compose.main.yaml"
+        generated_component = {
+            "services": {
+                "socketproxy": copy.deepcopy(
+                    isolated_socket_proxy["services"]["socketproxy"]
+                )
+            },
+            "networks": {"socketproxy": {"internal": True}},
+        }
+        component_path.write_text(
+            checker.yaml.safe_dump(generated_component, sort_keys=True),
+            encoding="utf-8",
+        )
+        previous_root = checker.REPO_ROOT
+        checker.REPO_ROOT = fixture_root
+        try:
+            def write_main(data: dict[str, Any]) -> None:
+                main_path.write_text(
+                    checker.yaml.safe_dump(data, sort_keys=True),
+                    encoding="utf-8",
+                )
+
+            def component_socket_errors() -> list[str]:
+                errors, _warnings = checker.check_file(component_path)
+                return [
+                    error
+                    for error in errors
+                    if "Docker socket proxy" in error
+                ]
+
+            write_main(isolated_socket_proxy)
+            require(
+                not component_socket_errors(),
+                "a generated Socket Proxy component must use its safe sibling main Compose membership union",
+            )
+
+            main_path.unlink()
+            require(
+                any(
+                    "members must be exactly app, socketproxy" in error
+                    for error in component_socket_errors()
+                ),
+                "a generated Socket Proxy component without its sibling main Compose must fail closed",
+            )
+
+            main_without_app = copy.deepcopy(isolated_socket_proxy)
+            del main_without_app["services"]["app"]
+            write_main(main_without_app)
+            require(
+                any(
+                    "members must be exactly app, socketproxy" in error
+                    for error in component_socket_errors()
+                ),
+                "a generated Socket Proxy component whose sibling main omits app must fail closed",
+            )
+
+            main_with_intruder = copy.deepcopy(isolated_socket_proxy)
+            main_with_intruder["services"]["intruder"] = {
+                "networks": ["socketproxy"]
+            }
+            write_main(main_with_intruder)
+            require(
+                any(
+                    ":intruder: service on the Docker socket proxy network is not an explicitly detected proxy consumer"
+                    in error
+                    for error in component_socket_errors()
+                ),
+                "a generated Socket Proxy component must reject an intruder in its sibling main union",
+            )
+
+            main_with_proxy_side_network = copy.deepcopy(isolated_socket_proxy)
+            main_with_proxy_side_network["services"]["socketproxy"]["networks"] = [
+                "socketproxy",
+                "side",
+            ]
+            main_with_proxy_side_network["services"]["intruder"] = {
+                "networks": ["side"]
+            }
+            main_with_proxy_side_network["networks"]["side"] = {"internal": True}
+            write_main(main_with_proxy_side_network)
+            require(
+                any(
+                    "members must be exactly app, socketproxy" in error
+                    for error in component_socket_errors()
+                ),
+                "a generated Socket Proxy component must reject a sibling proxy with a wider network boundary",
+            )
+
+            main_with_fake_consumer = copy.deepcopy(isolated_socket_proxy)
+            del main_with_fake_consumer["services"]["app"]["environment"]
+            write_main(main_with_fake_consumer)
+            require(
+                any(
+                    "not an explicitly detected proxy consumer" in error
+                    for error in component_socket_errors()
+                ),
+                "a generated Socket Proxy component must reject an app without an explicit proxy endpoint",
+            )
+        finally:
+            checker.REPO_ROOT = previous_root
+
     unresolved_write_guard = copy.deepcopy(isolated_socket_proxy)
     unresolved_write_guard["services"]["socketproxy"]["environment"]["POST"] = (
         "${SOCKETPROXY_POST}"
