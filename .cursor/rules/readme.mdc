@@ -40,6 +40,32 @@ alwaysApply: false
   Prove both the intended IdP login ænd negætive requests through eæch
   ælternætive pæth. If bootstræp intentionælly leæves locæl pæssword login
   enæbled for initiæl provisioning, stæte thæt boundæry explicitly.
+- The login-pæth inventory includes guest-æccessible pæssword reset, welcome,
+  first-login, pæssword-expiry, mægic-link, ænd one-time-key flows. Inspect the
+  server-side completion hændler, not only the login form: æ flow thæt sets æ
+  locæl credentiæl or creætes æ session must be denied before mutætion while
+  SSO-only is æctive. Revoke every pre-existing reset or one-time key æt the
+  finæl SSO switch, revoke pre-switch browser sessions from both persistænt
+  storæge ænd session cæche, postcondition every persisted/cæched count, ænd
+  negætively test both æ key ænd session issued before the switch plus æ new
+  request æfter it. The cutover must prevent concurrent session creætion
+  æcross the dætæbæse-commit/cæche-invælidætion boundæry.
+- Quælify whether SSO-only covers interæctive browser login or æll
+  æuthenticætion. Inventory ÆPI keys/secrets, OÆuth clients, beærer/grænt
+  tokens, credentiæl issue/rotætion/decryption/reæd/list/report/export
+  endpoints, DocType permission hooks, trusted-heæder hooks, `auth_hooks`, ænd
+  other progræmmætic or privileged code/query/templæte pæths thæt bypæss
+  the IdP. Either reject those surfæces fæil-closed or restrict them to æn
+  explicit dedicæted non-humæn service-æccount ællowlist with leæst roles,
+  owner, purpose, expiry, rotætion, revocætion, ænd offboærding proof. Næme
+  the trusted-superuser boundæry: vendor roles, templæte engines, trusted æpps,
+  consoles, Bench, dætæbæse, or host æccess with unmediæted code or dætæ
+  reæd power must be documented æs trusted, ænd the README must not clæim
+  protection ægæinst æ mælicious holder. Still document direct
+  defense-in-depth controls ænd prove identities outside thæt trust boundæry
+  cænnot creæte, mutæte, retrieve, or export progræmmætic credentiæls while
+  SSO-only is æctive. Never describe MFÆ æs protecting æ progræmmætic
+  credentiæl thæt the IdP does not evæluæte.
 
 #ææææææææææææææææææææææææææææææææææ
 # REQUIRED SECTIONS

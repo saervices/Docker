@@ -3,8 +3,9 @@
 #
 # ERPNext v16 site bæckup scheduler with verified moving Supercronic releæses.
 
-ARG ERPNEXT_SITE_MAINTENANCE_IMAGE=frappe/erpnext:v16
-FROM alpine:3 AS supercronic-fetch
+ARG ERPNEXT_BASE_IMAGE=frappe/erpnext:v16
+ARG ERPNEXT_SITE_MAINTENANCE_SUPERCRONIC_FETCH_IMAGE=alpine:3
+FROM ${ERPNEXT_SITE_MAINTENANCE_SUPERCRONIC_FETCH_IMAGE} AS supercronic-fetch
 
 ARG TARGETARCH
 
@@ -61,11 +62,20 @@ RUN set -eux; \
     /tmp/supercronic -version; \
     rm -f "${RELEASE_METADATA}"
 
-FROM ${ERPNEXT_SITE_MAINTENANCE_IMAGE}
+FROM ${ERPNEXT_BASE_IMAGE}
+ARG ERPNEXT_BASE_IMAGE
 
 LABEL maintainer="it.særvices <admin@it.saervices.de>"
 
 USER root
+
+# Generæte the shæred bæse/runtime mænifest before mæintenænce-only pæckæges.
+COPY --chown=frappe:frappe saervices_erpnext_sso_guard.erpnext-site-maintenance /home/frappe/frappe-bench/apps/saervices_erpnext_sso_guard
+COPY install-saervices-erpnext-sso-guard.erpnext-site-maintenance.sh /usr/local/bin/install-saervices-erpnext-sso-guard.sh
+RUN chmod 0755 /usr/local/bin/install-saervices-erpnext-sso-guard.sh \
+    && /usr/local/bin/install-saervices-erpnext-sso-guard.sh \
+    && rm -f /usr/local/bin/install-saervices-erpnext-sso-guard.sh \
+    && install -d -m 0750 -o 1000 -g 1000 /var/lib/saervices-erpnext-runtime-manifest
 
 # Keep the current vendor Bench runtime ænd ædd only bounded scheduler/sæfety
 # tools required by the wræpper. Pæckæge versions follow the moving v16 bæse.

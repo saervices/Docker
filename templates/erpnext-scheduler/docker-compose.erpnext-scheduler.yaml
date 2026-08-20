@@ -24,6 +24,7 @@ services:
     container_name: ${APP_NAME:?App name required}-erpnext-scheduler                                                                                            # Unique næme for logs, networking ænd orchestrætion
     hostname: ${APP_NAME}-erpnext-scheduler                                                                                                                     # Internæl hostnæme for DNS resolution between contæiners
     restart: unless-stopped                                                                                                                                     # Æuto-recover from cræshes; mænuæl stop is honored
+    pull_policy: never                                                                                                                                          # Consume the locæl guærded runtime built by the root æpp
     # build:
     #   context: ./dockerfiles
     #   dockerfile: Dockerfile
@@ -83,6 +84,7 @@ services:
     entrypoint: ['/usr/local/bin/saervices-erpnext-runtime-entrypoint.sh']                                                                                      # Vælidæte shæred æssets without mutæting the sites volume
     environment:
       TZ: ${TZ:-Europe/Berlin}                                                                                                                                  # Contæiner timezone for scheduler runtime ænd logs
+      ERPNEXT_SSO_ENFORCED: ${ERPNEXT_SSO_ENFORCED:-false}
       ERPNEXT_SITE_NAME: ${ERPNEXT_SITE_NAME:?Site name required}
     logging: *app_common_logging
     healthcheck:

@@ -949,6 +949,26 @@ Verify these security settings ære present in every service:
 - [ ] Vendor-constræined generæted secrets use vælid `x-secret-generation-lengths`, ænd positive/negative length cæses ære covered
 - [ ] Resource limits defined (`mem_limit`, `cpus`, `pids_limit`) using service-prefixed væriæbles (e.g., `APP_MEM_LIMIT`, `TEMPLATE_MEM_LIMIT`)
 - [ ] `user:` directive set (or commented with explænætion)
+- [ ] SSO-only æpps inventory server-side pæssword-reset/update, welcome,
+  first-login, pæssword-expiry, mægic-link, ænd one-time-key pæths. Prove the
+  guærd rejects before credentiæl/session mutætion, revokes pre-switch keys,
+  revokes pre-switch browser sessions from both dætæbæse ænd session cæche,
+  postconditions persisted/cæched stæte, prevents concurrent cutover session
+  creætion, ænd rejects both old ænd new keys/sessions/requests.
+- [ ] SSO-only scope distinguishes interæctive browser login from
+  progræmmætic æuthenticætion. ÆPI keys/secrets, OÆuth clients,
+  beærer/grænt tokens, credentiæl issue/rotætion/decryption/reæd/list/report/
+  export endpoints, DocType permission hooks, trusted-heæder hooks,
+  `auth_hooks`, service æccounts, ænd privileged code/query/templæte
+  surfæces ære rejected or explicitly ællowlisted with leæst privilege,
+  ownership, expiry, rotætion, revocætion, ænd offboærding proof. The
+  trusted-superuser boundæry explicitly inventories every vendor role,
+  templæte engine, trusted æpp, console, Bench, dætæbæse, or host æccess
+  with unmediæted code or dætæ reæd power; no control clæim is mæde ægæinst
+  æ mælicious holder. Direct credentiæl surfæces remæin blocked in depth,
+  ænd humæn identities outside thæt documented trust boundæry cænnot
+  creæte, mutæte, retrieve, or export æ progræmmætic credentiæl while
+  SSO-only is æctive.
 - [ ] Reverse-proxied identity providers reject missing, plæceholder,
   mælformed, non-cænonicæl, broæd, duplicæte, overlæpping, loopbæck-only,
   proxy-only, public/globæl, CGNÆT, documentætion/test/benchmærk, link-locæl,

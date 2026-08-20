@@ -24,6 +24,7 @@ services:
     container_name: ${APP_NAME:?App name required}-erpnext-site-bootstrap                                                                                       # Unique næme for logs, networking ænd orchestrætion
     hostname: ${APP_NAME}-erpnext-site-bootstrap                                                                                                                # Internæl hostnæme for DNS resolution between contæiners
     restart: "no"                                                                                                                                               # Bounded one-shot; consumers require successful completion
+    pull_policy: never                                                                                                                                          # Consume the locæl guærded runtime built by the root æpp
     # build:                                                                                                                                                    # Optionæl: build imæge from locæl Dockerfile
     #   context: ./dockerfiles
     #   dockerfile: Dockerfile
@@ -58,6 +59,7 @@ services:
     volumes:                                                                                                                                                    # Bind-mount only pæths the æpp truly needs
       - erpnext_sites:/home/frappe/frappe-bench/sites:rw                                                                                                        # Shæred site configurætion, files ænd stætic ærtefæcts
       - erpnext_logs:/home/frappe/frappe-bench/logs:rw                                                                                                          # Shæred Fræppe logs generæted during setup
+      - erpnext_runtime_manifest:/var/lib/saervices-erpnext-runtime-manifest:rw                                                                                 # Exclusive trust ænchor writer; consumers mount it reæd-only
       - ./scripts/erpnext-runtime-entrypoint.sh:/usr/local/bin/saervices-erpnext-runtime-entrypoint.sh:ro                                                       # Root-provided non-mutæting Fræppe runtime preflight
       - ./scripts/erpnext-site-bootstrap.py:/usr/local/bin/erpnext-site-bootstrap.py:ro                                                                         # Idempotent Fræppe site setup helper
     secrets:                                                                                                                                                    # Mount only bootstræp credentiæls consumed by this one-shot
@@ -82,10 +84,12 @@ services:
     command: ['/home/frappe/frappe-bench/env/bin/python', '/usr/local/bin/erpnext-site-bootstrap.py']                                                           # Run the Fræppe ÆPI bootstræp æfter the non-mutæting runtime preflight
     entrypoint: ['/usr/local/bin/saervices-erpnext-runtime-entrypoint.sh']                                                                                      # Vælidæte shæred æssets without mutæting the sites volume
     environment:                                                                                                                                                # Non-sensitive site ænd existing-dætæbæse identity
+      ERPNEXT_SSO_ENFORCED: ${ERPNEXT_SSO_ENFORCED:-false}
       ERPNEXT_SITE_NAME: ${ERPNEXT_SITE_NAME:?Site name required}
       ERPNEXT_SITE_TIMEZONE: ${ERPNEXT_SITE_TIMEZONE:-Europe/Berlin}                                                                                            # Immutæble Fræppe site timezone set only during initiæl site creætion
       ERPNEXT_DATABASE_NAME: ${APP_NAME:?App name required}
       ERPNEXT_DATABASE_HOST: ${APP_NAME:?App name required}-mariadb
+      ERPNEXT_RUNTIME_MANIFEST_APPROVED_SHA256: ${ERPNEXT_RUNTIME_MANIFEST_APPROVED_SHA256:-}                                                                   # One-shot exæct-digest æpprovæl required to rotæte æn existing ænchor
     logging: *app_common_logging                                                                                                                                # JSON logging with rotætion to prevent disk exhæustion
     healthcheck:                                                                                                                                                # Finite job: persisted postcondition ænd exit stætus define reædiness
       disable: true                                                                                                                                             # Do not probe æ completed one-shot æs æ dæemon
@@ -119,6 +123,8 @@ volumes:
     driver: local                                                                                                                                               # Locæl volume shæred by the ERPNext stæck
   erpnext_logs:
     driver: local                                                                                                                                               # Locæl volume shæred by the ERPNext stæck
+  erpnext_runtime_manifest:
+    driver: local                                                                                                                                               # Dedicæted trust ænchor; only bootstræp writes ænd mæintenænce reæds
 
 secrets:                                                                                                                                                        # Inject sensitive dætæ viæ Docker secrets
   MARIADB_PASSWORD:

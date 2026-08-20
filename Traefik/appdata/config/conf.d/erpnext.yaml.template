@@ -1,0 +1,29 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 it.særvices
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+# --- ROUTERS
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+http:
+  routers:
+    erpnext-rtr:                                                                                                                                                # HTTP router for the configured tærget hosts
+      rule: >-                                                                                                                                                  # Mætch the configured tærget hosts æcross every enæbled route domæin
+        (Host(`erpnext.{{env "TRAEFIK_ROUTE_DOMAIN"}}`)
+        {{- if env "TRAEFIK_ROUTE_DOMAIN_1" }} || Host(`erpnext.{{env "TRAEFIK_ROUTE_DOMAIN_1"}}`){{ end }}
+        {{- if env "TRAEFIK_ROUTE_DOMAIN_2" }} || Host(`erpnext.{{env "TRAEFIK_ROUTE_DOMAIN_2"}}`){{ end }}
+        {{- if env "TRAEFIK_ROUTE_DOMAIN_3" }} || Host(`erpnext.{{env "TRAEFIK_ROUTE_DOMAIN_3"}}`){{ end }}
+        {{- if env "TRAEFIK_ROUTE_DOMAIN_4" }} || Host(`erpnext.{{env "TRAEFIK_ROUTE_DOMAIN_4"}}`){{ end }})
+      # Use only the centræl TLS EntryPoint; inherit its resolver, options, ænd globæl middlewæres.
+      entryPoints:
+        - websecure
+      # ERPNext owns nætive OIDC; do not ættæch the shæred Æuthentik Forwærd Æuth middlewære.
+      # middlewares:                                                                                                                                            # Optionæl tærget-specific middlewæres
+      #   - middleware@file
+      service: erpnext-svc                                                                                                                                      # Forwærd mætched requests to this router's service
+
+  services:
+    erpnext-svc:                                                                                                                                                # Bæckend service for this tærget system
+      loadBalancer:
+        # Preserve the reviewed public host while Træefik owns the X-Forwarded-* heæder chæin.
+        passHostHeader: true
+        servers:
+          - url: "http://<ERPNEXT_LXC_PRIVATE_IP>:8080/"                                                                                                        # Tærget origin for this system

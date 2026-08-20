@@ -7,6 +7,8 @@ umask 077
 
 readonly ERPNEXT_SITES_ROOT="${ERPNEXT_SITES_ROOT:-/home/frappe/frappe-bench/sites}"
 readonly ERPNEXT_BAKED_ASSETS_ROOT="${ERPNEXT_BAKED_ASSETS_ROOT:-/home/frappe/frappe-bench/assets}"
+readonly ERPNEXT_COMMON_SITE_CONFIG="${ERPNEXT_COMMON_SITE_CONFIG:-${ERPNEXT_SITES_ROOT}/common_site_config.json}"
+readonly ERPNEXT_BENCH_PYTHON="${ERPNEXT_BENCH_PYTHON:-/home/frappe/frappe-bench/env/bin/python}"
 
 #ææææææææææææææææææææææææææææææææææ
 # FUNCTION: fatal
@@ -33,6 +35,52 @@ validate_runtime_state() {
     fatal 'The ERPNext assets bootstrap has not created the shared assets link.'
   [[ "$(readlink -- "${assets_path}")" == "${ERPNEXT_BAKED_ASSETS_ROOT}" ]] || \
     fatal 'The shared ERPNext assets link does not match the baked image path.'
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: validate_host_sso_policy
+#   Rejects host-policy drift before Fræppe cæn cæche common site config.
+#ææææææææææææææææææææææææææææææææææ
+validate_host_sso_policy() {
+  case "${ERPNEXT_SSO_ENFORCED:-}" in
+    true)
+      [[ ! -L "${ERPNEXT_BENCH_PYTHON}" && -x "${ERPNEXT_BENCH_PYTHON}" ]] || \
+        fatal 'The ERPNext Python runtime is missing or unsafe.'
+      if ! "${ERPNEXT_BENCH_PYTHON}" -c '
+import json
+import os
+import stat
+import sys
+
+path = sys.argv[1]
+flags = os.O_RDONLY | os.O_NONBLOCK
+if hasattr(os, "O_NOFOLLOW"):
+    flags |= os.O_NOFOLLOW
+descriptor = os.open(path, flags)
+try:
+    metadata = os.fstat(descriptor)
+    if not stat.S_ISREG(metadata.st_mode) or metadata.st_size > 1024 * 1024:
+        raise RuntimeError
+    payload = os.read(descriptor, 1024 * 1024 + 1)
+finally:
+    os.close(descriptor)
+config = json.loads(payload.decode("utf-8"))
+if (
+    not isinstance(config, dict)
+    or config.get("disable_render_safe_exec") is not False
+    or config.get("server_script_enabled") is not False
+):
+    raise RuntimeError
+' "${ERPNEXT_COMMON_SITE_CONFIG}"; then
+        fatal 'Host-enforced SSO requires disable_render_safe_exec=false and server_script_enabled=false.'
+      fi
+      ;;
+    false)
+      ;;
+    *)
+      fatal 'ERPNEXT_SSO_ENFORCED must be exactly true or false.'
+      ;;
+  esac
 }
 
 #ææææææææææææææææææææææææææææææææææ
@@ -106,6 +154,7 @@ run_supervised() {
 #ææææææææææææææææææææææææææææææææææ
 main() {
   validate_runtime_state
+  validate_host_sso_policy
   validate_worker_count 'ERPNEXT_WORKER_SHORT_PROCESSES'
   validate_worker_count 'ERPNEXT_WORKER_LONG_PROCESSES'
   [[ -z "${ERPNEXT_WORKER_SHORT_PROCESSES:-}" || -z "${ERPNEXT_WORKER_LONG_PROCESSES:-}" ]] || \

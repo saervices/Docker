@@ -1,3 +1,16 @@
 *
 !.dockerignore
 !dockerfile.erpnext-site-maintenance
+!install-saervices-erpnext-sso-guard.erpnext-site-maintenance.sh
+!saervices_erpnext_sso_guard.erpnext-site-maintenance
+!saervices_erpnext_sso_guard.erpnext-site-maintenance/saervices_erpnext_sso_guard
+!saervices_erpnext_sso_guard.erpnext-site-maintenance/saervices_erpnext_sso_guard/__init__.py
+!saervices_erpnext_sso_guard.erpnext-site-maintenance/saervices_erpnext_sso_guard/api_auth.py
+!saervices_erpnext_sso_guard.erpnext-site-maintenance/saervices_erpnext_sso_guard/hooks.py
+!saervices_erpnext_sso_guard.erpnext-site-maintenance/saervices_erpnext_sso_guard/modules.txt
+!saervices_erpnext_sso_guard.erpnext-site-maintenance/saervices_erpnext_sso_guard/password_login.py
+!saervices_erpnext_sso_guard.erpnext-site-maintenance/saervices_erpnext_sso_guard/patches.txt
+!saervices_erpnext_sso_guard.erpnext-site-maintenance/saervices_erpnext_sso_guard/runtime_manifest.py
+!saervices_erpnext_sso_guard.erpnext-site-maintenance/saervices_erpnext_sso_guard/user_document.py
+**/__pycache__
+**/*.pyc

@@ -192,7 +192,7 @@ EXPECTED_SERVICE_SECRETS: dict[str, frozenset[str]] = {
     "erpnext-sso-bootstrap": frozenset(
         {"ERPNEXT_OIDC_CLIENT_ID", "ERPNEXT_OIDC_CLIENT_SECRET"}
     ),
-    "erpnext-backend": frozenset(),
+    "erpnext-backend": frozenset({"ERPNEXT_OIDC_CLIENT_ID"}),
     "erpnext-websocket": frozenset(),
     "erpnext-worker-short": frozenset(),
     "erpnext-worker-long": frozenset(),
@@ -233,6 +233,8 @@ PRIVATE_FRAPPE_CONFIG_TMPFS = (
 RESTORE_ROLLBACK_FIXTURE_CACHE: dict[str, tuple[bool, str]] = {}
 OIDC_RESERVED_DOMAIN_FIXTURE_CACHE: dict[str, tuple[bool, str]] = {}
 OIDC_LOGIN_POLICY_FIXTURE_CACHE: dict[str, tuple[bool, str]] = {}
+SSO_GUARD_FIXTURE_CACHE: dict[str, tuple[bool, str]] = {}
+RUNTIME_MANIFEST_FIXTURE_CACHE: dict[str, tuple[bool, str]] = {}
 ARCHIVE_VALIDATION_FIXTURE_CACHE: dict[str, tuple[bool, str]] = {}
 SCHEDULE_ERREXIT_FIXTURE_CACHE: dict[str, tuple[bool, str]] = {}
 SITE_DOMAIN_GUARD_FIXTURE_CACHE: dict[str, tuple[bool, str]] = {}
@@ -1690,6 +1692,7 @@ with TemporaryDirectory(prefix="erpnext-site-domain-guard.", dir="/tmp") as raw_
                 "ERPNEXT_REDIS_QUEUE_HOST": "erpnext-redis-queue",
                 "ERPNEXT_AUTHENTIK_DOMAIN": "authentik.production.internal",
                 "ERPNEXT_SSO_SIGNUPS": "Deny",
+                "ERPNEXT_SSO_ENFORCED": "false",
             }
         )
         try:
@@ -1793,6 +1796,26 @@ with TemporaryDirectory(prefix="erpnext-existing-site-cwd.", dir="/tmp") as raw_
     for directory in (site_root, logs_root, launch_root):
         directory.mkdir(parents=True, mode=0o700)
 
+    guard_root = bench_root / "apps" / "saervices_erpnext_sso_guard"
+    guard_package = guard_root / "saervices_erpnext_sso_guard"
+    guard_package.mkdir(parents=True, mode=0o755)
+    for name in (
+        "__init__.py",
+        "api_auth.py",
+        "hooks.py",
+        "modules.txt",
+        "password_login.py",
+        "patches.txt",
+        "runtime_manifest.py",
+        "user_document.py",
+    ):
+        (guard_package / name).write_text("fixture\n", encoding="utf-8")
+    apps_path = sites_root / "apps.txt"
+    apps_path.write_text(
+        "frappe\nerpnext\nsaervices_erpnext_sso_guard\n",
+        encoding="utf-8",
+    )
+
     database_password = "existing-database-password"
     site_config = site_root / "site_config.json"
     config_bytes = (
@@ -1813,6 +1836,20 @@ with TemporaryDirectory(prefix="erpnext-existing-site-cwd.", dir="/tmp") as raw_
     site_config.chmod(0o600)
 
     module.SITES_ROOT = sites_root
+    module.APPS_PATH = apps_path
+    module.SSO_GUARD_ROOT = guard_root
+    image_runtime_manifest = fixture_root / "image-runtime-manifest"
+    image_runtime_manifest.write_bytes(b'{"schema":1}\n')
+    module.IMAGE_RUNTIME_MANIFEST = image_runtime_manifest
+    manifest_anchor = fixture_root / "runtime-manifest-anchor"
+    manifest_anchor.mkdir(mode=0o750)
+    manifest_anchor.chmod(0o750)
+    module.RUNTIME_MANIFEST_ANCHOR_ROOT = manifest_anchor
+    module.SHARED_RUNTIME_MANIFEST = manifest_anchor / "manifest.json"
+    module.SHARED_RUNTIME_MANIFEST.write_bytes(b'{"schema":1}\n')
+    module.SHARED_RUNTIME_MANIFEST.chmod(0o644)
+    module.BOOTSTRAP_STATE_PATH = sites_root / ".saervices-erpnext-site-bootstrap-state"
+    manifest_mtime = module.SHARED_RUNTIME_MANIFEST.stat().st_mtime_ns
     secret_events = []
 
     def read_secret(path, label, minimum=1):
@@ -1889,13 +1926,15 @@ with TemporaryDirectory(prefix="erpnext-existing-site-cwd.", dir="/tmp") as raw_
     frappe.init = frappe_init
     frappe.connect = frappe_connect
     frappe.destroy = frappe_destroy
-    frappe.get_installed_apps = lambda: ("frappe", "erpnext")
+    installed_apps = ["frappe", "erpnext"]
+    frappe.get_installed_apps = lambda: tuple(installed_apps)
 
     utils = types.ModuleType("frappe.utils")
     utils.__path__ = []
     logger = types.ModuleType("frappe.utils.logger")
     password = types.ModuleType("frappe.utils.password")
     scheduler = types.ModuleType("frappe.utils.scheduler")
+    installer = types.ModuleType("frappe.installer")
 
     def set_log_level(level):
         frappe_events.append(("set_log_level", Path.cwd(), level))
@@ -1924,10 +1963,32 @@ with TemporaryDirectory(prefix="erpnext-existing-site-cwd.", dir="/tmp") as raw_
     scheduler.enable_scheduler = lambda: (_ for _ in ()).throw(
         AssertionError("existing-site fixture unexpectedly enabled scheduler")
     )
+
+    def install_app(name):
+        frappe_events.append(("install_app", Path.cwd(), name))
+        assert name == "saervices_erpnext_sso_guard"
+        assert apps_path.read_text(encoding="utf-8").splitlines() == [
+            "frappe",
+            "erpnext",
+            "saervices_erpnext_sso_guard",
+        ]
+        installed_apps.append(name)
+
+    installer.install_app = install_app
     utils.logger = logger
     utils.password = password
     utils.scheduler = scheduler
     frappe.utils = utils
+    guard_import_package = types.ModuleType("saervices_erpnext_sso_guard")
+    guard_import_package.__path__ = []
+    runtime_manifest = types.ModuleType(
+        "saervices_erpnext_sso_guard.runtime_manifest"
+    )
+    runtime_manifest.validate_manifest_bytes = lambda payload: (
+        None
+        if payload == b'{"schema":1}\n'
+        else (_ for _ in ()).throw(AssertionError(payload))
+    )
     sys.modules.update(
         {
             "frappe": frappe,
@@ -1935,6 +1996,9 @@ with TemporaryDirectory(prefix="erpnext-existing-site-cwd.", dir="/tmp") as raw_
             "frappe.utils.logger": logger,
             "frappe.utils.password": password,
             "frappe.utils.scheduler": scheduler,
+            "frappe.installer": installer,
+            "saervices_erpnext_sso_guard": guard_import_package,
+            "saervices_erpnext_sso_guard.runtime_manifest": runtime_manifest,
         }
     )
 
@@ -1946,6 +2010,7 @@ with TemporaryDirectory(prefix="erpnext-existing-site-cwd.", dir="/tmp") as raw_
             "ERPNEXT_SITE_TIMEZONE": "Europe/Berlin",
             "ERPNEXT_DATABASE_NAME": "erpnext",
             "ERPNEXT_DATABASE_HOST": "erpnext-mariadb",
+            "ERPNEXT_SSO_ENFORCED": "false",
         }
     )
     original_cwd = Path.cwd()
@@ -1976,6 +2041,7 @@ with TemporaryDirectory(prefix="erpnext-existing-site-cwd.", dir="/tmp") as raw_
         "init",
         "set_log_level",
         "connect",
+        "install_app",
         "db.exists",
         "check_password",
         "db.get_single_value",
@@ -1994,6 +2060,14 @@ with TemporaryDirectory(prefix="erpnext-existing-site-cwd.", dir="/tmp") as raw_
     )
     assert site_config.read_bytes() == config_bytes
     assert stat.S_IMODE(os.lstat(site_config).st_mode) == 0o600
+    assert apps_path.read_text(encoding="utf-8").splitlines() == [
+        "frappe",
+        "erpnext",
+        "saervices_erpnext_sso_guard",
+    ]
+    assert module.SHARED_RUNTIME_MANIFEST.read_bytes() == b'{"schema":1}\n'
+    assert stat.S_IMODE(os.lstat(module.SHARED_RUNTIME_MANIFEST).st_mode) == 0o644
+    assert module.SHARED_RUNTIME_MANIFEST.stat().st_mtime_ns == manifest_mtime
     assert [path for path in fixture_root.rglob("database.log")] == [
         logs_root / "database.log"
     ]
@@ -2183,9 +2257,28 @@ class FakeDocument:
 
     def save(self, ignore_permissions=False):
         assert ignore_permissions is True
+        assert getattr(
+            sys.modules["frappe"].flags,
+            "saervices_erpnext_sso_guard_social_login_key_bootstrap",
+            False,
+        ) is True
         self.name = "authentik"
         self.state["keys"][self.name] = self
         self.state["events"].append(("save", self.name))
+        if self.state["inject_authentik_login_after_save"]:
+            sys.modules["frappe"].conf["authentik_login"] = {
+                "client_id": "drift-client",
+                "client_secret": "never-log-this-drift-secret",
+            }
+        if self.state["inject_service_account_binding_after_save"]:
+            self.state["social_bindings"].append(
+                {
+                    "parent": "erp-api@production.internal",
+                    "parenttype": "User",
+                    "parentfield": "social_logins",
+                    "provider": "authentik",
+                }
+            )
 
     def get_password(self, field, raise_exception=False):
         assert (field, raise_exception) == ("client_secret", False)
@@ -2195,7 +2288,21 @@ class FakeDocument:
 def install_frappe(state):
     frappe = types.ModuleType("frappe")
     frappe.__path__ = []
-    frappe.local = types.SimpleNamespace(db=object())
+    frappe.local = types.SimpleNamespace(db=object(), cache=state["local_cache"])
+    frappe.conf = {
+        "disable_render_safe_exec": state["disable_render_safe_exec"],
+        "server_script_enabled": state["server_script_enabled"],
+    }
+    if state["authentik_login"] is not None:
+        frappe.conf["authentik_login"] = dict(state["authentik_login"])
+
+    class FakeFlags(dict):
+        __getattr__ = dict.get
+
+        def __setattr__(self, name, value):
+            self[name] = value
+
+    frappe.flags = FakeFlags()
 
     class FakeDatabase:
         def exists(self, doctype, name):
@@ -2211,25 +2318,158 @@ def install_frappe(state):
 
         def commit(self):
             state["events"].append(("commit",))
+            state["security_transaction_original"] = None
 
         def rollback(self):
             state["events"].append(("rollback",))
+            original = state["security_transaction_original"]
+            if original is not None:
+                (
+                    state["local_password_users"],
+                    state["api_secret_auth_users"],
+                    state["reset_rows"],
+                    state["invitation_rows"],
+                    state["authorization_code_rows"],
+                    state["database_sessions"],
+                ) = original
+                state["security_transaction_original"] = None
+
+        def sql(self, query):
+            normalized = " ".join(query.split())
+            if normalized.startswith("UPDATE `tabUser`"):
+                if state["security_transaction_original"] is None:
+                    state["security_transaction_original"] = (
+                        set(state["local_password_users"]),
+                        set(state["api_secret_auth_users"]),
+                        state["reset_rows"],
+                        state["invitation_rows"],
+                        state["authorization_code_rows"],
+                        state["database_sessions"],
+                    )
+                state["events"].append(("revoke_reset_keys",))
+                state["reset_rows"] = 0
+                return []
+            if normalized.startswith("DELETE FROM `__Auth`"):
+                assert "COALESCE(`name`, '') <> 'Administrator'" in normalized
+                if state["security_transaction_original"] is None:
+                    state["security_transaction_original"] = (
+                        set(state["local_password_users"]),
+                        set(state["api_secret_auth_users"]),
+                        state["reset_rows"],
+                        state["invitation_rows"],
+                        state["authorization_code_rows"],
+                        state["database_sessions"],
+                    )
+                state["events"].append(("revoke_local_passwords",))
+                state["local_password_users"] = {
+                    user
+                    for user in state["local_password_users"]
+                    if user == "Administrator"
+                }
+                return []
+            if normalized.startswith("SELECT COUNT(*) FROM `__Auth`"):
+                assert "COALESCE(`name`, '') <> 'Administrator'" in normalized
+                state["events"].append(("count_local_passwords",))
+                remaining = len(
+                    {
+                        user
+                        for user in state["local_password_users"]
+                        if user != "Administrator"
+                    }
+                )
+                if state["local_password_count_override"] is not None:
+                    remaining = state["local_password_count_override"]
+                return [(remaining,)]
+            if normalized.startswith("SELECT COUNT(*) FROM `tabUser`"):
+                state["events"].append(("count_reset_keys",))
+                return [(state["reset_rows"],)]
+            if normalized.startswith("UPDATE `tabUser Invitation`"):
+                state["events"].append(("revoke_user_invitations",))
+                state["invitation_rows"] = 0
+                return []
+            if normalized.startswith("SELECT COUNT(*) FROM `tabUser Invitation`"):
+                state["events"].append(("count_user_invitations",))
+                return [(state["invitation_rows"],)]
+            if normalized.startswith("UPDATE `tabOAuth Authorization Code`"):
+                state["events"].append(("revoke_oauth_authorization_codes",))
+                state["authorization_code_rows"] = 0
+                return []
+            if normalized.startswith(
+                "SELECT COUNT(*) FROM `tabOAuth Authorization Code`"
+            ):
+                state["events"].append(("count_oauth_authorization_codes",))
+                return [(state["authorization_code_rows"],)]
+            if normalized == "DELETE FROM `tabSessions`":
+                state["events"].append(("revoke_database_sessions",))
+                state["database_sessions"] = 0
+                return []
+            if normalized == "SELECT COUNT(*) FROM `tabSessions`":
+                state["events"].append(("count_database_sessions",))
+                remaining = state["database_sessions"]
+                if state["database_session_count_results"]:
+                    remaining = state["database_session_count_results"].pop(0)
+                elif state["database_session_count_override"] is not None:
+                    remaining = state["database_session_count_override"]
+                return [(remaining,)]
+            raise AssertionError(f"unexpected SQL: {normalized}")
 
     frappe.db = FakeDatabase()
 
     class FakeCache:
-        def delete_keys(self, prefix):
-            assert prefix == "one_time_login_key:"
-            state["events"].append(("delete_keys", prefix))
-            state["cache_keys"] = {
-                key for key in state["cache_keys"] if not key.startswith(prefix)
-            }
+        def make_key(self, name):
+            if name == "session":
+                return b"fixture-site|session"
+            if name == "one_time_login_key:*":
+                return b"fixture-site|one_time_login_key:*"
+            raise AssertionError(name)
 
-        def get_keys(self, prefix):
-            assert prefix == "one_time_login_key:"
-            return sorted(
-                key for key in state["cache_keys"] if key.startswith(prefix)
-            )
+        def ping(self):
+            state["events"].append(("session_cache_ping",))
+            if state["cache_ping_failures"]:
+                state["cache_ping_failures"] -= 1
+                raise ConnectionError("fixture Redis connection failure")
+            return True
+
+        def delete(self, key):
+            assert key == b"fixture-site|session"
+            state["events"].append(("revoke_cached_sessions",))
+            state["redis_sessions"] = 0
+            return 1
+
+        def hlen(self, key):
+            assert key == b"fixture-site|session"
+            state["events"].append(("count_cached_sessions",))
+            if state["cache_hlen_results"]:
+                return state["cache_hlen_results"].pop(0)
+            if state["cache_hlen_override"] is not None:
+                return state["cache_hlen_override"]
+            return state["redis_sessions"]
+
+        def scan(self, *, cursor, match, count):
+            assert match == b"fixture-site|one_time_login_key:*"
+            assert count == 256
+            state["cache_scan_calls"] += 1
+            if state["cache_scan_fail_at"] == state["cache_scan_calls"]:
+                raise ConnectionError("fixture Redis scan connection failure")
+            if cursor == 0:
+                state["cache_delete_passes"] += 1
+                snapshot = sorted(state["cache_keys"])
+                if state["cache_scan_skip_mode"] and snapshot:
+                    snapshot = snapshot[::2]
+                state["cache_scan_snapshot"] = snapshot
+            snapshot = state["cache_scan_snapshot"]
+            end = min(cursor + count, len(snapshot))
+            next_cursor = 0 if end == len(snapshot) else end
+            state["events"].append(("scan_email_link_keys", len(snapshot[cursor:end])))
+            return next_cursor, snapshot[cursor:end]
+
+        def unlink(self, *keys):
+            state["events"].append(("revoke_email_link_keys", len(keys)))
+            if state["cache_unlink_override"] is not None:
+                return state["cache_unlink_override"]
+            for key in keys:
+                state["cache_keys"].discard(key)
+            return len(keys)
 
     frappe.cache = FakeCache()
     frappe.init = lambda site, sites_path: state["events"].append(
@@ -2237,49 +2477,323 @@ def install_frappe(state):
     )
     frappe.connect = lambda: state["events"].append(("connect",))
     frappe.destroy = lambda: state["events"].append(("destroy",))
-    frappe.get_all = lambda doctype, pluck=None: (
-        list(state["keys"]) if (doctype, pluck) == ("Social Login Key", "name") else None
-    )
+    frappe.get_installed_apps = lambda: tuple(state["installed_apps"])
+    def get_all(doctype, filters=None, fields=None, pluck=None):
+        if (doctype, pluck) == ("Social Login Key", "name"):
+            return list(state["keys"])
+        if doctype == "User" and fields == ["name", "enabled", "user_type", "api_key"]:
+            return [dict(row) for row in state["users"]]
+        if doctype == "OAuth Bearer Token" and fields == ["user", "status"]:
+            return [dict(row) for row in state["oauth_tokens"]]
+        if doctype == "Report" and fields == [
+            "name",
+            "report_type",
+            "is_standard",
+        ]:
+            return [dict(row) for row in state["reports"]]
+        if (
+            doctype == "User Social Login"
+            and filters == {"provider": "authentik"}
+            and fields == ["parent", "parenttype", "parentfield"]
+        ):
+            return [dict(row) for row in state["social_bindings"]]
+        raise AssertionError((doctype, filters, fields, pluck))
+
+    frappe.get_all = get_all
     frappe.get_doc = lambda doctype, name: state["keys"][name]
     frappe.new_doc = lambda doctype: FakeDocument(state)
     frappe.clear_cache = lambda doctype=None: state["events"].append(
         ("clear_cache", doctype)
     )
 
+    def get_hooks(name, default=None):
+        if name == "auth_hooks":
+            return list(state["auth_hooks"])
+        if name == "before_login":
+            return list(state["before_login_hooks"])
+        if name == "override_whitelisted_methods":
+            return {key: list(value) for key, value in state["overrides"].items()}
+        if name == "extend_doctype_class":
+            return {key: list(value) for key, value in state["extend_hooks"].items()}
+        if name == "has_permission":
+            return {
+                key: list(value)
+                for key, value in state["has_permission_hooks"].items()
+            }
+        if name == "permission_query_conditions":
+            return {
+                key: list(value)
+                for key, value in state["permission_query_hooks"].items()
+            }
+        return default
+
+    frappe.get_hooks = get_hooks
+    frappe.get_doc_hooks = lambda: {
+        doctype: {event: list(handlers) for event, handlers in events.items()}
+        for doctype, events in state["doc_hooks"].items()
+    }
+    frappe.override_whitelisted_method = lambda original: state["overrides"].get(
+        original, [original]
+    )[-1]
+
     utils = types.ModuleType("frappe.utils")
     utils.__path__ = []
     password = types.ModuleType("frappe.utils.password")
 
     def get_decrypted_password(doctype, name, field, raise_exception=False):
-        assert (doctype, field, raise_exception) == (
-            "Social Login Key",
-            "client_secret",
-            False,
-        )
-        return state["keys"][name].client_secret
+        assert raise_exception is False
+        if (doctype, field) == ("Social Login Key", "client_secret"):
+            return state["keys"][name].client_secret
+        if (doctype, field) == ("User", "api_secret"):
+            return "fixture-api-secret" if name in state["api_secret_users"] else None
+        raise AssertionError((doctype, name, field, raise_exception))
 
     password.get_decrypted_password = get_decrypted_password
     utils.password = password
     frappe.utils = utils
+    guard_package = types.ModuleType("saervices_erpnext_sso_guard")
+    guard_package.__path__ = []
+    guard_api = types.ModuleType("saervices_erpnext_sso_guard.api_auth")
+    guard_api.AUTH_HOOK = (
+        "saervices_erpnext_sso_guard.api_auth.enforce_api_service_account_allowlist"
+    )
+    guard_api.BEFORE_LOGIN_HOOK = (
+        "saervices_erpnext_sso_guard.api_auth.enforce_host_sso_before_login"
+    )
+    guard_api.OAUTH_CREDENTIAL_DOCTYPES = frozenset(
+        {
+            "OAuth Authorization Code",
+            "OAuth Bearer Token",
+            "OAuth Client",
+        }
+    )
+    guard_api.OAUTH_CREDENTIAL_HAS_PERMISSION_HOOK = (
+        "saervices_erpnext_sso_guard.api_auth.enforce_oauth_credential_permission"
+    )
+    guard_api.OAUTH_CREDENTIAL_QUERY_CONDITION_HOOK = (
+        "saervices_erpnext_sso_guard.api_auth.oauth_credential_query_condition"
+    )
+    guard_api.parse_api_service_accounts = module.parse_api_service_accounts
+    guard_api.parse_host_sso_enforced = lambda value: {
+        "false": False,
+        "true": True,
+    }[value]
+    guard_user = types.ModuleType("saervices_erpnext_sso_guard.user_document")
+    guard_user.SOCIAL_LOGIN_KEY_BOOTSTRAP_FLAG = (
+        "saervices_erpnext_sso_guard_social_login_key_bootstrap"
+    )
+    guard_user.SOCIAL_LOGIN_KEY_MUTATION_HOOK = (
+        "saervices_erpnext_sso_guard.user_document.guard_social_login_key_mutation"
+    )
+    guard_manifest = types.ModuleType(
+        "saervices_erpnext_sso_guard.runtime_manifest"
+    )
+    guard_manifest.EXPECTED_APPS = frozenset(
+        {"frappe", "erpnext", "saervices_erpnext_sso_guard"}
+    )
+
+    class UserSSOGuardMixin:
+        def _reset_password(self, send_email=False, password_expired=False):
+            return None
+
+        def set_new_password(self, new_password=None):
+            return None
+
+    guard_user.UserSSOGuardMixin = UserSSOGuardMixin
+    model = types.ModuleType("frappe.model")
+    model.__path__ = []
+    base_document = types.ModuleType("frappe.model.base_document")
+
+    class EffectiveUserController(UserSSOGuardMixin):
+        pass
+
+    base_document.get_controller = lambda doctype: (
+        EffectiveUserController
+        if doctype == "User"
+        else (_ for _ in ()).throw(AssertionError(doctype))
+    )
     sys.modules.update(
         {
             "frappe": frappe,
             "frappe.utils": utils,
             "frappe.utils.password": password,
+            "frappe.model": model,
+            "frappe.model.base_document": base_document,
+            "saervices_erpnext_sso_guard": guard_package,
+            "saervices_erpnext_sso_guard.api_auth": guard_api,
+            "saervices_erpnext_sso_guard.runtime_manifest": guard_manifest,
+            "saervices_erpnext_sso_guard.user_document": guard_user,
         }
     )
 
 
 def new_state(password_login_disabled):
+    email_link_keys = {
+        f"fixture-site|one_time_login_key:{index:04d}".encode("ascii")
+        for index in range(513)
+    }
     return {
         "settings": {
             ("System Settings", "disable_user_pass_login"): password_login_disabled,
+            ("System Settings", "setup_complete"): 1,
             ("System Settings", "login_with_email_link"): 1,
             ("Website Settings", "disable_signup"): 0,
             ("LDAP Settings", "enabled"): 1,
+            ("OAuth Settings", "enable_dynamic_client_registration"): 1,
         },
         "keys": {},
-        "cache_keys": {"one_time_login_key:stale-fixture-token"},
+        "installed_apps": ["frappe", "erpnext", "saervices_erpnext_sso_guard"],
+        "users": [],
+        "api_secret_users": set(),
+        "oauth_tokens": [],
+        "reports": [],
+        "authentik_login": None,
+        "inject_authentik_login_after_save": False,
+        "inject_service_account_binding_after_save": False,
+        "social_bindings": [],
+        "disable_render_safe_exec": False,
+        "server_script_enabled": False,
+        "auth_hooks": [
+            "saervices_erpnext_sso_guard.api_auth.enforce_api_service_account_allowlist"
+        ],
+        "before_login_hooks": [
+            "saervices_erpnext_sso_guard.api_auth.enforce_host_sso_before_login"
+        ],
+        "doc_hooks": {
+            "User": {
+                "before_validate": [
+                    "saervices_erpnext_sso_guard.user_document.guard_user_password_fields"
+                ]
+            },
+            "Social Login Key": {
+                "before_validate": [
+                    "saervices_erpnext_sso_guard.user_document.guard_social_login_key_mutation"
+                ],
+                "before_rename": [
+                    "saervices_erpnext_sso_guard.user_document.guard_social_login_key_mutation"
+                ],
+                "on_trash": [
+                    "saervices_erpnext_sso_guard.user_document.guard_social_login_key_mutation"
+                ],
+            },
+            "Report": {
+                "before_validate": [
+                    "saervices_erpnext_sso_guard.api_auth.guard_nonstandard_script_report_mutation"
+                ],
+                "before_rename": [
+                    "saervices_erpnext_sso_guard.api_auth.guard_nonstandard_script_report_mutation"
+                ],
+                "on_trash": [
+                    "saervices_erpnext_sso_guard.api_auth.guard_nonstandard_script_report_mutation"
+                ],
+            },
+            "*": {
+                "on_trash": ["frappe.core.doctype.file.utils.delete_file_data_content"]
+            },
+        },
+        "extend_hooks": {
+            "User": [
+                "saervices_erpnext_sso_guard.user_document.UserSSOGuardMixin"
+            ]
+        },
+        "has_permission_hooks": {
+            doctype: [
+                "saervices_erpnext_sso_guard.api_auth.enforce_oauth_credential_permission"
+            ]
+            for doctype in (
+                "OAuth Authorization Code",
+                "OAuth Bearer Token",
+                "OAuth Client",
+            )
+        },
+        "permission_query_hooks": {
+            doctype: [
+                "saervices_erpnext_sso_guard.api_auth.oauth_credential_query_condition"
+            ]
+            for doctype in (
+                "OAuth Authorization Code",
+                "OAuth Bearer Token",
+                "OAuth Client",
+            )
+        },
+        "overrides": {
+            "frappe.core.doctype.user.user.reset_password": [
+                "saervices_erpnext_sso_guard.password_login.reset_password"
+            ],
+            "frappe.core.doctype.user.user.update_password": [
+                "saervices_erpnext_sso_guard.password_login.update_password"
+            ],
+            "frappe.integrations.oauth2.get_token": [
+                "saervices_erpnext_sso_guard.password_login.get_token"
+            ],
+            "frappe.core.api.user_invitation.accept_invitation": [
+                "saervices_erpnext_sso_guard.password_login.accept_invitation"
+            ],
+            "frappe.integrations.doctype.ldap_settings.ldap_settings.login": [
+                "saervices_erpnext_sso_guard.password_login.ldap_login"
+            ],
+            "frappe.www.login.login_via_key": [
+                "saervices_erpnext_sso_guard.password_login.login_via_key"
+            ],
+            "frappe.core.doctype.user.user.impersonate": [
+                "saervices_erpnext_sso_guard.password_login.impersonate"
+            ],
+            "frappe.core.doctype.user.user.generate_keys": [
+                "saervices_erpnext_sso_guard.password_login.generate_keys"
+            ],
+            "frappe.client.get_password": [
+                "saervices_erpnext_sso_guard.password_login.get_password"
+            ],
+            "frappe.desk.doctype.system_console.system_console.execute_code": [
+                "saervices_erpnext_sso_guard.password_login.execute_system_console_code"
+            ],
+            "frappe.desk.doctype.system_console.system_console.show_processlist": [
+                "saervices_erpnext_sso_guard.password_login.show_processlist"
+            ],
+            "frappe.desk.query_report.run": [
+                "saervices_erpnext_sso_guard.password_login.run_query_report"
+            ],
+            "frappe.desk.page.setup_wizard.setup_wizard.setup_complete": [
+                "saervices_erpnext_sso_guard.password_login.setup_complete"
+            ],
+            "frappe.desk.page.setup_wizard.setup_wizard.initialize_system_settings_and_user": [
+                "saervices_erpnext_sso_guard.password_login.initialize_system_settings_and_user"
+            ],
+            "frappe.integrations.oauth2_logins.custom": [
+                "saervices_erpnext_sso_guard.password_login.authentik_custom_login"
+            ],
+        },
+        "reset_rows": 1,
+        "local_password_users": {
+            None,
+            "",
+            "Administrator",
+            "human@production.internal",
+            "test-user@production.internal",
+        },
+        "api_secret_auth_users": {"human@production.internal"},
+        "local_password_count_override": None,
+        "invitation_rows": 1,
+        "authorization_code_rows": 137,
+        "database_sessions": 137,
+        "security_transaction_original": None,
+        "database_session_count_override": None,
+        "database_session_count_results": [],
+        "redis_sessions": 137,
+        "local_cache": {
+            b"fixture-site|session": {"fixture": "session-data"},
+            **{key: "cached-email-link" for key in email_link_keys},
+        },
+        "cache_ping_failures": 0,
+        "cache_hlen_override": None,
+        "cache_hlen_results": [],
+        "cache_keys": set(email_link_keys),
+        "cache_scan_snapshot": [],
+        "cache_scan_calls": 0,
+        "cache_scan_fail_at": None,
+        "cache_scan_skip_mode": False,
+        "cache_delete_passes": 0,
+        "cache_unlink_override": None,
         "events": [],
     }
 
@@ -2288,6 +2802,10 @@ with TemporaryDirectory(prefix="erpnext-sso-policy.", dir="/tmp") as raw_root:
     sites_root = Path(raw_root) / "sites"
     sites_root.mkdir(mode=0o700)
     module.SITES_ROOT = sites_root
+    module.APPS_PATH = sites_root / "apps.txt"
+    module.APPS_PATH.write_bytes(
+        b"frappe\nerpnext\nsaervices_erpnext_sso_guard\n"
+    )
     module.read_secret = lambda path, label: {
         "OIDC client ID": "fixture-client-id",
         "OIDC client secret": "fixture-client-secret",
@@ -2299,28 +2817,51 @@ with TemporaryDirectory(prefix="erpnext-sso-policy.", dir="/tmp") as raw_root:
             "ERPNEXT_SITE_NAME": "erpnext.production.internal",
             "ERPNEXT_AUTHENTIK_DOMAIN": "authentik.production.internal",
             "ERPNEXT_SSO_SIGNUPS": "Deny",
+            "ERPNEXT_API_SERVICE_ACCOUNTS": "",
+            "ERPNEXT_SSO_ENFORCED": "false",
         }
     )
     original_cwd = Path.cwd()
     try:
-        onboarding = new_state(0)
+        onboarding = new_state(1)
         install_frappe(onboarding)
         module.main()
         assert onboarding["settings"] == {
             ("System Settings", "disable_user_pass_login"): 0,
+            ("System Settings", "setup_complete"): 1,
             ("System Settings", "login_with_email_link"): 0,
             ("Website Settings", "disable_signup"): 1,
             ("LDAP Settings", "enabled"): 0,
+            ("OAuth Settings", "enable_dynamic_client_registration"): 0,
         }
         assert set(onboarding["keys"]) == {"authentik"}
         assert onboarding["keys"]["authentik"].client_secret == "fixture-client-secret"
+        assert onboarding["keys"]["authentik"].get("icon") is None
+        assert onboarding["reset_rows"] == 1
+        assert onboarding["local_password_users"] == {
+            None,
+            "",
+            "Administrator",
+            "human@production.internal",
+            "test-user@production.internal",
+        }
+        assert onboarding["api_secret_auth_users"] == {"human@production.internal"}
+        assert onboarding["invitation_rows"] == 1
+        assert onboarding["authorization_code_rows"] == 137
+        assert onboarding["database_sessions"] == 137
+        assert onboarding["redis_sessions"] == 137
         assert onboarding["cache_keys"] == set()
+        assert not [
+            key
+            for key in onboarding["local_cache"]
+            if key.startswith(b"fixture-site|one_time_login_key:")
+        ]
         assert onboarding["events"].count(("commit",)) == 1
         assert onboarding["events"].index(("commit",)) < onboarding["events"].index(
             ("clear_cache", "System Settings")
         )
         assert onboarding["events"].index(("commit",)) < onboarding["events"].index(
-            ("delete_keys", "one_time_login_key:")
+            ("scan_email_link_keys", 256)
         )
         assert not [event for event in onboarding["events"] if event[0] == "rollback"]
         assert {
@@ -2329,12 +2870,17 @@ with TemporaryDirectory(prefix="erpnext-sso-policy.", dir="/tmp") as raw_root:
             ("clear_cache", "System Settings"),
             ("clear_cache", "Website Settings"),
             ("clear_cache", "LDAP Settings"),
+            ("clear_cache", "OAuth Settings"),
         }
 
-        onboarding["settings"][("System Settings", "disable_user_pass_login")] = 1
+        os.environ["ERPNEXT_SSO_ENFORCED"] = "true"
         onboarding["settings"][("System Settings", "login_with_email_link")] = 1
         onboarding["settings"][("Website Settings", "disable_signup")] = 0
         onboarding["settings"][("LDAP Settings", "enabled")] = 1
+        onboarding["settings"][(
+            "OAuth Settings",
+            "enable_dynamic_client_registration",
+        )] = 1
         event_count = len(onboarding["events"])
         install_frappe(onboarding)
         module.main()
@@ -2343,7 +2889,622 @@ with TemporaryDirectory(prefix="erpnext-sso-policy.", dir="/tmp") as raw_root:
         assert onboarding["settings"][("System Settings", "login_with_email_link")] == 0
         assert onboarding["settings"][("Website Settings", "disable_signup")] == 1
         assert onboarding["settings"][("LDAP Settings", "enabled")] == 0
+        assert onboarding["settings"][(
+            "OAuth Settings",
+            "enable_dynamic_client_registration",
+        )] == 0
         assert second_events.count(("commit",)) == 1
+        assert onboarding["reset_rows"] == 0
+        assert onboarding["local_password_users"] == {"Administrator"}
+        assert onboarding["api_secret_auth_users"] == {"human@production.internal"}
+        assert onboarding["invitation_rows"] == 0
+        assert onboarding["authorization_code_rows"] == 0
+        assert onboarding["database_sessions"] == 0
+        assert onboarding["redis_sessions"] == 0
+        assert b"fixture-site|session" not in onboarding["local_cache"]
+        assert second_events.index(("revoke_local_passwords",)) < second_events.index(
+            ("count_local_passwords",)
+        ) < second_events.index(("revoke_reset_keys",))
+        assert second_events.index(("revoke_reset_keys",)) < second_events.index(
+            ("count_reset_keys",)
+        ) < second_events.index(("revoke_user_invitations",))
+        assert second_events.index(("revoke_user_invitations",)) < second_events.index(
+            ("count_user_invitations",)
+        ) < second_events.index(("revoke_oauth_authorization_codes",))
+        assert second_events.index(
+            ("revoke_oauth_authorization_codes",)
+        ) < second_events.index(
+            ("count_oauth_authorization_codes",)
+        ) < second_events.index(("revoke_database_sessions",))
+        assert second_events.index(("revoke_database_sessions",)) < second_events.index(
+            ("count_database_sessions",)
+        ) < second_events.index(("commit",))
+        assert second_events.index(("commit",)) < second_events.index(
+            ("revoke_cached_sessions",)
+        ) < second_events.index(("count_cached_sessions",))
+
+        allowed = new_state(1)
+        allowed["users"] = [
+            {
+                "name": "erp-api@production.internal",
+                "enabled": 1,
+                "user_type": "System User",
+                "api_key": "public-api-key",
+            }
+        ]
+        allowed["api_secret_users"].add("erp-api@production.internal")
+        allowed["oauth_tokens"] = [
+            {"user": "erp-api@production.internal", "status": "Active"}
+        ]
+        os.environ["ERPNEXT_API_SERVICE_ACCOUNTS"] = "erp-api@production.internal"
+        install_frappe(allowed)
+        module.main()
+        assert allowed["events"].count(("commit",)) == 1
+        assert allowed["reset_rows"] == 0
+        assert allowed["local_password_users"] == {"Administrator"}
+        assert allowed["api_secret_auth_users"] == {"human@production.internal"}
+        assert allowed["invitation_rows"] == 0
+        assert allowed["authorization_code_rows"] == 0
+        assert allowed["database_sessions"] == 0
+        assert allowed["redis_sessions"] == 0
+
+        local_password_failure = new_state(1)
+        local_password_failure["local_password_count_override"] = 1
+        os.environ["ERPNEXT_API_SERVICE_ACCOUNTS"] = ""
+        install_frappe(local_password_failure)
+        try:
+            module.main()
+        except RuntimeError as error:
+            assert "non-Administrator password revocation postcondition" in str(error)
+        else:
+            raise AssertionError("non-Administrator local password residue was accepted")
+        assert local_password_failure["local_password_users"] == {
+            None,
+            "",
+            "Administrator",
+            "human@production.internal",
+            "test-user@production.internal",
+        }
+        assert local_password_failure["api_secret_auth_users"] == {
+            "human@production.internal"
+        }
+        assert local_password_failure["events"].count(("rollback",)) == 1
+        assert not [
+            event for event in local_password_failure["events"] if event[0] == "commit"
+        ]
+
+        incomplete_setup = new_state(1)
+        incomplete_setup["settings"][("System Settings", "setup_complete")] = 0
+        install_frappe(incomplete_setup)
+        try:
+            module.main()
+        except RuntimeError as error:
+            assert "setup wizard to be complete" in str(error)
+        else:
+            raise AssertionError("SSO-only policy accepted an incomplete setup wizard")
+        assert not [
+            event
+            for event in incomplete_setup["events"]
+            if event[0] in {"set", "save", "revoke_local_passwords", "commit"}
+        ]
+        assert incomplete_setup["events"].count(("rollback",)) == 1
+
+        server_script_drift = new_state(1)
+        server_script_drift["server_script_enabled"] = True
+        install_frappe(server_script_drift)
+        try:
+            module.main()
+        except RuntimeError as error:
+            assert "safe-exec policy" in str(error)
+        else:
+            raise AssertionError("cached server_script_enabled=true was accepted")
+        assert not [
+            event
+            for event in server_script_drift["events"]
+            if event[0] in {"set", "save", "revoke_local_passwords", "commit"}
+        ]
+        assert server_script_drift["events"].count(("rollback",)) == 1
+
+        render_safe_exec_drift = new_state(1)
+        render_safe_exec_drift["disable_render_safe_exec"] = True
+        install_frappe(render_safe_exec_drift)
+        try:
+            module.main()
+        except RuntimeError as error:
+            assert "safe-exec policy" in str(error)
+        else:
+            raise AssertionError("cached disable_render_safe_exec=true was accepted")
+        assert not [
+            event
+            for event in render_safe_exec_drift["events"]
+            if event[0] in {"set", "save", "revoke_local_passwords", "commit"}
+        ]
+
+        file_oauth_override = new_state(1)
+        file_oauth_override["authentik_login"] = {
+            "client_id": "override-client",
+            "client_secret": "never-log-this-override-secret",
+            "redirect_uri": "https://attacker.invalid/callback",
+        }
+        install_frappe(file_oauth_override)
+        try:
+            module.main()
+        except RuntimeError as error:
+            assert "file-based Authentik OAuth override" in str(error)
+            assert "never-log-this-override-secret" not in str(error)
+        else:
+            raise AssertionError("file-based Authentik OAuth override was accepted")
+        assert not [
+            event
+            for event in file_oauth_override["events"]
+            if event[0] in {"set", "save", "revoke_local_passwords", "commit"}
+        ]
+
+        post_save_oauth_override = new_state(1)
+        post_save_oauth_override["inject_authentik_login_after_save"] = True
+        install_frappe(post_save_oauth_override)
+        try:
+            module.main()
+        except RuntimeError as error:
+            assert "OAuth override postcondition" in str(error)
+            assert "never-log-this-drift-secret" not in str(error)
+        else:
+            raise AssertionError("post-save Authentik OAuth override drift was accepted")
+        assert ("save", "authentik") in post_save_oauth_override["events"]
+        assert not [
+            event
+            for event in post_save_oauth_override["events"]
+            if event[0] in {"set", "revoke_local_passwords", "commit"}
+        ]
+
+        executable_report = new_state(1)
+        executable_report["reports"] = [
+            {
+                "name": "Unsafe Query",
+                "report_type": "Query Report",
+                "is_standard": "No",
+            }
+        ]
+        install_frappe(executable_report)
+        try:
+            module.main()
+        except RuntimeError as error:
+            assert "non-standard Query or Script Reports" in str(error)
+        else:
+            raise AssertionError("non-standard Query Report inventory was accepted")
+        assert not [
+            event
+            for event in executable_report["events"]
+            if event[0] in {"set", "save", "revoke_local_passwords", "commit"}
+        ]
+
+        service_account_binding = new_state(1)
+        service_account_binding["users"] = [
+            {
+                "name": "erp-api@production.internal",
+                "enabled": 1,
+                "user_type": "System User",
+                "api_key": None,
+            }
+        ]
+        service_account_binding["social_bindings"] = [
+            {
+                "parent": "erp-api@production.internal",
+                "parenttype": "User",
+                "parentfield": "social_logins",
+                "provider": "authentik",
+            }
+        ]
+        os.environ["ERPNEXT_API_SERVICE_ACCOUNTS"] = "erp-api@production.internal"
+        install_frappe(service_account_binding)
+        try:
+            module.main()
+        except RuntimeError as error:
+            assert "must not have Authentik login bindings" in str(error)
+        else:
+            raise AssertionError("API service-account Authentik binding was accepted")
+        assert not [
+            event
+            for event in service_account_binding["events"]
+            if event[0] in {"set", "save", "revoke_local_passwords", "commit"}
+        ]
+
+        post_save_service_account_binding = new_state(1)
+        post_save_service_account_binding["users"] = [
+            {
+                "name": "erp-api@production.internal",
+                "enabled": 1,
+                "user_type": "System User",
+                "api_key": None,
+            }
+        ]
+        post_save_service_account_binding[
+            "inject_service_account_binding_after_save"
+        ] = True
+        install_frappe(post_save_service_account_binding)
+        try:
+            module.main()
+        except RuntimeError as error:
+            assert "must not have Authentik login bindings" in str(error)
+        else:
+            raise AssertionError("concurrent API service-account binding was accepted")
+        assert ("save", "authentik") in post_save_service_account_binding["events"]
+        assert not [
+            event
+            for event in post_save_service_account_binding["events"]
+            if event[0] == "commit"
+        ]
+        os.environ["ERPNEXT_API_SERVICE_ACCOUNTS"] = ""
+
+        unknown_app = new_state(1)
+        unknown_app["installed_apps"].append("unexpected_app")
+        install_frappe(unknown_app)
+        try:
+            module.main()
+        except RuntimeError as error:
+            assert "exact runtime set" in str(error)
+        else:
+            raise AssertionError("unexpected installed Frappe app was accepted")
+        assert not [
+            event
+            for event in unknown_app["events"]
+            if event[0] in {"set", "save", "revoke_local_passwords", "commit"}
+        ]
+        assert unknown_app["events"].count(("rollback",)) == 1
+
+        duplicate_app = new_state(1)
+        duplicate_app["installed_apps"].append("frappe")
+        install_frappe(duplicate_app)
+        try:
+            module.main()
+        except RuntimeError as error:
+            assert "exact runtime set" in str(error)
+        else:
+            raise AssertionError("duplicate installed Frappe app was accepted")
+        assert not [
+            event
+            for event in duplicate_app["events"]
+            if event[0] in {"set", "save", "revoke_local_passwords", "commit"}
+        ]
+
+        module.APPS_PATH.write_bytes(
+            b"frappe\nerpnext\nsaervices_erpnext_sso_guard\nunexpected_app\n"
+        )
+        apps_file_drift = new_state(1)
+        install_frappe(apps_file_drift)
+        try:
+            module.main()
+        except RuntimeError as error:
+            assert "apps.txt differs" in str(error)
+        else:
+            raise AssertionError("unexpected apps.txt entry was accepted")
+        assert not [
+            event
+            for event in apps_file_drift["events"]
+            if event[0] in {"set", "save", "revoke_local_passwords", "commit"}
+        ]
+        module.APPS_PATH.write_bytes(
+            b"frappe\nerpnext\nsaervices_erpnext_sso_guard\n"
+        )
+
+        database_session_failure = new_state(1)
+        database_session_failure["database_session_count_override"] = 1
+        os.environ["ERPNEXT_API_SERVICE_ACCOUNTS"] = ""
+        install_frappe(database_session_failure)
+        try:
+            module.main()
+        except RuntimeError as error:
+            assert "database session revocation postcondition" in str(error)
+        else:
+            raise AssertionError("non-empty transactional session table was accepted")
+        assert database_session_failure["database_sessions"] == 137
+        assert database_session_failure["local_password_users"] == {
+            None,
+            "",
+            "Administrator",
+            "human@production.internal",
+            "test-user@production.internal",
+        }
+        assert database_session_failure["api_secret_auth_users"] == {
+            "human@production.internal"
+        }
+        assert database_session_failure["reset_rows"] == 1
+        assert database_session_failure["invitation_rows"] == 1
+        assert database_session_failure["authorization_code_rows"] == 137
+        assert database_session_failure["redis_sessions"] == 137
+        assert not [
+            event for event in database_session_failure["events"] if event[0] == "commit"
+        ]
+        assert database_session_failure["events"].count(("rollback",)) == 1
+
+        session_cache_connection_failure = new_state(1)
+        session_cache_connection_failure["cache_ping_failures"] = 1
+        install_frappe(session_cache_connection_failure)
+        try:
+            module.main()
+        except ConnectionError as error:
+            assert "Redis connection failure" in str(error)
+        else:
+            raise AssertionError("session Redis connection failure was ignored")
+        assert session_cache_connection_failure["database_sessions"] == 0
+        assert session_cache_connection_failure["redis_sessions"] == 137
+        assert session_cache_connection_failure["events"].count(("commit",)) == 1
+        session_cache_connection_failure["cache_ping_failures"] = 0
+        install_frappe(session_cache_connection_failure)
+        module.main()
+        assert session_cache_connection_failure["database_sessions"] == 0
+        assert session_cache_connection_failure["redis_sessions"] == 0
+
+        session_cache_postcondition_failure = new_state(1)
+        session_cache_postcondition_failure["cache_hlen_override"] = 1
+        install_frappe(session_cache_postcondition_failure)
+        try:
+            module.main()
+        except RuntimeError as error:
+            assert "Redis session revocation postcondition" in str(error)
+        else:
+            raise AssertionError("non-empty Redis session hash was accepted")
+        assert session_cache_postcondition_failure["database_sessions"] == 0
+        assert session_cache_postcondition_failure["redis_sessions"] == 0
+        assert len(session_cache_postcondition_failure["cache_keys"]) == 513
+        session_cache_postcondition_failure["cache_hlen_override"] = None
+        install_frappe(session_cache_postcondition_failure)
+        module.main()
+        assert session_cache_postcondition_failure["database_sessions"] == 0
+        assert session_cache_postcondition_failure["redis_sessions"] == 0
+        assert session_cache_postcondition_failure["cache_keys"] == set()
+
+        postcommit_database_race = new_state(1)
+        postcommit_database_race["database_session_count_results"] = [0, 1]
+        install_frappe(postcommit_database_race)
+        try:
+            module.main()
+        except RuntimeError as error:
+            assert "post-commit database session revocation" in str(error)
+        else:
+            raise AssertionError("post-commit database session race was accepted")
+        assert postcommit_database_race["events"].count(("commit",)) == 1
+        assert postcommit_database_race["database_sessions"] == 0
+        assert postcommit_database_race["redis_sessions"] == 0
+        assert len(postcommit_database_race["cache_keys"]) == 513
+        install_frappe(postcommit_database_race)
+        module.main()
+        assert postcommit_database_race["cache_keys"] == set()
+
+        postcommit_redis_race = new_state(1)
+        postcommit_redis_race["cache_hlen_results"] = [0, 1]
+        install_frappe(postcommit_redis_race)
+        try:
+            module.main()
+        except RuntimeError as error:
+            assert "post-commit Redis session revocation" in str(error)
+        else:
+            raise AssertionError("post-commit Redis session race was accepted")
+        assert postcommit_redis_race["events"].count(("commit",)) == 1
+        assert postcommit_redis_race["database_sessions"] == 0
+        assert postcommit_redis_race["redis_sessions"] == 0
+        assert len(postcommit_redis_race["cache_keys"]) == 513
+        install_frappe(postcommit_redis_race)
+        module.main()
+        assert postcommit_redis_race["cache_keys"] == set()
+
+        os.environ["ERPNEXT_SSO_ENFORCED"] = "false"
+        email_cache_connection_failure = new_state(0)
+        email_cache_connection_failure["cache_ping_failures"] = 1
+        install_frappe(email_cache_connection_failure)
+        try:
+            module.main()
+        except ConnectionError as error:
+            assert "Redis connection failure" in str(error)
+        else:
+            raise AssertionError("email-link Redis connection failure was ignored")
+        assert email_cache_connection_failure["database_sessions"] == 137
+        assert email_cache_connection_failure["redis_sessions"] == 137
+        assert len(email_cache_connection_failure["cache_keys"]) == 513
+        email_cache_connection_failure["cache_ping_failures"] = 0
+        install_frappe(email_cache_connection_failure)
+        module.main()
+        assert email_cache_connection_failure["cache_keys"] == set()
+
+        email_cache_partial_failure = new_state(0)
+        email_cache_partial_failure["cache_scan_fail_at"] = 2
+        install_frappe(email_cache_partial_failure)
+        try:
+            module.main()
+        except ConnectionError as error:
+            assert "Redis scan connection failure" in str(error)
+        else:
+            raise AssertionError("partial email-link Redis scan failure was ignored")
+        assert len(email_cache_partial_failure["cache_keys"]) == 257
+        assert len(
+            [
+                key
+                for key in email_cache_partial_failure["local_cache"]
+                if key.startswith(b"fixture-site|one_time_login_key:")
+            ]
+        ) == 257
+        email_cache_partial_failure["cache_scan_fail_at"] = None
+        install_frappe(email_cache_partial_failure)
+        module.main()
+        assert email_cache_partial_failure["cache_keys"] == set()
+
+        email_cache_scan_skip = new_state(0)
+        email_cache_scan_skip["cache_scan_skip_mode"] = True
+        install_frappe(email_cache_scan_skip)
+        module.main()
+        assert email_cache_scan_skip["cache_keys"] == set()
+        assert email_cache_scan_skip["cache_delete_passes"] > 2
+
+        email_cache_no_progress = new_state(0)
+        email_cache_no_progress["cache_unlink_override"] = 0
+        install_frappe(email_cache_no_progress)
+        try:
+            module.main()
+        except RuntimeError as error:
+            assert "revocation made no progress" in str(error)
+        else:
+            raise AssertionError("zero-progress email-link deletion was accepted")
+        assert len(email_cache_no_progress["cache_keys"]) == 513
+        email_cache_no_progress["cache_unlink_override"] = None
+        install_frappe(email_cache_no_progress)
+        module.main()
+        assert email_cache_no_progress["cache_keys"] == set()
+
+        os.environ["ERPNEXT_SSO_ENFORCED"] = "true"
+        credential_violation = new_state(1)
+        credential_violation["users"] = [
+            {
+                "name": "human@production.internal",
+                "enabled": 1,
+                "user_type": "System User",
+                "api_key": "public-api-key",
+            }
+        ]
+        credential_violation["api_secret_users"].add("human@production.internal")
+        credential_violation["oauth_tokens"] = [
+            {"user": "other@production.internal", "status": None}
+        ]
+        os.environ["ERPNEXT_API_SERVICE_ACCOUNTS"] = ""
+        install_frappe(credential_violation)
+        try:
+            module.main()
+        except RuntimeError as error:
+            assert "outside ERPNEXT_API_SERVICE_ACCOUNTS" in str(error)
+        else:
+            raise AssertionError("unallowlisted API/OAuth credentials were accepted")
+        assert not [
+            event
+            for event in credential_violation["events"]
+            if event[0] in {"set", "save", "revoke_reset_keys", "commit"}
+        ]
+        assert credential_violation["events"].count(("rollback",)) == 1
+
+        disabled_credential_violation = new_state(1)
+        disabled_credential_violation["users"] = [
+            {
+                "name": "disabled-human@production.internal",
+                "enabled": 0,
+                "user_type": "System User",
+                "api_key": "dormant-public-api-key",
+            }
+        ]
+        disabled_credential_violation["api_secret_users"].add(
+            "disabled-human@production.internal"
+        )
+        install_frappe(disabled_credential_violation)
+        try:
+            module.main()
+        except RuntimeError as error:
+            assert "outside ERPNEXT_API_SERVICE_ACCOUNTS" in str(error)
+        else:
+            raise AssertionError("disabled unallowlisted API key pair was accepted")
+        assert disabled_credential_violation["database_sessions"] == 137
+        assert disabled_credential_violation["redis_sessions"] == 137
+        assert disabled_credential_violation["events"].count(("rollback",)) == 1
+
+        hook_violation = new_state(1)
+        hook_violation["auth_hooks"].append("unexpected.app.authenticate")
+        install_frappe(hook_violation)
+        try:
+            module.main()
+        except RuntimeError as error:
+            assert "unexpected Frappe auth_hooks" in str(error)
+        else:
+            raise AssertionError("unexpected Frappe auth hook was accepted")
+        assert not [
+            event
+            for event in hook_violation["events"]
+            if event[0] in {"set", "save", "revoke_reset_keys", "commit"}
+        ]
+        assert hook_violation["events"].count(("rollback",)) == 1
+
+        before_login_hook_violation = new_state(1)
+        before_login_hook_violation["before_login_hooks"].append(
+            "unexpected.app.before_login"
+        )
+        install_frappe(before_login_hook_violation)
+        try:
+            module.main()
+        except RuntimeError as error:
+            assert "unexpected Frappe before_login hooks" in str(error)
+        else:
+            raise AssertionError("unexpected before_login hook was accepted")
+        assert not [
+            event
+            for event in before_login_hook_violation["events"]
+            if event[0] in {"set", "save", "revoke_reset_keys", "commit"}
+        ]
+        assert before_login_hook_violation["events"].count(("rollback",)) == 1
+
+        oauth_permission_hook_violation = new_state(1)
+        oauth_permission_hook_violation["has_permission_hooks"][
+            "OAuth Bearer Token"
+        ].append("unexpected.app.allow_oauth_token")
+        install_frappe(oauth_permission_hook_violation)
+        try:
+            module.main()
+        except RuntimeError as error:
+            assert "unexpected OAuth credential permission hooks" in str(error)
+        else:
+            raise AssertionError("unexpected OAuth credential permission hook was accepted")
+        assert not [
+            event
+            for event in oauth_permission_hook_violation["events"]
+            if event[0] in {"set", "save", "revoke_reset_keys", "commit"}
+        ]
+
+        document_hook_violation = new_state(1)
+        document_hook_violation["doc_hooks"]["User"]["before_validate"].insert(
+            0, "unexpected.app.mutate_user"
+        )
+        install_frappe(document_hook_violation)
+        try:
+            module.main()
+        except RuntimeError as error:
+            assert "unexpected effective User before_validate" in str(error)
+        else:
+            raise AssertionError("unexpected User before_validate hook was accepted")
+        assert not [
+            event
+            for event in document_hook_violation["events"]
+            if event[0] in {"set", "save", "revoke_reset_keys", "commit"}
+        ]
+        assert document_hook_violation["events"].count(("rollback",)) == 1
+
+        report_hook_violation = new_state(1)
+        report_hook_violation["doc_hooks"]["Report"]["before_validate"].append(
+            "unexpected.app.mutate_report"
+        )
+        install_frappe(report_hook_violation)
+        try:
+            module.main()
+        except RuntimeError as error:
+            assert "unexpected effective Report security hooks" in str(error)
+        else:
+            raise AssertionError("unexpected Report mutation hook was accepted")
+        assert not [
+            event
+            for event in report_hook_violation["events"]
+            if event[0] in {"set", "save", "revoke_reset_keys", "commit"}
+        ]
+
+        controller_extension_violation = new_state(1)
+        controller_extension_violation["extend_hooks"]["User"].append(
+            "unexpected.app.UserMixin"
+        )
+        install_frappe(controller_extension_violation)
+        try:
+            module.main()
+        except RuntimeError as error:
+            assert "unexpected User controller extension hooks" in str(error)
+        else:
+            raise AssertionError("unexpected User controller extension was accepted")
+        assert not [
+            event
+            for event in controller_extension_violation["events"]
+            if event[0] in {"set", "save", "revoke_reset_keys", "commit"}
+        ]
+        assert controller_extension_violation["events"].count(("rollback",)) == 1
 
         alternative = new_state(1)
         alternative["keys"]["github"] = FakeDocument(
@@ -2353,6 +3514,7 @@ with TemporaryDirectory(prefix="erpnext-sso-policy.", dir="/tmp") as raw_root:
             secret="disabled-but-still-routable",
         )
         before_settings = dict(alternative["settings"])
+        os.environ["ERPNEXT_API_SERVICE_ACCOUNTS"] = ""
         install_frappe(alternative)
         try:
             module.main()
@@ -2362,11 +3524,11 @@ with TemporaryDirectory(prefix="erpnext-sso-policy.", dir="/tmp") as raw_root:
             raise AssertionError("alternative Social Login Key was accepted")
         assert alternative["settings"] == before_settings
         assert set(alternative["keys"]) == {"github"}
-        assert alternative["cache_keys"] == {"one_time_login_key:stale-fixture-token"}
+        assert len(alternative["cache_keys"]) == 513
         assert not [
             event
             for event in alternative["events"]
-            if event[0] in {"set", "save", "delete_keys", "commit"}
+            if event[0] in {"set", "save", "revoke_email_link_keys", "commit"}
         ]
         assert alternative["events"].count(("rollback",)) == 1
     finally:
@@ -2405,6 +3567,1898 @@ print("PASS SSO policy hardening, onboarding preservation, and alternative-provi
         )[-4000:].strip()
         result = (completed.returncode == 0, diagnostic)
     OIDC_LOGIN_POLICY_FIXTURE_CACHE[source_digest] = result
+    return result
+
+
+def _run_sso_guard_fixture(
+    app_root: Path,
+    source_digest_input: str,
+) -> tuple[bool, str]:
+    source_digest = hashlib.sha256(source_digest_input.encode("utf-8")).hexdigest()
+    cached = SSO_GUARD_FIXTURE_CACHE.get(source_digest)
+    if cached is not None:
+        return cached
+    harness_source = r'''#!/usr/bin/env python3
+import importlib
+import os
+import sys
+import types
+from pathlib import Path
+
+
+app_root = Path(sys.argv[1])
+sys.path.insert(0, str(app_root))
+os.environ["ERPNEXT_SSO_ENFORCED"] = "true"
+os.environ["ERPNEXT_AUTHENTIK_DOMAIN"] = "authentik.production.internal"
+os.environ["ERPNEXT_SITE_NAME"] = "erpnext.production.internal"
+
+state = {
+    "settings": {
+        "disable_user_pass_login": 1,
+        "login_with_email_link": 0,
+    },
+    "calls": [],
+    "controller_calls": [],
+    "headers": {},
+    "users": {},
+    "authorization_codes": {},
+    "refresh_tokens": {},
+    "reports": {
+        "Standard Query": {
+            "report_type": "Query Report",
+            "is_standard": "Yes",
+        },
+        "Unsafe Query": {
+            "report_type": "Query Report",
+            "is_standard": "No",
+        },
+        "Unsafe Script": {
+            "report_type": "Script Report",
+            "is_standard": "No",
+        },
+    },
+    "redirect_uri": (
+        "https://erpnext.production.internal/api/method/"
+        "frappe.integrations.oauth2_logins.custom/authentik"
+    ),
+    "social_login_keys": ["authentik"],
+    "provider": {
+        "enable_social_login": 1,
+        "social_login_provider": "Custom",
+        "provider_name": "Authentik",
+        "client_id": "fixture-client-id",
+        "icon": None,
+        "base_url": "https://authentik.production.internal",
+        "custom_base_url": 1,
+        "authorize_url": "/application/o/authorize/",
+        "access_token_url": "/application/o/token/",
+        "redirect_url": "/api/method/frappe.integrations.oauth2_logins.custom/authentik",
+        "api_endpoint": "/application/o/userinfo/",
+        "api_endpoint_args": None,
+        "auth_url_data": '{"response_type":"code","scope":"openid email profile"}',
+        "user_id_property": "sub",
+        "sign_ups": "Deny",
+        "show_in_resource_metadata": 0,
+    },
+    "preprovisioned_users": [
+        {
+            "name": "person@production.internal",
+            "email": "person@production.internal",
+            "enabled": 1,
+        }
+    ],
+    "all_user_names": {
+        "person@production.internal",
+        "other@production.internal",
+        "erp-api@production.internal",
+    },
+    "social_bindings": [],
+    "oidc_info": {
+        "email": "person@production.internal",
+        "email_verified": True,
+        "sub": "authentik-stable-subject",
+    },
+}
+
+
+class AuthenticationError(Exception):
+    pass
+
+
+frappe = types.ModuleType("frappe")
+frappe.__path__ = []
+frappe.AuthenticationError = AuthenticationError
+frappe.session = types.SimpleNamespace(user="Guest")
+frappe.local = types.SimpleNamespace()
+frappe.conf = {}
+
+
+class FakeFlags(dict):
+    __getattr__ = dict.get
+
+    def __setattr__(self, name, value):
+        self[name] = value
+
+
+frappe.flags = FakeFlags()
+frappe.form_dict = {}
+frappe.get_system_settings = lambda name: state["settings"][name]
+frappe.get_request_header = lambda name, default="": state["headers"].get(
+    name, default
+)
+
+
+class FakeDatabase:
+    def exists(self, doctype, name):
+        assert (doctype, name) == ("Social Login Key", "authentik")
+        return name in state["social_login_keys"]
+
+    def sql(self, query, values=(), as_dict=False):
+        assert "FROM `tabSocial Login Key`" in query and "FOR UPDATE" in query
+        assert values == ("authentik",)
+        assert as_dict is True
+        state["calls"].append(("lock_authentik_provider",))
+        return [{"name": "authentik"}] if "authentik" in state["social_login_keys"] else []
+
+    def get_value(self, doctype, name_or_filters, fields, as_dict=False):
+        assert fields in (["enabled", "user_type"], ["name", "user"])
+        assert as_dict is True
+        if doctype == "User":
+            assert isinstance(name_or_filters, str)
+            return state["users"].get(name_or_filters)
+        if doctype == "OAuth Authorization Code":
+            assert isinstance(name_or_filters, dict)
+            code = state["authorization_codes"].get(name_or_filters.get("name"))
+            if code and code.get("validity") == name_or_filters.get("validity"):
+                return {"name": name_or_filters["name"], "user": code.get("user")}
+            return None
+        if doctype == "OAuth Bearer Token":
+            assert isinstance(name_or_filters, dict)
+            token = state["refresh_tokens"].get(
+                name_or_filters.get("refresh_token")
+            )
+            if token and token.get("status") == name_or_filters.get("status"):
+                return {"name": token.get("name"), "user": token.get("user")}
+            return None
+        raise AssertionError((doctype, name_or_filters, fields, as_dict))
+
+
+frappe.db = FakeDatabase()
+frappe.request = types.SimpleNamespace(
+    form={},
+    path="/api/method/frappe.integrations.oauth2_logins.custom/authentik",
+)
+frappe._ = lambda value: value
+
+
+def get_all(doctype, filters=None, fields=None, pluck=None, order_by=None):
+    if (doctype, pluck) == ("Social Login Key", "name"):
+        return list(state["social_login_keys"])
+    if doctype == "User" and fields == ["name", "email", "enabled"]:
+        assert filters == {"email": filters["email"]}
+        return [
+            dict(row)
+            for row in state["preprovisioned_users"]
+            if row.get("email") == filters["email"]
+        ]
+    if (doctype, pluck) == ("User", "name"):
+        return sorted(state["all_user_names"])
+    if doctype == "User Social Login":
+        if filters == {"provider": "authentik"}:
+            assert fields == [
+                "parent",
+                "parenttype",
+                "parentfield",
+                "provider",
+                "userid",
+            ]
+            assert order_by == "idx asc"
+            return [dict(row) for row in state["social_bindings"]]
+        assert filters.get("parenttype") == "User"
+        assert filters.get("parentfield") == "social_logins"
+        assert fields == ["provider", "username", "userid"]
+        assert order_by == "idx asc"
+        return [
+            {
+                "provider": row["provider"],
+                "username": row.get("username"),
+                "userid": row["userid"],
+            }
+            for row in state["social_bindings"]
+            if row["parent"] == filters["parent"]
+        ]
+    raise AssertionError((doctype, filters, fields, pluck, order_by))
+
+
+frappe.get_all = get_all
+def get_doc(doctype, name):
+    if (doctype, name) == ("Social Login Key", "authentik"):
+        return state["provider"]
+    if doctype == "Report" and name in state["reports"]:
+        return state["reports"][name]
+    raise AssertionError((doctype, name))
+
+
+frappe.get_doc = get_doc
+
+
+def throw(message, exception):
+    raise exception(message)
+
+
+def whitelist(allow_guest=False, methods=None):
+    def decorator(function):
+        function.fixture_allow_guest = allow_guest
+        function.fixture_methods = tuple(methods or ())
+        return function
+
+    return decorator
+
+
+frappe.throw = throw
+frappe.whitelist = whitelist
+
+
+def read_only():
+    def decorator(function):
+        function.fixture_read_only = True
+        return function
+
+    return decorator
+
+
+frappe.read_only = read_only
+
+utils = types.ModuleType("frappe.utils")
+utils.cint = lambda value: int(value or 0)
+frappe.utils = utils
+
+core = types.ModuleType("frappe.core")
+core.__path__ = []
+doctype = types.ModuleType("frappe.core.doctype")
+doctype.__path__ = []
+user_package = types.ModuleType("frappe.core.doctype.user")
+user_package.__path__ = []
+user_module = types.ModuleType("frappe.core.doctype.user.user")
+
+
+def upstream_reset_password(*, user):
+    state["calls"].append(("reset_password", user))
+    return "reset-result"
+
+
+def upstream_update_password(**kwargs):
+    state["calls"].append(("update_password", kwargs))
+    return "update-result"
+
+
+def upstream_impersonate(*, user, reason):
+    state["calls"].append(("impersonate", user, reason))
+    return "impersonate-result"
+
+
+def upstream_generate_keys(*, user):
+    state["calls"].append(("generate_keys", user))
+    return "generate-keys-result"
+
+
+user_module.reset_password = upstream_reset_password
+user_module.update_password = upstream_update_password
+user_module.impersonate = upstream_impersonate
+user_module.generate_keys = upstream_generate_keys
+
+client = types.ModuleType("frappe.client")
+
+
+def upstream_get_password(*, doctype, name, fieldname):
+    state["calls"].append(("get_password", doctype, name, fieldname))
+    return "password-result"
+
+
+client.get_password = upstream_get_password
+
+desk = types.ModuleType("frappe.desk")
+desk.__path__ = []
+desk_page = types.ModuleType("frappe.desk.page")
+desk_page.__path__ = []
+desk_doctype = types.ModuleType("frappe.desk.doctype")
+desk_doctype.__path__ = []
+system_console_package = types.ModuleType(
+    "frappe.desk.doctype.system_console"
+)
+system_console_package.__path__ = []
+system_console = types.ModuleType(
+    "frappe.desk.doctype.system_console.system_console"
+)
+
+
+def upstream_execute_code(*, doc):
+    state["calls"].append(("execute_system_console_code", doc))
+    return "system-console-result"
+
+
+def upstream_show_processlist():
+    state["calls"].append(("show_processlist",))
+    return "processlist-result"
+
+
+system_console.execute_code = upstream_execute_code
+system_console.show_processlist = upstream_show_processlist
+query_report = types.ModuleType("frappe.desk.query_report")
+
+
+def upstream_run_query_report(**kwargs):
+    state["calls"].append(("run_query_report", kwargs))
+    return "query-report-result"
+
+
+query_report.run = upstream_run_query_report
+setup_wizard_package = types.ModuleType("frappe.desk.page.setup_wizard")
+setup_wizard_package.__path__ = []
+setup_wizard = types.ModuleType("frappe.desk.page.setup_wizard.setup_wizard")
+
+
+def upstream_setup_complete(*, args):
+    state["calls"].append(("setup_complete", args))
+    return "setup-complete-result"
+
+
+def upstream_initialize_system_settings_and_user(*, system_settings_data, user_data):
+    state["calls"].append(
+        ("initialize_system_settings_and_user", system_settings_data, user_data)
+    )
+    return "initialize-result"
+
+
+setup_wizard.setup_complete = upstream_setup_complete
+setup_wizard.initialize_system_settings_and_user = (
+    upstream_initialize_system_settings_and_user
+)
+
+core_api = types.ModuleType("frappe.core.api")
+core_api.__path__ = []
+user_invitation = types.ModuleType("frappe.core.api.user_invitation")
+
+
+def upstream_accept_invitation(*, key):
+    state["calls"].append(("accept_invitation", key))
+    return "invitation-result"
+
+
+user_invitation.accept_invitation = upstream_accept_invitation
+
+integrations = types.ModuleType("frappe.integrations")
+integrations.__path__ = []
+oauth2 = types.ModuleType("frappe.integrations.oauth2")
+
+
+def upstream_get_token(*args, **kwargs):
+    state["calls"].append(("get_token", args, kwargs))
+    return "token-result"
+
+
+oauth2.get_token = upstream_get_token
+oauth2_logins = types.ModuleType("frappe.integrations.oauth2_logins")
+
+
+def decoder_compat(payload):
+    return payload
+
+
+oauth2_logins.decoder_compat = decoder_compat
+oauth_utils = types.ModuleType("frappe.utils.oauth")
+
+
+def get_info_via_oauth(provider, code, decoder):
+    assert decoder is decoder_compat
+    state["calls"].append(("get_info_via_oauth", provider, code))
+    return dict(state["oidc_info"])
+
+
+def login_oauth_user(info, *, provider, state: str):
+    target_bindings = [
+        row
+        for row in globals()["state"]["social_bindings"]
+        if row.get("parent") == info.get("email")
+        and row.get("provider") == "authentik"
+    ]
+    callback_flag = frappe.flags.get(
+        "saervices_erpnext_sso_guard_authentik_binding_callback"
+    )
+    if target_bindings:
+        assert callback_flag is None
+    else:
+        assert callback_flag == (info.get("email"), info.get("sub"))
+    globals()["state"]["calls"].append(
+        ("login_oauth_user", dict(info), provider, state)
+    )
+    return "oidc-login-result"
+
+
+oauth_utils.get_info_via_oauth = get_info_via_oauth
+oauth_utils.login_oauth_user = login_oauth_user
+oauth_utils.get_redirect_uri = lambda provider: (
+    state["redirect_uri"]
+    if provider == "authentik"
+    else (_ for _ in ()).throw(AssertionError(provider))
+)
+utils.oauth = oauth_utils
+utils.validate_email_address = lambda email, throw=False: (
+    email if isinstance(email, str) and email.count("@") == 1 else ""
+)
+
+integrations_doctype = types.ModuleType("frappe.integrations.doctype")
+integrations_doctype.__path__ = []
+ldap_settings_package = types.ModuleType(
+    "frappe.integrations.doctype.ldap_settings"
+)
+ldap_settings_package.__path__ = []
+ldap_settings = types.ModuleType(
+    "frappe.integrations.doctype.ldap_settings.ldap_settings"
+)
+
+
+def upstream_ldap_login():
+    state["calls"].append(("ldap_login",))
+    return "ldap-result"
+
+
+ldap_settings.login = upstream_ldap_login
+
+www = types.ModuleType("frappe.www")
+www.__path__ = []
+www_login = types.ModuleType("frappe.www.login")
+
+
+def upstream_login_via_key(*, key):
+    state["calls"].append(("login_via_key", key))
+    return "email-link-result"
+
+
+www_login.login_via_key = upstream_login_via_key
+
+sys.modules.update(
+    {
+        "frappe": frappe,
+        "frappe.utils": utils,
+        "frappe.core": core,
+        "frappe.core.doctype": doctype,
+        "frappe.core.doctype.user": user_package,
+        "frappe.core.doctype.user.user": user_module,
+        "frappe.client": client,
+        "frappe.desk": desk,
+        "frappe.desk.doctype": desk_doctype,
+        "frappe.desk.doctype.system_console": system_console_package,
+        "frappe.desk.doctype.system_console.system_console": system_console,
+        "frappe.desk.query_report": query_report,
+        "frappe.desk.page": desk_page,
+        "frappe.desk.page.setup_wizard": setup_wizard_package,
+        "frappe.desk.page.setup_wizard.setup_wizard": setup_wizard,
+        "frappe.core.api": core_api,
+        "frappe.core.api.user_invitation": user_invitation,
+        "frappe.integrations": integrations,
+        "frappe.integrations.oauth2": oauth2,
+        "frappe.integrations.oauth2_logins": oauth2_logins,
+        "frappe.utils.oauth": oauth_utils,
+        "frappe.integrations.doctype": integrations_doctype,
+        "frappe.integrations.doctype.ldap_settings": ldap_settings_package,
+        "frappe.integrations.doctype.ldap_settings.ldap_settings": ldap_settings,
+        "frappe.www": www,
+        "frappe.www.login": www_login,
+    }
+)
+
+hooks = importlib.import_module("saervices_erpnext_sso_guard.hooks")
+password_login = importlib.import_module(
+    "saervices_erpnext_sso_guard.password_login"
+)
+api_auth = importlib.import_module("saervices_erpnext_sso_guard.api_auth")
+user_document = importlib.import_module(
+    "saervices_erpnext_sso_guard.user_document"
+)
+password_login.read_oidc_client_id = lambda: "fixture-client-id"
+
+assert hooks.auth_hooks == [api_auth.AUTH_HOOK]
+assert hooks.before_login == [api_auth.BEFORE_LOGIN_HOOK]
+assert hooks.has_permission == {
+    doctype: api_auth.OAUTH_CREDENTIAL_HAS_PERMISSION_HOOK
+    for doctype in api_auth.OAUTH_CREDENTIAL_DOCTYPES
+}
+assert hooks.permission_query_conditions == {
+    doctype: api_auth.OAUTH_CREDENTIAL_QUERY_CONDITION_HOOK
+    for doctype in api_auth.OAUTH_CREDENTIAL_DOCTYPES
+}
+assert hooks.doc_events == {
+    "User": {"before_validate": user_document.USER_BEFORE_VALIDATE_HOOK},
+    "Social Login Key": {
+        "before_validate": user_document.SOCIAL_LOGIN_KEY_MUTATION_HOOK,
+        "before_rename": user_document.SOCIAL_LOGIN_KEY_MUTATION_HOOK,
+        "on_trash": user_document.SOCIAL_LOGIN_KEY_MUTATION_HOOK,
+    },
+    "Report": {
+        "before_validate": api_auth.REPORT_MUTATION_HOOK,
+        "before_rename": api_auth.REPORT_MUTATION_HOOK,
+        "on_trash": api_auth.REPORT_MUTATION_HOOK,
+    },
+}
+assert hooks.extend_doctype_class == {
+    "User": [user_document.USER_CONTROLLER_EXTENSION]
+}
+assert hooks.override_whitelisted_methods == {
+    "frappe.core.doctype.user.user.reset_password": (
+        "saervices_erpnext_sso_guard.password_login.reset_password"
+    ),
+    "frappe.core.doctype.user.user.update_password": (
+        "saervices_erpnext_sso_guard.password_login.update_password"
+    ),
+    "frappe.integrations.oauth2.get_token": (
+        "saervices_erpnext_sso_guard.password_login.get_token"
+    ),
+    "frappe.core.api.user_invitation.accept_invitation": (
+        "saervices_erpnext_sso_guard.password_login.accept_invitation"
+    ),
+    "frappe.integrations.doctype.ldap_settings.ldap_settings.login": (
+        "saervices_erpnext_sso_guard.password_login.ldap_login"
+    ),
+    "frappe.www.login.login_via_key": (
+        "saervices_erpnext_sso_guard.password_login.login_via_key"
+    ),
+    "frappe.core.doctype.user.user.impersonate": (
+        "saervices_erpnext_sso_guard.password_login.impersonate"
+    ),
+    "frappe.core.doctype.user.user.generate_keys": (
+        "saervices_erpnext_sso_guard.password_login.generate_keys"
+    ),
+    "frappe.client.get_password": (
+        "saervices_erpnext_sso_guard.password_login.get_password"
+    ),
+    "frappe.desk.doctype.system_console.system_console.execute_code": (
+        "saervices_erpnext_sso_guard.password_login.execute_system_console_code"
+    ),
+    "frappe.desk.doctype.system_console.system_console.show_processlist": (
+        "saervices_erpnext_sso_guard.password_login.show_processlist"
+    ),
+    "frappe.desk.query_report.run": (
+        "saervices_erpnext_sso_guard.password_login.run_query_report"
+    ),
+    "frappe.desk.page.setup_wizard.setup_wizard.setup_complete": (
+        "saervices_erpnext_sso_guard.password_login.setup_complete"
+    ),
+    "frappe.desk.page.setup_wizard.setup_wizard.initialize_system_settings_and_user": (
+        "saervices_erpnext_sso_guard.password_login.initialize_system_settings_and_user"
+    ),
+    "frappe.integrations.oauth2_logins.custom": (
+        "saervices_erpnext_sso_guard.password_login.authentik_custom_login"
+    ),
+}
+assert password_login.reset_password.fixture_allow_guest is True
+assert password_login.reset_password.fixture_methods == ("POST",)
+assert password_login.update_password.fixture_allow_guest is True
+assert password_login.update_password.fixture_methods == ("POST",)
+assert password_login.get_token.fixture_allow_guest is True
+assert password_login.get_token.fixture_methods == ("POST",)
+assert password_login.accept_invitation.fixture_allow_guest is True
+assert password_login.accept_invitation.fixture_methods == ("GET",)
+assert password_login.ldap_login.fixture_allow_guest is True
+assert password_login.ldap_login.fixture_methods == ()
+assert password_login.login_via_key.fixture_allow_guest is True
+assert password_login.login_via_key.fixture_methods == ("GET",)
+assert password_login.impersonate.fixture_allow_guest is False
+assert password_login.impersonate.fixture_methods == ("POST",)
+assert password_login.generate_keys.fixture_allow_guest is False
+assert password_login.generate_keys.fixture_methods == ("POST",)
+assert password_login.get_password.fixture_allow_guest is False
+assert password_login.get_password.fixture_methods == ()
+assert password_login.execute_system_console_code.fixture_allow_guest is False
+assert password_login.execute_system_console_code.fixture_methods == ("POST",)
+assert password_login.show_processlist.fixture_allow_guest is False
+assert password_login.show_processlist.fixture_methods == ()
+assert password_login.run_query_report.fixture_allow_guest is False
+assert password_login.run_query_report.fixture_methods == ()
+assert password_login.run_query_report.fixture_read_only is True
+assert password_login.setup_complete.fixture_allow_guest is False
+assert password_login.setup_complete.fixture_methods == ()
+assert password_login.initialize_system_settings_and_user.fixture_allow_guest is False
+assert password_login.initialize_system_settings_and_user.fixture_methods == ()
+assert password_login.authentik_custom_login.fixture_allow_guest is True
+assert password_login.authentik_custom_login.fixture_methods == ()
+
+
+class UserDocument:
+    def __init__(
+        self,
+        *,
+        name="person@production.internal",
+        new_password="",
+        send_welcome_email=0,
+        social_logins=None,
+        is_new=False,
+        api_key="",
+        api_secret="",
+        before_save=...,
+    ):
+        self.name = name
+        self.new_password = new_password
+        self.send_welcome_email = send_welcome_email
+        self.social_logins = list(social_logins or ())
+        self._is_new = is_new
+        self.api_key = api_key
+        self.api_secret = api_secret
+        self._before_save = (
+            None
+            if is_new
+            else {"api_key": api_key, "api_secret": api_secret}
+        ) if before_save is ... else before_save
+
+    def get(self, fieldname):
+        return getattr(self, fieldname, None)
+
+    def is_new(self):
+        return self._is_new
+
+    def get_doc_before_save(self):
+        return self._before_save
+
+
+for document, diagnostic in (
+    (
+        UserDocument(new_password="never-written"),
+        "SSO-only User.new_password was accepted",
+    ),
+    (
+        UserDocument(send_welcome_email=1, is_new=True),
+        "SSO-only new-User welcome reset was accepted",
+    ),
+):
+    original_values = (document.new_password, document.send_welcome_email)
+    try:
+        user_document.guard_user_password_fields(document, "before_validate")
+    except AuthenticationError:
+        pass
+    else:
+        raise AssertionError(diagnostic)
+    assert (document.new_password, document.send_welcome_email) == original_values
+user_document.guard_user_password_fields(
+    UserDocument(send_welcome_email=0, is_new=True), "before_validate"
+)
+
+unchanged_api_credentials = UserDocument(
+    api_key="existing-api-key",
+    api_secret="***************",
+)
+user_document.guard_user_password_fields(
+    unchanged_api_credentials, "before_validate"
+)
+for document, fieldname, replacement, diagnostic in (
+    (
+        UserDocument(api_key="existing-api-key", api_secret="***************"),
+        "api_key",
+        "directly-rotated-api-key",
+        "frappe.client-style User.api_key mutation was accepted",
+    ),
+    (
+        UserDocument(api_key="existing-api-key", api_secret="***************"),
+        "api_secret",
+        "never-log-this-rotated-api-secret",
+        "save-style User.api_secret mutation was accepted",
+    ),
+    (
+        UserDocument(api_key="existing-api-key", api_secret="***************"),
+        "api_secret",
+        "",
+        "save-style User.api_secret removal was accepted",
+    ),
+):
+    setattr(document, fieldname, replacement)
+    try:
+        user_document.guard_user_password_fields(document, "before_validate")
+    except AuthenticationError as error:
+        if replacement:
+            assert replacement not in str(error)
+    else:
+        raise AssertionError(diagnostic)
+
+for document, diagnostic in (
+    (
+        UserDocument(api_key="new-api-key", is_new=True),
+        "new User.api_key was accepted",
+    ),
+    (
+        UserDocument(api_secret="never-log-this-new-api-secret", is_new=True),
+        "new User.api_secret was accepted",
+    ),
+    (
+        UserDocument(before_save=None),
+        "existing User without a before-save credential snapshot was accepted",
+    ),
+):
+    try:
+        user_document.guard_user_password_fields(document, "before_validate")
+    except AuthenticationError:
+        pass
+    else:
+        raise AssertionError(diagnostic)
+
+for doctype, name, fieldname in (
+    ("User", "person@production.internal", "api_secret"),
+    ("User", "person@production.internal", "password"),
+    ("Social Login Key", "authentik", "client_secret"),
+    ("Email Account", "outbound-mail", "password"),
+):
+    try:
+        password_login.get_password(
+            doctype=doctype,
+            name=name,
+            fieldname=fieldname,
+        )
+    except AuthenticationError as error:
+        assert name not in str(error)
+        assert fieldname not in str(error)
+    else:
+        raise AssertionError("host-enforced security credential disclosure was accepted")
+assert state["calls"] == []
+
+for credential_doctype in api_auth.OAUTH_CREDENTIAL_DOCTYPES:
+    credential_doc = types.SimpleNamespace(doctype=credential_doctype)
+    assert (
+        api_auth.enforce_oauth_credential_permission(
+            credential_doc,
+            ptype="read",
+            user="System Manager",
+            debug=False,
+        )
+        is False
+    )
+    assert (
+        api_auth.oauth_credential_query_condition(
+            user="System Manager",
+            doctype=credential_doctype,
+        )
+        == "1=0"
+    )
+
+for operation, diagnostic in (
+    (
+        lambda: password_login.execute_system_console_code(
+            doc='{"type":"SQL","console":"select * from __Auth"}'
+        ),
+        "host-enforced System Console execution was accepted",
+    ),
+    (
+        password_login.show_processlist,
+        "host-enforced database process-list disclosure was accepted",
+    ),
+    (
+        lambda: password_login.run_query_report(report_name="Unsafe Query"),
+        "host-enforced non-standard Query Report execution was accepted",
+    ),
+    (
+        lambda: password_login.run_query_report(report_name="Unsafe Script"),
+        "host-enforced non-standard Script Report execution was accepted",
+    ),
+):
+    try:
+        operation()
+    except AuthenticationError:
+        pass
+    else:
+        raise AssertionError(diagnostic)
+assert state["calls"] == []
+assert password_login.run_query_report(
+    report_name="Standard Query"
+) == "query-report-result"
+assert state["calls"] == [
+    (
+        "run_query_report",
+        {
+            "report_name": "Standard Query",
+            "filters": None,
+            "user": None,
+            "ignore_prepared_report": False,
+            "custom_columns": None,
+            "is_tree": False,
+            "parent_field": None,
+            "are_default_filters": True,
+            "js_filters": None,
+        },
+    )
+]
+state["calls"].clear()
+
+
+class ReportDocument(dict):
+    def __init__(self, *, report_type, is_standard, is_new=False, before_save=...):
+        super().__init__(report_type=report_type, is_standard=is_standard)
+        self._is_new = is_new
+        self._before_save = (
+            None
+            if is_new
+            else {"report_type": report_type, "is_standard": is_standard}
+        ) if before_save is ... else before_save
+
+    def is_new(self):
+        return self._is_new
+
+    def get_doc_before_save(self):
+        return self._before_save
+
+
+for event in ("before_validate", "before_rename", "on_trash"):
+    try:
+        api_auth.guard_nonstandard_script_report_mutation(
+            ReportDocument(
+                report_type="Query Report",
+                is_standard="No",
+                is_new=True,
+            ),
+            event,
+        )
+    except AuthenticationError:
+        pass
+    else:
+        raise AssertionError(f"non-standard Query Report {event} was accepted")
+api_auth.guard_nonstandard_script_report_mutation(
+    ReportDocument(report_type="Query Report", is_standard="Yes"),
+    "before_validate",
+)
+try:
+    api_auth.enforce_host_sso_before_login(login_manager=object())
+except AuthenticationError:
+    pass
+else:
+    raise AssertionError("host-enforced SSO allowed LoginManager.login")
+
+
+class UpstreamUserController:
+    def _reset_password(self, send_email=False, password_expired=False):
+        state["controller_calls"].append(
+            ("_reset_password", send_email, password_expired)
+        )
+        return "reset-link"
+
+    def set_new_password(self, new_password=None):
+        state["controller_calls"].append(("set_new_password", new_password))
+        return "set-password-result"
+
+
+class EffectiveUserController(
+    user_document.UserSSOGuardMixin, UpstreamUserController
+):
+    pass
+
+
+guarded_user = EffectiveUserController()
+for operation, diagnostic in (
+    (
+        lambda: guarded_user._reset_password(
+            send_email=True, password_expired=True
+        ),
+        "SSO-only direct User._reset_password was accepted",
+    ),
+    (
+        lambda: guarded_user.set_new_password("never-written"),
+        "SSO-only direct User.set_new_password was accepted",
+    ),
+):
+    try:
+        operation()
+    except AuthenticationError:
+        pass
+    else:
+        raise AssertionError(diagnostic)
+assert state["controller_calls"] == []
+assert guarded_user.set_new_password(None) == "set-password-result"
+assert state["controller_calls"] == [("set_new_password", None)]
+state["controller_calls"].clear()
+
+
+class SocialLoginKeyDocument:
+    pass
+
+
+for event in ("before_validate", "before_rename", "on_trash"):
+    try:
+        user_document.guard_social_login_key_mutation(
+            SocialLoginKeyDocument(), event
+        )
+    except AuthenticationError:
+        pass
+    else:
+        raise AssertionError(f"host-enforced Social Login Key {event} was accepted")
+
+frappe.flags[user_document.SOCIAL_LOGIN_KEY_BOOTSTRAP_FLAG] = True
+for event in ("before_validate", "before_rename", "on_trash"):
+    user_document.guard_social_login_key_mutation(SocialLoginKeyDocument(), event)
+frappe.flags.pop(user_document.SOCIAL_LOGIN_KEY_BOOTSTRAP_FLAG)
+
+state["social_bindings"] = [
+    {
+        "parent": "person@production.internal",
+        "parenttype": "User",
+        "parentfield": "social_logins",
+        "provider": "authentik",
+        "username": None,
+        "userid": "authentik-stable-subject",
+    }
+]
+for social_logins in (
+    [],
+    [{"provider": "authentik", "username": None, "userid": "changed-subject"}],
+    [
+        {
+            "provider": "authentik",
+            "username": None,
+            "userid": "authentik-stable-subject",
+        },
+        {"provider": "authentik", "username": None, "userid": "duplicate"},
+    ],
+):
+    try:
+        user_document.guard_user_password_fields(
+            UserDocument(social_logins=social_logins), "before_validate"
+        )
+    except AuthenticationError:
+        pass
+    else:
+        raise AssertionError("manual Authentik User binding mutation was accepted")
+
+state["social_bindings"] = []
+frappe.flags[user_document.AUTHENTIK_BINDING_CALLBACK_FLAG] = (
+    "person@production.internal",
+    "authentik-stable-subject",
+)
+user_document.guard_user_password_fields(
+    UserDocument(
+        social_logins=[
+            {
+                "provider": "authentik",
+                "username": None,
+                "userid": "authentik-stable-subject",
+            }
+        ]
+    ),
+    "before_validate",
+)
+frappe.flags.pop(user_document.AUTHENTIK_BINDING_CALLBACK_FLAG)
+
+for function, kwargs in (
+    (password_login.reset_password, {"user": "person@production.internal"}),
+    (
+        password_login.update_password,
+        {
+            "new_password": "never-written",
+            "logout_all_sessions": 1,
+            "key": "reset-key",
+            "old_password": None,
+        },
+    ),
+):
+    try:
+        function(**kwargs)
+    except AuthenticationError:
+        pass
+    else:
+        raise AssertionError("SSO-only password mutation was accepted")
+assert state["calls"] == []
+
+for function, kwargs, diagnostic in (
+    (password_login.ldap_login, {}, "SSO-only LDAP login was accepted"),
+    (
+        password_login.login_via_key,
+        {"key": "previously-issued-email-link-key"},
+        "disabled email-link login key was accepted",
+    ),
+    (
+        password_login.impersonate,
+        {"user": "person@production.internal", "reason": "support"},
+        "SSO-only impersonation was accepted",
+    ),
+    (
+        password_login.generate_keys,
+        {"user": "erp-api@production.internal"},
+        "SSO-only API credential rotation was accepted",
+    ),
+    (
+        password_login.setup_complete,
+        {"args": {"language": "en"}},
+        "SSO-only Setup Wizard completion was accepted",
+    ),
+    (
+        password_login.initialize_system_settings_and_user,
+        {
+            "system_settings_data": {"language": "en"},
+            "user_data": {"email": "attacker@production.internal"},
+        },
+        "SSO-only Setup Wizard user initialization was accepted",
+    ),
+):
+    try:
+        function(**kwargs)
+    except AuthenticationError:
+        pass
+    else:
+        raise AssertionError(diagnostic)
+assert state["calls"] == []
+
+frappe.request.path = "/api/method/frappe.integrations.oauth2_logins.custom/github"
+try:
+    password_login.authentik_custom_login(code="provider-code", state="state")
+except AuthenticationError:
+    pass
+else:
+    raise AssertionError("non-Authentik custom callback provider was accepted")
+assert state["calls"] == []
+
+frappe.request.path = "/api/method/frappe.integrations.oauth2_logins.custom/authentik"
+provider_baseline = dict(state["provider"])
+for fieldname in sorted(provider_baseline):
+    state["provider"][fieldname] = "fixture-drift"
+    state["calls"].clear()
+    try:
+        password_login.authentik_custom_login(code="drift-code", state="state")
+    except AuthenticationError:
+        pass
+    else:
+        raise AssertionError(f"provider drift was accepted for {fieldname}")
+    assert state["calls"] == []
+    state["provider"][fieldname] = provider_baseline[fieldname]
+
+frappe.conf["authentik_login"] = {
+    "client_id": "file-override-client",
+    "client_secret": "never-log-this-file-override-secret",
+    "redirect_uri": "https://attacker.invalid/callback",
+}
+try:
+    password_login.authentik_custom_login(code="override-code", state="state")
+except AuthenticationError as error:
+    assert "never-log-this-file-override-secret" not in str(error)
+else:
+    raise AssertionError("file-based Authentik OAuth override reached the OIDC network")
+assert state["calls"] == []
+frappe.conf.pop("authentik_login")
+
+expected_redirect_uri = state["redirect_uri"]
+state["redirect_uri"] = "https://attacker.invalid/callback"
+try:
+    password_login.authentik_custom_login(code="redirect-code", state="state")
+except AuthenticationError:
+    pass
+else:
+    raise AssertionError("unexpected effective Authentik redirect URI reached the OIDC network")
+assert state["calls"] == []
+state["redirect_uri"] = expected_redirect_uri
+
+state["social_login_keys"].append("github")
+try:
+    password_login.authentik_custom_login(code="inventory-code", state="state")
+except AuthenticationError:
+    pass
+else:
+    raise AssertionError("alternative provider inventory reached the OIDC network")
+assert state["calls"] == []
+state["social_login_keys"] = ["authentik"]
+
+os.environ["ERPNEXT_AUTHENTIK_DOMAIN"] = "authentik.other.internal"
+try:
+    password_login.authentik_custom_login(code="domain-code", state="state")
+except AuthenticationError:
+    pass
+else:
+    raise AssertionError("unexpected Authentik domain reached the OIDC network")
+assert state["calls"] == []
+os.environ["ERPNEXT_AUTHENTIK_DOMAIN"] = "authentik.production.internal"
+
+for invalid_info in (
+    {"email": "person@production.internal", "email_verified": False, "sub": "stable"},
+    {"email": "Person@production.internal", "email_verified": True, "sub": "stable"},
+    {"email": "person@production.internal", "email_verified": True, "sub": ""},
+):
+    state["oidc_info"] = invalid_info
+    state["calls"].clear()
+    try:
+        password_login.authentik_custom_login(code="claim-code", state="state")
+    except AuthenticationError:
+        pass
+    else:
+        raise AssertionError("invalid Authentik OIDC claims were accepted")
+    assert [call[0] for call in state["calls"]] == ["get_info_via_oauth"]
+
+state["oidc_info"] = {
+    "email": "person@production.internal",
+    "email_verified": True,
+    "sub": "authentik-stable-subject",
+}
+os.environ["ERPNEXT_API_SERVICE_ACCOUNTS"] = "person@production.internal"
+for bindings, diagnostic in (
+    ([], "first Authentik login"),
+    (
+        [
+            {
+                "parent": "person@production.internal",
+                "parenttype": "User",
+                "parentfield": "social_logins",
+                "provider": "authentik",
+                "userid": "authentik-stable-subject",
+            }
+        ],
+        "existing Authentik binding login",
+    ),
+):
+    state["social_bindings"] = [dict(row) for row in bindings]
+    state["calls"].clear()
+    try:
+        password_login.authentik_custom_login(
+            code="service-account-code",
+            state="state",
+        )
+    except AuthenticationError:
+        pass
+    else:
+        raise AssertionError(f"API service-account {diagnostic} was accepted")
+    assert [call[0] for call in state["calls"]] == ["get_info_via_oauth"]
+    assert (
+        "saervices_erpnext_sso_guard_authentik_binding_callback"
+        not in frappe.flags
+    )
+os.environ["ERPNEXT_API_SERVICE_ACCOUNTS"] = ""
+state["social_bindings"] = []
+state["calls"].clear()
+assert password_login.authentik_custom_login(
+    code="valid-code", state="valid-state"
+) == "oidc-login-result"
+assert [call[0] for call in state["calls"]] == [
+    "get_info_via_oauth",
+    "lock_authentik_provider",
+    "login_oauth_user",
+]
+assert state["calls"][2][2:] == ("authentik", "valid-state")
+assert (
+    "saervices_erpnext_sso_guard_authentik_binding_callback"
+    not in frappe.flags
+)
+state["calls"].clear()
+
+
+def social_binding(parent, userid):
+    return {
+        "parent": parent,
+        "parenttype": "User",
+        "parentfield": "social_logins",
+        "provider": "authentik",
+        "userid": userid,
+    }
+
+
+baseline_users = [dict(row) for row in state["preprovisioned_users"]]
+binding_rejections = (
+    (
+        baseline_users,
+        [social_binding("person@production.internal", "changed-subject")],
+        "changed subject on the same email",
+    ),
+    (
+        baseline_users,
+        [social_binding("other@production.internal", "authentik-stable-subject")],
+        "subject owned by another user",
+    ),
+    (
+        baseline_users,
+        [social_binding("orphan@production.internal", "authentik-stable-subject")],
+        "orphaned binding parent",
+    ),
+    (
+        baseline_users,
+        [
+            social_binding("person@production.internal", "authentik-stable-subject"),
+            social_binding("person@production.internal", "second-subject"),
+        ],
+        "duplicate provider binding for one user",
+    ),
+    (
+        baseline_users,
+        [
+            social_binding("person@production.internal", "authentik-stable-subject"),
+            social_binding("other@production.internal", "authentik-stable-subject"),
+        ],
+        "duplicate provider subject",
+    ),
+    ([], [], "missing pre-provisioned user"),
+    (
+        [
+            {
+                "name": "person@production.internal",
+                "email": "person@production.internal",
+                "enabled": 0,
+            }
+        ],
+        [],
+        "disabled pre-provisioned user",
+    ),
+    (
+        baseline_users
+        + [
+            {
+                "name": "ambiguous-user",
+                "email": "person@production.internal",
+                "enabled": 1,
+            }
+        ],
+        [],
+        "ambiguous pre-provisioned email",
+    ),
+)
+for users, bindings, diagnostic in binding_rejections:
+    state["preprovisioned_users"] = [dict(row) for row in users]
+    state["social_bindings"] = [dict(row) for row in bindings]
+    state["calls"].clear()
+    try:
+        password_login.authentik_custom_login(code="binding-code", state="state")
+    except AuthenticationError:
+        pass
+    else:
+        raise AssertionError(f"invalid Authentik binding accepted: {diagnostic}")
+    assert [call[0] for call in state["calls"]] == [
+        "get_info_via_oauth",
+        "lock_authentik_provider",
+    ]
+
+state["preprovisioned_users"] = [dict(row) for row in baseline_users]
+state["social_bindings"] = [
+    social_binding("person@production.internal", "authentik-stable-subject")
+]
+state["calls"].clear()
+assert password_login.authentik_custom_login(
+    code="bound-code", state="bound-state"
+) == "oidc-login-result"
+assert [call[0] for call in state["calls"]] == [
+    "get_info_via_oauth",
+    "lock_authentik_provider",
+    "login_oauth_user",
+]
+assert (
+    "saervices_erpnext_sso_guard_authentik_binding_callback"
+    not in frappe.flags
+)
+state["social_bindings"] = []
+state["calls"].clear()
+
+try:
+    password_login.accept_invitation(key="previously-issued-key")
+except AuthenticationError:
+    pass
+else:
+    raise AssertionError("SSO-only user invitation was accepted")
+assert state["calls"] == []
+
+frappe.request.form = {"grant_type": "password"}
+try:
+    password_login.get_token(client_id="fixture-client")
+except AuthenticationError:
+    pass
+else:
+    raise AssertionError("SSO-only OAuth password grant was accepted")
+assert state["calls"] == []
+
+for form, kwargs in (
+    ({}, {}),
+    ({"grant_type": "future_grant"}, {"grant_type": "future_grant"}),
+    ({"grant_type": "authorization_code"}, {}),
+    ({"grant_type": "refresh_token"}, {}),
+):
+    frappe.request.form = form
+    try:
+        password_login.get_token(**kwargs)
+    except AuthenticationError:
+        pass
+    else:
+        raise AssertionError("missing or unknown SSO-only OAuth grant was accepted")
+assert state["calls"] == []
+
+frappe.request.form = {"grant_type": "refresh_token"}
+try:
+    password_login.get_token(refresh_token="fixture")
+except AuthenticationError:
+    pass
+else:
+    raise AssertionError("unknown refresh-token credential was delegated")
+assert state["calls"] == []
+state["calls"].clear()
+
+state["authorization_codes"] = {
+    "unallowed-code": {"validity": "Valid", "user": "human@production.internal"},
+    "disabled-code": {
+        "validity": "Valid",
+        "user": "erp-api@production.internal",
+    },
+    "allowed-code": {
+        "validity": "Valid",
+        "user": "erp-api@production.internal",
+    },
+    "invalid-code": {"validity": "Invalid", "user": "human@production.internal"},
+}
+state["refresh_tokens"] = {
+    "unallowed-refresh": {
+        "name": "unallowed-access-token",
+        "status": "Active",
+        "user": "human@production.internal",
+    },
+    "disabled-refresh": {
+        "name": "disabled-access-token",
+        "status": "Active",
+        "user": "erp-api@production.internal",
+    },
+    "allowed-refresh": {
+        "name": "allowed-access-token",
+        "status": "Active",
+        "user": "erp-api@production.internal",
+    },
+    "revoked-refresh": {
+        "name": "revoked-access-token",
+        "status": "Revoked",
+        "user": "human@production.internal",
+    },
+}
+os.environ["ERPNEXT_API_SERVICE_ACCOUNTS"] = ""
+for grant_type, key, credential in (
+    ("authorization_code", "code", "unallowed-code"),
+    ("refresh_token", "refresh_token", "unallowed-refresh"),
+):
+    frappe.request.form = {"grant_type": grant_type}
+    try:
+        password_login.get_token(**{key: credential})
+    except AuthenticationError as error:
+        assert credential not in str(error)
+    else:
+        raise AssertionError(f"unallowlisted OAuth {grant_type} owner was accepted")
+assert state["calls"] == []
+
+os.environ["ERPNEXT_API_SERVICE_ACCOUNTS"] = "erp-api@production.internal"
+state["users"]["erp-api@production.internal"] = {
+    "enabled": 0,
+    "user_type": "System User",
+}
+for grant_type, key, credential in (
+    ("authorization_code", "code", "disabled-code"),
+    ("refresh_token", "refresh_token", "disabled-refresh"),
+):
+    frappe.request.form = {"grant_type": grant_type}
+    try:
+        password_login.get_token(**{key: credential})
+    except AuthenticationError as error:
+        assert credential not in str(error)
+    else:
+        raise AssertionError(f"disabled OAuth {grant_type} owner was accepted")
+assert state["calls"] == []
+
+state["users"]["erp-api@production.internal"] = {
+    "enabled": 1,
+    "user_type": "System User",
+}
+for grant_type, key, credential in (
+    ("authorization_code", "code", "allowed-code"),
+    ("refresh_token", "refresh_token", "allowed-refresh"),
+):
+    frappe.request.form = {"grant_type": grant_type}
+    assert password_login.get_token(**{key: credential}) == "token-result"
+assert state["calls"] == [
+    ("get_token", (), {"code": "allowed-code"}),
+    ("get_token", (), {"refresh_token": "allowed-refresh"}),
+]
+state["calls"].clear()
+for grant_type, key, credential in (
+    ("authorization_code", "code", "invalid-code"),
+    ("refresh_token", "refresh_token", "revoked-refresh"),
+    ("authorization_code", "code", "unknown-code"),
+    ("refresh_token", "refresh_token", "unknown-refresh"),
+):
+    frappe.request.form = {"grant_type": grant_type}
+    try:
+        password_login.get_token(**{key: credential})
+    except AuthenticationError:
+        pass
+    else:
+        raise AssertionError(f"missing OAuth {grant_type} credential was delegated")
+assert state["calls"] == []
+
+state["headers"] = {}
+frappe.form_dict = {}
+stock_callbacks = (
+    "login_via_google",
+    "login_via_github",
+    "login_via_facebook",
+    "login_via_frappe",
+    "login_via_office365",
+    "login_via_salesforce",
+    "login_via_fairlogin",
+    "login_via_keycloak",
+)
+for callback in stock_callbacks:
+    frappe.request.path = (
+        f"/api/method/frappe.integrations.oauth2_logins.{callback}"
+    )
+    try:
+        api_auth.enforce_api_service_account_allowlist()
+    except AuthenticationError:
+        pass
+    else:
+        raise AssertionError(f"stock OAuth callback was accepted: {callback}")
+
+frappe.request.path = "/api/method"
+frappe.form_dict = {"cmd": "frappe.integrations.oauth2_logins.login_via_google"}
+try:
+    api_auth.enforce_api_service_account_allowlist()
+except AuthenticationError:
+    pass
+else:
+    raise AssertionError("legacy form_dict OAuth callback was accepted")
+
+for allowed_path in sorted(api_auth.AUTHENTIK_CALLBACK_PATHS):
+    frappe.request.path = allowed_path
+    for command in (None, "frappe.integrations.oauth2_logins.custom"):
+        frappe.form_dict = {} if command is None else {"cmd": command}
+        api_auth.enforce_api_service_account_allowlist()
+
+frappe.request.path = (
+    "/api/v2/method/frappe.integrations.oauth2_logins.custom/authentik"
+)
+frappe.form_dict = {}
+try:
+    api_auth.enforce_api_service_account_allowlist()
+except AuthenticationError:
+    pass
+else:
+    raise AssertionError("unreviewed v2 Authentik callback was accepted")
+
+state["settings"]["disable_user_pass_login"] = 0
+os.environ["ERPNEXT_SSO_ENFORCED"] = "false"
+frappe.request.path = "/api/method/frappe.integrations.oauth2_logins.login_via_google"
+frappe.form_dict = {"cmd": "frappe.integrations.oauth2_logins.login_via_google"}
+api_auth.enforce_api_service_account_allowlist()
+assert password_login.reset_password(user="person@production.internal") == "reset-result"
+assert password_login.update_password(
+    new_password="break-glass-password",
+    logout_all_sessions=1,
+    key=None,
+    old_password="old-password",
+) == "update-result"
+frappe.request.form = {"grant_type": "password"}
+assert password_login.get_token(
+    grant_type="password", username="break-glass-user"
+) == "token-result"
+assert password_login.accept_invitation(key="break-glass-invitation") == "invitation-result"
+assert password_login.ldap_login() == "ldap-result"
+assert password_login.impersonate(
+    user="person@production.internal", reason="break-glass-support"
+) == "impersonate-result"
+assert password_login.generate_keys(
+    user="erp-api@production.internal"
+) == "generate-keys-result"
+assert password_login.get_password(
+    doctype="User",
+    name="erp-api@production.internal",
+    fieldname="api_secret",
+) == "password-result"
+assert password_login.execute_system_console_code(
+    doc='{"type":"SQL","console":"select 1"}'
+) == "system-console-result"
+assert password_login.show_processlist() == "processlist-result"
+assert password_login.run_query_report(
+    report_name="Unsafe Query"
+) == "query-report-result"
+assert password_login.setup_complete(
+    args={"language": "en"}
+) == "setup-complete-result"
+assert password_login.initialize_system_settings_and_user(
+    system_settings_data={"language": "en"},
+    user_data={"email": "first-user@production.internal"},
+) == "initialize-result"
+try:
+    password_login.login_via_key(key="disabled-email-link-key")
+except AuthenticationError:
+    pass
+else:
+    raise AssertionError("login_via_key ignored disabled email-link setting")
+state["settings"]["login_with_email_link"] = 1
+assert password_login.login_via_key(key="break-glass-email-link") == "email-link-result"
+user_document.guard_user_password_fields(
+    UserDocument(new_password="break-glass-password"), "before_validate"
+)
+user_document.guard_user_password_fields(
+    UserDocument(send_welcome_email=1, is_new=True), "before_validate"
+)
+user_document.guard_user_password_fields(
+    UserDocument(
+        social_logins=[
+            {"provider": "authentik", "username": None, "userid": "manual-change"}
+        ]
+    ),
+    "before_validate",
+)
+break_glass_api_credentials = UserDocument(
+    api_key="existing-api-key",
+    api_secret="***************",
+)
+break_glass_api_credentials.api_key = "break-glass-api-key"
+break_glass_api_credentials.api_secret = "break-glass-api-secret"
+user_document.guard_user_password_fields(
+    break_glass_api_credentials, "before_validate"
+)
+for event in ("before_validate", "before_rename", "on_trash"):
+    user_document.guard_social_login_key_mutation(SocialLoginKeyDocument(), event)
+for credential_doctype in api_auth.OAUTH_CREDENTIAL_DOCTYPES:
+    credential_doc = types.SimpleNamespace(doctype=credential_doctype)
+    assert (
+        api_auth.enforce_oauth_credential_permission(
+            credential_doc,
+            ptype="read",
+            user="System Manager",
+            debug=False,
+        )
+        is True
+    )
+    assert (
+        api_auth.oauth_credential_query_condition(
+            user="System Manager",
+            doctype=credential_doctype,
+        )
+        is None
+    )
+api_auth.guard_nonstandard_script_report_mutation(
+    ReportDocument(
+        report_type="Script Report",
+        is_standard="No",
+        is_new=True,
+    ),
+    "before_validate",
+)
+assert guarded_user._reset_password(
+    send_email=True, password_expired=True
+) == "reset-link"
+assert guarded_user.set_new_password("break-glass-password") == "set-password-result"
+assert state["controller_calls"] == [
+    ("_reset_password", True, True),
+    ("set_new_password", "break-glass-password"),
+]
+assert state["calls"] == [
+    ("reset_password", "person@production.internal"),
+    (
+        "update_password",
+        {
+            "new_password": "break-glass-password",
+            "logout_all_sessions": 1,
+            "key": None,
+            "old_password": "old-password",
+        },
+    ),
+    (
+        "get_token",
+        (),
+        {"grant_type": "password", "username": "break-glass-user"},
+    ),
+    ("accept_invitation", "break-glass-invitation"),
+    ("ldap_login",),
+    ("impersonate", "person@production.internal", "break-glass-support"),
+    ("generate_keys", "erp-api@production.internal"),
+    (
+        "get_password",
+        "User",
+        "erp-api@production.internal",
+        "api_secret",
+    ),
+    (
+        "execute_system_console_code",
+        '{"type":"SQL","console":"select 1"}',
+    ),
+    ("show_processlist",),
+    (
+        "run_query_report",
+        {
+            "report_name": "Unsafe Query",
+            "filters": None,
+            "user": None,
+            "ignore_prepared_report": False,
+            "custom_columns": None,
+            "is_tree": False,
+            "parent_field": None,
+            "are_default_filters": True,
+            "js_filters": None,
+        },
+    ),
+    ("setup_complete", {"language": "en"}),
+    (
+        "initialize_system_settings_and_user",
+        {"language": "en"},
+        {"email": "first-user@production.internal"},
+    ),
+    ("login_via_key", "break-glass-email-link"),
+]
+
+os.environ["ERPNEXT_API_SERVICE_ACCOUNTS"] = "erp-api@production.internal"
+state["headers"] = {}
+api_auth.enforce_api_service_account_allowlist()
+state["headers"] = {"Authorization": "token fixture:secret"}
+frappe.session.user = "human@production.internal"
+try:
+    api_auth.enforce_api_service_account_allowlist()
+except AuthenticationError:
+    pass
+else:
+    raise AssertionError("unallowlisted token authentication was accepted")
+
+frappe.session.user = "erp-api@production.internal"
+state["users"][frappe.session.user] = {"enabled": 1, "user_type": "System User"}
+api_auth.enforce_api_service_account_allowlist()
+state["headers"]["Frappe-Authorization-Source"] = "Integration Credential"
+try:
+    api_auth.enforce_api_service_account_allowlist()
+except AuthenticationError:
+    pass
+else:
+    raise AssertionError("custom Frappe authorization source was accepted")
+
+state["headers"] = {"Authorization": "Bearer fixture-token"}
+state["users"][frappe.session.user] = {"enabled": 0, "user_type": "System User"}
+try:
+    api_auth.enforce_api_service_account_allowlist()
+except AuthenticationError:
+    pass
+else:
+    raise AssertionError("disabled allowlisted bearer user was accepted")
+
+for invalid in (
+    "Second@production.internal",
+    "z@production.internal,a@production.internal",
+    "a@production.internal,a@production.internal",
+    " a@production.internal",
+):
+    try:
+        api_auth.parse_api_service_accounts(invalid)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError(f"invalid service-account allowlist was accepted: {invalid}")
+
+os.environ["ERPNEXT_SSO_ENFORCED"] = "invalid"
+try:
+    api_auth.enforce_host_sso_before_login()
+except AuthenticationError:
+    pass
+else:
+    raise AssertionError("invalid host SSO policy failed open")
+
+print("PASS password and API authentication guards fail closed with break-glass")
+'''
+    try:
+        with tempfile.TemporaryDirectory(
+            prefix="erpnext-sso-guard-harness.", dir="/tmp"
+        ) as raw_harness_root:
+            harness_root = Path(raw_harness_root)
+            harness = harness_root / "test-sso-guard.py"
+            harness.write_text(harness_source, encoding="utf-8")
+            completed = subprocess.run(
+                [sys.executable, str(harness), str(app_root)],
+                cwd=harness_root,
+                env={
+                    "LC_ALL": "C.UTF-8",
+                    "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
+                    "PYTHONDONTWRITEBYTECODE": "1",
+                },
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+                timeout=20,
+            )
+    except (OSError, subprocess.SubprocessError) as error:
+        result = (False, f"fixture execution failed: {error}")
+    else:
+        diagnostic = (completed.stderr or completed.stdout).decode(
+            "utf-8", errors="replace"
+        )[-4000:].strip()
+        result = (completed.returncode == 0, diagnostic)
+    SSO_GUARD_FIXTURE_CACHE[source_digest] = result
+    return result
+
+
+def _run_runtime_manifest_fixture(
+    manifest_path: Path,
+    manifest_source: str,
+) -> tuple[bool, str]:
+    source_digest = hashlib.sha256(manifest_source.encode("utf-8")).hexdigest()
+    cached = RUNTIME_MANIFEST_FIXTURE_CACHE.get(source_digest)
+    if cached is not None:
+        return cached
+    harness_source = r'''#!/usr/bin/env python3
+import importlib.util
+import json
+import os
+import shutil
+import stat
+import sys
+import types
+from pathlib import Path
+from tempfile import TemporaryDirectory
+
+
+manifest_path = Path(sys.argv[1])
+spec = importlib.util.spec_from_file_location(
+    "erpnext_runtime_manifest_fixture",
+    manifest_path,
+)
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+
+frappe = types.ModuleType("frappe")
+frappe.__version__ = "16.30.0"
+erpnext = types.ModuleType("erpnext")
+erpnext.__version__ = "16.30.0"
+sys.modules.update({"frappe": frappe, "erpnext": erpnext})
+
+
+def expect_failure(function, diagnostic):
+    try:
+        function()
+    except (OSError, RuntimeError):
+        return
+    raise AssertionError(diagnostic)
+
+
+with TemporaryDirectory(prefix="erpnext-runtime-manifest.", dir="/tmp") as raw_root:
+    fixture_root = Path(raw_root)
+    bench_root = fixture_root / "bench"
+    apps_root = bench_root / "apps"
+    for app_name in ("frappe", "erpnext", "saervices_erpnext_sso_guard"):
+        (apps_root / app_name).mkdir(parents=True, mode=0o755)
+    frappe_file = apps_root / "frappe" / "core.py"
+    frappe_file.write_bytes(b"frappe fixture\n")
+    frappe_file.chmod(0o644)
+    erpnext_file = apps_root / "erpnext" / "stock.json"
+    erpnext_file.write_bytes(b'{"fixture":true}\n')
+    erpnext_file.chmod(0o640)
+    guard_file = apps_root / "saervices_erpnext_sso_guard" / "guard.py"
+    guard_file.write_bytes(b"guard fixture\n")
+    guard_file.chmod(0o644)
+    (apps_root / "frappe" / "current.py").symlink_to("core.py")
+    (apps_root / "frappe" / ".git").mkdir()
+    (apps_root / "frappe" / ".git" / "ignored").write_bytes(b"first\n")
+    (apps_root / "erpnext" / "__pycache__").mkdir()
+    (apps_root / "erpnext" / "__pycache__" / "ignored.pyc").write_bytes(b"first\n")
+    (apps_root / "erpnext" / "ignored.pyc").write_bytes(b"first\n")
+
+    dpkg_status = fixture_root / "dpkg-status"
+    dpkg_status.write_bytes(b"Package: fixture\nStatus: install ok installed\n")
+    module.DPKG_STATUS_PATH = dpkg_status
+    module._pip_freeze_all = lambda: ["erpnext==16.30.0", "frappe==16.30.0", "pip==26.0"]
+
+    first = module.build_manifest_bytes(bench_root)
+    second = module.build_manifest_bytes(bench_root)
+    assert first == second
+    document = module.validate_manifest_bytes(first)
+    assert document["schema"] == 1
+    assert document["versions"] == {"erpnext": "16.30.0", "frappe": "16.30.0"}
+    assert set(document["trees"]) == {
+        "erpnext",
+        "frappe",
+        "saervices_erpnext_sso_guard",
+    }
+
+    twin_root = fixture_root / "twin-bench"
+    shutil.copytree(bench_root, twin_root, symlinks=True)
+    assert module.build_manifest_bytes(twin_root) == first
+
+    (apps_root / "frappe" / ".git" / "ignored").write_bytes(b"second\n")
+    (apps_root / "erpnext" / "__pycache__" / "ignored.pyc").write_bytes(b"second\n")
+    (apps_root / "erpnext" / "ignored.pyc").write_bytes(b"second\n")
+    assert module.build_manifest_bytes(bench_root) == first
+
+    frappe_file.write_bytes(b"frappe drift\n")
+    assert module.build_manifest_bytes(bench_root) != first
+    frappe_file.write_bytes(b"frappe fixture\n")
+    assert module.build_manifest_bytes(bench_root) == first
+
+    erpnext_file.chmod(0o644)
+    assert module.build_manifest_bytes(bench_root) != first
+    erpnext_file.chmod(0o640)
+    assert module.build_manifest_bytes(bench_root) == first
+
+    (apps_root / "frappe" / "current.py").unlink()
+    (apps_root / "frappe" / "current.py").symlink_to("../erpnext/stock.json")
+    assert module.build_manifest_bytes(bench_root) != first
+    (apps_root / "frappe" / "current.py").unlink()
+    (apps_root / "frappe" / "current.py").symlink_to("core.py")
+    assert module.build_manifest_bytes(bench_root) == first
+
+    guard_file.write_bytes(b"guard drift\n")
+    assert module.build_manifest_bytes(bench_root) != first
+    guard_file.write_bytes(b"guard fixture\n")
+    assert module.build_manifest_bytes(bench_root) == first
+
+    module.BENCH_ROOT = bench_root
+    published = fixture_root / "published" / "runtime-manifest"
+    published.parent.mkdir()
+    module.write_runtime_manifest(published)
+    assert published.read_bytes() == first
+    assert stat.S_IMODE(os.lstat(published).st_mode) == 0o644
+    assert not list(published.parent.glob(f".{published.name}.*"))
+    module.compare_runtime_manifests(published, published)
+
+    missing = fixture_root / "missing-manifest"
+    expect_failure(
+        lambda: module.compare_runtime_manifests(missing, published),
+        "missing runtime manifest was accepted",
+    )
+    symbolic = fixture_root / "symbolic-manifest"
+    symbolic.symlink_to(published)
+    expect_failure(
+        lambda: module.compare_runtime_manifests(symbolic, published),
+        "symbolic runtime manifest was accepted",
+    )
+    oversized = fixture_root / "oversized-manifest"
+    oversized.write_bytes(b"x" * (module.MAX_MANIFEST_BYTES + 1))
+    expect_failure(
+        lambda: module.compare_runtime_manifests(oversized, published),
+        "oversized runtime manifest was accepted",
+    )
+    mismatched = fixture_root / "mismatched-manifest"
+    mismatched.write_bytes(first.replace(b'"schema":1', b'"schema":2'))
+    expect_failure(
+        lambda: module.compare_runtime_manifests(published, mismatched),
+        "mismatched runtime manifest was accepted",
+    )
+
+    published.write_bytes(b"prior runtime manifest\n")
+    original_replace = module.os.replace
+    module.os.replace = lambda source, target: (_ for _ in ()).throw(
+        OSError("fixture atomic replace failure")
+    )
+    try:
+        expect_failure(
+            lambda: module.write_runtime_manifest(published),
+            "failed atomic publication was accepted",
+        )
+    finally:
+        module.os.replace = original_replace
+    assert published.read_bytes() == b"prior runtime manifest\n"
+    assert not list(published.parent.glob(f".{published.name}.*"))
+
+    published.unlink()
+    published.symlink_to(dpkg_status)
+    expect_failure(
+        lambda: module.write_runtime_manifest(published),
+        "symbolic runtime manifest publication target was accepted",
+    )
+
+print("PASS deterministic runtime manifest parity and fail-closed publication")
+'''
+    try:
+        with tempfile.TemporaryDirectory(
+            prefix="erpnext-runtime-manifest-harness.", dir="/tmp"
+        ) as raw_harness_root:
+            harness_root = Path(raw_harness_root)
+            harness = harness_root / "test-runtime-manifest.py"
+            harness.write_text(harness_source, encoding="utf-8")
+            completed = subprocess.run(
+                [sys.executable, str(harness), str(manifest_path)],
+                cwd=harness_root,
+                env={
+                    "LC_ALL": "C.UTF-8",
+                    "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
+                    "PYTHONDONTWRITEBYTECODE": "1",
+                },
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+                timeout=30,
+            )
+    except (OSError, subprocess.SubprocessError) as error:
+        result = (False, f"fixture execution failed: {error}")
+    else:
+        diagnostic = (completed.stderr or completed.stdout).decode(
+            "utf-8", errors="replace"
+        )[-4000:].strip()
+        result = (completed.returncode == 0, diagnostic)
+    RUNTIME_MANIFEST_FIXTURE_CACHE[source_digest] = result
     return result
 
 
@@ -2806,6 +5860,20 @@ def _check_site_bootstrap(root: Path, contract: Contract) -> None:
     except SyntaxError as error:
         contract.expect(False, f"[bootstrap] invalid Python syntax: {error}")
         return
+    assignments = _simple_assignments(tree)
+    contract.expect(
+        _literal(assignments.get("SSO_GUARD_APP"), assignments)
+        == "saervices_erpnext_sso_guard"
+        and "ensure_sso_guard_on_bench()" in source
+        and 'apps != ["frappe", "erpnext", SSO_GUARD_APP]' in source
+        and "if SSO_GUARD_APP not in installed:" in source
+        and "install_app(SSO_GUARD_APP)" in source
+        and "len(installed_values) != len(EXPECTED_APPS)" in source
+        and 'install_apps=["erpnext", SSO_GUARD_APP]' in source,
+        "[sso-guard] site bootstrap must require the exact configurator-published "
+        "mounted apps.txt, install the immutable app on existing sites before migration, "
+        "postcondition all required apps, and include it on fresh sites",
+    )
 
     main_functions = [
         node
@@ -3022,7 +6090,7 @@ def _check_site_bootstrap(root: Path, contract: Contract) -> None:
             and len(existing_sites_indices) == 1
             and root_guard_indices[0] == root_lstat_indices[0] + 1
             and direct_chdir_indices[0] == root_guard_indices[0] + 1
-            and existing_sites_indices[0] == direct_chdir_indices[0] + 1
+            and direct_chdir_indices[0] < existing_sites_indices[0]
             and bool(first_frappe_or_database_nodes)
             and main_function.body[direct_chdir_indices[0]].lineno
             < min(node.lineno for node in first_frappe_or_database_nodes)
@@ -3033,7 +6101,8 @@ def _check_site_bootstrap(root: Path, contract: Contract) -> None:
         bootstrap_cwd_contract_ok,
         "[bootstrap] existing-site CWD must perform exactly one unconditional "
         "os.chdir(SITES_ROOT) in main immediately after the lstat/real-directory "
-        "guard and before existing_sites, every Frappe import, init/connect, or DB "
+        "guard and before the recovery-state check, existing_sites, every Frappe "
+        "import, init/connect, or DB "
         "path; it must also cover the fresh branch and never use BENCH_ROOT",
     )
 
@@ -3421,7 +6490,10 @@ def _check_oidc(root: Path, env: dict[str, str], contract: Contract) -> None:
         "revoke outstanding email-link tokens, disable website signup and LDAP, "
         "preserve the staged username/password setting, "
         "enforce exactly the Authentik Social Login Key, commit verified state, "
-        "and reject an alternative key before mutation"
+        "postcondition the eleven runtime overrides/auth hook/API credential boundary, "
+        "revoke reset/invitation/OAuth-code/session credentials only at the final "
+        "SSO switch, fail closed on raw Redis revocation, and reject an alternative "
+        "key before mutation"
         + (f": {login_policy_diagnostic}" if login_policy_diagnostic else ""),
     )
     contract.expect(
@@ -3430,17 +6502,27 @@ def _check_oidc(root: Path, env: dict[str, str], contract: Contract) -> None:
         and 'frappe.db.set_single_value("Website Settings", "disable_signup", 1)'
         in source
         and 'frappe.db.set_single_value("LDAP Settings", "enabled", 0)' in source
-        and 'frappe.cache.delete_keys("one_time_login_key:")' in source
-        and 'frappe.cache.get_keys("one_time_login_key:")' in source
+        and 'frappe.cache.make_key("one_time_login_key:*")' in source
+        and "scan_raw_cache_keys(frappe.cache, pattern)" in source
+        and "frappe.cache.unlink(*keys)" in source
+        and "range(1, REDIS_DELETE_MAX_PASSES + 1)" in source
+        and "if seen == 0:" in source
+        and "if deleted == 0:" in source
+        and "frappe.cache.delete_keys" not in source
+        and "frappe.cache.get_keys" not in source
+        and 'frappe.db.sql("DELETE FROM `tabSessions`")' in source
+        and 'frappe.cache.make_key("session")' in source
+        and "frappe.cache.hlen(session_cache_key)" in source
         and "frappe.db.commit()" in source
-        and source.find("frappe.db.commit()")
-        < source.find('frappe.clear_cache(doctype=doctype)')
-        < source.find('frappe.cache.delete_keys("one_time_login_key:")')
+        and source.rfind("frappe.db.commit()")
+        < source.rfind('frappe.clear_cache(doctype=doctype)')
+        < source.rfind("revoke_all_cached_sessions(frappe)")
+        < source.rfind("revoke_all_email_link_keys(frappe)")
         and 'frappe.get_all("Social Login Key", pluck="name")' in source
-        and 'social_login_keys - {PROVIDER_KEY}' in source,
+        and 'social_login_keys not in ([], [PROVIDER_KEY])' in source,
         "[oidc] login-policy persistence must keep the exact fail-closed Frappe "
-        "singleton fields, post-commit cache invalidation, one-time-link "
-        "revocation, and exclusive Social Login Key inventory",
+        "singleton fields, database/session/raw-cache revocation order, and "
+        "exclusive Social Login Key inventory",
     )
     contract.expect(
         _literal(assignments.get("redirect_url"), assignments)
@@ -3451,6 +6533,7 @@ def _check_oidc(root: Path, env: dict[str, str], contract: Contract) -> None:
     expected_literals = {
         "enable_social_login": 1,
         "social_login_provider": "Custom",
+        "icon": None,
         "custom_base_url": 1,
         "authorize_url": "/application/o/authorize/",
         "access_token_url": "/application/o/token/",
@@ -3531,6 +6614,767 @@ def _check_oidc(root: Path, env: dict[str, str], contract: Contract) -> None:
             )
         ),
         "[oidc] ERPNEXT_AUTHENTIK_DOMAIN must be a bare canonical DNS name",
+    )
+
+
+def _check_sso_guard(
+    root: Path,
+    env: dict[str, str],
+    services: dict[str, dict[str, Any]],
+    contract: Contract,
+) -> None:
+    host_policy_roles = {
+        "app",
+        "erpnext-assets-bootstrap",
+        "erpnext-backend",
+        "erpnext-configurator",
+        "erpnext-migrator",
+        "erpnext-scheduler",
+        "erpnext-site-bootstrap",
+        "erpnext-site-maintenance",
+        "erpnext-sso-bootstrap",
+        "erpnext-websocket",
+        "erpnext-worker-long",
+        "erpnext-worker-short",
+    }
+    contract.expect(
+        env.get("ERPNEXT_SSO_ENFORCED") == "false"
+        and all(
+            services.get(name, {}).get("environment", {}).get(
+                "ERPNEXT_SSO_ENFORCED"
+            )
+            == "${ERPNEXT_SSO_ENFORCED:-false}"
+            for name in host_policy_roles
+        ),
+        "[sso-guard] ERPNEXT_SSO_ENFORCED must default to false and propagate "
+        "unchanged to every Frappe runtime, worker, and one-shot role",
+    )
+    app_root = root / "ERPNext/dockerfiles/saervices_erpnext_sso_guard"
+    package_root = app_root / "saervices_erpnext_sso_guard"
+    expected_package_files = {
+        "__init__.py",
+        "api_auth.py",
+        "hooks.py",
+        "modules.txt",
+        "password_login.py",
+        "patches.txt",
+        "runtime_manifest.py",
+        "user_document.py",
+    }
+    actual_package_files = (
+        {
+            path.name
+            for path in package_root.iterdir()
+            if path.is_file() and not path.is_symlink()
+        }
+        if package_root.is_dir() and not package_root.is_symlink()
+        else set()
+    )
+    contract.expect(
+        actual_package_files == expected_package_files
+        and not any(path.is_symlink() for path in package_root.iterdir()),
+        "[sso-guard] immutable custom-app package must contain exactly the "
+        "reviewed regular source files",
+    )
+    sources = {
+        name: _regular_text(package_root / name, contract, "sso-guard")
+        for name in sorted(expected_package_files)
+    }
+    try:
+        hooks_tree = ast.parse(sources["hooks.py"], filename=str(package_root / "hooks.py"))
+    except SyntaxError as error:
+        contract.expect(False, f"[sso-guard] invalid hooks.py syntax: {error}")
+        hooks_tree = ast.Module(body=[], type_ignores=[])
+    hook_assignments = _simple_assignments(hooks_tree)
+    expected_auth_hook = (
+        "saervices_erpnext_sso_guard.api_auth."
+        "enforce_api_service_account_allowlist"
+    )
+    expected_before_login_hook = (
+        "saervices_erpnext_sso_guard.api_auth.enforce_host_sso_before_login"
+    )
+    expected_user_doc_hook = (
+        "saervices_erpnext_sso_guard.user_document.guard_user_password_fields"
+    )
+    expected_social_login_key_hook = (
+        "saervices_erpnext_sso_guard.user_document.guard_social_login_key_mutation"
+    )
+    expected_report_mutation_hook = (
+        "saervices_erpnext_sso_guard.api_auth."
+        "guard_nonstandard_script_report_mutation"
+    )
+    expected_oauth_permission_hook = (
+        "saervices_erpnext_sso_guard.api_auth."
+        "enforce_oauth_credential_permission"
+    )
+    expected_oauth_query_hook = (
+        "saervices_erpnext_sso_guard.api_auth.oauth_credential_query_condition"
+    )
+    oauth_credential_doctypes = {
+        "OAuth Authorization Code",
+        "OAuth Bearer Token",
+        "OAuth Client",
+    }
+    expected_overrides = {
+        "frappe.core.doctype.user.user.reset_password": (
+            "saervices_erpnext_sso_guard.password_login.reset_password"
+        ),
+        "frappe.core.doctype.user.user.update_password": (
+            "saervices_erpnext_sso_guard.password_login.update_password"
+        ),
+        "frappe.integrations.oauth2.get_token": (
+            "saervices_erpnext_sso_guard.password_login.get_token"
+        ),
+        "frappe.core.api.user_invitation.accept_invitation": (
+            "saervices_erpnext_sso_guard.password_login.accept_invitation"
+        ),
+        "frappe.integrations.doctype.ldap_settings.ldap_settings.login": (
+            "saervices_erpnext_sso_guard.password_login.ldap_login"
+        ),
+        "frappe.www.login.login_via_key": (
+            "saervices_erpnext_sso_guard.password_login.login_via_key"
+        ),
+        "frappe.core.doctype.user.user.impersonate": (
+            "saervices_erpnext_sso_guard.password_login.impersonate"
+        ),
+        "frappe.core.doctype.user.user.generate_keys": (
+            "saervices_erpnext_sso_guard.password_login.generate_keys"
+        ),
+        "frappe.client.get_password": (
+            "saervices_erpnext_sso_guard.password_login.get_password"
+        ),
+        "frappe.desk.doctype.system_console.system_console.execute_code": (
+            "saervices_erpnext_sso_guard.password_login.execute_system_console_code"
+        ),
+        "frappe.desk.doctype.system_console.system_console.show_processlist": (
+            "saervices_erpnext_sso_guard.password_login.show_processlist"
+        ),
+        "frappe.desk.query_report.run": (
+            "saervices_erpnext_sso_guard.password_login.run_query_report"
+        ),
+        "frappe.desk.page.setup_wizard.setup_wizard.setup_complete": (
+            "saervices_erpnext_sso_guard.password_login.setup_complete"
+        ),
+        "frappe.desk.page.setup_wizard.setup_wizard.initialize_system_settings_and_user": (
+            "saervices_erpnext_sso_guard.password_login.initialize_system_settings_and_user"
+        ),
+        "frappe.integrations.oauth2_logins.custom": (
+            "saervices_erpnext_sso_guard.password_login.authentik_custom_login"
+        ),
+    }
+    contract.expect(
+        _literal(hook_assignments.get("auth_hooks"), hook_assignments)
+        == [expected_auth_hook]
+        and _literal(hook_assignments.get("before_login"), hook_assignments)
+        == [expected_before_login_hook]
+        and _literal(hook_assignments.get("doc_events"), hook_assignments)
+        == {
+            "User": {"before_validate": expected_user_doc_hook},
+            "Social Login Key": {
+                "before_validate": expected_social_login_key_hook,
+                "before_rename": expected_social_login_key_hook,
+                "on_trash": expected_social_login_key_hook,
+            },
+            "Report": {
+                "before_validate": expected_report_mutation_hook,
+                "before_rename": expected_report_mutation_hook,
+                "on_trash": expected_report_mutation_hook,
+            },
+        }
+        and _literal(hook_assignments.get("has_permission"), hook_assignments)
+        == {
+            doctype: expected_oauth_permission_hook
+            for doctype in oauth_credential_doctypes
+        }
+        and _literal(
+            hook_assignments.get("permission_query_conditions"),
+            hook_assignments,
+        )
+        == {
+            doctype: expected_oauth_query_hook
+            for doctype in oauth_credential_doctypes
+        }
+        and _literal(
+            hook_assignments.get("extend_doctype_class"), hook_assignments
+        )
+        == {
+            "User": [
+                "saervices_erpnext_sso_guard.user_document.UserSSOGuardMixin"
+            ]
+        }
+        and _literal(
+            hook_assignments.get("override_whitelisted_methods"), hook_assignments
+        )
+        == expected_overrides,
+        "[sso-guard] hooks.py must expose exactly the reviewed auth hook, User "
+        "and Report document guards, OAuth credential permission hooks, and "
+        "fifteen authentication/session/query-path overrides",
+    )
+    fixture_ok, fixture_diagnostic = _run_sso_guard_fixture(
+        app_root,
+        "\n".join(sources.values()),
+    )
+    contract.expect(
+        fixture_ok,
+        "[sso-guard] isolated runtime fixture must deny password reset/update, "
+        "OAuth password grant, pre-issued invitation acceptance, unallowlisted "
+        "API auth, custom authorization sources, disabled service users, LDAP "
+        "login, impersonation, and disabled email-link-key consumption while preserving the "
+        "explicit break-glass/enabled delegation paths; User.new_password and "
+        "new-User welcome-reset issuance must fail before document mutation"
+        + (f": {fixture_diagnostic}" if fixture_diagnostic else ""),
+    )
+    manifest_ok, manifest_diagnostic = _run_runtime_manifest_fixture(
+        package_root / "runtime_manifest.py",
+        sources["runtime_manifest.py"],
+    )
+    contract.expect(
+        manifest_ok,
+        "[runtime-parity] isolated manifest fixture must prove deterministic same-"
+        "runtime bytes, content/mode/symlink/guard drift detection, exact exclusions, "
+        "missing/symlink/oversize/mismatch rejection, and atomic fsync publication"
+        + (f": {manifest_diagnostic}" if manifest_diagnostic else ""),
+    )
+
+    api_source = sources["api_auth.py"]
+    password_source = sources["password_login.py"]
+    manifest_source = sources["runtime_manifest.py"]
+    user_document_source = sources["user_document.py"]
+    try:
+        user_document_tree = ast.parse(
+            user_document_source, filename=str(package_root / "user_document.py")
+        )
+    except SyntaxError:
+        user_guard_has_no_mutation = False
+    else:
+        user_guard_functions = [
+            node
+            for node in user_document_tree.body
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+            and node.name == "guard_user_password_fields"
+        ]
+        mutating_document_calls = {
+            "append",
+            "clear",
+            "db_set",
+            "extend",
+            "insert",
+            "pop",
+            "remove",
+            "save",
+            "set",
+            "update",
+        }
+
+        def target_references_document(target: ast.AST) -> bool:
+            return any(
+                isinstance(node, ast.Name) and node.id == "document"
+                for node in ast.walk(target)
+            )
+
+        user_guard_has_no_mutation = len(user_guard_functions) == 1 and not any(
+            (
+                isinstance(node, (ast.Assign, ast.AnnAssign, ast.AugAssign, ast.Delete))
+                and any(
+                    target_references_document(target)
+                    for target in (
+                        node.targets
+                        if isinstance(node, (ast.Assign, ast.Delete))
+                        else [node.target]
+                    )
+                )
+            )
+            or (
+                isinstance(node, ast.Call)
+                and (
+                    (
+                        isinstance(node.func, ast.Attribute)
+                        and isinstance(node.func.value, ast.Name)
+                        and node.func.value.id == "document"
+                        and node.func.attr in mutating_document_calls
+                    )
+                    or (
+                        isinstance(node.func, ast.Name)
+                        and node.func.id in {"setattr", "delattr"}
+                        and bool(node.args)
+                        and isinstance(node.args[0], ast.Name)
+                        and node.args[0].id == "document"
+                    )
+                )
+            )
+            for node in ast.walk(user_guard_functions[0])
+        )
+    contract.expect(
+        'frappe.db.get_value(\n        "User"' in api_source
+        and "frappe.get_cached_value" not in api_source
+        and 'frappe.get_request_header("Frappe-Authorization-Source", "")'
+        in api_source
+        and 'frozenset({"basic", "bearer", "token"})' in api_source
+        and 'if raw_value == "true":' in api_source
+        and 'if raw_value == "false":' in api_source
+        and "def enforce_host_sso_before_login(login_manager=None):" in api_source,
+        "[sso-guard] API hook must check the current enabled/System User state "
+        "without cache and reject custom Basic/token authorization sources",
+    )
+    contract.expect(
+        '"OAuth Authorization Code"' in api_source
+        and '"OAuth Bearer Token"' in api_source
+        and '"OAuth Client"' in api_source
+        and "def enforce_oauth_credential_permission(" in api_source
+        and "return not host_sso_enforced()" in api_source
+        and "def oauth_credential_query_condition(" in api_source
+        and 'return "1=0"' in api_source
+        and "def guard_nonstandard_script_report_mutation(" in api_source
+        and 'document.get("report_type") in EXECUTABLE_REPORT_TYPES'
+        in api_source
+        and 'document.get("is_standard") != "Yes"' in api_source,
+        "[sso-guard] host-enforced OAuth credential documents must deny record "
+        "and list/report/export permission paths, while non-standard executable "
+        "Report documents are immutable outside trusted install/migrate",
+    )
+    contract.expect(
+        'grant_type == "password"' in password_source
+        and "from frappe.integrations.oauth2 import get_token" in password_source
+        and "from frappe.core.api.user_invitation import" in password_source
+        and "from frappe.integrations.doctype.ldap_settings.ldap_settings import"
+        in password_source
+        and "from frappe.www.login import login_via_key" in password_source
+        and "from frappe.core.doctype.user.user import impersonate" in password_source
+        and "from frappe.utils.oauth import get_info_via_oauth, login_oauth_user"
+        in password_source
+        and 'get_info_via_oauth("authentik", code, decoder_compat)' in password_source
+        and 'info.get("email_verified") is True' in password_source
+        and 'login_oauth_user(info, provider="authentik", state=state)'
+        in password_source
+        and 'credential_doctype = "OAuth Authorization Code"' in password_source
+        and 'credential_doctype = "OAuth Bearer Token"' in password_source
+        and 'credential_filters = {"name": code, "validity": "Valid"}'
+        in password_source
+        and '"refresh_token": refresh_token' in password_source
+        and '"status": "Active"' in password_source
+        and "require_api_service_account(owner)" in password_source
+        and "frappe.db.get_value(" in password_source
+        and "def get_password(doctype: str, name: str | int, fieldname: str):"
+        in password_source
+        and "SENSITIVE_PASSWORD_FIELDS" not in password_source
+        and "from frappe.client import get_password as frappe_get_password"
+        in password_source
+        and "def execute_system_console_code(doc: str):" in password_source
+        and "def show_processlist():" in password_source
+        and "def run_query_report(" in password_source
+        and "from frappe.desk.query_report import run as frappe_run_query_report"
+        in password_source
+        and 'report.get("is_standard") != "Yes"' in password_source
+        and 'if "authentik_login" in frappe.conf:' in password_source
+        and 'get_redirect_uri("authentik") != expected_redirect_uri'
+        in password_source
+        and 'f"https://{site_name}"' in password_source
+        and "parse_api_service_accounts(" in password_source
+        and "if email in api_service_accounts:" in password_source
+        and "API service accounts cannot sign in through Authentik."
+        in password_source
+        and password_source.count("_require_local_password_login()") == 7
+        and password_source.count("_require_email_link_login()") == 2,
+        "[sso-guard] password mutation, OAuth password grant, invitation, LDAP, "
+        "email-link, impersonation, valid-code, and active-refresh entrypoints must invoke their "
+        "pre-mutation SSO/service-account guards",
+    )
+    contract.expect(
+        'document.get("new_password")' in user_document_source
+        and "document.is_new()" in user_document_source
+        and 'document.get("send_welcome_email")' in user_document_source
+        and "local_password_login_disabled()" in user_document_source
+        and "def guard_user_api_credentials(document):" in user_document_source
+        and "document.get_doc_before_save()" in user_document_source
+        and 'document.get("api_key")' in user_document_source
+        and 'document.get("api_secret")' in user_document_source
+        and "guard_user_api_credentials(document)" in user_document_source
+        and "get_decrypted_password" not in user_document_source
+        and ".get_password(" not in user_document_source
+        and user_guard_has_no_mutation,
+        "[sso-guard] User before_validate hook must reject non-empty passwords "
+        "and new-User welcome reset issuance, plus host-enforced direct API "
+        "credential mutation, without mutating the document or decrypting secrets",
+    )
+    contract.expect(
+        "class UserSSOGuardMixin:" in user_document_source
+        and "def _reset_password(self, send_email=False, password_expired=False):"
+        in user_document_source
+        and "def set_new_password(self, new_password=None):" in user_document_source
+        and "_require_local_password_login()" in user_document_source
+        and "return super()._reset_password(" in user_document_source
+        and "return super().set_new_password(new_password=new_password)"
+        in user_document_source,
+        "[sso-guard] effective User controller mixin must guard direct reset/password "
+        "operations before exact super delegation",
+    )
+    required_manifest_tokens = (
+        "MANIFEST_SCHEMA = 1",
+        'BENCH_ROOT = Path("/home/frappe/frappe-bench")',
+        'DPKG_STATUS_PATH = Path("/var/lib/dpkg/status")',
+        '"pip", "freeze", "--all"',
+        '".git" in relative_path.parts',
+        '"__pycache__" in relative_path.parts',
+        'relative_path.name.endswith(".pyc")',
+        '"saervices_erpnext_sso_guard": _inventory_tree(',
+        '"dpkg_status_sha256": hashlib.sha256(dpkg_status).hexdigest()',
+        "stat.S_IMODE(metadata.st_mode)",
+        "os.readlink(root / relative_path)",
+        "os.fsync(handle.fileno())",
+        "os.replace(temporary_path, target)",
+        "os.fsync(directory_descriptor)",
+        "hmac.compare_digest(expected, actual)",
+    )
+    contract.expect(
+        all(token in manifest_source for token in required_manifest_tokens),
+        "[runtime-parity] runtime_manifest.py must canonically bind versions, "
+        "Frappe/ERPNext/guard trees, sorted pip inventory, dpkg status, and atomic "
+        "descriptor-safe publication/comparison",
+    )
+
+    installer_source = _regular_text(
+        root / "ERPNext/dockerfiles/install-saervices-erpnext-sso-guard.sh",
+        contract,
+        "sso-guard",
+    )
+    contract.expect(
+        '${site_packages}/${app_name}.pth' in installer_source
+        and 'canonical_apps_file=/usr/local/share/saervices-erpnext-apps.txt'
+        in installer_source
+        and 'Path("/usr/local/share/saervices-erpnext-apps.txt").read_bytes()'
+        in installer_source
+        and "/home/frappe/frappe-bench/sites/apps.txt" not in installer_source
+        and "assert auth_hooks == [AUTH_HOOK]" in installer_source
+        and "assert before_login == [BEFORE_LOGIN_HOOK]" in installer_source
+        and "assert has_permission == {doctype: "
+        "OAUTH_CREDENTIAL_HAS_PERMISSION_HOOK" in installer_source
+        and "assert permission_query_conditions == {doctype: "
+        "OAUTH_CREDENTIAL_QUERY_CONDITION_HOOK" in installer_source
+        and '"Social Login Key": {"before_validate": '
+        "SOCIAL_LOGIN_KEY_MUTATION_HOOK" in installer_source
+        and '"before_rename": SOCIAL_LOGIN_KEY_MUTATION_HOOK' in installer_source
+        and '"on_trash": SOCIAL_LOGIN_KEY_MUTATION_HOOK' in installer_source
+        and 'assert extend_doctype_class == {"User": '
+        "[USER_CONTROLLER_EXTENSION]}" in installer_source
+        and "from saervices_erpnext_sso_guard.runtime_manifest import EXPECTED_APPS, MANIFEST_SCHEMA"
+        in installer_source
+        and "write_runtime_manifest(\"/usr/local/share/saervices-erpnext-runtime-manifest\")"
+        in installer_source
+        and all(key in installer_source for key in expected_overrides),
+        "[sso-guard] image installer must register the custom-app import path, "
+        "external canonical app inventory, exact login/auth hooks, and all reviewed overrides",
+    )
+    maintenance_guard_outer = (
+        root
+        / "templates/erpnext-site-maintenance/dockerfiles/"
+        "saervices_erpnext_sso_guard.erpnext-site-maintenance"
+    )
+    maintenance_guard_root = (
+        maintenance_guard_outer / "saervices_erpnext_sso_guard"
+    )
+    maintenance_installer_path = (
+        root
+        / "templates/erpnext-site-maintenance/dockerfiles/"
+        "install-saervices-erpnext-sso-guard.erpnext-site-maintenance.sh"
+    )
+    legacy_maintenance_guard_root = (
+        root
+        / "templates/erpnext-site-maintenance/dockerfiles/"
+        "saervices_erpnext_sso_guard"
+    )
+    legacy_maintenance_installer_path = (
+        root
+        / "templates/erpnext-site-maintenance/dockerfiles/"
+        "install-saervices-erpnext-sso-guard.sh"
+    )
+    maintenance_package_files = (
+        {
+            path.name
+            for path in maintenance_guard_root.iterdir()
+            if path.is_file() and not path.is_symlink()
+        }
+        if maintenance_guard_root.is_dir()
+        and not maintenance_guard_root.is_symlink()
+        else set()
+    )
+    root_installer_path = (
+        root / "ERPNext/dockerfiles/install-saervices-erpnext-sso-guard.sh"
+    )
+    template_sources_match = (
+        maintenance_guard_outer.is_dir()
+        and not maintenance_guard_outer.is_symlink()
+        and {path.name for path in maintenance_guard_outer.iterdir()}
+        == {"saervices_erpnext_sso_guard"}
+        and maintenance_package_files == expected_package_files
+        and not legacy_maintenance_guard_root.exists()
+        and not legacy_maintenance_installer_path.exists()
+        and maintenance_installer_path.is_file()
+        and not maintenance_installer_path.is_symlink()
+        and maintenance_installer_path.read_bytes()
+        == root_installer_path.read_bytes()
+        and stat.S_IMODE(maintenance_installer_path.stat().st_mode)
+        == stat.S_IMODE(root_installer_path.stat().st_mode)
+        and stat.S_IMODE(maintenance_guard_outer.stat().st_mode)
+        == stat.S_IMODE(app_root.stat().st_mode)
+        and stat.S_IMODE(maintenance_guard_root.stat().st_mode)
+        == stat.S_IMODE(package_root.stat().st_mode)
+        and all(
+            not (maintenance_guard_root / name).is_symlink()
+            and (maintenance_guard_root / name).read_bytes()
+            == (package_root / name).read_bytes()
+            and stat.S_IMODE((maintenance_guard_root / name).stat().st_mode)
+            == stat.S_IMODE((package_root / name).stat().st_mode)
+            for name in expected_package_files
+        )
+    )
+    contract.expect(
+        template_sources_match,
+        "[sso-guard] raw site-maintenance build context must carry byte- and "
+        "mode-identical immutable guard/installer sources from the root runtime",
+    )
+    configurator_source = _regular_text(
+        root
+        / "templates/erpnext-configurator/scripts/erpnext-configurator.py",
+        contract,
+        "sso-guard",
+    )
+    site_bootstrap_source = _regular_text(
+        root
+        / "templates/erpnext-site-bootstrap/scripts/erpnext-site-bootstrap.py",
+        contract,
+        "sso-guard",
+    )
+    sso_bootstrap_source = _regular_text(
+        root
+        / "templates/erpnext-sso-bootstrap/scripts/erpnext-sso-bootstrap.py",
+        contract,
+        "sso-guard",
+    )
+    contract.expect(
+        'IMAGE_APPS_PATH = Path("/usr/local/share/saervices-erpnext-apps.txt")'
+        in configurator_source
+        and '"disable_render_safe_exec": False' in configurator_source
+        and '"server_script_enabled": False' in configurator_source
+        and 'EXPECTED_APPS_PAYLOAD = b"frappe\\nerpnext\\nsaervices_erpnext_sso_guard\\n"'
+        in configurator_source
+        and "read_image_apps_inventory()" in configurator_source
+        and "set(apps) != set(EXPECTED_APPS)" in configurator_source
+        and "len(apps) != len(EXPECTED_APPS)" in configurator_source,
+        "[sso-guard] configurator must read the Classic-builder-safe canonical "
+        "image app list descriptor-safely, reject extra/duplicate app directories, "
+        "and publish only the exact three-app payload",
+    )
+    contract.expect(
+        "len(installed_values) != len(EXPECTED_APPS)" in site_bootstrap_source
+        and "len(installed) != len(EXPECTED_APPS)" in sso_bootstrap_source
+        and sso_bootstrap_source.count(
+            "COALESCE(`name`, '') <> 'Administrator'"
+        )
+        == 2
+        and '"OAuth Settings",\n            "enable_dynamic_client_registration",'
+        in sso_bootstrap_source
+        and "information_schema.routines" in site_bootstrap_source
+        and "information_schema.events" in site_bootstrap_source
+        and "information_schema.triggers" in site_bootstrap_source,
+        "[sso-guard] bootstraps must reject duplicate apps, purge nullable non-admin "
+        "password hashes, disable dynamic OAuth clients, and prove all fresh DB "
+        "object classes empty",
+    )
+    contract.expect(
+        'config.get("disable_render_safe_exec") is not False'
+        in site_bootstrap_source
+        and 'frappe.conf.get("disable_render_safe_exec") is not False'
+        in site_bootstrap_source
+        and 'frappe.conf.get("disable_render_safe_exec") is not False'
+        in sso_bootstrap_source,
+        "[sso-guard] site and SSO bootstraps must postcondition the host-owned "
+        "Jinja safe-exec reduction before guarded Frappe activity",
+    )
+    root_dockerfile = _regular_text(
+        root / "ERPNext/dockerfiles/Dockerfile", contract, "sso-guard"
+    )
+    maintenance_dockerfile = _regular_text(
+        root
+        / "templates/erpnext-site-maintenance/dockerfiles/"
+        "dockerfile.erpnext-site-maintenance",
+        contract,
+        "sso-guard",
+    )
+    required_root_image_tokens = (
+        "COPY --chown=frappe:frappe saervices_erpnext_sso_guard ",
+        "COPY install-saervices-erpnext-sso-guard.sh ",
+        "&& /usr/local/bin/install-saervices-erpnext-sso-guard.sh",
+    )
+    required_maintenance_image_tokens = (
+        "COPY --chown=frappe:frappe "
+        "saervices_erpnext_sso_guard.erpnext-site-maintenance ",
+        "COPY install-saervices-erpnext-sso-guard.erpnext-site-maintenance.sh ",
+        "&& /usr/local/bin/install-saervices-erpnext-sso-guard.sh",
+    )
+    maintenance_install_index = maintenance_dockerfile.find(
+        "&& /usr/local/bin/install-saervices-erpnext-sso-guard.sh"
+    )
+    maintenance_apt_index = maintenance_dockerfile.find("apt-get update")
+    contract.expect(
+        "ARG ERPNEXT_BASE_IMAGE=frappe/erpnext:v16" in root_dockerfile
+        and all(token in root_dockerfile for token in required_root_image_tokens)
+        and "ARG ERPNEXT_BASE_IMAGE=frappe/erpnext:v16" in maintenance_dockerfile
+        and "FROM ${ERPNEXT_BASE_IMAGE}" in maintenance_dockerfile
+        and all(
+            token in maintenance_dockerfile
+            for token in required_maintenance_image_tokens
+        )
+        and not any(
+            token in maintenance_dockerfile
+            for token in required_root_image_tokens[:2]
+        )
+        and 0 <= maintenance_install_index < maintenance_apt_index,
+        "[sso-guard] root and Classic-compatible maintenance builds must install "
+        "the identical immutable security app and generate parity state before "
+        "maintenance-only package mutation",
+    )
+    root_ignore_path = root / "ERPNext/dockerfiles/.dockerignore"
+    root_ignore_source = _regular_text(root_ignore_path, contract, "sso-guard")
+    expected_root_guard_unignores = {
+        "!install-saervices-erpnext-sso-guard.sh",
+        "!saervices_erpnext_sso_guard",
+        "!saervices_erpnext_sso_guard/saervices_erpnext_sso_guard",
+        *{
+            "!saervices_erpnext_sso_guard/saervices_erpnext_sso_guard/" + name
+            for name in expected_package_files
+        },
+    }
+    expected_maintenance_guard_unignores = {
+        "!install-saervices-erpnext-sso-guard.erpnext-site-maintenance.sh",
+        "!saervices_erpnext_sso_guard.erpnext-site-maintenance",
+        "!saervices_erpnext_sso_guard.erpnext-site-maintenance/"
+        "saervices_erpnext_sso_guard",
+        *{
+            "!saervices_erpnext_sso_guard.erpnext-site-maintenance/"
+            "saervices_erpnext_sso_guard/" + name
+            for name in expected_package_files
+        },
+    }
+    root_ignore_lines = set(root_ignore_source.splitlines())
+    contract.expect(
+        expected_root_guard_unignores | expected_maintenance_guard_unignores
+        <= root_ignore_lines
+        and "!saervices_erpnext_sso_guard/**" not in root_ignore_lines
+        and "!saervices_erpnext_sso_guard.erpnext-site-maintenance/**"
+        not in root_ignore_lines
+        and "**/__pycache__" in root_ignore_source
+        and "**/*.pyc" in root_ignore_source,
+        "[sso-guard] ERPNext/dockerfiles/.dockerignore must expose only the "
+        "reviewed guard build inputs while excluding generated Python bytecode",
+    )
+    maintenance_ignore_path = (
+        root
+        / "templates/erpnext-site-maintenance/dockerfiles/"
+        "dockerfile.erpnext-site-maintenance.dockerignore"
+    )
+    maintenance_ignore_source = _regular_text(
+        maintenance_ignore_path, contract, "sso-guard"
+    )
+    maintenance_ignore_lines = set(maintenance_ignore_source.splitlines())
+    contract.expect(
+        expected_maintenance_guard_unignores <= maintenance_ignore_lines
+        and expected_root_guard_unignores.isdisjoint(maintenance_ignore_lines)
+        and "!saervices_erpnext_sso_guard/**" not in maintenance_ignore_lines
+        and "!saervices_erpnext_sso_guard.erpnext-site-maintenance/**"
+        not in maintenance_ignore_lines
+        and "!dockerfile.erpnext-site-maintenance" in maintenance_ignore_lines
+        and "**/__pycache__" in maintenance_ignore_source
+        and "**/*.pyc" in maintenance_ignore_source,
+        "[sso-guard] site-maintenance Dockerignore must expose its exact Dockerfile, "
+        "installer, and reviewed guard source without broad negations",
+    )
+
+    contract.expect(
+        env.get("ERPNEXT_API_SERVICE_ACCOUNTS") == "",
+        "[sso-guard] API/OAuth service-account allowlist must default empty",
+    )
+    allowlist_owners = set()
+    for service_name, service in services.items():
+        environment = service.get("environment")
+        if (
+            isinstance(environment, dict)
+            and "ERPNEXT_API_SERVICE_ACCOUNTS" in environment
+        ):
+            allowlist_owners.add(service_name)
+            contract.expect(
+                environment.get("ERPNEXT_API_SERVICE_ACCOUNTS")
+                == "${ERPNEXT_API_SERVICE_ACCOUNTS:-}",
+                f"[sso-guard] {service_name} must receive the canonical empty-default "
+                "service-account allowlist",
+            )
+    contract.expect(
+        allowlist_owners == {"erpnext-backend", "erpnext-sso-bootstrap"},
+        "[sso-guard] only the request backend and SSO policy one-shot must receive "
+        "the service-account allowlist",
+    )
+
+    sso_source = _regular_text(
+        root / "templates/erpnext-sso-bootstrap/scripts/erpnext-sso-bootstrap.py",
+        contract,
+        "sso-guard",
+    )
+    required_sso_tokens = (
+        "tuple(frappe.get_hooks(\"auth_hooks\", [])) != (EXPECTED_AUTH_HOOK,)",
+        "effective_doc_hooks = frappe.get_doc_hooks()",
+        "EXPECTED_USER_BEFORE_VALIDATE_HOOK",
+        'extension_hooks = frappe.get_hooks("extend_doctype_class", {})',
+        "EXPECTED_USER_CONTROLLER_EXTENSION",
+        "EXPECTED_OAUTH_CREDENTIAL_HAS_PERMISSION_HOOK",
+        "EXPECTED_OAUTH_CREDENTIAL_QUERY_CONDITION_HOOK",
+        "EXPECTED_REPORT_MUTATION_HOOK",
+        'user_controller = get_controller("User")',
+        "user_controller._reset_password is not UserSSOGuardMixin._reset_password",
+        "frappe.override_whitelisted_method(original) != replacement",
+        'fields=["name", "enabled", "user_type", "api_key"]',
+        'fields=["user", "status"]',
+        'if row.get("status") == "Revoked"',
+        "UPDATE `tabUser`",
+        "`last_reset_password_key_generated_on` IS NOT NULL",
+        "UPDATE `tabUser Invitation`",
+        "WHEN `status` = 'Pending' THEN 'Cancelled'",
+        "OR `key` IS NOT NULL",
+        "UPDATE `tabOAuth Authorization Code`",
+        "SET `validity` = 'Invalid'",
+        "WHERE `validity` = 'Valid'",
+        "            revoke_oauth_authorization_codes(frappe)",
+        'frappe.db.sql("DELETE FROM `tabSessions`")',
+        'frappe.db.sql("SELECT COUNT(*) FROM `tabSessions`")',
+        "            revoke_all_database_sessions(frappe)",
+        'frappe.cache.make_key("session")',
+        "frappe.cache.delete(session_cache_key)",
+        "frappe.cache.hlen(session_cache_key)",
+        'frappe.cache.make_key("one_time_login_key:*")',
+        "scan_raw_cache_keys(frappe.cache, pattern)",
+        "frappe.cache.unlink(*keys)",
+        "range(1, REDIS_DELETE_MAX_PASSES + 1)",
+        "if deleted == 0:",
+        'if "authentik_login" in frappe.conf:',
+        'fields=["name", "report_type", "is_standard"]',
+        'row.get("is_standard") != "Yes"',
+        "verify_service_accounts_have_no_authentik_bindings(",
+        'filters={"provider": PROVIDER_KEY}',
+        'fields=["parent", "parenttype", "parentfield"]',
+    )
+    contract.expect(
+        all(token in sso_source for token in required_sso_tokens)
+        and sso_source.count("`last_reset_password_key_generated_on` IS NOT NULL")
+        == 2
+        and sso_source.count("OR `key` IS NOT NULL") == 2,
+        "[sso-guard] SSO one-shot must postcondition hooks/overrides, inventory "
+        "all stored API/OAuth credentials, atomically revoke reset/invitation/"
+        "authorization-code/database-session state, then fail-closed clear raw Redis",
+    )
+    contract.expect(
+        'filters={"enabled": 1}' not in sso_source
+        and "frappe.cache.delete_keys" not in sso_source
+        and "frappe.cache.get_keys" not in sso_source,
+        "[sso-guard] credential inventory must include disabled API-key owners and "
+        "security revocation must not use Redis helpers that suppress connection errors",
     )
 
 
@@ -5061,8 +8905,10 @@ def validate_stack(root: Path) -> ValidationResult:
 
     root_env = _load_env(_source_env_path(root), contract, "versions")
     contract.expect(
-        root_env.get("APP_IMAGE") == "frappe/erpnext:v16",
-        "[versions] APP_IMAGE must use the moving frappe/erpnext:v16 tag",
+        root_env.get("APP_IMAGE") == "saervices/erpnext:v16"
+        and root_env.get("ERPNEXT_BASE_IMAGE") == "frappe/erpnext:v16",
+        "[versions] APP_IMAGE must be the local major-series guard runtime and "
+        "ERPNEXT_BASE_IMAGE the moving official frappe/erpnext:v16 base",
     )
     contract.expect(
         root_env.get("MARIADB_IMAGE") == "mariadb:11.8",
@@ -5084,7 +8930,29 @@ def validate_stack(root: Path) -> ValidationResult:
         service = services.get(service_name, {})
         contract.expect(
             service.get("image") == "${APP_IMAGE:?Image required}",
-            f"[versions] {service_name} must inherit the stock moving v16 image",
+            f"[versions] {service_name} must consume the single guarded v16 runtime tag",
+        )
+    app_build = app_service.get("build")
+    contract.expect(
+        app_service.get("pull_policy") == "build"
+        and isinstance(app_build, dict)
+        and app_build.get("context") == "./dockerfiles"
+        and app_build.get("dockerfile") == "Dockerfile"
+        and app_build.get("pull") is True
+        and app_build.get("no_cache") is True
+        and app_build.get("args")
+        == {"ERPNEXT_BASE_IMAGE": "${ERPNEXT_BASE_IMAGE:-frappe/erpnext:v16}"},
+        "[versions] app must be the sole pull/no-cache producer of the local "
+        "guarded runtime from the official moving v16 base",
+    )
+    for service_name in STOCK_FRAPPE_SERVICES:
+        if service_name == "app":
+            continue
+        service = services.get(service_name, {})
+        contract.expect(
+            service.get("pull_policy") == "never" and "build" not in service,
+            f"[versions] {service_name} must consume the producer tag with "
+            "pull_policy: never and no independent build",
         )
     assets_service = services.get("erpnext-assets-bootstrap", {})
     contract.expect(
@@ -5155,6 +9023,10 @@ def validate_stack(root: Path) -> ValidationResult:
     contract.expect(
         '[[ -L "${assets_path}" ]]' in runtime_wrapper_source
         and 'readlink -- "${assets_path}"' in runtime_wrapper_source
+        and 'config.get("disable_render_safe_exec") is not False'
+        in runtime_wrapper_source
+        and 'config.get("server_script_enabled") is not False'
+        in runtime_wrapper_source
         and 'trap forward_termination TERM INT' in runtime_wrapper_source
         and 'run_supervised "$@"' in runtime_wrapper_source
         and not re.search(
@@ -5526,25 +9398,34 @@ def validate_stack(root: Path) -> ValidationResult:
         "versions",
     )
     contract.expect(
-        maintenance_values.get("ERPNEXT_SITE_MAINTENANCE_IMAGE") is None,
-        "[versions] site-maintenance must not actively pin its own Frappe base",
+        maintenance_values.get("ERPNEXT_SITE_MAINTENANCE_IMAGE")
+        == "saervices/erpnext-site-maintenance:v16"
+        and maintenance_values.get("ERPNEXT_SITE_MAINTENANCE_IMAGE")
+        != root_env.get("APP_IMAGE")
+        and maintenance_values.get(
+            "ERPNEXT_SITE_MAINTENANCE_SUPERCRONIC_FETCH_IMAGE"
+        )
+        == "alpine:3",
+        "[versions] site-maintenance must publish a unique local major-series "
+        "output image and use the moving Alpine 3 fetch-stage channel",
     )
-    maintenance_env_text = _regular_text(
-        component_roots["erpnext-site-maintenance"] / ".env",
-        contract,
-        "versions",
-    )
+    maintenance_service = services.get("erpnext-site-maintenance", {})
+    maintenance_build = maintenance_service.get("build", {})
     contract.expect(
-        "# ERPNEXT_SITE_MAINTENANCE_IMAGE=" in maintenance_env_text,
-        "[versions] site-maintenance .env must keep the commented image override",
-    )
-    maintenance_build_args = (
-        services.get("erpnext-site-maintenance", {}).get("build", {}).get("args", {})
-    )
-    contract.expect(
-        maintenance_build_args.get("ERPNEXT_SITE_MAINTENANCE_IMAGE")
-        == "${ERPNEXT_SITE_MAINTENANCE_IMAGE:-${APP_IMAGE:?Image required}}",
-        "[versions] site-maintenance build must default its base to the root APP_IMAGE",
+        maintenance_service.get("image")
+        == "${ERPNEXT_SITE_MAINTENANCE_IMAGE:?Image required}"
+        and maintenance_service.get("pull_policy") == "build"
+        and isinstance(maintenance_build, dict)
+        and maintenance_build.get("additional_contexts") in (None, {})
+        and maintenance_build.get("args")
+        == {
+            "ERPNEXT_BASE_IMAGE": "${ERPNEXT_BASE_IMAGE:-frappe/erpnext:v16}",
+            "ERPNEXT_SITE_MAINTENANCE_SUPERCRONIC_FETCH_IMAGE": (
+                "${ERPNEXT_SITE_MAINTENANCE_SUPERCRONIC_FETCH_IMAGE:-alpine:3}"
+            )
+        },
+        "[versions] site-maintenance must bind its unique output tag and consume "
+        "the same update-gate-bound ERPNext base argument as the root build",
     )
     maintenance_dockerfile = _regular_text(
         component_roots["erpnext-site-maintenance"]
@@ -5553,9 +9434,15 @@ def validate_stack(root: Path) -> ValidationResult:
         "versions",
     )
     contract.expect(
-        "ARG ERPNEXT_SITE_MAINTENANCE_IMAGE=frappe/erpnext:v16"
-        in maintenance_dockerfile,
-        "[versions] site-maintenance Dockerfile default must use frappe/erpnext:v16",
+        "ARG ERPNEXT_SITE_MAINTENANCE_SUPERCRONIC_FETCH_IMAGE=alpine:3"
+        in maintenance_dockerfile
+        and "FROM ${ERPNEXT_SITE_MAINTENANCE_SUPERCRONIC_FETCH_IMAGE} AS supercronic-fetch"
+        in maintenance_dockerfile
+        and "ARG ERPNEXT_BASE_IMAGE=frappe/erpnext:v16" in maintenance_dockerfile
+        and "FROM ${ERPNEXT_BASE_IMAGE}" in maintenance_dockerfile
+        and "ERPNEXT_SITE_MAINTENANCE_IMAGE" not in maintenance_dockerfile,
+        "[versions] site-maintenance Dockerfile must use the same moving major-series "
+        "ERPNext base input while retaining its independent output tag",
     )
 
     dependency_map: dict[str, dict[str, str]] = {}
@@ -5626,7 +9513,7 @@ def validate_stack(root: Path) -> ValidationResult:
     for service_name in LONG_RUNNING_FRAPPE_SERVICES:
         mounted = frozenset(_service_secret_names(services.get(service_name, {})))
         contract.expect(
-            not (mounted & BOOTSTRAP_SECRET_NAMES),
+            not (mounted & (BOOTSTRAP_SECRET_NAMES - {"ERPNEXT_OIDC_CLIENT_ID"})),
             f"[secrets] long-running {service_name} received bootstrap secrets",
         )
 
@@ -5796,6 +9683,7 @@ def validate_stack(root: Path) -> ValidationResult:
     _check_site_domain_guards(root, contract)
     _check_site_bootstrap(root, contract)
     _check_oidc(root, root_env, contract)
+    _check_sso_guard(root, root_env, services, contract)
     _check_maintenance(
         root,
         root_env,
@@ -6016,7 +9904,7 @@ def _replace_sql_validation_branch(path: Path, old: str, new: str) -> None:
 
 def _move_bootstrap_chdir(path: Path, destination: str) -> None:
     source = path.read_text(encoding="utf-8")
-    main_start = source.find("def main():\n")
+    main_start = source.find("def main(arguments=None):\n")
     if main_start < 0:
         raise AssertionError(f"fixture could not find bootstrap main in {path}")
     prefix = source[:main_start]
@@ -6169,6 +10057,349 @@ def _negative_cases() -> tuple[NegativeCase, ...]:
             lambda document: document["services"]["erpnext-sso-bootstrap"][
                 "depends_on"
             ]["erpnext-migrator"].update({"condition": "service_healthy"}),
+        ),
+        yaml_case(
+            "guard-runtime-producer-disabled",
+            "[versions]",
+            app_compose,
+            lambda document: document["services"]["app"].update(
+                {"pull_policy": "never"}
+            ),
+        ),
+        yaml_case(
+            "guard-runtime-consumer-pulls-registry",
+            "[versions]",
+            Path("templates/erpnext-backend/docker-compose.erpnext-backend.yaml"),
+            lambda document: document["services"]["erpnext-backend"].update(
+                {"pull_policy": "always"}
+            ),
+        ),
+        yaml_case(
+            "maintenance-base-input-detached",
+            "[versions]",
+            Path(
+                "templates/erpnext-site-maintenance/"
+                "docker-compose.erpnext-site-maintenance.yaml"
+            ),
+            lambda document: document["services"]["erpnext-site-maintenance"][
+                "build"
+            ]["args"].update({"ERPNEXT_BASE_IMAGE": "frappe/erpnext:v15"}),
+        ),
+        NegativeCase(
+            "guard-effective-oauth-override-drift",
+            "[sso-guard]",
+            lambda root: _replace_once(
+                root
+                / "ERPNext/dockerfiles/saervices_erpnext_sso_guard/"
+                "saervices_erpnext_sso_guard/hooks.py",
+                '"frappe.integrations.oauth2.get_token": (',
+                '"frappe.integrations.oauth2.get_token_drifted": (',
+            ),
+        ),
+        NegativeCase(
+            "guard-api-user-state-cache-reintroduced",
+            "[sso-guard]",
+            lambda root: _replace_once(
+                root
+                / "ERPNext/dockerfiles/saervices_erpnext_sso_guard/"
+                "saervices_erpnext_sso_guard/api_auth.py",
+                "user_record = frappe.db.get_value(",
+                "user_record = frappe.get_cached_value(",
+            ),
+        ),
+        NegativeCase(
+            "guard-user-before-validate-hook-drift",
+            "[sso-guard]",
+            lambda root: _replace_once(
+                root
+                / "ERPNext/dockerfiles/saervices_erpnext_sso_guard/"
+                "saervices_erpnext_sso_guard/hooks.py",
+                '"User": {\n        "before_validate": (',
+                '"User": {\n        "before_save": (',
+            ),
+        ),
+        NegativeCase(
+            "guard-user-new-password-check-removed",
+            "[sso-guard]",
+            lambda root: _replace_once(
+                root
+                / "ERPNext/dockerfiles/saervices_erpnext_sso_guard/"
+                "saervices_erpnext_sso_guard/user_document.py",
+                '    if document.get("new_password"):',
+                "    if False:",
+            ),
+        ),
+        NegativeCase(
+            "guard-user-api-credential-snapshot-call-removed",
+            "[sso-guard]",
+            lambda root: (
+                _replace_once(
+                    root
+                    / "ERPNext/dockerfiles/saervices_erpnext_sso_guard/"
+                    "saervices_erpnext_sso_guard/user_document.py",
+                    "    guard_user_api_credentials(document)",
+                    "    pass  # direct API credential guard removed",
+                ),
+                _replace_once(
+                    root
+                    / "templates/erpnext-site-maintenance/dockerfiles/"
+                    "saervices_erpnext_sso_guard.erpnext-site-maintenance/"
+                    "saervices_erpnext_sso_guard/"
+                    "user_document.py",
+                    "    guard_user_api_credentials(document)",
+                    "    pass  # direct API credential guard removed",
+                ),
+            ),
+        ),
+        NegativeCase(
+            "guard-oauth-query-deny-removed",
+            "[sso-guard]",
+            lambda root: (
+                _replace_once(
+                    root
+                    / "ERPNext/dockerfiles/saervices_erpnext_sso_guard/"
+                    "saervices_erpnext_sso_guard/api_auth.py",
+                    '        return "1=0"',
+                    "        return None  # credential list/export guard removed",
+                ),
+                _replace_once(
+                    root
+                    / "templates/erpnext-site-maintenance/dockerfiles/"
+                    "saervices_erpnext_sso_guard.erpnext-site-maintenance/"
+                    "saervices_erpnext_sso_guard/"
+                    "api_auth.py",
+                    '        return "1=0"',
+                    "        return None  # credential list/export guard removed",
+                ),
+            ),
+        ),
+        NegativeCase(
+            "guard-secret-disclosure-override-drift",
+            "[sso-guard]",
+            lambda root: (
+                _replace_once(
+                    root
+                    / "ERPNext/dockerfiles/saervices_erpnext_sso_guard/"
+                    "saervices_erpnext_sso_guard/hooks.py",
+                    '"frappe.client.get_password": (',
+                    '"frappe.client.get_password_drifted": (',
+                ),
+                _replace_once(
+                    root
+                    / "templates/erpnext-site-maintenance/dockerfiles/"
+                    "saervices_erpnext_sso_guard.erpnext-site-maintenance/"
+                    "saervices_erpnext_sso_guard/"
+                    "hooks.py",
+                    '"frappe.client.get_password": (',
+                    '"frappe.client.get_password_drifted": (',
+                ),
+            ),
+        ),
+        NegativeCase(
+            "guard-secret-disclosure-host-check-removed",
+            "[sso-guard]",
+            lambda root: (
+                _replace_once(
+                    root
+                    / "ERPNext/dockerfiles/saervices_erpnext_sso_guard/"
+                    "saervices_erpnext_sso_guard/password_login.py",
+                    "def get_password(doctype: str, name: str | int, fieldname: str):\n"
+                    "    if host_sso_enforced():",
+                    "def get_password(doctype: str, name: str | int, fieldname: str):\n"
+                    "    if False:",
+                ),
+                _replace_once(
+                    root
+                    / "templates/erpnext-site-maintenance/dockerfiles/"
+                    "saervices_erpnext_sso_guard.erpnext-site-maintenance/"
+                    "saervices_erpnext_sso_guard/"
+                    "password_login.py",
+                    "def get_password(doctype: str, name: str | int, fieldname: str):\n"
+                    "    if host_sso_enforced():",
+                    "def get_password(doctype: str, name: str | int, fieldname: str):\n"
+                    "    if False:",
+                ),
+            ),
+        ),
+        NegativeCase(
+            "guard-service-account-oidc-check-removed",
+            "[sso-guard]",
+            lambda root: (
+                _replace_once(
+                    root
+                    / "ERPNext/dockerfiles/saervices_erpnext_sso_guard/"
+                    "saervices_erpnext_sso_guard/password_login.py",
+                    "    if email in api_service_accounts:",
+                    "    if False:  # service-account OIDC boundary removed",
+                ),
+                _replace_once(
+                    root
+                    / "templates/erpnext-site-maintenance/dockerfiles/"
+                    "saervices_erpnext_sso_guard.erpnext-site-maintenance/"
+                    "saervices_erpnext_sso_guard/"
+                    "password_login.py",
+                    "    if email in api_service_accounts:",
+                    "    if False:  # service-account OIDC boundary removed",
+                ),
+            ),
+        ),
+        NegativeCase(
+            "maintenance-guard-source-drift",
+            "[sso-guard]",
+            lambda root: _replace_once(
+                root
+                / "templates/erpnext-site-maintenance/dockerfiles/"
+                "saervices_erpnext_sso_guard.erpnext-site-maintenance/"
+                "saervices_erpnext_sso_guard/"
+                "api_auth.py",
+                "API_AUTH_SCHEMES = frozenset",
+                "API_AUTH_SCHEMES = set",
+            ),
+        ),
+        NegativeCase(
+            "maintenance-guard-source-mode-drift",
+            "[sso-guard]",
+            lambda root: (
+                root
+                / "templates/erpnext-site-maintenance/dockerfiles/"
+                "saervices_erpnext_sso_guard.erpnext-site-maintenance/"
+                "saervices_erpnext_sso_guard/api_auth.py"
+            ).chmod(0o700),
+        ),
+        NegativeCase(
+            "maintenance-guard-copy-source-drift",
+            "[sso-guard]",
+            lambda root: _replace_once(
+                root
+                / "templates/erpnext-site-maintenance/dockerfiles/"
+                "dockerfile.erpnext-site-maintenance",
+                "COPY --chown=frappe:frappe "
+                "saervices_erpnext_sso_guard.erpnext-site-maintenance ",
+                "COPY --chown=frappe:frappe saervices_erpnext_sso_guard ",
+            ),
+        ),
+        NegativeCase(
+            "configurator-render-safe-exec-policy-removed",
+            "[sso-guard]",
+            lambda root: _replace_once(
+                root
+                / "templates/erpnext-configurator/scripts/"
+                "erpnext-configurator.py",
+                '        "disable_render_safe_exec": False,',
+                '        "disable_render_safe_exec": True,',
+            ),
+        ),
+        NegativeCase(
+            "guard-user-direct-reset-mixin-removed",
+            "[sso-guard]",
+            lambda root: _replace_once(
+                root
+                / "ERPNext/dockerfiles/saervices_erpnext_sso_guard/"
+                "saervices_erpnext_sso_guard/user_document.py",
+                "        _require_local_password_login()\n"
+                "        return super()._reset_password(",
+                "        return super()._reset_password(",
+            ),
+        ),
+        NegativeCase(
+            "guard-oauth-owner-check-removed",
+            "[sso-guard]",
+            lambda root: _replace_once(
+                root
+                / "ERPNext/dockerfiles/saervices_erpnext_sso_guard/"
+                "saervices_erpnext_sso_guard/password_login.py",
+                "            require_api_service_account(owner)",
+                "            pass",
+            ),
+        ),
+        NegativeCase(
+            "guard-existing-sites-install-removed",
+            "[sso-guard]",
+            lambda root: _replace_once(
+                root
+                / "templates/erpnext-site-bootstrap/scripts/"
+                "erpnext-site-bootstrap.py",
+                "            install_app(SSO_GUARD_APP)",
+                "            pass",
+            ),
+        ),
+        NegativeCase(
+            "guard-reset-orphan-timestamp-revoke-removed",
+            "[sso-guard]",
+            lambda root: _replace_count(
+                root
+                / "templates/erpnext-sso-bootstrap/scripts/"
+                "erpnext-sso-bootstrap.py",
+                "           OR `last_reset_password_key_generated_on` IS NOT NULL",
+                "           OR FALSE",
+                2,
+            ),
+        ),
+        NegativeCase(
+            "guard-invitation-key-revoke-removed",
+            "[sso-guard]",
+            lambda root: _replace_count(
+                root
+                / "templates/erpnext-sso-bootstrap/scripts/"
+                "erpnext-sso-bootstrap.py",
+                "           OR `key` IS NOT NULL",
+                "           OR FALSE",
+                2,
+            ),
+        ),
+        NegativeCase(
+            "guard-oauth-authorization-code-revoke-removed",
+            "[sso-guard]",
+            lambda root: _replace_once(
+                root
+                / "templates/erpnext-sso-bootstrap/scripts/"
+                "erpnext-sso-bootstrap.py",
+                "            revoke_oauth_authorization_codes(frappe)",
+                "            pass  # OAuth code revocation removed",
+            ),
+        ),
+        NegativeCase(
+            "guard-database-session-revoke-removed",
+            "[sso-guard]",
+            lambda root: _replace_once(
+                root
+                / "templates/erpnext-sso-bootstrap/scripts/"
+                "erpnext-sso-bootstrap.py",
+                "            revoke_all_database_sessions(frappe)",
+                "            pass  # database session revocation removed",
+            ),
+        ),
+        NegativeCase(
+            "guard-redis-session-postcondition-removed",
+            "[sso-guard]",
+            lambda root: _replace_count(
+                root
+                / "templates/erpnext-sso-bootstrap/scripts/"
+                "erpnext-sso-bootstrap.py",
+                "frappe.cache.hlen(session_cache_key)",
+                "0",
+                2,
+            ),
+        ),
+        NegativeCase(
+            "guard-installer-eighth-override-assert-removed",
+            "[sso-guard]",
+            lambda root: _replace_once(
+                root / "ERPNext/dockerfiles/install-saervices-erpnext-sso-guard.sh",
+                ', "frappe.integrations.oauth2_logins.custom"}',
+                "}",
+            ),
+        ),
+        NegativeCase(
+            "oidc-icon-regression",
+            "[oidc]",
+            lambda root: _replace_once(
+                root
+                / "templates/erpnext-sso-bootstrap/scripts/"
+                "erpnext-sso-bootstrap.py",
+                '        "icon": None,',
+                '        "icon": "fa fa-lock",',
+            ),
         ),
         yaml_case(
             "dependency-cycle",
@@ -6814,7 +11045,7 @@ def _negative_cases() -> tuple[NegativeCase, ...]:
                 lambda root: _replace_once(
                     root
                     / "templates/erpnext-sso-bootstrap/scripts/erpnext-sso-bootstrap.py",
-                    'frappe.cache.delete_keys("one_time_login_key:")',
+                    "        revoke_all_email_link_keys(frappe)",
                     "pass  # outstanding email-link token revocation removed",
                 ),
             ),
@@ -6844,7 +11075,7 @@ def _negative_cases() -> tuple[NegativeCase, ...]:
                 lambda root: _replace_once(
                     root
                     / "templates/erpnext-sso-bootstrap/scripts/erpnext-sso-bootstrap.py",
-                    "if social_login_keys - {PROVIDER_KEY}:",
+                    "if social_login_keys not in ([], [PROVIDER_KEY]):",
                     "if False:",
                 ),
             ),
@@ -6863,12 +11094,12 @@ def _negative_cases() -> tuple[NegativeCase, ...]:
                 ),
             ),
             NegativeCase(
-                "site-maintenance-active-image-pin",
+                "site-maintenance-output-tag-drift",
                 "[versions]",
-                lambda root: _replace_once(
+                lambda root: _set_env(
                     root / "templates/erpnext-site-maintenance/.env",
-                    "# ERPNEXT_SITE_MAINTENANCE_IMAGE=frappe/erpnext:v16",
-                    "ERPNEXT_SITE_MAINTENANCE_IMAGE=frappe/erpnext:v15",
+                    "ERPNEXT_SITE_MAINTENANCE_IMAGE",
+                    "frappe/erpnext:v16",
                 ),
             ),
             NegativeCase(

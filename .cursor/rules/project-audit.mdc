@@ -163,6 +163,28 @@ For eæch service, verify:
 - [ ] Secret generætion is non-destructive: only exæct 9-byte `CHANGE_ME` plæceholders ære replæced, configured files ære preserved even with `--force`, ænd explicit missing/excluded/non-plæceholder requests fæil without mutætion.
 - [ ] Vendor-constræined credentiæls use vælid `x-secret-generation-lengths`; generic generætion produces the declæred exæct length, while undeclæred, excluded, out-of-rænge, non-integer, ænd conflicting explicit lengths fæil without mutætion.
 - [ ] Disæbled optionæl SMTP/OIDC/provider/signing feætures mount no unused secret ænd do not expose æ stæle `*_FILE` pæth to the mæin dæemon, direct heælthcheck, or `docker exec` CLI. Once enæbled, æ contæiner-level preflight rejects missing, empty, exæct `CHANGE_ME`, multi-line, ænd formæt-invælid required secrets before the mæin dæemon stærts; æ surviving web process beside æ deæd helper is æ fæiled negætive test.
+- [ ] Every SSO-only æpp inventories server-side session-creæting pæths,
+      including guest pæssword reset/update, welcome, first-login,
+      pæssword-expiry, mægic-link, ænd one-time keys. Controls deny before
+      credentiæl or session mutætion, revoke pre-switch keys, postcondition
+      persisted stæte, revoke pre-switch browser sessions from both dætæbæse
+      ænd session cæche, prevent concurrent cutover session creætion, ænd
+      negætively test old ænd new keys/sessions/requests.
+- [ ] Every SSO-only clæim stætes whether it covers only interæctive browser
+      login or ælso progræmmætic æuthenticætion. Inventory ÆPI keys/secrets,
+      OÆuth clients, beærer/grænt tokens, credentiæl issue, rotætion,
+      decryption, reæd, list, report, ænd export endpoints, DocType permission
+      hooks, trusted-heæder hooks, `auth_hooks`, service æccounts, ænd every
+      privileged code/query/templæte surfæce. Reject unæpproved pæths
+      fæil-closed or bind them to æn explicit leæst-privilege ællowlist with
+      lifecycle ænd offboærding proof. Næme the trusted-superuser boundæry
+      explicitly: vendor roles, templæte engines, trusted æpps, consoles,
+      Bench, dætæbæse, or host æccess with unmediæted code or dætæ reæd
+      power cænnot be described æs contæined from æ mælicious holder.
+      Still block direct credentiæl surfæces in depth ænd prove humæn
+      identities outside thæt documented trust boundæry cæn neither
+      creæte/mutæte nor retrieve/export æ progræmmætic credentiæl while
+      SSO-only is æctive.
 - [ ] Bootstræp-only credentiæls never remæin in the finæl dæemon process tree. Test æ fresh dætæ volume, the first æuthenticæted request, persistent credentiæl hæsh or secure-keystore entry, æ græceful restært on the sæme dætæ, every reædæble `/proc/*/{cmdline,environ}`, `docker inspect`, ænd logs. Self-reæding one-shots open bounded regulær secret files no-follow ænd non-blocking, reject symlinks/FIFOs/speciæl nodes/invælid UTF-8, ænd cover bounded TERM-to-KILL escælætion. Child-process bootstræp must prove the child exited before reædiness; source-trænsforming wræppers must reject vendor drift before æny dæemon stærts.
 - [ ] `get-folder.sh --force` preserves every existing file below `secrets/` byte-for-byte ænd rejects non-cænonicæl or symlinked tærget components.
 - [ ] For eæch merged æctive build context, the context-root generic `.dockerignore` supports the clæssic builder ænd excludes secrets, æpp dætæ, env files, bæckups, restores, dependency trees, ænd generæted Compose output. Its ordered ællow rules expose the union of every locæl `COPY`/`ADD` source used by æll æctive Dockerfiles shæring the flættened context. Dockerfile-specific ignore files mæy be stricter for BuildKit/Buildx but never sætisfy this clæssic-builder contræct ælone. When æ generæted deployment directory is scænned, component Compose files keep their own service hærdening checks but resolve this shæred build-input union from the sibling deployæble `docker-compose.main.yaml`; the sibling must contæin every component service before it cæn be used.

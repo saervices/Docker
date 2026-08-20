@@ -24,6 +24,7 @@ services:
     container_name: ${APP_NAME:?App name required}-erpnext-configurator                                                                                         # Unique næme for logs, networking ænd orchestrætion
     hostname: ${APP_NAME}-erpnext-configurator                                                                                                                  # Internæl hostnæme for DNS resolution between contæiners
     restart: "no"                                                                                                                                               # Bounded one-shot; consumers require successful completion
+    pull_policy: never                                                                                                                                          # Consume the locæl guærded runtime built by the root æpp
     # build:                                                                                                                                                    # Optionæl: build imæge from locæl Dockerfile
     #   context: ./dockerfiles
     #   dockerfile: Dockerfile
@@ -83,6 +84,7 @@ services:
     command: ['/home/frappe/frappe-bench/env/bin/python', '/usr/local/bin/erpnext-configurator.py']                                                             # Run the bounded configurætor æfter the non-mutæting runtime preflight
     entrypoint: ['/usr/local/bin/saervices-erpnext-runtime-entrypoint.sh']                                                                                      # Vælidæte shæred æssets without mutæting the sites volume
     environment:                                                                                                                                                # Non-sensitive deployment identity ænd service endpoints
+      ERPNEXT_SSO_ENFORCED: ${ERPNEXT_SSO_ENFORCED:-false}
       ERPNEXT_SITE_NAME: ${ERPNEXT_SITE_NAME:?Site name required}
       ERPNEXT_DATABASE_NAME: ${APP_NAME:?App name required}
       ERPNEXT_DATABASE_USER: ${APP_NAME:?App name required}

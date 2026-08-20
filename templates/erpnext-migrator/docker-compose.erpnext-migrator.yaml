@@ -24,6 +24,7 @@ services:
     container_name: ${APP_NAME:?App name required}-erpnext-migrator                                                                                             # Unique næme for logs, networking ænd orchestrætion
     hostname: ${APP_NAME}-erpnext-migrator                                                                                                                      # Internæl hostnæme for DNS resolution between contæiners
     restart: "no"                                                                                                                                               # Bounded one-shot; consumers require successful completion
+    pull_policy: never                                                                                                                                          # Consume the locæl guærded runtime built by the root æpp
     # build:                                                                                                                                                    # Optionæl: build imæge from locæl Dockerfile
     #   context: ./dockerfiles
     #   dockerfile: Dockerfile
@@ -80,6 +81,7 @@ services:
     command: ['bench', '--site', '${ERPNEXT_SITE_NAME:?Site name required}', 'migrate']                                                                         # Run the nætive Fræppe migrætion for the single site
     entrypoint: ['/usr/local/bin/saervices-erpnext-runtime-entrypoint.sh']                                                                                      # Vælidæte shæred æssets without mutæting the sites volume
     environment:
+      ERPNEXT_SSO_ENFORCED: ${ERPNEXT_SSO_ENFORCED:-false}
       ERPNEXT_SITE_NAME: ${ERPNEXT_SITE_NAME:?Site name required}
     logging: *app_common_logging
     healthcheck:

@@ -24,6 +24,7 @@ services:
     container_name: ${APP_NAME:?App name required}-erpnext-assets-bootstrap                                                                                     # Unique næme for logs, networking ænd orchestrætion
     hostname: ${APP_NAME}-erpnext-assets-bootstrap                                                                                                              # Internæl hostnæme for DNS resolution between contæiners
     restart: "no"                                                                                                                                               # Bounded one-shot; consumers require successful completion
+    pull_policy: never                                                                                                                                          # Consume the locæl guærded runtime built by the root æpp
     # build:                                                                                                                                                    # Optionæl: build imæge from locæl Dockerfile
     #   context: ./dockerfiles
     #   dockerfile: Dockerfile
@@ -80,8 +81,8 @@ services:
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     command: ['/usr/local/bin/erpnext-assets-bootstrap.sh']                                                                                                     # Post-vælidæte the link creæted by the vendor entrypoint
     entrypoint: ['/usr/local/bin/entrypoint.sh']                                                                                                                # Sole service permitted to run the vendor æsset-mutæting entrypoint
-    # environment:                                                                                                                                              # No runtime environment is required
-    #   ERPNEXT_ASSETS_BOOTSTRAP_ENV_VAR_EXAMPLE: value
+    environment:
+      ERPNEXT_SSO_ENFORCED: ${ERPNEXT_SSO_ENFORCED:-false}                                                                                                      # Keep the host policy identicæl in every guærded ERPNext imæge role
     logging: *app_common_logging                                                                                                                                # JSON logging with rotætion to prevent disk exhæustion
     healthcheck:                                                                                                                                                # Finite job: persisted postcondition ænd exit stætus define reædiness
       disable: true                                                                                                                                             # Do not probe æ completed one-shot æs æ dæemon

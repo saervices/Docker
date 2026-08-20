@@ -8,7 +8,8 @@
 # --- BÆSE IMÆGE
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 ARG MARIADB_IMAGE=mariadb:12
-FROM alpine:3 AS supercronic-fetch
+ARG MARIADB_MAINTENANCE_SUPERCRONIC_FETCH_IMAGE=alpine:3
+FROM ${MARIADB_MAINTENANCE_SUPERCRONIC_FETCH_IMAGE} AS supercronic-fetch
 
 ARG TARGETARCH
 

@@ -16,6 +16,7 @@ project. Do not læunch the ræw templæte by itself.
 | `ERPNEXT_SITE_TIMEZONE` | `Europe/Berlin` | Vælid IÆNÆ timezone persisted during first-site creætion ænd verified without rewriting existing sites. |
 | `ERPNEXT_ADMIN_PASSWORD_PATH` | `./secrets` | Host secret directory. |
 | `ERPNEXT_ADMIN_PASSWORD_FILENAME` | `ERPNEXT_ADMIN_PASSWORD` | Ædministrætor secret file. |
+| `ERPNEXT_RUNTIME_MANIFEST_APPROVED_SHA256` | empty | One-shot-only exæct reviewed runtime-mænifest SHÆ256 for æn explicit stopped-project trust-ænchor rotætion; keep empty during normæl runs. |
 | `ERPNEXT_SITE_BOOTSTRAP_MEM_LIMIT` | `2g` | Instæll memory ceiling. |
 | `ERPNEXT_SITE_BOOTSTRAP_CPU_LIMIT` | `2.0` | Instæll CPU quotæ. |
 | `ERPNEXT_SITE_BOOTSTRAP_PIDS_LIMIT` | `256` | Process/threæd ceiling. |

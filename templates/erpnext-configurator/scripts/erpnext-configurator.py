@@ -15,8 +15,11 @@ SITES_ROOT = Path("/home/frappe/frappe-bench/sites")
 APPS_ROOT = Path("/home/frappe/frappe-bench/apps")
 CONFIG_PATH = SITES_ROOT / "common_site_config.json"
 APPS_PATH = SITES_ROOT / "apps.txt"
+IMAGE_APPS_PATH = Path("/usr/local/share/saervices-erpnext-apps.txt")
 MAX_SECRET_BYTES = 4096
 MAX_CONFIG_BYTES = 1024 * 1024
+EXPECTED_APPS = ("frappe", "erpnext", "saervices_erpnext_sso_guard")
+EXPECTED_APPS_PAYLOAD = b"frappe\nerpnext\nsaervices_erpnext_sso_guard\n"
 RESERVED_DNS_SUFFIXES = (
     "example.com",
     "example.net",
@@ -160,10 +163,26 @@ def discover_apps():
             fail("application entries must not be symbolic links")
         if stat.S_ISDIR(entry_metadata.st_mode):
             apps.append(entry.name)
-    apps.sort()
-    if not {"frappe", "erpnext"}.issubset(apps):
-        fail("required Frappe applications are missing from the image")
-    return apps
+    if set(apps) != set(EXPECTED_APPS) or len(apps) != len(EXPECTED_APPS):
+        fail("image application inventory differs from the exact runtime set")
+    return list(EXPECTED_APPS)
+
+
+def read_image_apps_inventory():
+    flags = os.O_RDONLY | os.O_NONBLOCK
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    descriptor = os.open(IMAGE_APPS_PATH, flags)
+    try:
+        metadata = os.fstat(descriptor)
+        if not stat.S_ISREG(metadata.st_mode) or metadata.st_size > 4096:
+            fail("image application inventory must be a bounded regular file")
+        payload = os.read(descriptor, 4097)
+    finally:
+        os.close(descriptor)
+    if payload != EXPECTED_APPS_PAYLOAD:
+        fail("image application inventory differs from the exact runtime set")
+    return payload
 
 
 def main():
@@ -199,13 +218,15 @@ def main():
         "redis_cache": f"redis://:{quote(cache_password, safe='')}@{cache_host}:6379/0",
         "redis_queue": f"redis://:{quote(queue_password, safe='')}@{queue_host}:6379/0",
         "redis_socketio": f"redis://:{quote(queue_password, safe='')}@{queue_host}:6379/0",
+        "disable_render_safe_exec": False,
+        "server_script_enabled": False,
         "socketio_port": 9000,
     }
     config = load_config()
     config.update(expected)
     write_config(config)
-    apps = discover_apps()
-    apps_payload = ("\n".join(apps) + "\n").encode("utf-8")
+    discover_apps()
+    apps_payload = read_image_apps_inventory()
     write_atomic(APPS_PATH, apps_payload, 0o644)
     persisted = load_config()
     if any(persisted.get(key) != value for key, value in expected.items()):

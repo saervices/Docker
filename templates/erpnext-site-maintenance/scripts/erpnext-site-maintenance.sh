@@ -18,6 +18,8 @@ readonly RESTORE_HELPER='/usr/local/bin/erpnext-site-restore.py'
 readonly BENCH_PYTHON='/home/frappe/frappe-bench/env/bin/python'
 readonly ROOT_SECRET='/run/secrets/MARIADB_ROOT_PASSWORD'
 readonly APPLICATION_SECRET='/run/secrets/MARIADB_PASSWORD'
+readonly IMAGE_RUNTIME_MANIFEST='/usr/local/share/saervices-erpnext-runtime-manifest'
+readonly SHARED_RUNTIME_MANIFEST='/var/lib/saervices-erpnext-runtime-manifest/manifest.json'
 readonly MANIFEST_NAME='bundle.manifest'
 readonly MANIFEST_CHECKSUM_NAME='bundle.manifest.sha256'
 readonly MIN_SECRET_BYTES=12
@@ -167,6 +169,9 @@ validate_runtime() {
   [[ -d "$SITES_DIR" && ! -L "$SITES_DIR" ]] || log_fatal 'ERPNext sites mount is missing or symbolic.'
   resolved="$(realpath -e -- "$SITES_DIR")" || log_fatal 'ERPNext sites mount cannot be resolved.'
   [[ "$resolved" == "$SITES_DIR" ]] || log_fatal 'ERPNext sites mount identity is unexpected.'
+  "$BENCH_PYTHON" -m saervices_erpnext_sso_guard.runtime_manifest compare \
+    "$IMAGE_RUNTIME_MANIFEST" "$SHARED_RUNTIME_MANIFEST" \
+    || log_fatal 'ERPNext runtime image differs from the site-bootstrap manifest.'
 
   SITE_PATH="${SITES_DIR}/${site_name}"
   [[ -d "$SITE_PATH" && ! -L "$SITE_PATH" ]] || log_fatal 'Configured ERPNext site directory is missing or symbolic.'

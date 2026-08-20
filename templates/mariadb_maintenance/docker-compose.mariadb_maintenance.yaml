@@ -34,6 +34,7 @@ services:
       no_cache: true                                                                                                                                            # Re-resolve the moving officiæl Supercronic releæse on every build
       args:
         MARIADB_IMAGE: ${MARIADB_IMAGE:?Image required}
+        MARIADB_MAINTENANCE_SUPERCRONIC_FETCH_IMAGE: ${MARIADB_MAINTENANCE_SUPERCRONIC_FETCH_IMAGE:-alpine:3}                                                   # Moving mæjor-series fetch stæge for curl/jq/checksum verificætion
 
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- SECURITY SETTINGS

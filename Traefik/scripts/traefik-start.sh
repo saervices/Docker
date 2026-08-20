@@ -21,7 +21,7 @@ readonly TRAEFIK_CLOUDFLARE_IPS_MAX_BYTES=8192
 readonly TRAEFIK_CLOUDFLARE_IPS_MAX_ENTRIES=128
 readonly TRAEFIK_CLOUDFLARE_IPS_FETCH_TIMEOUT=15
 readonly TRAEFIK_SAME_DOCKER_FORWARD_AUTH_ADDRESS=http://authentik-frontend:9000/outpost.goauthentik.io/auth/traefik
-readonly TRAEFIK_ROUTE_APPLICATION_PREFIXES='actualbudget authentik gitea ha immich kimai matrix n8n openccu opnsense pbs pve rustdesk seafile template truenas vaultwarden vikunja wikijs'
+readonly TRAEFIK_ROUTE_APPLICATION_PREFIXES='actualbudget authentik erpnext gitea ha immich kimai matrix n8n openccu opnsense pbs pve rustdesk seafile template truenas vaultwarden vikunja wikijs'
 readonly TRAEFIK_ROUTE_MAILCOW_PREFIXES='autoconfig autodiscover mail mailcow mta-sts'
 
 #ææææææææææææææææææææææææææææææææææ

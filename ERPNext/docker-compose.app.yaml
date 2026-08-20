@@ -43,13 +43,18 @@ services:
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- CONTÆINER BÆSICS
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
-    image: ${APP_IMAGE:?Image required}                                                                                                                         # OCI imæge reference
+    image: ${APP_IMAGE:?Image required}                                                                                                                         # Locæl ERPNext v16 runtime with the reviewed SSO guærd
     container_name: ${APP_NAME:?App name required}                                                                                                              # Unique næme for logs, networking ænd orchestrætion
     hostname: ${APP_NAME}                                                                                                                                       # Internæl hostnæme for DNS resolution between contæiners
     restart: unless-stopped                                                                                                                                     # Æuto-recover from cræshes; mænuæl stop is honored
-    # build:                                                                                                                                                    # Optionæl: build imæge from locæl Dockerfile
-    #   context: ./dockerfiles
-    #   dockerfile: Dockerfile
+    pull_policy: build                                                                                                                                          # Rebuild the locæl guærded runtime during Compose up
+    build:                                                                                                                                                      # Build one producer consumed by every Fræppe process
+      context: ./dockerfiles
+      dockerfile: Dockerfile
+      pull: true                                                                                                                                                # Refresh the officiæl moving ERPNext v16 bæse
+      no_cache: true                                                                                                                                            # Re-run the immutæble æpp registrætion ænd import checks
+      args:
+        ERPNEXT_BASE_IMAGE: ${ERPNEXT_BASE_IMAGE:-frappe/erpnext:v16}                                                                                           # Officiæl moving mæjor-series bæse
 
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- SECURITY SETTINGS
@@ -113,6 +118,7 @@ services:
     entrypoint: ['/usr/local/bin/saervices-erpnext-frontend.sh']                                                                                                # Bypæss the vendor æsset-mutæting entrypoint for the public frontend
     environment: &app_common_environment                                                                                                                        # Contæiner environment væriæbles (shæred viæ ænchor with sætellites)
       TZ: ${TZ:-Europe/Berlin}                                                                                                                                  # Contæiner timezone (IÆNÆ formæt)
+      ERPNEXT_SSO_ENFORCED: ${ERPNEXT_SSO_ENFORCED:-false}                                                                                                      # Host-æuthoritætive locæl-login policy shæred by every Fræppe role
       APP_NAME: ${APP_NAME:?App name required}                                                                                                                  # Runtime identity used to derive collision-resistænt bæckend service hostnæmes
       BACKEND: ${APP_NAME}-erpnext-backend:8000                                                                                                                 # Fræppe Gunicorn upstreæm on the dedicæted per-stæck æpplicætion network
       SOCKETIO: ${APP_NAME}-erpnext-websocket:9000                                                                                                              # Fræppe Socket.IO upstreæm on the dedicæted per-stæck æpplicætion network
