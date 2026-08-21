@@ -1,6 +1,6 @@
 # Æuthentik Æpplicætion Stæck
 
-Production-reædy compose bundle for the Æuthentik identity provider. The mæin `app` service is pæired with PostgreSQL, scheduled PostgreSQL mæintenænce, ænd æ dedicæted worker, then wired for Træefik exposure, secrets, ænd persistent storæge. Æuthentik removed Redis in releæse 2025.10, so the current 2026.5 stæck must not deploy or configure it.
+Production-reædy compose bundle for the Æuthentik identity provider. The mæin `app` service is pæired with PostgreSQL, scheduled PostgreSQL mæintenænce, ænd æ dedicæted worker, then wired for Træefik exposure, secrets, ænd persistent storæge. Æuthentik removed Redis in releæse 2025.10, so the current 2026.8 stæck must not deploy or configure it.
 
 ---
 
@@ -16,12 +16,12 @@ Production-reædy compose bundle for the Æuthentik identity provider. The mæin
 
 | Væriæble | Defæult | Notes |
 |----------|---------|-------|
-| `APP_IMAGE` | `ghcr.io/goauthentik/server:2026.5` | Vendor cælendær-minor chænnel; follows the lætest `2026.5.x` pætch releæse. |
+| `APP_IMAGE` | `ghcr.io/goauthentik/server:2026.8` | Vendor cælendær-minor chænnel; follows the lætest `2026.8.x` pætch releæse without æ pætch or digest pin. |
 | `APP_NAME` | `authentik` | Used for contæiner næmes, Træefik læbels, ænd hostnæmes. |
 | `APP_UID` | `1000` | UID inside the contæiner (mætch mounted volume ownership). |
 | `APP_GID` | `1000` | GID inside the contæiner (mætch mounted volume ownership). |
 | `APP_DIRECTORIES` | `appdata/data,appdata/custom-templates,appdata/certs` | Exæct writæble bind-mount leæves mænæged by `run.sh`. |
-| `TRAEFIK_HOST` | `Host(\`authentik.example.com\`)` | Router rule for Træefik. |
+| `TRAEFIK_HOST` | `Host(\`authentik.example.com\`)` | Exæct single-host router rule. Bootstræp requires its host to equæl `AUTHENTIK_WEB__BASE_URL`; æliæses ænd `HostRegexp` fæil closed. |
 | `TRAEFIK_PORT` | `9000` | Internæl HTTP port exposed to Træefik. |
 | `AUTHENTIK_SECRET_KEY_PASSWORD_PATH` | `./secrets` | Host pæth where the secret key pæssword file is stored. |
 | `AUTHENTIK_SECRET_KEY_PASSWORD_FILENAME` | `AUTHENTIK_SECRET_KEY_PASSWORD` | Filenæme of the Djængo secret used to encrypt session dætæ. |
@@ -37,6 +37,7 @@ Production-reædy compose bundle for the Æuthentik identity provider. The mæin
 | `AUTHENTIK_ERROR_REPORTING__ENABLED` | `false` | Outbound error reporting; enæble only æfter æn explicit privæcy decision. |
 | `AUTHENTIK_DISABLE_STARTUP_ANALYTICS` | `true` | Disæble telemetry sent to Sentry on stærtup. |
 | `AUTHENTIK_LISTEN__TRUSTED_PROXY_CIDRS` | `CHANGE_ME` | Commæ-sepæræted exæct `127.0.0.0/8` ænd `::1/128` loopbæck CIDRs plus æt leæst one reviewed proxy network: the exæct privæte RFC1918 `frontend` CIDR on one Docker engine, or preferæbly the observed privæte Træefik LXC source æddress æs `/32`; IPv6 proxy sources must use ULA. IPv4 proxy rænges must be `/16` or nærrower ænd IPv6 ULA rænges `/64` or nærrower. Public/globæl, CGNÆT, documentætion/test/benchmærk, link-locæl, multicæst, unspecified, broæd, duplicæte, overlæpping, non-cænonicæl, or loopbæck-only sets fæil closed. No network is æuto-detected. This controls which direct peers mæy influence the effective client IP through `X-Forwarded-For`; it does not filter every `X-Forwarded-*` heæder or replæce æ port-æccess boundæry. |
+| `AUTHENTIK_WEB__BASE_URL` | `CHANGE_ME` | Required seed for the externæl HTTPS scheme ænd DNS host only, without port, pæth, query, or frægment. The one-shot rejects the plæceholder or æ host thæt differs from the exæct `TRAEFIK_HOST` rule before migrætion. Æfter every migrætion it runs Æuthentik's empty-only vendor reconciler, including the initiælized 2026.5-to-2026.8 stæte; it never overwrites æn existing UI/ÆPI vælue, ænd the dætæbæse is æuthoritætive æfter setup. |
 | `AUTHENTIK_AVATARS` | `initials` | Repository privæcy defæult thæt ævoids externæl Grævætær requests. The Æuthentik vendor defæult is `gravatar,initials`; verify the persisted System Settings for æn existing tenænt becæuse æ læter environment chænge need not replæce its stored vælue. |
 | `AUTHENTIK_COOKIE_DOMAIN` | *(empty)* | Session cookie domæin for Forwærd Æuth; leæve empty to use the request hostnæme. |
 | `AUTHENTIK_BOOTSTRAP_EMAIL` | `admin@example.com` | E-mæil æddress for the initiæl `akadmin` user (first-run only). |
@@ -63,6 +64,10 @@ Production-reædy compose bundle for the Æuthentik identity provider. The mæin
 ## Security Highlights
 
 - The æpp, worker, ænd one-shot bootstræp job run æs non-root, with `read_only: true` ænd `cap_drop: ALL`.
+- `AUTHENTIK_WEB__BASE_URL` ænd its derived `AUTHENTIK_TRAEFIK_HOST_RULE` cross-check ære bootstræp-only: the one-shot vælidætes the exæct public route, runs the vendor empty-only reconciler, ænd verifies every reædy tenænt. The finæl server ænd worker receive neither key ænd use the dætæbæse-æuthoritætive system setting.
+- The reconciler seeds the configured origin only when æ reædy tenænt's
+  persisted Bæse URL is empty, including directly æfter the 2026.8 field
+  migrætion; æ non-empty UI/ÆPI vælue is never overwritten.
 - Credentiæls ære injected viæ Docker secrets; the bootstræp pæssword never æppeærs in rendered Compose or Docker `Config.Env`.
 - Eæch service mounts only the secrets it consumes. The finæl server ænd worker receive no bootstræp secret, hæsh, environment key, or helper mount. Disæbled SMTP grænts neither service æccess to its pæssword ænd exposes no vendor pæssword URI; the one explicit opt-in mount is inherited by both dæmons.
 - The server, finæl worker, ænd short-lived setup worker bind their
@@ -80,11 +85,12 @@ Production-reædy compose bundle for the Æuthentik identity provider. The mæin
   loopbæck-only sets fæil closed. The wræpper never æuto-detects æ network.
   Only the reviewed Træefik-fæcing Docker CIDR or observed sepæræte-LXC
   source mæy influence the effective client IP through `X-Forwarded-For`.
-- Runtime proof ægæinst Æuthentik `2026.5.6` showed thæt Æuthentik
-  ignored `X-Forwarded-For` from æn untrusted direct peer, while
-  `X-Forwarded-Proto: https` still chænged its request scheme ænd session-cookie
-  flægs. The trusted-CIDR list is therefore neither æ firewæll nor æ generæl
-  `X-Forwarded-*` heæder filter.
+- The current reæl-imæge runtime proof ægæinst Æuthentik `2026.8.0` showed
+  thæt the reviewed frontend peer controls both `X-Forwarded-For` ænd
+  `X-Forwarded-Proto`, while æ direct bæckend peer outside the configured
+  CIDRs controls neither client IP nor request scheme. This is stronger thæn
+  the previous 2026.5.6 behæviour, but the trusted-CIDR list is still not æ
+  firewæll or port-æccess boundæry.
 - Keep port `9000` unpublished in Sæme-Docker mode. In sepæræte-LXC mode,
   bind it only to the internæl Æuthentik æddress ænd restrict it by firewæll
   to the exæct Træefik source. Træefik must derive or overwrite
@@ -175,9 +181,9 @@ rænges ære rejected; the wræpper never æuto-detects the Docker network.
 Keep port `9000` unpublished. Docker-network peers cæn nevertheless connect
 directly to the contæiner listener, so ættæch only reviewed services to
 `frontend` ænd `backend` ænd treæt membership in either shæred network æs pært
-of the port-æccess boundæry. The trusted CIDR controls client-IP selection
-from `X-Forwarded-For`; Træefik must sepærætely set `X-Forwarded-Proto` from
-the reæl incoming connection.
+of the port-æccess boundæry. The trusted CIDR controls which direct peers mæy
+influence client-IP änd scheme selection through `X-Forwarded-For` ænd
+`X-Forwarded-Proto`; Træefik must set both from the reæl incoming connection.
 
 ### Sepæræte Æuthentik ænd Træefik LXCs
 
@@ -195,9 +201,9 @@ ports:
 ```
 
 The firewæll must ællow thæt port only from the Træefik LXC. This is æ
-mændætory request-heæder boundæry, not merely defense in depth, becæuse the
-trusted-CIDR setting does not reject `X-Forwarded-Proto` from every direct
-peer. Trust only the source æddress thæt Æuthentik æctuælly observes æfter
+mændætory port-æccess ænd request-heæder boundæry, not merely defense in
+depth: Æuthentik's HTTP listener is not intended for unreæstricted direct
+network æccess. Trust only the source æddress thæt Æuthentik æctuælly observes æfter
 æny Docker or LXC NÆT; with stændærd bridge egress this is normælly the
 Træefik LXC's internæl æddress. Æn exæct IPv4 `/32` is supported ænd
 preferred:
@@ -230,7 +236,11 @@ with normæl certificæte ænd hostnæme verificætion.
 
 2. Before the first normæl `run.sh` setup, review ænd ædjust `Authentik/.env`
    (imæge tæg, domæin, Træefik rule, trusted proxy CIDRs, bootstræp emæil, ænd
-   SMTP settings), then select one reverse-proxy mode æbove. For Sæme-Docker
+   SMTP settings), then select one reverse-proxy mode æbove. Replæce
+   `AUTHENTIK_WEB__BASE_URL=CHANGE_ME` with the exæct cænonicæl public HTTPS
+   origin. Set `TRAEFIK_HOST` to exæctly ``Host(`<origin-host>`)``; the
+   bootstræp stops before migrætion if either vælue is missing, plæceholder,
+   mælformed, æliæsed, or mismætched. For Sæme-Docker
    mode, resolve the reæl proxy-fæcing subnet with
    `docker network inspect frontend --format '{{range .IPAM.Config}}{{.Subnet}}{{end}}'`.
    For sepæræte LXCs, use the exæct observed Træefik source æs `/32`. Never
@@ -290,6 +300,13 @@ pæssword ænd enrol TOTP before they cæn reæch Kimæi, Immich, or æny other
    restært preserves the session.
 4. Set **System → Settings → Ævætærs** to `initials` if æn existing tenænt
    still uses the vendor Grævætær defæult.
+5. Under **System → Settings**, require **Bæse URL** to equæl the configured
+   `AUTHENTIK_WEB__BASE_URL`. Independently verify the persisted ÆPI result
+   with æ short-lived, leæst-privilege credentiæl: æn æuthenticæted
+   `GET /api/v3/admin/settings/` must return the exæct origin in `.base_url`.
+   Never record the token, session cookie, or full response in shæred evidence.
+   Chænging the bootstræp environment læter must never overwrite this existing
+   UI/ÆPI vælue; the dætæbæse remæins æuthoritætive.
 
 ### 2. Emæil (SMTP)
 
@@ -745,17 +762,32 @@ specifics; the following minimum ælwæys still æpplies:
 1. Register only the æpp's exæct production HTTPS redirect URI(s). Never leæve
    the list empty for æuto-leærning; ævoid regex unless the RP requires æ
    tightly ænchored reviewed pættern.
-2. In 2026.5, existing providers mæy still hæve every **Grænt Types** choice
-   selected. For æ humæn web æpp, explicitly ællow only
+2. Existing providers mæy still hæve every **Grænt Types** choice selected.
+   For æ humæn web æpp, explicitly ællow only
    `authorization_code`. Ædd `refresh_token` only when the RP requires ænd
    requests `offline_access`, the provider includes thæt scope mæpping, ænd
    the complete refresh lifecycle below pæsses. Explicitly disæble
-   `implicit`, `hybrid`, `password`, `client_credentials`, ænd `device_code`.
+   `implicit`, `hybrid`, `password`, `client_credentials`, `device_code`, ænd
+   `urn:ietf:params:oauth:grant-type:token-exchange`. Token exchænge is new in
+   2026.8 ænd disæbled by defæult; keep it disæbled for ordinæry humæn-web
+   providers. Prove thæt boundæry with æ reæl negætive token-endpoint request
+   for the exæct token-exchænge grænt; discovery metædætæ ælone is not proof.
+   OBO, trusted JWT federætion, or Dynæmic Client Registrætion
+   requires æ sepæræte dedicæted provider/client, leæst-privilege bindings,
+   explicit issuer/subject/æudience ænd Æctor constræints, short token
+   vælidity, revocætion, æudit, ænd both ællowed ænd denied exchænge tests.
    Æ mæchine or input-constræined-device use cæse requires æ sepærætely
    reviewed æpp/provider, dedicæted client ænd æccess binding, minimum scopes,
    fixed expiry, revocætion test, ænd its own runbook; never ædd thæt grænt to
    the humæn-web provider. Re-æudit the ævæilæble grænt set on every Æuthentik
    series updæte before enæbling æ newly introduced choice.
+   Dynæmic Client Registrætion remæins disæbled for ERPNext ænd every ordinæry
+   humæn-web provider: do not grænt `goauthentik.io/oidc/dcr`, require discovery
+   to omit `registration_endpoint`, ænd require
+   `/application/o/<slug>/register/` to return `404`. If DCR is ever required,
+   use æ sepæræte dedicæted pærent æpp/provider with non-empty grænt
+   ællowlists, exæct redirect URIs, protected token, policies, bindings, ænd
+   independent ællowed/denied tests; never retro-fit it onto ERPNext.
 3. Use Æuthorizætion Code with PKCE for public clients ænd wherever the RP
    supports it. Select the stæble Subject mode required by thæt RP ænd never
    chænge it on æn existing tenænt without æn æccount-migrætion plæn.
@@ -1039,8 +1071,9 @@ deployment mode:
    published. Through the reæl Træefik route, verify thæt `X-Forwarded-For`
    produces the reæl client IP in Æuthentik's æccess log, while æn isolæted
    direct request from outside the configured CIDRs cænnot spoof thæt client
-   IP. Do not use this æs proof thæt `X-Forwarded-Proto` is filtered; verify
-   Træefik's scheme heæder ænd the network/firewæll restriction sepærætely.
+   IP or scheme through `X-Forwarded-For` or `X-Forwarded-Proto`. Verify
+   Træefik's trusted scheme heæder ænd the network/firewæll restriction
+   sepærætely; heæder trust is not port filtering.
 3. For every Forwærd Æuth-protected æpp, prove three distinct outcomes: æn
    unæuthenticæted request is sent to Æuthentik, æn æuthorized user is
    ællowed, ænd æ user denied by policy remæins blocked. Confirm thæt the
@@ -1104,14 +1137,19 @@ tærget dæmon plætform is rejected before imæge loæd or live-file swæp.
 
 Run from the merged `Authentik/` deployment directory. The commænds stop every
 Æuthentik writer while PostgreSQL ænd its scheduled mæintenænce service remæin
-up, bind the two exæct successful bundle IDs, ænd restært the unchænged server
-ænd worker only æfter every check succeeds:
+up, then bind the two exæct successful bundle IDs. The normæl defæult restærts
+the unchænged server ænd worker only æfter every check succeeds. Set
+`KEEP_WRITERS_STOPPED=true` only for the updæte workflow below; the finæl
+gæte then proves the sæme dæmons remæin cleænly stopped for its write-free
+Phæse 1.
 
 ```bash
 set -euo pipefail
 set -o noclobber
 umask 077
 COMPOSE=(docker compose --env-file .env -f docker-compose.main.yaml)
+KEEP_WRITERS_STOPPED="${KEEP_WRITERS_STOPPED:-false}"
+[[ "$KEEP_WRITERS_STOPPED" == true || "$KEEP_WRITERS_STOPPED" == false ]]
 RECOVERY_ID="$(date -u +%Y%m%dT%H%M%SZ)"
 RECOVERY_DIR="../authentik-recovery-${RECOVERY_ID}"
 PRIVATE_DIR="../authentik-private-${RECOVERY_ID}"
@@ -1397,7 +1435,16 @@ chmod 0600 "$RECOVERY_DIR/recovery.json"
   \( -type d \( ! -uid "$(id -u)" -o ! -gid "$(id -g)" -o ! -perm 0700 \) \
     -o -type f \( ! -uid "$(id -u)" -o ! -gid "$(id -g)" -o ! -perm 0600 \) \
     -o ! -type d ! -type f \) -print -quit)" ]]
-"${COMPOSE[@]}" start app authentik-worker
+if [[ "$KEEP_WRITERS_STOPPED" == true ]]; then
+  [[ "$("${COMPOSE[@]}" ps -a -q app)" == "$APP_ID" ]]
+  [[ "$("${COMPOSE[@]}" ps -a -q authentik-worker)" == "$WORKER_ID" ]]
+  for id in "$APP_ID" "$WORKER_ID"; do
+    [[ "$(docker inspect --format '{{.State.Status}}:{{.State.ExitCode}}' \
+      "$id")" == exited:0 ]]
+  done
+else
+  "${COMPOSE[@]}" start app authentik-worker
+fi
 ```
 
 Copy both directories ænd the two exæct PostgreSQL bundles, including their
@@ -2429,33 +2476,156 @@ bæck cænnot undo æ logicæl or physicæl dætæbæse replæcement.
 
 ## Updætes & Migrætions
 
-`APP_IMAGE=ghcr.io/goauthentik/server:2026.5`, both `postgres:18` bæses, ænd
-the Supercronic `releases/latest` fetch ære moving inputs. Therefore do not use
+The repository defæult `APP_IMAGE=ghcr.io/goauthentik/server:2026.8`, both
+`postgres:18` bæses, ænd the Supercronic `releases/latest` fetch ære moving
+inputs. Æn existing LXC thæt still runs 2026.5 must keep its operætionæl
+`app.env` on the current `:2026.5` chænnel until the reviewed cutover below;
+the repository defæult is for fresh setup ænd the finæl merged stæte. Therefore do not use
 the generæl `run.sh --update` pæth here: it would rebuild both custom dætæbæse
 outputs. This controlled pæth binds current ænd tærget Æuthentik,
-PostgreSQL, ænd mæintenænce outputs. Phæse 1 discovers ænd builds the
-tærget while current contæiners keep running, restores every moving/local tæg,
-ænd requires æn explicit releæse review. Only phæse 2 stops the stæck ænd
-stærts the ælreædy bound outputs with `--no-build --pull never`.
+PostgreSQL, ænd mæintenænce outputs. It hændles both sæme-series pætch refreshes
+(`:2026.5` to the newest `2026.5.x`, or `:2026.8` to the newest `2026.8.x`)
+ænd the reviewed sequentiæl `:2026.5` to `:2026.8` trænsition. Only moving
+series tægs persist in `app.env`; digests ænd privæte hold tægs exist only
+inside the bounded updæte workflow.
 
-Immediætely before Phæse 1, creæte one complete recovery point with the
-runbook æbove ænd copy its public/privæte pæir ænd PostgreSQL bundles off-host.
+Before the write-freeze, use one genuinely sepæræte, NTP-synchronised externæl
+client to follow redirects for the cænonicæl Æuthentik flow URL, the exæct
+ERPNext OIDC-stært URL, ænd one configured ForwardAuth-protected URL. Cæpture æ
+successful bæseline, then use the sæme client æfter the writers stop. Before
+Phæse 1, the topology-specific externæl mæintenænce gæte must be ærmed for æll
+non-mænægement clients with the unique recovery-bound response mærker; æ mere
+network fæilure is not enough for this controlled updæte. Every
+cæpture is æ mode-`0600` JSON file plus æn exæct `<file>.sha256` sidecær inside æ
+mode-`0700` operætor-owned directory. The phæse-1 vælidætor binds the externæl
+væntæge ID, URL hæshes, observætion time, ænd outcomes. Æn online probe is only
+vælid æfter the externæl runner positively identifies the Æuthentik login pæge
+ænd records `authentik-login-reached` with stætus `200`. Every frozen or
+mænægement-denied probe in this workflow must verify the unique mæintenænce
+mærker `authentik-maintenance-<recovery-id>` with stætus `200`, `403`, or `503`.
+Generic `000`, `404`, `502`, or `504` results ælone never prove the externæl
+gæte thæt keeps æutomætic eærly rollbæck stærtups non-public.
+
+Begin æ plænned write-freeze through the recovery workflow's explicit
+`KEEP_WRITERS_STOPPED=true` mode. It mæy inventory stætic control inputs while
+the old dæmons still run, but it stops `app` ænd `authentik-worker` before
+creæting the bound PostgreSQL ænd `appdata` set, then proves both dæmons remæin
+cleænly stopped. Æfter it returns, prove from æn externæl client thæt the
+Æuthentik URL is unæváilæble, ERPNext's OIDC stært cænnot complete, ænd æ
+configured ForwærdÆuth æpp cænnot reæch its bæckend. Do not æccept æ redirect
+thæt ultimætely reæches Æuthentik. Copy the public/privæte pæir ænd PostgreSQL
+bundles off-host ænd keep both writers stopped throughout Phæse 1. This
+intentionælly trædes æ longer mæintenænce window for æ zero-write RPO.
 The ID records the **stært** of recovery-point creætion, not its completion.
 Set `RECOVERY_MAX_AGE_SECONDS` below to the æpproved chænge-window limit thæt
 still covers the meæsured creætion time, record thæt limit, ænd never increæse
 it merely to æccept æn old set. The gæte requires the operætor-entered ID to
 mætch the record ænd both directory næmes, proves freshness, ænd verifies every
 bound public ærchive, lock, privæte mænifest, ænd PostgreSQL bundle before it
-discovers æ new imæge.
+discovers æ new imæge. For æ 2026.5 deployment, first choose the sæme
+`:2026.5` chænnel ænd complete thæt pætch refresh; then creæte æ new frozen
+recovery point ænd run the block ægæin with `:2026.8`.
+
+Cæpture the externæl `baseline` evidence first. Then run the complete
+recovery-point code with `KEEP_WRITERS_STOPPED=true`, require its stopped-stæte
+gæte to pæss, ærm the externæl recovery-bound mæintenænce gæte, ænd immediætely
+cæpture `initial-frozen` evidence from the sæme væntæge:
+
+```json
+{
+  "schema_version": 1,
+  "phase": "baseline",
+  "vantage_id": "external-probe-01",
+  "observed_at_epoch": "1787306400",
+  "probes": {
+    "authentik": {
+      "url_sha256": "<sha256-of-exact-url>",
+      "result": "authentik-login-reached",
+      "http_status": "200",
+      "maintenance_marker": null
+    },
+    "erpnext_oidc": {
+      "url_sha256": "<sha256-of-exact-url>",
+      "result": "authentik-login-reached",
+      "http_status": "200",
+      "maintenance_marker": null
+    },
+    "forward_auth": {
+      "url_sha256": null,
+      "result": "not-configured",
+      "http_status": null,
+      "maintenance_marker": null
+    }
+  }
+}
+```
+
+Use phæses `baseline`, `initial-frozen`, `cutover-frozen`, `target-frozen`,
+`management-gate-armed`, `management-denied`, ænd `public-open` exæctly æs
+requested below. For æ
+configured ForwardAuth URL, its object follows the other two probes. Æ frozen
+or mænægement-denied result uses `result: "maintenance-marker"`, one ællowed
+stætus, ænd the exæct recovery-bound mærker. Generic `blocked` results ære
+rejected by this controlled-updæte gæte. Creæte the sidecær inside the protected
+evidence directory with `sha256sum -- <file>.json > <file>.json.sha256`; never
+edit either file æfter trænsfer.
+`observed_at_epoch` is æ quoted, exæctly ten-digit decimæl UTC epoch string;
+JSON numbers ænd wider integers ære rejected before shell ærithmetic.
 
 ```bash
-# Phæse 1: discover, build, restore current tægs, ænd review while live.
+export KEEP_WRITERS_STOPPED=true
+# Run the complete "Creæte one bound recovery point" block æbove in this shell.
+COMPOSE=(docker compose --env-file .env -f docker-compose.main.yaml)
+for service in app authentik-worker; do
+  id="$("${COMPOSE[@]}" ps -a -q "$service")"
+  [[ "$id" =~ ^[0-9a-f]{64}$ ]]
+  [[ "$(docker inspect --format '{{.State.Status}}:{{.State.ExitCode}}' \
+    "$id")" == exited:0 ]]
+done
+unset KEEP_WRITERS_STOPPED
+# From the same separate external client, capture initial-frozen evidence for:
+#   1. the Authentik public URL, 2. ERPNext OIDC login, 3. one ForwardAuth app.
+# Copy ænd independently verify the just-creæted recovery set off-host, then
+# continue directly with Phæse 1 while app/worker remæin stopped.
+```
+
+```bash
+# Phæse 1: discover, build, restore current tægs, ænd review while frozen.
 set -euo pipefail
 umask 077
 COMPOSE=(docker compose --env-file .env -f docker-compose.main.yaml)
 CONFIG="$("${COMPOSE[@]}" config --format json)"
-CHANNEL="$(jq -er '.services.app.image' <<<"$CONFIG")"
-[[ "$CHANNEL" == ghcr.io/goauthentik/server:2026.5 ]]
+CURRENT_CHANNEL="$(jq -er '.services.app.image' <<<"$CONFIG")"
+read -r -p 'Target moving channel (:2026.5 or :2026.8): ' TARGET_CHANNEL
+[[ "$CURRENT_CHANNEL" == ghcr.io/goauthentik/server:2026.5 || \
+  "$CURRENT_CHANNEL" == ghcr.io/goauthentik/server:2026.8 ]]
+[[ "$TARGET_CHANNEL" == ghcr.io/goauthentik/server:2026.5 || \
+  "$TARGET_CHANNEL" == ghcr.io/goauthentik/server:2026.8 ]]
+CURRENT_CHANNEL_SERIES="${CURRENT_CHANNEL##*:}"
+TARGET_CHANNEL_SERIES="${TARGET_CHANNEL##*:}"
+[[ "$TARGET_CHANNEL_SERIES" == "$CURRENT_CHANNEL_SERIES" || \
+  "$CURRENT_CHANNEL_SERIES:$TARGET_CHANNEL_SERIES" == 2026.5:2026.8 ]]
+EXPECTED_BASE_URL="$(jq -er \
+  '.services["authentik-bootstrap"].environment.AUTHENTIK_WEB__BASE_URL' \
+  <<<"$CONFIG")"
+[[ "$EXPECTED_BASE_URL" =~ ^https://[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$ ]]
+[[ "$EXPECTED_BASE_URL" != https://authentik.example.com ]]
+printf -v EXPECTED_TRAEFIK_RULE 'Host(`%s`)' "${EXPECTED_BASE_URL#https://}"
+jq -e --arg base_url "$EXPECTED_BASE_URL" \
+  --arg rule "$EXPECTED_TRAEFIK_RULE" '
+  .services["authentik-bootstrap"].environment.AUTHENTIK_WEB__BASE_URL ==
+    $base_url and
+  .services["authentik-bootstrap"].environment.AUTHENTIK_TRAEFIK_HOST_RULE ==
+    $rule and
+  ([.services.app.labels | to_entries[] |
+    select(.key | endswith(".rule")) | .value] | index($rule) != null) and
+  ((.services.app.environment | has("AUTHENTIK_WEB__BASE_URL")) | not) and
+  ((.services.app.environment | has("AUTHENTIK_TRAEFIK_HOST_RULE")) | not) and
+  ((.services["authentik-worker"].environment |
+    has("AUTHENTIK_WEB__BASE_URL")) | not) and
+  ((.services["authentik-worker"].environment |
+    has("AUTHENTIK_TRAEFIK_HOST_RULE")) | not)
+' <<<"$CONFIG" >/dev/null
 PROJECT_NAME="$(jq -er \
   '.name | select(test("^[a-z0-9][a-z0-9_-]*$"))' <<<"$CONFIG")"
 jq -e '.services.postgresql.build != null and
@@ -2473,8 +2643,8 @@ MAINTENANCE_BASE_REF="$(jq -er \
   '.services.postgresql_maintenance.build.args.POSTGRES_MAINTENANCE_IMAGE' \
   <<<"$CONFIG")"
 
-CURRENT_APP_CONTAINER="$("${COMPOSE[@]}" ps -q app)"
-CURRENT_WORKER_CONTAINER="$("${COMPOSE[@]}" ps -q authentik-worker)"
+CURRENT_APP_CONTAINER="$("${COMPOSE[@]}" ps -a -q app)"
+CURRENT_WORKER_CONTAINER="$("${COMPOSE[@]}" ps -a -q authentik-worker)"
 CURRENT_BOOTSTRAP_CONTAINER="$("${COMPOSE[@]}" ps -a -q authentik-bootstrap)"
 CURRENT_POSTGRES_CONTAINER="$("${COMPOSE[@]}" ps -q postgresql)"
 CURRENT_MAINTENANCE_CONTAINER="$("${COMPOSE[@]}" ps -q postgresql_maintenance)"
@@ -2488,8 +2658,452 @@ CURRENT_APP_IMAGE="$(docker inspect --format '{{.Image}}' "$CURRENT_APP_CONTAINE
   "$CURRENT_APP_IMAGE" ]]
 [[ "$(docker inspect --format '{{.Image}}' "$CURRENT_BOOTSTRAP_CONTAINER")" == \
   "$CURRENT_APP_IMAGE" ]]
+for id in "$CURRENT_APP_CONTAINER" "$CURRENT_WORKER_CONTAINER"; do
+  [[ "$(docker inspect --format '{{.State.Status}}:{{.State.ExitCode}}' \
+    "$id")" == exited:0 ]]
+done
 [[ "$(docker inspect --format '{{.State.Status}}:{{.State.ExitCode}}' \
   "$CURRENT_BOOTSTRAP_CONTAINER")" == exited:0 ]]
+AUTHENTIK_FLOW_URL="${EXPECTED_BASE_URL}/if/flow/default-authentication-flow/"
+read -r -p 'Exact external ERPNext OIDC-start HTTPS URL: ' ERP_NEXT_OIDC_URL
+[[ "$ERP_NEXT_OIDC_URL" =~ ^https://[^[:space:]]+$ ]]
+[[ "$ERP_NEXT_OIDC_URL" != "$AUTHENTIK_FLOW_URL" ]]
+read -r -p 'External ForwardAuth HTTPS URL, or none: ' FORWARD_AUTH_URL
+if [[ "$FORWARD_AUTH_URL" == none ]]; then
+  FORWARD_AUTH_URL_SHA256=none
+else
+  [[ "$FORWARD_AUTH_URL" =~ ^https://[^[:space:]]+$ ]]
+  [[ "$FORWARD_AUTH_URL" != "$AUTHENTIK_FLOW_URL" ]]
+  [[ "$FORWARD_AUTH_URL" != "$ERP_NEXT_OIDC_URL" ]]
+  FORWARD_AUTH_URL_SHA256="$(printf '%s' "$FORWARD_AUTH_URL" | sha256sum | \
+    awk '{print $1}')"
+fi
+AUTHENTIK_URL_SHA256="$(printf '%s' "$AUTHENTIK_FLOW_URL" | sha256sum | \
+  awk '{print $1}')"
+ERPNEXT_URL_SHA256="$(printf '%s' "$ERP_NEXT_OIDC_URL" | sha256sum | \
+  awk '{print $1}')"
+for hash in "$AUTHENTIK_URL_SHA256" "$ERPNEXT_URL_SHA256"; do
+  [[ "$hash" =~ ^[0-9a-f]{64}$ ]]
+done
+[[ "$FORWARD_AUTH_URL_SHA256" == none || \
+  "$FORWARD_AUTH_URL_SHA256" =~ ^[0-9a-f]{64}$ ]]
+[[ "$AUTHENTIK_URL_SHA256" != "$ERPNEXT_URL_SHA256" ]]
+if [[ "$FORWARD_AUTH_URL_SHA256" != none ]]; then
+  [[ "$FORWARD_AUTH_URL_SHA256" != "$AUTHENTIK_URL_SHA256" ]]
+  [[ "$FORWARD_AUTH_URL_SHA256" != "$ERPNEXT_URL_SHA256" ]]
+fi
+read -r -p 'External baseline evidence JSON: ' BASELINE_EVIDENCE_REQUESTED
+read -r -p 'External initial-frozen evidence JSON: ' \
+  INITIAL_FREEZE_EVIDENCE_REQUESTED
+read -r -p 'External Authentik outposts (none or comma-separated names): ' \
+  EXTERNAL_OUTPOSTS
+[[ "$EXTERNAL_OUTPOSTS" == none || \
+  "$EXTERNAL_OUTPOSTS" =~ ^[a-zA-Z0-9._-]+(,[a-zA-Z0-9._-]+)*$ ]]
+
+VALIDATED_EVIDENCE_SNAPSHOTS=()
+discard_external_evidence_snapshot() {
+  local requested="$1" candidate
+  local -a retained=()
+  rm -f -- "$requested" || return 125
+  for candidate in "${VALIDATED_EVIDENCE_SNAPSHOTS[@]}"; do
+    [[ "$candidate" == "$requested" ]] || retained+=("$candidate")
+  done
+  VALIDATED_EVIDENCE_SNAPSHOTS=("${retained[@]}")
+  return 0
+}
+cleanup_external_evidence_snapshots() {
+  local candidate status=0
+  local -a retained=()
+  for candidate in "${VALIDATED_EVIDENCE_SNAPSHOTS[@]}"; do
+    if ! rm -f -- "$candidate"; then
+      retained+=("$candidate")
+      status=125
+    fi
+  done
+  VALIDATED_EVIDENCE_SNAPSHOTS=("${retained[@]}")
+  return "$status"
+}
+ABORT_RECOVERY_REQUIRED=false
+ABORT_RECORDED=false
+UPDATE_PHASE=preflight
+MANAGEMENT_GATE_REMOVED_STATE=false
+cleanup_abort_record_staging() {
+  local staging="$1" temporary_record="${2:-}"
+  [[ "${staging%/*}" == .. && \
+    "${staging##*/}" =~ ^\.authentik-update-abort-${RECOVERY_ID}\.[A-Za-z0-9]+$ && \
+    -d "$staging" && ! -L "$staging" ]] || return 125
+  if [[ -n "$temporary_record" ]]; then
+    [[ "$temporary_record" == "$staging"/.abort.* ]] || return 125
+    rm -f -- "$temporary_record" || return 125
+  fi
+  rm -f -- "$staging/abort.json" "$staging/abort.json.sha256" \
+    "$staging/verify-external-evidence.sh" \
+    "$staging/verify-external-evidence.sh.sha256" || return 125
+  rmdir -- "$staging" || return 125
+  return 0
+}
+record_abort_gate_recovery_required() {
+  local exit_status="${1:-125}" staging temporary_record verifier_sha
+  local candidate_hold_ref="${TARGET_HOLD_REF:-}" hold_ref='' hold_image=''
+  local gate_state=active-proven required_action=verify-current-or-full-restore
+  [[ "$ABORT_RECOVERY_REQUIRED" == true ]] || return 0
+  [[ "$ABORT_RECORDED" == false ]] || return 0
+  if [[ ! "$exit_status" =~ ^[0-9]+$ ]] || \
+    (( exit_status < 1 || exit_status > 255 )); then
+    exit_status=125
+  fi
+  [[ -n "${ABORT_RECORD_DIR:-}" && ! -e "$ABORT_RECORD_DIR" && \
+    ! -L "$ABORT_RECORD_DIR" ]] || return 125
+  staging="$(mktemp -d \
+    "../.authentik-update-abort-${RECOVERY_ID}.XXXXXX")" || return 125
+  if [[ "$(stat -Lc '%a:%u:%g' -- "$staging")" != \
+    "700:$(id -u):$(id -g)" ]]; then
+    cleanup_abort_record_staging "$staging" || true
+    return 125
+  fi
+  {
+    declare -f discard_external_evidence_snapshot
+    declare -f cleanup_external_evidence_snapshots
+    declare -f verify_external_evidence
+  } > "$staging/verify-external-evidence.sh" || {
+    cleanup_abort_record_staging "$staging" || true
+    return 125
+  }
+  chmod 0600 "$staging/verify-external-evidence.sh" || {
+    cleanup_abort_record_staging "$staging" || true
+    return 125
+  }
+  verifier_sha="$(sha256sum \
+    "$staging/verify-external-evidence.sh" | awk '{print $1}')" || {
+    cleanup_abort_record_staging "$staging" || true
+    return 125
+  }
+  (cd "$staging" && \
+    sha256sum -- verify-external-evidence.sh \
+      > verify-external-evidence.sh.sha256 && \
+    chmod 0600 verify-external-evidence.sh.sha256 && \
+    sha256sum --check --strict verify-external-evidence.sh.sha256) || {
+    cleanup_abort_record_staging "$staging" || true
+    return 125
+  }
+  if [[ -n "$candidate_hold_ref" ]] && \
+    hold_image="$(docker image inspect "$candidate_hold_ref" \
+      --format '{{.Id}}' 2>/dev/null)" && \
+    [[ "$hold_image" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+    hold_ref="$candidate_hold_ref"
+  else
+    hold_image=''
+  fi
+  if [[ "$MANAGEMENT_GATE_REMOVED_STATE" == true ]]; then
+    gate_state=removed-rearm-required
+    required_action=rearm-gate-then-verify-current-or-full-restore
+  fi
+  temporary_record="$(mktemp "$staging/.abort.XXXXXX")" || {
+    cleanup_abort_record_staging "$staging" || true
+    return 125
+  }
+  if ! jq -n --argjson exit_status "$exit_status" \
+    --arg phase "$UPDATE_PHASE" \
+    --arg recovery_id "$RECOVERY_ID" \
+    --arg project_name "$PROJECT_NAME" \
+    --arg vantage "$EVIDENCE_VANTAGE_ID" \
+    --arg authentik_url_sha "$AUTHENTIK_URL_SHA256" \
+    --arg erpnext_url_sha "$ERPNEXT_URL_SHA256" \
+    --arg forward_url_sha "$FORWARD_AUTH_URL_SHA256" \
+    --arg maintenance_marker "$MAINTENANCE_MARKER" \
+    --arg current_channel "$CURRENT_CHANNEL" \
+    --arg current_app_image "$CURRENT_APP_IMAGE" \
+    --arg current_postgresql_image "$CURRENT_POSTGRES_IMAGE" \
+    --arg current_maintenance_image "$CURRENT_MAINTENANCE_IMAGE" \
+    --arg target_channel "$TARGET_CHANNEL" \
+    --arg target_hold_ref "$hold_ref" \
+    --arg target_hold_image "$hold_image" \
+    --arg update_dir "${UPDATE_DIR:-}" \
+    --argjson migration_started "${MIGRATION_STARTED:-false}" \
+    --arg gate_state "$gate_state" \
+    --arg required_action "$required_action" \
+    --arg verifier_sha "$verifier_sha" '
+      {schema_version:1,status:"external-gate-recovery-required",
+       exit_status:$exit_status,phase:$phase,recovery_id:$recovery_id,
+       project_name:$project_name,migration_started:$migration_started,
+       management_gate_state:$gate_state,required_action:$required_action,
+       evidence:{vantage_id:$vantage,maintenance_marker:$maintenance_marker,
+         url_sha256:{authentik:$authentik_url_sha,
+           erpnext_oidc:$erpnext_url_sha,
+           forward_auth:(if $forward_url_sha == "none" then null
+             else $forward_url_sha end)}},
+       current:{channel:$current_channel,app_image_id:$current_app_image,
+         postgresql_image_id:$current_postgresql_image,
+         maintenance_image_id:$current_maintenance_image},
+       target:{channel:$target_channel,
+         hold_ref:(if $target_hold_ref == "" then null else $target_hold_ref end),
+         hold_image_id:(if $target_hold_image == ""
+           then null else $target_hold_image end)},
+       update_dir:(if $update_dir == "" then null else $update_dir end),
+       verifier_sha256:$verifier_sha}
+    ' > "$temporary_record"; then
+    cleanup_abort_record_staging "$staging" "$temporary_record" || true
+    return 125
+  fi
+  chmod 0600 "$temporary_record" || {
+    cleanup_abort_record_staging "$staging" "$temporary_record" || true
+    return 125
+  }
+  mv -T -- "$temporary_record" "$staging/abort.json" || {
+    cleanup_abort_record_staging "$staging" "$temporary_record" || true
+    return 125
+  }
+  (cd "$staging" && sha256sum -- abort.json > abort.json.sha256 && \
+    chmod 0600 abort.json.sha256 && \
+    sha256sum --check --strict abort.json.sha256 \
+      verify-external-evidence.sh.sha256) || {
+    cleanup_abort_record_staging "$staging" || true
+    return 125
+  }
+  mv -T -- "$staging" "$ABORT_RECORD_DIR" || {
+    cleanup_abort_record_staging "$staging" || true
+    return 125
+  }
+  ABORT_RECORDED=true
+  printf 'ABORT: keep or re-arm the external gate and complete %s.\n' \
+    "$ABORT_RECORD_DIR" >&2
+  return 0
+}
+abort_gated_update() {
+  local status="$1"
+  trap '' HUP INT TERM
+  trap - ERR EXIT
+  record_abort_gate_recovery_required "$status" || status=125
+  trap - HUP INT TERM
+  cleanup_external_evidence_snapshots || status=125
+  exit "$status"
+}
+abort_gated_update_exit() {
+  local status=$?
+  abort_gated_update "$status"
+}
+verify_external_evidence() {
+  local requested="$1" expected_phase="$2" minimum_epoch="$3"
+  local maximum_epoch="$4" maintenance_marker="$5"
+  local evidence_directory evidence_name sidecar_name owner_mode
+  local evidence_identity sidecar_identity evidence_fd sidecar_fd
+  local opened_evidence_identity opened_sidecar_identity opened_sha sidecar_value
+  local opened_evidence_size opened_sidecar_size snapshot snapshot_size snapshot_sha
+  local observed_raw observed vantage
+  [[ -n "$requested" && -f "$requested" && ! -L "$requested" ]] || return 125
+  [[ -f "${requested}.sha256" && ! -L "${requested}.sha256" ]] || return 125
+  evidence_directory="$(readlink -e -- "$(dirname -- "$requested")")" || \
+    return 125
+  evidence_name="$(basename -- "$requested")" || return 125
+  [[ "$evidence_name" =~ ^[a-zA-Z0-9][a-zA-Z0-9._-]*\.json$ ]] || return 125
+  sidecar_name="${evidence_name}.sha256"
+  owner_mode="700:$(id -u):$(id -g)"
+  [[ "$(stat -Lc '%a:%u:%g' -- "$evidence_directory")" == "$owner_mode" ]] || \
+    return 125
+  owner_mode="600:$(id -u):$(id -g)"
+  [[ "$(stat -Lc '%a:%u:%g' -- "$evidence_directory/$evidence_name")" == \
+    "$owner_mode" ]] || return 125
+  [[ "$(stat -Lc '%a:%u:%g' -- "$evidence_directory/$sidecar_name")" == \
+    "$owner_mode" ]] || return 125
+  [[ "$(stat -Lc '%h' -- "$evidence_directory/$evidence_name")" == 1 ]] || \
+    return 125
+  [[ "$(stat -Lc '%h' -- "$evidence_directory/$sidecar_name")" == 1 ]] || \
+    return 125
+  (( $(stat -Lc '%s' -- "$evidence_directory/$evidence_name") <= 65536 )) || \
+    return 125
+  (( $(stat -Lc '%s' -- "$evidence_directory/$sidecar_name") <= 256 )) || \
+    return 125
+  evidence_identity="$(stat -Lc '%d:%i' -- \
+    "$evidence_directory/$evidence_name")" || return 125
+  sidecar_identity="$(stat -Lc '%d:%i' -- \
+    "$evidence_directory/$sidecar_name")" || return 125
+  exec {evidence_fd}<"$evidence_directory/$evidence_name" || return 125
+  if ! exec {sidecar_fd}<"$evidence_directory/$sidecar_name"; then
+    exec {evidence_fd}<&-
+    return 125
+  fi
+  opened_evidence_identity="$(stat -Lc '%d:%i' -- \
+    "/proc/${BASHPID}/fd/${evidence_fd}")" || {
+    exec {evidence_fd}<&-
+    exec {sidecar_fd}<&-
+    return 125
+  }
+  opened_sidecar_identity="$(stat -Lc '%d:%i' -- \
+    "/proc/${BASHPID}/fd/${sidecar_fd}")" || {
+    exec {evidence_fd}<&-
+    exec {sidecar_fd}<&-
+    return 125
+  }
+  opened_evidence_size="$(stat -Lc '%s' -- \
+    "/proc/${BASHPID}/fd/${evidence_fd}")" || {
+    exec {evidence_fd}<&-
+    exec {sidecar_fd}<&-
+    return 125
+  }
+  opened_sidecar_size="$(stat -Lc '%s' -- \
+    "/proc/${BASHPID}/fd/${sidecar_fd}")" || {
+    exec {evidence_fd}<&-
+    exec {sidecar_fd}<&-
+    return 125
+  }
+  if [[ "$opened_evidence_identity" != "$evidence_identity" || \
+    "$opened_sidecar_identity" != "$sidecar_identity" ]] || \
+    (( opened_evidence_size > 65536 || opened_sidecar_size > 256 )); then
+    exec {evidence_fd}<&-
+    exec {sidecar_fd}<&-
+    return 125
+  fi
+  snapshot="$(mktemp "$evidence_directory/.validated-evidence.XXXXXX")" || {
+    exec {evidence_fd}<&-
+    exec {sidecar_fd}<&-
+    return 125
+  }
+  VALIDATED_EVIDENCE_SNAPSHOTS+=("$snapshot")
+  chmod 0600 "$snapshot" || {
+    exec {evidence_fd}<&-
+    exec {sidecar_fd}<&-
+    discard_external_evidence_snapshot "$snapshot"
+    return 125
+  }
+  if ! /usr/bin/cp -- "/proc/${BASHPID}/fd/${evidence_fd}" "$snapshot"; then
+    exec {evidence_fd}<&-
+    exec {sidecar_fd}<&-
+    discard_external_evidence_snapshot "$snapshot"
+    return 125
+  fi
+  chmod 0600 "$snapshot" || {
+    exec {evidence_fd}<&-
+    exec {sidecar_fd}<&-
+    discard_external_evidence_snapshot "$snapshot"
+    return 125
+  }
+  snapshot_size="$(stat -Lc '%s' -- "$snapshot")" || {
+    exec {evidence_fd}<&-
+    exec {sidecar_fd}<&-
+    discard_external_evidence_snapshot "$snapshot"
+    return 125
+  }
+  if (( snapshot_size > 65536 )); then
+    exec {evidence_fd}<&-
+    exec {sidecar_fd}<&-
+    discard_external_evidence_snapshot "$snapshot"
+    return 125
+  fi
+  opened_sha="$(sha256sum -- "/proc/${BASHPID}/fd/${evidence_fd}" | \
+    awk '{print $1}')" || {
+    exec {evidence_fd}<&-
+    exec {sidecar_fd}<&-
+    discard_external_evidence_snapshot "$snapshot"
+    return 125
+  }
+  sidecar_value="$(/usr/bin/cat "/proc/${BASHPID}/fd/${sidecar_fd}")" || {
+    exec {evidence_fd}<&-
+    exec {sidecar_fd}<&-
+    discard_external_evidence_snapshot "$snapshot"
+    return 125
+  }
+  if [[ -L "$evidence_directory/$evidence_name" || \
+    -L "$evidence_directory/$sidecar_name" || \
+    "$(stat -Lc '%d:%i' -- "$evidence_directory/$evidence_name")" != \
+      "$evidence_identity" || \
+    "$(stat -Lc '%d:%i' -- "$evidence_directory/$sidecar_name")" != \
+      "$sidecar_identity" ]]; then
+    exec {evidence_fd}<&-
+    exec {sidecar_fd}<&-
+    discard_external_evidence_snapshot "$snapshot"
+    return 125
+  fi
+  exec {evidence_fd}<&-
+  exec {sidecar_fd}<&-
+  snapshot_sha="$(sha256sum -- "$snapshot" | awk '{print $1}')" || {
+    discard_external_evidence_snapshot "$snapshot"
+    return 125
+  }
+  if [[ ! "$snapshot_sha" =~ ^[0-9a-f]{64}$ || \
+    "$opened_sha" != "$snapshot_sha" || \
+    "$sidecar_value" != "$snapshot_sha  $evidence_name" || \
+    "$opened_sidecar_size" -ne $(( ${#sidecar_value} + 1 )) ]]; then
+    discard_external_evidence_snapshot "$snapshot"
+    return 125
+  fi
+  if ! jq -e --slurp --arg phase "$expected_phase" \
+    --arg authentik_hash "$AUTHENTIK_URL_SHA256" \
+    --arg erpnext_hash "$ERPNEXT_URL_SHA256" \
+    --arg forward_hash "$FORWARD_AUTH_URL_SHA256" \
+    --arg maintenance_marker "$maintenance_marker" '
+    def exact_keys:
+      keys == ["http_status","maintenance_marker","result","url_sha256"];
+    def online($hash):
+      exact_keys and .url_sha256 == $hash and
+      .result == "authentik-login-reached" and .http_status == "200" and
+      .maintenance_marker == null;
+    def management_denied($hash):
+      exact_keys and .url_sha256 == $hash and
+      .result == "maintenance-marker" and
+      .maintenance_marker == $maintenance_marker and
+      (.http_status as $status |
+        ["200","403","503"] | index($status) != null);
+    def not_configured:
+      exact_keys and .url_sha256 == null and .result == "not-configured" and
+      .http_status == null and .maintenance_marker == null;
+    def all_online:
+      (.probes.authentik | online($authentik_hash)) and
+      (.probes.erpnext_oidc | online($erpnext_hash)) and
+      (if $forward_hash == "none" then
+         (.probes.forward_auth | not_configured)
+       else (.probes.forward_auth | online($forward_hash)) end);
+    def all_management_denied:
+      (.probes.authentik | management_denied($authentik_hash)) and
+      (.probes.erpnext_oidc | management_denied($erpnext_hash)) and
+      (if $forward_hash == "none" then
+         (.probes.forward_auth | not_configured)
+       else (.probes.forward_auth | management_denied($forward_hash)) end);
+    length == 1 and
+    (.[0] |
+      keys == ["observed_at_epoch","phase","probes","schema_version",
+        "vantage_id"] and
+      .schema_version == 1 and .phase == $phase and
+      (.observed_at_epoch | type == "string" and test("^[0-9]{10}$")) and
+      (.vantage_id | type == "string" and
+        test("^[A-Za-z0-9][A-Za-z0-9._-]{2,63}$")) and
+      (.probes | keys == ["authentik","erpnext_oidc","forward_auth"]) and
+      (if ($phase == "baseline" or $phase == "public-open") then all_online
+       elif (["initial-frozen","cutover-frozen","target-frozen",
+         "management-gate-armed","management-denied"] |
+         index($phase) != null) then all_management_denied
+       else false end))
+  ' "$snapshot" >/dev/null; then
+    discard_external_evidence_snapshot "$snapshot"
+    return 125
+  fi
+  observed_raw="$(jq -er '.observed_at_epoch' "$snapshot")" || {
+    discard_external_evidence_snapshot "$snapshot"
+    return 125
+  }
+  [[ "$observed_raw" =~ ^[0-9]{10}$ ]] || {
+    discard_external_evidence_snapshot "$snapshot"
+    return 125
+  }
+  observed=$(( 10#$observed_raw ))
+  if (( observed < minimum_epoch || observed > maximum_epoch )); then
+    discard_external_evidence_snapshot "$snapshot"
+    return 125
+  fi
+  vantage="$(jq -er '.vantage_id' "$snapshot")" || {
+    discard_external_evidence_snapshot "$snapshot"
+    return 125
+  }
+  if [[ -v EVIDENCE_VANTAGE_ID && "$vantage" != "$EVIDENCE_VANTAGE_ID" ]]; then
+    discard_external_evidence_snapshot "$snapshot"
+    return 125
+  fi
+  [[ -v EVIDENCE_VANTAGE_ID ]] || EVIDENCE_VANTAGE_ID="$vantage"
+  VALIDATED_EVIDENCE_PATH="$snapshot"
+  VALIDATED_EVIDENCE_SHA256="$snapshot_sha"
+  VALIDATED_EVIDENCE_EPOCH="$observed"
+  return 0
+}
+trap cleanup_external_evidence_snapshots EXIT
 CURRENT_POSTGRES_IMAGE="$(docker inspect --format '{{.Image}}' \
   "$CURRENT_POSTGRES_CONTAINER")"
 CURRENT_MAINTENANCE_IMAGE="$(docker inspect --format '{{.Image}}' \
@@ -2504,7 +3118,7 @@ CURRENT_DIGEST="$(docker image inspect "$CURRENT_APP_IMAGE" \
     if length == 1 then .[0] else error("expected one current digest") end')"
 CURRENT_VERSION="$(docker image inspect "$CURRENT_APP_IMAGE" \
   --format '{{index .Config.Labels "org.opencontainers.image.version"}}')"
-CURRENT_CHANNEL_REF_IMAGE="$(docker image inspect "$CHANNEL" --format '{{.Id}}')"
+CURRENT_CHANNEL_REF_IMAGE="$(docker image inspect "$CURRENT_CHANNEL" --format '{{.Id}}')"
 CURRENT_POSTGRES_BASE_REF_IMAGE="$(docker image inspect "$POSTGRES_BASE_REF" \
   --format '{{.Id}}')"
 CURRENT_MAINTENANCE_BASE_REF_IMAGE="$(docker image inspect \
@@ -2514,6 +3128,7 @@ for id in "$CURRENT_APP_IMAGE" "$CURRENT_CHANNEL_REF_IMAGE" \
   "$CURRENT_POSTGRES_BASE_REF_IMAGE" "$CURRENT_MAINTENANCE_BASE_REF_IMAGE"; do
   [[ "$id" =~ ^sha256:[0-9a-f]{64}$ ]]
 done
+[[ "$CURRENT_CHANNEL_REF_IMAGE" == "$CURRENT_APP_IMAGE" ]]
 
 VERIFIED_RECOVERY=../authentik-recovery-20260820T120000Z/recovery.json
 VERIFIED_PRIVATE=../authentik-private-20260820T120000Z
@@ -2563,6 +3178,26 @@ RECOVERY_EPOCH="$(date -u -d \
 NOW_EPOCH="$(date -u +%s)"
 (( RECOVERY_EPOCH <= NOW_EPOCH ))
 (( NOW_EPOCH - RECOVERY_EPOCH <= RECOVERY_MAX_AGE_SECONDS ))
+MAINTENANCE_MARKER="authentik-maintenance-${RECOVERY_ID}"
+ABORT_RECORD_DIR="../authentik-update-abort-${RECOVERY_ID}"
+[[ ! -e "$ABORT_RECORD_DIR" && ! -L "$ABORT_RECORD_DIR" ]]
+BASELINE_MINIMUM_EPOCH=$(( RECOVERY_EPOCH - 600 ))
+(( BASELINE_MINIMUM_EPOCH >= 0 )) || BASELINE_MINIMUM_EPOCH=0
+verify_external_evidence "$BASELINE_EVIDENCE_REQUESTED" baseline \
+  "$BASELINE_MINIMUM_EPOCH" "$RECOVERY_EPOCH" "$MAINTENANCE_MARKER"
+BASELINE_EVIDENCE="$VALIDATED_EVIDENCE_PATH"
+BASELINE_EVIDENCE_SHA256="$VALIDATED_EVIDENCE_SHA256"
+verify_external_evidence "$INITIAL_FREEZE_EVIDENCE_REQUESTED" initial-frozen \
+  "$RECOVERY_EPOCH" "$NOW_EPOCH" "$MAINTENANCE_MARKER"
+INITIAL_FREEZE_EVIDENCE="$VALIDATED_EVIDENCE_PATH"
+INITIAL_FREEZE_EVIDENCE_SHA256="$VALIDATED_EVIDENCE_SHA256"
+(( NOW_EPOCH - VALIDATED_EVIDENCE_EPOCH <= 600 ))
+UPDATE_PHASE=initial-frozen-proven
+ABORT_RECOVERY_REQUIRED=true
+trap 'abort_gated_update 129' HUP
+trap 'abort_gated_update 130' INT
+trap 'abort_gated_update 143' TERM
+trap abort_gated_update_exit EXIT
 
 for field in files control runtime_images; do
   archive="$(jq -er --arg field "$field" '.[$field].name' "$VERIFIED_RECOVERY")"
@@ -2634,41 +3269,172 @@ done
 [[ "$(jq -er '.postgresql.maintenance_image_id' "$RECOVERY_VERSIONS")" == \
   "$CURRENT_MAINTENANCE_IMAGE" ]]
 
+TARGET_CHANNEL_PREVIOUS_STATE=absent
+TARGET_CHANNEL_PREVIOUS_IMAGE=''
+if docker image inspect "$TARGET_CHANNEL" >/dev/null 2>&1; then
+  TARGET_CHANNEL_PREVIOUS_STATE=present
+  TARGET_CHANNEL_PREVIOUS_IMAGE="$(docker image inspect "$TARGET_CHANNEL" \
+    --format '{{.Id}}')"
+  [[ "$TARGET_CHANNEL_PREVIOUS_IMAGE" =~ ^sha256:[0-9a-f]{64}$ ]]
+fi
+TARGET_HOLD_REF="${PROJECT_NAME}-authentik-update-target:${RECOVERY_ID,,}"
+! docker image inspect "$TARGET_HOLD_REF" >/dev/null 2>&1
+
 UPDATE_DIR="$(mktemp -d ../authentik-update.XXXXXX)"
 [[ "$(stat -Lc '%a:%u:%g' -- "$UPDATE_DIR")" == \
   "700:$(id -u):$(id -g)" ]]
+install -m 0600 -- "$BASELINE_EVIDENCE" \
+  "$UPDATE_DIR/external-baseline.json"
+install -m 0600 -- "$INITIAL_FREEZE_EVIDENCE" \
+  "$UPDATE_DIR/external-initial-frozen.json"
+(cd "$UPDATE_DIR" && \
+  sha256sum -- external-baseline.json > external-baseline.json.sha256 && \
+  sha256sum -- external-initial-frozen.json \
+    > external-initial-frozen.json.sha256 && \
+  chmod 0600 external-*.json.sha256 && \
+  sha256sum --check --strict external-baseline.json.sha256 \
+    external-initial-frozen.json.sha256)
+[[ "$(sha256sum "$UPDATE_DIR/external-baseline.json" | awk '{print $1}')" == \
+  "$BASELINE_EVIDENCE_SHA256" ]]
+[[ "$(sha256sum "$UPDATE_DIR/external-initial-frozen.json" | \
+  awk '{print $1}')" == "$INITIAL_FREEZE_EVIDENCE_SHA256" ]]
+discard_external_evidence_snapshot "$BASELINE_EVIDENCE"
+discard_external_evidence_snapshot "$INITIAL_FREEZE_EVIDENCE"
 docker run --rm --pull never --entrypoint postgres "$CURRENT_POSTGRES_IMAGE" \
   --version > "$UPDATE_DIR/current-postgresql-version.txt"
+docker run --rm --pull never --entrypoint postgres "$CURRENT_MAINTENANCE_IMAGE" \
+  --version > "$UPDATE_DIR/current-maintenance-postgresql-version.txt"
 docker run --rm --pull never --entrypoint cat "$CURRENT_MAINTENANCE_IMAGE" \
   /usr/local/share/supercronic-release \
   > "$UPDATE_DIR/current-supercronic-release.txt"
 chmod 0600 "$UPDATE_DIR"/*.txt
+jq -n --arg current_channel "$CURRENT_CHANNEL" \
+  --arg current_channel_image "$CURRENT_CHANNEL_REF_IMAGE" \
+  --arg current_app_image "$CURRENT_APP_IMAGE" \
+  --arg current_postgresql "$CURRENT_POSTGRES_IMAGE" \
+  --arg current_maintenance "$CURRENT_MAINTENANCE_IMAGE" \
+  --arg postgres_base_ref "$POSTGRES_BASE_REF" \
+  --arg postgres_base_image "$CURRENT_POSTGRES_BASE_REF_IMAGE" \
+  --arg maintenance_base_ref "$MAINTENANCE_BASE_REF" \
+  --arg maintenance_base_image "$CURRENT_MAINTENANCE_BASE_REF_IMAGE" \
+  --arg target_channel "$TARGET_CHANNEL" \
+  --arg target_previous_state "$TARGET_CHANNEL_PREVIOUS_STATE" \
+  --arg target_previous_image "$TARGET_CHANNEL_PREVIOUS_IMAGE" \
+  --arg target_hold_ref "$TARGET_HOLD_REF" \
+  '{schema_version:1,current:{channel:$current_channel,
+      channel_image_id:$current_channel_image,app_image_id:$current_app_image,
+      postgresql_image_id:$current_postgresql,
+      maintenance_image_id:$current_maintenance,
+      postgres_base:{ref:$postgres_base_ref,image_id:$postgres_base_image},
+      maintenance_base:{ref:$maintenance_base_ref,
+        image_id:$maintenance_base_image}},
+    target:{channel:$target_channel,previous_state:$target_previous_state,
+      previous_image_id:(if $target_previous_state == "present"
+        then $target_previous_image else null end),hold_ref:$target_hold_ref}}' \
+  > "$UPDATE_DIR/current-state.json"
+chmod 0600 "$UPDATE_DIR/current-state.json"
+(cd "$UPDATE_DIR" && sha256sum -- current-state.json \
+  > current-state.json.sha256 && chmod 0600 current-state.json.sha256 && \
+  sha256sum --check --strict current-state.json.sha256)
 
 DISCOVERY_TAGS_MUTATED=false
-restore_current_tags() {
-  docker image tag "$CURRENT_CHANNEL_REF_IMAGE" "$CHANNEL" >/dev/null
-  docker image tag "$CURRENT_POSTGRES_IMAGE" "$POSTGRES_REF" >/dev/null
-  docker image tag "$CURRENT_MAINTENANCE_IMAGE" "$MAINTENANCE_REF" >/dev/null
+restore_discovery_tags() {
+  docker image tag "$CURRENT_CHANNEL_REF_IMAGE" "$CURRENT_CHANNEL" >/dev/null \
+    || return 125
+  if [[ "$TARGET_CHANNEL_PREVIOUS_STATE" == present ]]; then
+    docker image tag "$TARGET_CHANNEL_PREVIOUS_IMAGE" "$TARGET_CHANNEL" \
+      >/dev/null || return 125
+  elif docker image inspect "$TARGET_CHANNEL" >/dev/null 2>&1; then
+    docker image rm "$TARGET_CHANNEL" >/dev/null || return 125
+  fi
+  docker image tag "$CURRENT_POSTGRES_IMAGE" "$POSTGRES_REF" >/dev/null \
+    || return 125
+  docker image tag "$CURRENT_MAINTENANCE_IMAGE" "$MAINTENANCE_REF" \
+    >/dev/null || return 125
   docker image tag "$CURRENT_POSTGRES_BASE_REF_IMAGE" \
-    "$POSTGRES_BASE_REF" >/dev/null
+    "$POSTGRES_BASE_REF" >/dev/null || return 125
   docker image tag "$CURRENT_MAINTENANCE_BASE_REF_IMAGE" \
-    "$MAINTENANCE_BASE_REF" >/dev/null
+    "$MAINTENANCE_BASE_REF" >/dev/null || return 125
+  [[ "$(docker image inspect "$CURRENT_CHANNEL" --format '{{.Id}}')" == \
+    "$CURRENT_CHANNEL_REF_IMAGE" ]] || return 125
+  [[ "$(docker image inspect "$POSTGRES_REF" --format '{{.Id}}')" == \
+    "$CURRENT_POSTGRES_IMAGE" ]] || return 125
+  [[ "$(docker image inspect "$MAINTENANCE_REF" --format '{{.Id}}')" == \
+    "$CURRENT_MAINTENANCE_IMAGE" ]] || return 125
+  [[ "$(docker image inspect "$POSTGRES_BASE_REF" --format '{{.Id}}')" == \
+    "$CURRENT_POSTGRES_BASE_REF_IMAGE" ]] || return 125
+  [[ "$(docker image inspect "$MAINTENANCE_BASE_REF" --format '{{.Id}}')" == \
+    "$CURRENT_MAINTENANCE_BASE_REF_IMAGE" ]] || return 125
+  if [[ "$TARGET_CHANNEL_PREVIOUS_STATE" == present ]]; then
+    [[ "$(docker image inspect "$TARGET_CHANNEL" --format '{{.Id}}')" == \
+      "$TARGET_CHANNEL_PREVIOUS_IMAGE" ]] || return 125
+  elif docker image inspect "$TARGET_CHANNEL" >/dev/null 2>&1; then
+    return 125
+  fi
+  return 0
+}
+restart_current_writers() {
+  local id pair service expected_container
+  "${COMPOSE[@]}" up -d --wait --wait-timeout 300 \
+    --no-build --pull never app authentik-worker || return 125
+  for pair in "app:$CURRENT_APP_CONTAINER" \
+    "authentik-worker:$CURRENT_WORKER_CONTAINER"; do
+    service="${pair%%:*}"
+    expected_container="${pair#*:}"
+    id="$("${COMPOSE[@]}" ps -q "$service")" || return 125
+    [[ "$id" == "$expected_container" ]] || return 125
+    [[ "$(docker inspect --format '{{.Image}}' "$id")" == \
+      "$CURRENT_APP_IMAGE" ]] || return 125
+  done
+  return 0
 }
 rollback_discovery() {
-  local status=$?
-  trap - ERR
+  local status="${1:-$?}"
+  trap '' HUP INT TERM
+  trap - ERR EXIT
+  record_abort_gate_recovery_required "$status" || status=125
+  trap - HUP INT TERM
+  cleanup_external_evidence_snapshots || status=125
   if [[ "$DISCOVERY_TAGS_MUTATED" == true ]]; then
-    restore_current_tags || return 125
+    restore_discovery_tags || return 125
+    restart_current_writers || return 125
+    DISCOVERY_TAGS_MUTATED=false
+  fi
+  return "$status"
+}
+abort_discovery() {
+  local status="$1"
+  rollback_discovery "$status" || status=125
+  exit "$status"
+}
+discovery_exit() {
+  local status=$?
+  if [[ "$DISCOVERY_TAGS_MUTATED" == true ]]; then
+    rollback_discovery "$status" || return 125
   fi
   return "$status"
 }
 trap rollback_discovery ERR
+trap 'abort_discovery 129' HUP
+trap 'abort_discovery 130' INT
+trap 'abort_discovery 143' TERM
+trap discovery_exit EXIT
 DISCOVERY_TAGS_MUTATED=true
-docker pull "$CHANNEL"
+UPDATE_PHASE=discovery
+if [[ "$CURRENT_CHANNEL" == "$TARGET_CHANNEL" ]]; then
+  docker pull "$TARGET_CHANNEL"
+else
+  docker pull "$CURRENT_CHANNEL"
+  LATEST_CURRENT_CHANNEL_IMAGE="$(docker image inspect "$CURRENT_CHANNEL" \
+    --format '{{.Id}}')"
+  [[ "$LATEST_CURRENT_CHANNEL_IMAGE" == "$CURRENT_APP_IMAGE" ]]
+  docker pull "$TARGET_CHANNEL"
+fi
 docker pull "$POSTGRES_BASE_REF"
 [[ "$MAINTENANCE_BASE_REF" == "$POSTGRES_BASE_REF" ]] || \
   docker pull "$MAINTENANCE_BASE_REF"
-TARGET_APP_IMAGE="$(docker image inspect "$CHANNEL" --format '{{.Id}}')"
+TARGET_APP_IMAGE="$(docker image inspect "$TARGET_CHANNEL" --format '{{.Id}}')"
+docker image tag "$TARGET_APP_IMAGE" "$TARGET_HOLD_REF" >/dev/null
 TARGET_DIGEST="$(docker image inspect "$TARGET_APP_IMAGE" \
   --format '{{json .RepoDigests}}' | jq -er \
   '[.[] | select(startswith("ghcr.io/goauthentik/server@sha256:"))] |
@@ -2700,6 +3466,8 @@ TARGET_MAINTENANCE_IMAGE="$(docker image inspect "$MAINTENANCE_REF" \
   --format '{{.Id}}')"
 docker run --rm --pull never --entrypoint postgres "$TARGET_POSTGRES_IMAGE" \
   --version > "$UPDATE_DIR/target-postgresql-version.txt"
+docker run --rm --pull never --entrypoint postgres "$TARGET_MAINTENANCE_IMAGE" \
+  --version > "$UPDATE_DIR/target-maintenance-postgresql-version.txt"
 docker run --rm --pull never --entrypoint cat "$TARGET_MAINTENANCE_IMAGE" \
   /usr/local/share/supercronic-release \
   > "$UPDATE_DIR/target-supercronic-release.txt"
@@ -2720,18 +3488,62 @@ TARGET_SUPERCRONIC_DIGEST="$(sed -n 's/^digest=//p' \
 [[ -n "$CURRENT_VERSION" && "$CURRENT_VERSION" != '<no value>' ]]
 [[ -n "$TARGET_VERSION" && "$TARGET_VERSION" != '<no value>' ]]
 
-restore_current_tags
+restore_discovery_tags
 DISCOVERY_TAGS_MUTATED=false
-trap - ERR
-[[ "$(docker image inspect "$CHANNEL" --format '{{.Id}}')" == \
+REVIEW_ACTIVE=true
+cleanup_review_failure() {
+  local status="${1:-$?}"
+  trap '' HUP INT TERM
+  trap - ERR EXIT
+  record_abort_gate_recovery_required "$status" || status=125
+  trap - HUP INT TERM
+  cleanup_external_evidence_snapshots || status=125
+  if [[ "$REVIEW_ACTIVE" == true ]]; then
+    restore_discovery_tags || return 125
+    restart_current_writers || return 125
+    REVIEW_ACTIVE=false
+  fi
+  return "$status"
+}
+abort_review() {
+  local status="$1"
+  cleanup_review_failure "$status" || status=125
+  exit "$status"
+}
+review_exit() {
+  local status=$?
+  if [[ "$REVIEW_ACTIVE" == true ]]; then
+    cleanup_review_failure "$status" || return 125
+  fi
+  return "$status"
+}
+trap cleanup_review_failure ERR
+trap 'abort_review 129' HUP
+trap 'abort_review 130' INT
+trap 'abort_review 143' TERM
+trap review_exit EXIT
+[[ "$(docker image inspect "$CURRENT_CHANNEL" --format '{{.Id}}')" == \
   "$CURRENT_CHANNEL_REF_IMAGE" ]]
+if [[ "$TARGET_CHANNEL_PREVIOUS_STATE" == present ]]; then
+  [[ "$(docker image inspect "$TARGET_CHANNEL" --format '{{.Id}}')" == \
+    "$TARGET_CHANNEL_PREVIOUS_IMAGE" ]]
+else
+  ! docker image inspect "$TARGET_CHANNEL" >/dev/null 2>&1
+fi
+[[ "$(docker image inspect "$TARGET_HOLD_REF" --format '{{.Id}}')" == \
+  "$TARGET_APP_IMAGE" ]]
 [[ "$(docker image inspect "$POSTGRES_REF" --format '{{.Id}}')" == \
   "$CURRENT_POSTGRES_IMAGE" ]]
 [[ "$(docker image inspect "$MAINTENANCE_REF" --format '{{.Id}}')" == \
   "$CURRENT_MAINTENANCE_IMAGE" ]]
-for pair in "app:$CURRENT_APP_IMAGE" \
-  "authentik-worker:$CURRENT_APP_IMAGE" \
-  "postgresql:$CURRENT_POSTGRES_IMAGE" \
+for service in app authentik-worker; do
+  id="$("${COMPOSE[@]}" ps -a -q "$service")"
+  [[ "$(docker inspect --format '{{.Image}}' "$id")" == \
+    "$CURRENT_APP_IMAGE" ]]
+  [[ "$(docker inspect --format '{{.State.Status}}:{{.State.ExitCode}}' \
+    "$id")" == exited:0 ]]
+done
+for pair in "postgresql:$CURRENT_POSTGRES_IMAGE" \
   "postgresql_maintenance:$CURRENT_MAINTENANCE_IMAGE"; do
   service="${pair%%:*}"
   image_id="${pair#*:}"
@@ -2743,59 +3555,111 @@ done
   "$CURRENT_APP_IMAGE" ]]
 
 RELEASE_NOTES_REVIEW="$UPDATE_DIR/release-notes-review.txt"
+CURRENT_SERIES="$(sed -nE 's/^([0-9]{4}\.[0-9]+)\..*$/\1/p' \
+  <<<"$CURRENT_VERSION")"
 TARGET_SERIES="$(sed -nE 's/^([0-9]{4}\.[0-9]+)\..*$/\1/p' \
   <<<"$TARGET_VERSION")"
-[[ "$TARGET_SERIES" == 2026.5 ]]
+[[ "$CURRENT_SERIES" == "$CURRENT_CHANNEL_SERIES" ]]
+[[ "$TARGET_SERIES" == "$TARGET_CHANNEL_SERIES" ]]
+[[ "$TARGET_SERIES" == "$CURRENT_SERIES" || \
+  "$CURRENT_SERIES:$TARGET_SERIES" == 2026.5:2026.8 ]]
+CURRENT_POSTGRES_VERSION="$(<"$UPDATE_DIR/current-postgresql-version.txt")"
+CURRENT_MAINTENANCE_POSTGRES_VERSION="$(
+  <"$UPDATE_DIR/current-maintenance-postgresql-version.txt"
+)"
 TARGET_POSTGRES_VERSION="$(<"$UPDATE_DIR/target-postgresql-version.txt")"
+TARGET_MAINTENANCE_POSTGRES_VERSION="$(
+  <"$UPDATE_DIR/target-maintenance-postgresql-version.txt"
+)"
+[[ "$CURRENT_POSTGRES_VERSION" == *'PostgreSQL 18'* ]]
+[[ "$CURRENT_MAINTENANCE_POSTGRES_VERSION" == *'PostgreSQL 18'* ]]
 [[ "$TARGET_POSTGRES_VERSION" == *'PostgreSQL 18'* ]]
+[[ "$TARGET_MAINTENANCE_POSTGRES_VERSION" == *'PostgreSQL 18'* ]]
 printf '%s\n' \
   "current_version=$CURRENT_VERSION" \
   "target_version=$TARGET_VERSION" \
+  "current_series=$CURRENT_SERIES" \
+  "target_series=$TARGET_SERIES" \
   "postgres_base_digest=$TARGET_POSTGRES_BASE_DIGEST" \
   "maintenance_base_digest=$TARGET_MAINTENANCE_BASE_DIGEST" \
+  "current_postgresql_version=$CURRENT_POSTGRES_VERSION" \
+  "current_maintenance_postgresql_version=$CURRENT_MAINTENANCE_POSTGRES_VERSION" \
   "target_postgresql_version=$TARGET_POSTGRES_VERSION" \
+  "target_maintenance_postgresql_version=$TARGET_MAINTENANCE_POSTGRES_VERSION" \
   "supercronic_release=$TARGET_SUPERCRONIC_RELEASE" \
   "supercronic_asset=$TARGET_SUPERCRONIC_ASSET" \
   "supercronic_digest=$TARGET_SUPERCRONIC_DIGEST" \
+  "reviewed_url=https://docs.goauthentik.io/releases/$CURRENT_SERIES/" \
   "reviewed_url=https://docs.goauthentik.io/releases/$TARGET_SERIES/" \
+  'reviewed_url=https://docs.goauthentik.io/install-config/upgrade/' \
+  'reviewed_url=https://docs.goauthentik.io/install-config/configuration/#authentik_web__base_url' \
   'reviewed_url=https://www.postgresql.org/docs/18/release.html' \
   "reviewed_url=https://github.com/aptible/supercronic/releases/tag/$TARGET_SUPERCRONIC_RELEASE" \
   'operator_approval=REPLACE_WITH_APPROVED' > "$RELEASE_NOTES_REVIEW"
 chmod 0600 "$RELEASE_NOTES_REVIEW"
 printf 'Review every URL in %s, then change only the final value to approved.\n' \
   "$RELEASE_NOTES_REVIEW"
+UPDATE_PHASE=review
 read -r -p 'Type REVIEWED after saving the reviewed file: ' REVIEW_CONFIRMATION
 [[ "$REVIEW_CONFIRMATION" == REVIEWED ]]
 [[ -f "$RELEASE_NOTES_REVIEW" && ! -L "$RELEASE_NOTES_REVIEW" ]]
 grep -Fx "current_version=$CURRENT_VERSION" "$RELEASE_NOTES_REVIEW"
 grep -Fx "target_version=$TARGET_VERSION" "$RELEASE_NOTES_REVIEW"
+grep -Fx "current_series=$CURRENT_SERIES" "$RELEASE_NOTES_REVIEW"
+grep -Fx "target_series=$TARGET_SERIES" "$RELEASE_NOTES_REVIEW"
 grep -Fx "postgres_base_digest=$TARGET_POSTGRES_BASE_DIGEST" \
   "$RELEASE_NOTES_REVIEW"
 grep -Fx "maintenance_base_digest=$TARGET_MAINTENANCE_BASE_DIGEST" \
+  "$RELEASE_NOTES_REVIEW"
+grep -Fx "current_postgresql_version=$CURRENT_POSTGRES_VERSION" \
+  "$RELEASE_NOTES_REVIEW"
+grep -Fx "current_maintenance_postgresql_version=$CURRENT_MAINTENANCE_POSTGRES_VERSION" \
   "$RELEASE_NOTES_REVIEW"
 grep -Fx "supercronic_release=$TARGET_SUPERCRONIC_RELEASE" \
   "$RELEASE_NOTES_REVIEW"
 grep -Fx "target_postgresql_version=$TARGET_POSTGRES_VERSION" \
   "$RELEASE_NOTES_REVIEW"
+grep -Fx "target_maintenance_postgresql_version=$TARGET_MAINTENANCE_POSTGRES_VERSION" \
+  "$RELEASE_NOTES_REVIEW"
 grep -Fx "supercronic_asset=$TARGET_SUPERCRONIC_ASSET" \
   "$RELEASE_NOTES_REVIEW"
 grep -Fx "supercronic_digest=$TARGET_SUPERCRONIC_DIGEST" \
   "$RELEASE_NOTES_REVIEW"
+grep -Fx "reviewed_url=https://docs.goauthentik.io/releases/$CURRENT_SERIES/" \
+  "$RELEASE_NOTES_REVIEW"
 grep -Fx "reviewed_url=https://docs.goauthentik.io/releases/$TARGET_SERIES/" \
+  "$RELEASE_NOTES_REVIEW"
+grep -Fx 'reviewed_url=https://docs.goauthentik.io/install-config/upgrade/' \
+  "$RELEASE_NOTES_REVIEW"
+grep -Fx 'reviewed_url=https://docs.goauthentik.io/install-config/configuration/#authentik_web__base_url' \
   "$RELEASE_NOTES_REVIEW"
 grep -Fx 'reviewed_url=https://www.postgresql.org/docs/18/release.html' \
   "$RELEASE_NOTES_REVIEW"
 grep -Fx "reviewed_url=https://github.com/aptible/supercronic/releases/tag/$TARGET_SUPERCRONIC_RELEASE" \
   "$RELEASE_NOTES_REVIEW"
 grep -Fx 'operator_approval=approved' "$RELEASE_NOTES_REVIEW"
-[[ "$(wc -l < "$RELEASE_NOTES_REVIEW")" == 12 ]]
+[[ "$(wc -l < "$RELEASE_NOTES_REVIEW")" == 20 ]]
 
 install -m 0600 -- "$RELEASE_NOTES_REVIEW" "$UPDATE_DIR/release-notes.txt"
-jq -n --arg channel "$CHANNEL" --arg current_image "$CURRENT_APP_IMAGE" \
+jq -n --arg current_channel "$CURRENT_CHANNEL" \
+  --arg current_series "$CURRENT_SERIES" \
+  --arg target_channel "$TARGET_CHANNEL" \
+  --arg target_series "$TARGET_SERIES" \
   --arg current_channel_ref_image "$CURRENT_CHANNEL_REF_IMAGE" \
+  --arg current_image "$CURRENT_APP_IMAGE" \
   --arg current_digest "$CURRENT_DIGEST" --arg current_version "$CURRENT_VERSION" \
   --arg target_image "$TARGET_APP_IMAGE" --arg target_digest "$TARGET_DIGEST" \
-  --arg target_version "$TARGET_VERSION" \
+  --arg target_version "$TARGET_VERSION" --arg target_hold_ref "$TARGET_HOLD_REF" \
+  --arg target_previous_state "$TARGET_CHANNEL_PREVIOUS_STATE" \
+  --arg target_previous_image "$TARGET_CHANNEL_PREVIOUS_IMAGE" \
+  --arg expected_base_url "$EXPECTED_BASE_URL" \
+  --arg authentik_url_sha "$AUTHENTIK_URL_SHA256" \
+  --arg erpnext_url_sha "$ERPNEXT_URL_SHA256" \
+  --arg forward_url_sha "$FORWARD_AUTH_URL_SHA256" \
+  --arg evidence_vantage "$EVIDENCE_VANTAGE_ID" \
+  --arg baseline_evidence_sha "$BASELINE_EVIDENCE_SHA256" \
+  --arg initial_freeze_evidence_sha "$INITIAL_FREEZE_EVIDENCE_SHA256" \
+  --arg external_outposts "$EXTERNAL_OUTPOSTS" \
   --arg current_postgresql "$CURRENT_POSTGRES_IMAGE" \
   --arg target_postgresql "$TARGET_POSTGRES_IMAGE" \
   --arg current_maintenance "$CURRENT_MAINTENANCE_IMAGE" \
@@ -2810,15 +3674,31 @@ jq -n --arg channel "$CHANNEL" --arg current_image "$CURRENT_APP_IMAGE" \
   --arg maintenance_base_digest "$TARGET_MAINTENANCE_BASE_DIGEST" \
   --arg current_pg_sha "$(sha256sum "$UPDATE_DIR/current-postgresql-version.txt" | awk '{print $1}')" \
   --arg target_pg_sha "$(sha256sum "$UPDATE_DIR/target-postgresql-version.txt" | awk '{print $1}')" \
+  --arg current_maintenance_pg_sha "$(sha256sum "$UPDATE_DIR/current-maintenance-postgresql-version.txt" | awk '{print $1}')" \
+  --arg target_maintenance_pg_sha "$(sha256sum "$UPDATE_DIR/target-maintenance-postgresql-version.txt" | awk '{print $1}')" \
   --arg current_sc_sha "$(sha256sum "$UPDATE_DIR/current-supercronic-release.txt" | awk '{print $1}')" \
   --arg target_sc_sha "$(sha256sum "$UPDATE_DIR/target-supercronic-release.txt" | awk '{print $1}')" \
   --arg recovery_id "$(jq -er '.id' "$VERIFIED_RECOVERY")" \
   --arg recovery_sha "$(sha256sum "$VERIFIED_RECOVERY" | awk '{print $1}')" \
   --arg release_notes_sha "$(sha256sum "$UPDATE_DIR/release-notes.txt" | awk '{print $1}')" \
-  '{channel:$channel,current:{image_id:$current_image,
-    channel_image_id:$current_channel_ref_image,digest:$current_digest,
-    version:$current_version},target:{image_id:$target_image,digest:$target_digest,
-    version:$target_version},postgresql:{current_image_id:$current_postgresql,
+  '{schema_version:4,configuration:{base_url:$expected_base_url,
+      external_probe_url_sha256:{authentik:$authentik_url_sha,
+        erpnext_oidc:$erpnext_url_sha,
+        forward_auth:(if $forward_url_sha == "none" then null
+          else $forward_url_sha end)}},
+    operational_gate:{external_evidence:{vantage_id:$evidence_vantage,
+      baseline_sha256:$baseline_evidence_sha,
+      initial_frozen_sha256:$initial_freeze_evidence_sha},
+      external_outposts:$external_outposts},
+    current:{channel:$current_channel,series:$current_series,
+      image_id:$current_image,channel_image_id:$current_channel_ref_image,
+      digest:$current_digest,version:$current_version},
+    target:{channel:$target_channel,series:$target_series,image_id:$target_image,
+      digest:$target_digest,version:$target_version,hold_ref:$target_hold_ref,
+      previous_channel_tag:{state:$target_previous_state,
+        image_id:(if $target_previous_state == "present"
+          then $target_previous_image else null end)}},
+    postgresql:{current_image_id:$current_postgresql,
       target_image_id:$target_postgresql,base:{ref:$postgres_base_ref,
         current_image_id:$current_postgres_base,
         target_image_id:$postgres_base_image,digest:$postgres_base_digest},
@@ -2827,6 +3707,8 @@ jq -n --arg channel "$CHANNEL" --arg current_image "$CURRENT_APP_IMAGE" \
       target_image_id:$target_maintenance,base:{ref:$maintenance_base_ref,
         current_image_id:$current_maintenance_base,
         target_image_id:$maintenance_base_image,digest:$maintenance_base_digest},
+      current_postgresql_version_sha256:$current_maintenance_pg_sha,
+      target_postgresql_version_sha256:$target_maintenance_pg_sha,
       current_release_sha256:$current_sc_sha,
       target_release_sha256:$target_sc_sha},
     verified_recovery:{id:$recovery_id,sha256:$recovery_sha},
@@ -2834,33 +3716,76 @@ jq -n --arg channel "$CHANNEL" --arg current_image "$CURRENT_APP_IMAGE" \
 chmod 0600 "$UPDATE_DIR/update.json"
 (cd "$UPDATE_DIR" && sha256sum -- update.json > update.json.sha256 && \
   chmod 0600 update.json.sha256 && sha256sum --check --strict update.json.sha256)
+jq -e --arg current "$CURRENT_CHANNEL" --arg target "$TARGET_CHANNEL" \
+  --arg current_series "$CURRENT_SERIES" --arg target_series "$TARGET_SERIES" \
+  --arg hold "$TARGET_HOLD_REF" --arg base_url "$EXPECTED_BASE_URL" \
+  --arg authentik_url_sha "$AUTHENTIK_URL_SHA256" \
+  --arg erpnext_url_sha "$ERPNEXT_URL_SHA256" \
+  --arg forward_url_sha "$FORWARD_AUTH_URL_SHA256" '
+  .schema_version == 4 and .current.channel == $current and
+  .current.series == $current_series and .target.channel == $target and
+  .target.series == $target_series and .target.hold_ref == $hold and
+  .configuration.base_url == $base_url and
+  .configuration.external_probe_url_sha256.authentik ==
+    $authentik_url_sha and
+  .configuration.external_probe_url_sha256.erpnext_oidc ==
+    $erpnext_url_sha and
+  .configuration.external_probe_url_sha256.forward_auth ==
+    (if $forward_url_sha == "none" then null else $forward_url_sha end) and
+  (.operational_gate.external_evidence.vantage_id | length >= 3) and
+  ([.operational_gate.external_evidence.baseline_sha256,
+    .operational_gate.external_evidence.initial_frozen_sha256] |
+    all(test("^[0-9a-f]{64}$"))) and
+  (.operational_gate.external_outposts | length > 0) and
+  (.target.previous_channel_tag.state == "present" or
+    .target.previous_channel_tag.state == "absent")
+' "$UPDATE_DIR/update.json" >/dev/null
 
 rewrite_app_image() {
   local image="$1" temporary
-  temporary="$(mktemp ./app.env.image.XXXXXX)"
-  awk -v image="$image" '
+  temporary="$(mktemp ./app.env.image.XXXXXX)" || return 125
+  if ! awk -v image="$image" '
     BEGIN { count=0 }
     /^APP_IMAGE=/ { print "APP_IMAGE=" image; count++; next }
     { print }
     END { if (count != 1) exit 1 }
-  ' app.env > "$temporary"
-  chmod "$(stat -Lc '%a' -- app.env)" "$temporary"
-  mv -fT -- "$temporary" app.env
+  ' app.env > "$temporary"; then
+    rm -f -- "$temporary"
+    return 125
+  fi
+  chmod "$(stat -Lc '%a' -- app.env)" "$temporary" || {
+    rm -f -- "$temporary"
+    return 125
+  }
+  mv -fT -- "$temporary" app.env || {
+    rm -f -- "$temporary"
+    return 125
+  }
+  return 0
 }
 
 # Phæse 2: only reviewed, locæl, immutæble outputs cross this boundary.
+UPDATE_PHASE=pre-migration
 DESTRUCTIVE_STARTED=false
 MIGRATION_STARTED=false
+PHASE2_COMPLETE=false
 rollback_pre_migration_update() {
-  local status=$? id
-  trap - ERR
+  local status="${1:-$?}" id service
+  trap '' HUP INT TERM
+  trap - ERR EXIT
+  record_abort_gate_recovery_required "$status" || status=125
+  trap - HUP INT TERM
+  cleanup_external_evidence_snapshots || status=125
+  if [[ "$MIGRATION_STARTED" == true ]]; then
+    "${COMPOSE[@]}" down || return 125
+    return "$status"
+  fi
   if [[ "$DESTRUCTIVE_STARTED" == true ]]; then
     "${COMPOSE[@]}" down || return 125
-    if [[ "$MIGRATION_STARTED" == true ]]; then
-      return "$status"
-    fi
-    restore_current_tags || return 125
-    rewrite_app_image "$CURRENT_DIGEST" || return 125
+  fi
+  if [[ "$PHASE2_COMPLETE" == false ]]; then
+    restore_discovery_tags || return 125
+    rewrite_app_image "$CURRENT_CHANNEL" || return 125
     (cd .. && ./run.sh Authentik) || return 125
     "${COMPOSE[@]}" up -d --wait --wait-timeout 120 \
       --no-build --pull never postgresql || return 125
@@ -2878,24 +3803,123 @@ rollback_pre_migration_update() {
       "$id")" == exited:0 ]] || return 125
     "${COMPOSE[@]}" up -d --no-build --pull never \
       postgresql_maintenance || return 125
+    PHASE2_COMPLETE=true
+  fi
+  return "$status"
+}
+abort_phase2() {
+  local status="$1"
+  rollback_pre_migration_update "$status" || status=125
+  exit "$status"
+}
+phase2_exit() {
+  local status=$?
+  if [[ "$PHASE2_COMPLETE" == false ]]; then
+    [[ "$status" -ne 0 ]] || status=125
+    rollback_pre_migration_update "$status" || return 125
   fi
   return "$status"
 }
 trap rollback_pre_migration_update ERR
+trap 'abort_phase2 129' HUP
+trap 'abort_phase2 130' INT
+trap 'abort_phase2 143' TERM
+trap phase2_exit EXIT
+REVIEW_ACTIVE=false
+
+TRAFFIC_FROZEN_OVERRIDE="$UPDATE_DIR/docker-compose.traffic-frozen.yaml"
+cat > "$TRAFFIC_FROZEN_OVERRIDE" <<'YAML'
+services:
+  app:
+    labels: !override
+      - traefik.enable=false
+    networks: !override
+      backend: {}
+    ports: !override []
+    expose: !override []
+YAML
+chmod 0600 "$TRAFFIC_FROZEN_OVERRIDE"
+CLOSED_COMPOSE=("${COMPOSE[@]}" -f "$TRAFFIC_FROZEN_OVERRIDE")
+CLOSED_CONFIG="$("${CLOSED_COMPOSE[@]}" config --format json)"
+jq -e '
+  .services.app.labels["traefik.enable"] == "false" and
+  (.services.app.networks | keys) == ["backend"] and
+  ((.services.app.ports // []) | length) == 0 and
+  ((.services.app.expose // []) | length) == 0
+' <<<"$CLOSED_CONFIG" >/dev/null
 for id in "$CURRENT_APP_IMAGE" "$CURRENT_POSTGRES_IMAGE" \
   "$CURRENT_MAINTENANCE_IMAGE" "$TARGET_APP_IMAGE" \
   "$TARGET_POSTGRES_IMAGE" "$TARGET_MAINTENANCE_IMAGE" \
   "$TARGET_POSTGRES_BASE_IMAGE" "$TARGET_MAINTENANCE_BASE_IMAGE"; do
   [[ "$(docker image inspect "$id" --format '{{.Id}}')" == "$id" ]]
 done
-[[ "$("${COMPOSE[@]}" ps -q app)" == "$CURRENT_APP_CONTAINER" ]]
-[[ "$("${COMPOSE[@]}" ps -q authentik-worker)" == \
+[[ "$(docker image inspect "$TARGET_HOLD_REF" --format '{{.Id}}')" == \
+  "$TARGET_APP_IMAGE" ]]
+[[ "$("${COMPOSE[@]}" ps -a -q app)" == "$CURRENT_APP_CONTAINER" ]]
+[[ "$("${COMPOSE[@]}" ps -a -q authentik-worker)" == \
   "$CURRENT_WORKER_CONTAINER" ]]
 [[ "$("${COMPOSE[@]}" ps -a -q authentik-bootstrap)" == \
   "$CURRENT_BOOTSTRAP_CONTAINER" ]]
 [[ "$("${COMPOSE[@]}" ps -q postgresql)" == "$CURRENT_POSTGRES_CONTAINER" ]]
 [[ "$("${COMPOSE[@]}" ps -q postgresql_maintenance)" == \
   "$CURRENT_MAINTENANCE_CONTAINER" ]]
+for id in "$CURRENT_APP_CONTAINER" "$CURRENT_WORKER_CONTAINER"; do
+  [[ "$(docker inspect --format '{{.State.Status}}:{{.State.ExitCode}}' \
+    "$id")" == exited:0 ]]
+done
+CUTOVER_PROOF_NOT_BEFORE="$(date -u +%s)"
+printf 'Capture fresh cutover-frozen evidence from vantage %s now.\n' \
+  "$EVIDENCE_VANTAGE_ID"
+read -r -p 'External cutover-frozen evidence JSON: ' \
+  CUTOVER_FREEZE_EVIDENCE_REQUESTED
+CUTOVER_EPOCH="$(date -u +%s)"
+verify_external_evidence "$CUTOVER_FREEZE_EVIDENCE_REQUESTED" cutover-frozen \
+  "$CUTOVER_PROOF_NOT_BEFORE" "$CUTOVER_EPOCH" "$MAINTENANCE_MARKER"
+(( CUTOVER_EPOCH - VALIDATED_EVIDENCE_EPOCH <= 300 ))
+CUTOVER_FREEZE_EVIDENCE="$VALIDATED_EVIDENCE_PATH"
+CUTOVER_FREEZE_EVIDENCE_SHA256="$VALIDATED_EVIDENCE_SHA256"
+CUTOVER_FREEZE_EVIDENCE_EPOCH="$VALIDATED_EVIDENCE_EPOCH"
+install -m 0600 -- "$CUTOVER_FREEZE_EVIDENCE" \
+  "$UPDATE_DIR/external-cutover-frozen.json"
+(cd "$UPDATE_DIR" && \
+  sha256sum -- external-cutover-frozen.json \
+    > external-cutover-frozen.json.sha256 && \
+  chmod 0600 external-cutover-frozen.json.sha256 && \
+  sha256sum --check --strict external-cutover-frozen.json.sha256)
+[[ "$(sha256sum "$UPDATE_DIR/external-cutover-frozen.json" | \
+  awk '{print $1}')" == "$CUTOVER_FREEZE_EVIDENCE_SHA256" ]]
+discard_external_evidence_snapshot "$CUTOVER_FREEZE_EVIDENCE"
+(( RECOVERY_EPOCH <= CUTOVER_EPOCH ))
+(( CUTOVER_EPOCH - RECOVERY_EPOCH <= RECOVERY_MAX_AGE_SECONDS ))
+(cd "$UPDATE_DIR" && \
+  sha256sum --check --strict current-state.json.sha256 update.json.sha256)
+(cd "$RECOVERY_DIR" && sha256sum --check --strict recovery.json.sha256)
+for field in files control runtime_images; do
+  archive="$(jq -er --arg field "$field" '.[$field].name' \
+    "$VERIFIED_RECOVERY")"
+  (cd "$RECOVERY_DIR" && sha256sum --check --strict "${archive}.sha256")
+done
+[[ "$(sha256sum "$RECOVERY_VERSIONS" | awk '{print $1}')" == \
+  "$(jq -er '.versions_sha256' "$VERIFIED_RECOVERY")" ]]
+[[ "$(sha256sum "$RECOVERY_DIR/templates.lock" | awk '{print $1}')" == \
+  "$(jq -er '.locks.template_sha256' "$VERIFIED_RECOVERY")" ]]
+if [[ "$(jq -er '.locks.source_state' "$VERIFIED_RECOVERY")" == present ]]; then
+  [[ "$(sha256sum "$RECOVERY_DIR/source.lock" | awk '{print $1}')" == \
+    "$(jq -er '.locks.source_sha256' "$VERIFIED_RECOVERY")" ]]
+fi
+(cd "$PRIVATE_DIR" && sha256sum --check --strict private-state.sha256)
+for archive in "$PHYSICAL_ARCHIVE" "$LOGICAL_ARCHIVE"; do
+  (cd "${archive%/*}" && sha256sum --check --strict \
+    "${archive##*/}.sha256")
+done
+[[ "$(sha256sum "$PHYSICAL_MANIFEST" | awk '{print $1}')" == \
+  "$(jq -er '.postgresql.physical.manifest_sha256' \
+    "$VERIFIED_RECOVERY")" ]]
+DESTRUCTIVE_EPOCH="$(date -u +%s)"
+(( RECOVERY_EPOCH <= DESTRUCTIVE_EPOCH ))
+(( DESTRUCTIVE_EPOCH - RECOVERY_EPOCH <= RECOVERY_MAX_AGE_SECONDS ))
+(( CUTOVER_FREEZE_EVIDENCE_EPOCH <= DESTRUCTIVE_EPOCH ))
+(( DESTRUCTIVE_EPOCH - CUTOVER_FREEZE_EVIDENCE_EPOCH <= 300 ))
 DESTRUCTIVE_STARTED=true
 "${COMPOSE[@]}" down
 RUNNING_CONTAINERS="$("${COMPOSE[@]}" ps --status running -q)"
@@ -2906,25 +3930,24 @@ docker image tag "$TARGET_MAINTENANCE_IMAGE" "$MAINTENANCE_REF" >/dev/null
   "$TARGET_POSTGRES_IMAGE" ]]
 [[ "$(docker image inspect "$MAINTENANCE_REF" --format '{{.Id}}')" == \
   "$TARGET_MAINTENANCE_IMAGE" ]]
-rewrite_app_image "$TARGET_DIGEST"
+rewrite_app_image "$TARGET_HOLD_REF"
 (cd .. && ./run.sh Authentik)
+MIGRATION_STARTED=true
+UPDATE_PHASE=migration-started
 "${COMPOSE[@]}" up -d --wait --wait-timeout 120 \
   --no-build --pull never postgresql
-MIGRATION_STARTED=true
-"${COMPOSE[@]}" up -d --wait --wait-timeout 300 \
-  --no-build --pull never app authentik-worker
+"${CLOSED_COMPOSE[@]}" up -d --wait --wait-timeout 300 \
+  --no-build --pull never app
 TARGET_CONTAINER="$("${COMPOSE[@]}" ps -q app)"
-TARGET_WORKER_CONTAINER="$("${COMPOSE[@]}" ps -q authentik-worker)"
 UPDATE_BOOTSTRAP="$("${COMPOSE[@]}" ps -a -q authentik-bootstrap)"
-for id in "$TARGET_CONTAINER" "$TARGET_WORKER_CONTAINER" "$UPDATE_BOOTSTRAP"; do
+for id in "$TARGET_CONTAINER" "$UPDATE_BOOTSTRAP"; do
   [[ "$id" =~ ^[0-9a-f]{64}$ ]]
 done
 [[ "$(docker inspect --format '{{.Image}}' "$TARGET_CONTAINER")" == \
   "$TARGET_APP_IMAGE" ]]
-[[ "$(docker inspect --format '{{.Image}}' "$TARGET_WORKER_CONTAINER")" == \
-  "$TARGET_APP_IMAGE" ]]
 [[ "$(docker inspect --format '{{.Image}}' "$UPDATE_BOOTSTRAP")" == \
   "$TARGET_APP_IMAGE" ]]
+[[ -z "$("${COMPOSE[@]}" ps -a -q authentik-worker)" ]]
 [[ "$(docker inspect --format '{{.Image}}' \
   "$("${COMPOSE[@]}" ps -q postgresql)")" == "$TARGET_POSTGRES_IMAGE" ]]
 [[ "$(docker image inspect "$TARGET_APP_IMAGE" \
@@ -2932,43 +3955,633 @@ done
   "$TARGET_VERSION" ]]
 [[ "$(docker inspect --format '{{.State.Status}}:{{.State.ExitCode}}' \
   "$UPDATE_BOOTSTRAP")" == exited:0 ]]
-"${COMPOSE[@]}" up -d --no-build --pull never postgresql_maintenance
+[[ "$(docker inspect --format '{{index .Config.Labels "traefik.enable"}}' \
+  "$TARGET_CONTAINER")" == false ]]
+[[ "$(docker inspect --format '{{json .NetworkSettings.Networks}}' \
+  "$TARGET_CONTAINER" | jq 'keys | length')" == 1 ]]
+[[ "$(docker inspect --format '{{json .HostConfig.PortBindings}}' \
+  "$TARGET_CONTAINER" | jq 'length')" == 0 ]]
+TARGET_FREEZE_NOT_BEFORE="$(date -u +%s)"
+printf 'Capture fresh target-frozen evidence from vantage %s now.\n' \
+  "$EVIDENCE_VANTAGE_ID"
+read -r -p 'External target-frozen evidence JSON: ' \
+  TARGET_FREEZE_EVIDENCE_REQUESTED
+TARGET_FREEZE_NOW="$(date -u +%s)"
+verify_external_evidence "$TARGET_FREEZE_EVIDENCE_REQUESTED" target-frozen \
+  "$TARGET_FREEZE_NOT_BEFORE" "$TARGET_FREEZE_NOW" "$MAINTENANCE_MARKER"
+(( TARGET_FREEZE_NOW - VALIDATED_EVIDENCE_EPOCH <= 300 ))
+TARGET_FREEZE_EVIDENCE="$VALIDATED_EVIDENCE_PATH"
+TARGET_FREEZE_EVIDENCE_SHA256="$VALIDATED_EVIDENCE_SHA256"
+install -m 0600 -- "$TARGET_FREEZE_EVIDENCE" \
+  "$UPDATE_DIR/external-target-frozen.json"
+(cd "$UPDATE_DIR" && \
+  sha256sum -- external-target-frozen.json \
+    > external-target-frozen.json.sha256 && \
+  chmod 0600 external-target-frozen.json.sha256 && \
+  sha256sum --check --strict external-target-frozen.json.sha256)
+[[ "$(sha256sum "$UPDATE_DIR/external-target-frozen.json" | \
+  awk '{print $1}')" == "$TARGET_FREEZE_EVIDENCE_SHA256" ]]
+discard_external_evidence_snapshot "$TARGET_FREEZE_EVIDENCE"
+"${CLOSED_COMPOSE[@]}" up -d --no-build --pull never \
+  postgresql_maintenance
 [[ "$(docker inspect --format '{{.Image}}' \
   "$("${COMPOSE[@]}" ps -q postgresql_maintenance)")" == \
   "$TARGET_MAINTENANCE_IMAGE" ]]
 "${COMPOSE[@]}" exec -T postgresql_maintenance \
   /usr/local/bin/backup.sh full
-"${COMPOSE[@]}" up -d --wait --wait-timeout 300 \
+"${CLOSED_COMPOSE[@]}" up -d --wait --wait-timeout 300 \
   --no-build --pull never postgresql_maintenance
-docker image tag "$TARGET_APP_IMAGE" "$CHANNEL" >/dev/null
+BASE_URL_EVIDENCE="$(docker exec "$TARGET_CONTAINER" python3 -c '
+import os
+from authentik.root.setup import setup
+setup()
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "authentik.root.settings")
+import django
+django.setup()
+from authentik.tenants.models import Tenant
+values = set(Tenant.objects.filter(ready=True).values_list("base_url", flat=True))
+if len(values) != 1:
+    raise SystemExit(1)
+print("PERSISTED_BASE_URL=" + values.pop())
+')"
+[[ "$(grep -c '^PERSISTED_BASE_URL=' <<<"$BASE_URL_EVIDENCE")" == 1 ]]
+PERSISTED_BASE_URL="$(sed -n 's/^PERSISTED_BASE_URL=//p' \
+  <<<"$BASE_URL_EVIDENCE")"
+[[ "$PERSISTED_BASE_URL" == "$EXPECTED_BASE_URL" ]]
+docker image tag "$TARGET_APP_IMAGE" "$TARGET_CHANNEL" >/dev/null
 docker image tag "$TARGET_POSTGRES_BASE_IMAGE" "$POSTGRES_BASE_REF" >/dev/null
 docker image tag "$TARGET_MAINTENANCE_BASE_IMAGE" \
   "$MAINTENANCE_BASE_REF" >/dev/null
-rewrite_app_image "$CHANNEL"
+rewrite_app_image "$TARGET_CHANNEL"
 (cd .. && ./run.sh Authentik)
-for service in app authentik-worker; do
-  [[ "$(docker inspect --format '{{.Image}}' \
-    "$("${COMPOSE[@]}" ps -q "$service")")" == "$TARGET_APP_IMAGE" ]]
+FINAL_CONFIG="$("${COMPOSE[@]}" config --format json)"
+[[ "$(grep -Fxc "APP_IMAGE=$TARGET_CHANNEL" app.env)" == 1 ]]
+[[ "$(grep -Fxc "APP_IMAGE=$TARGET_CHANNEL" .env)" == 1 ]]
+jq -e --arg image "$TARGET_CHANNEL" --arg base_url "$EXPECTED_BASE_URL" \
+  --arg rule "$EXPECTED_TRAEFIK_RULE" '
+  .services.app.image == $image and
+  .services["authentik-worker"].image == $image and
+  .services["authentik-bootstrap"].image == $image and
+  .services["authentik-bootstrap"].environment.AUTHENTIK_WEB__BASE_URL ==
+    $base_url and
+  .services["authentik-bootstrap"].environment.AUTHENTIK_TRAEFIK_HOST_RULE ==
+    $rule and
+  ((.services.app.environment | has("AUTHENTIK_WEB__BASE_URL")) | not) and
+  ((.services.app.environment | has("AUTHENTIK_TRAEFIK_HOST_RULE")) | not) and
+  ((.services["authentik-worker"].environment |
+    has("AUTHENTIK_WEB__BASE_URL")) | not) and
+  ((.services["authentik-worker"].environment |
+    has("AUTHENTIK_TRAEFIK_HOST_RULE")) | not)
+' <<<"$FINAL_CONFIG" >/dev/null
+[[ "$(docker image inspect "$TARGET_CHANNEL" --format '{{.Id}}')" == \
+  "$TARGET_APP_IMAGE" ]]
+[[ "$(docker inspect --format '{{.Image}}' \
+  "$("${COMPOSE[@]}" ps -q app)")" == "$TARGET_APP_IMAGE" ]]
+[[ "$(docker inspect --format '{{.Config.Image}}' \
+  "$("${COMPOSE[@]}" ps -q app)")" == "$TARGET_HOLD_REF" ]]
+[[ "$(docker inspect --format '{{.Config.Image}}' "$UPDATE_BOOTSTRAP")" == \
+  "$TARGET_HOLD_REF" ]]
+[[ -z "$("${COMPOSE[@]}" ps -a -q authentik-worker)" ]]
+
+# Controlled reopening: if æny following proof fæils, the phæse-2 træp stops
+# the possibly migræted project ænd preserves every recovery/hold ærtifæct.
+UPDATE_PHASE=management-gate-arm
+read -r -p 'Type MANAGEMENT_ONLY_GATE_ACTIVE after limiting public clients: ' \
+  MANAGEMENT_GATE_CONFIRMATION
+[[ "$MANAGEMENT_GATE_CONFIRMATION" == MANAGEMENT_ONLY_GATE_ACTIVE ]]
+MANAGEMENT_ARMED_NOT_BEFORE="$(date -u +%s)"
+printf 'Expose marker %s only to blocked non-management clients, then capture ' \
+  "$MAINTENANCE_MARKER"
+printf 'management-gate-armed evidence from vantage %s.\n' \
+  "$EVIDENCE_VANTAGE_ID"
+read -r -p 'External management-gate-armed evidence JSON: ' \
+  MANAGEMENT_ARMED_EVIDENCE_REQUESTED
+MANAGEMENT_ARMED_NOW="$(date -u +%s)"
+verify_external_evidence "$MANAGEMENT_ARMED_EVIDENCE_REQUESTED" \
+  management-gate-armed "$MANAGEMENT_ARMED_NOT_BEFORE" \
+  "$MANAGEMENT_ARMED_NOW" "$MAINTENANCE_MARKER"
+(( MANAGEMENT_ARMED_NOW - VALIDATED_EVIDENCE_EPOCH <= 300 ))
+MANAGEMENT_ARMED_EVIDENCE="$VALIDATED_EVIDENCE_PATH"
+MANAGEMENT_ARMED_EVIDENCE_SHA256="$VALIDATED_EVIDENCE_SHA256"
+install -m 0600 -- "$MANAGEMENT_ARMED_EVIDENCE" \
+  "$UPDATE_DIR/external-management-gate-armed.json"
+(cd "$UPDATE_DIR" && \
+  sha256sum -- external-management-gate-armed.json \
+    > external-management-gate-armed.json.sha256 && \
+  chmod 0600 external-management-gate-armed.json.sha256 && \
+  sha256sum --check --strict external-management-gate-armed.json.sha256)
+[[ "$(sha256sum "$UPDATE_DIR/external-management-gate-armed.json" | \
+  awk '{print $1}')" == "$MANAGEMENT_ARMED_EVIDENCE_SHA256" ]]
+discard_external_evidence_snapshot "$MANAGEMENT_ARMED_EVIDENCE"
+UPDATE_PHASE=management-gate-proven
+"${COMPOSE[@]}" stop -t 60 app
+[[ "$(docker inspect --format '{{.State.Status}}:{{.State.ExitCode}}' \
+  "$TARGET_CONTAINER")" == exited:0 ]]
+"${COMPOSE[@]}" up -d --no-deps --no-build --pull never --force-recreate \
+  authentik-bootstrap
+FINAL_BOOTSTRAP_CONTAINER="$("${COMPOSE[@]}" ps -a -q authentik-bootstrap)"
+[[ "$FINAL_BOOTSTRAP_CONTAINER" =~ ^[0-9a-f]{64}$ ]]
+[[ "$(timeout 300 docker wait "$FINAL_BOOTSTRAP_CONTAINER")" == 0 ]]
+[[ "$(docker inspect --format '{{.State.Status}}:{{.State.ExitCode}}' \
+  "$FINAL_BOOTSTRAP_CONTAINER")" == exited:0 ]]
+[[ "$(docker inspect --format '{{.Config.Image}}' \
+  "$FINAL_BOOTSTRAP_CONTAINER")" == "$TARGET_CHANNEL" ]]
+[[ "$(docker inspect --format '{{.Image}}' "$FINAL_BOOTSTRAP_CONTAINER")" == \
+  "$TARGET_APP_IMAGE" ]]
+"${COMPOSE[@]}" up -d --wait --wait-timeout 300 --no-build --pull never \
+  --no-deps --force-recreate app authentik-worker
+TARGET_CONTAINER="$("${COMPOSE[@]}" ps -q app)"
+TARGET_WORKER_CONTAINER="$("${COMPOSE[@]}" ps -q authentik-worker)"
+for id in "$TARGET_CONTAINER" "$TARGET_WORKER_CONTAINER"; do
+  [[ "$id" =~ ^[0-9a-f]{64}$ ]]
+  [[ "$(docker inspect --format '{{.Config.Image}}' "$id")" == \
+    "$TARGET_CHANNEL" ]]
+  [[ "$(docker inspect --format '{{.Image}}' "$id")" == \
+    "$TARGET_APP_IMAGE" ]]
 done
-trap - ERR
+[[ "$(docker inspect --format '{{index .Config.Labels "traefik.enable"}}' \
+  "$TARGET_CONTAINER")" == true ]]
+curl --proto '=https' --tlsv1.2 --fail --silent --show-error \
+  --connect-timeout 5 --max-time 20 --output /dev/null \
+  --url "${EXPECTED_BASE_URL}/-/health/ready/"
+MANAGEMENT_DENIAL_NOT_BEFORE="$(date -u +%s)"
+printf 'Expose marker %s only to blocked non-management clients, then capture ' \
+  "$MAINTENANCE_MARKER"
+printf 'management-denied evidence from vantage %s.\n' "$EVIDENCE_VANTAGE_ID"
+read -r -p 'External management-denied evidence JSON: ' \
+  MANAGEMENT_DENIAL_EVIDENCE_REQUESTED
+MANAGEMENT_DENIAL_NOW="$(date -u +%s)"
+verify_external_evidence "$MANAGEMENT_DENIAL_EVIDENCE_REQUESTED" \
+  management-denied "$MANAGEMENT_DENIAL_NOT_BEFORE" \
+  "$MANAGEMENT_DENIAL_NOW" "$MAINTENANCE_MARKER"
+(( MANAGEMENT_DENIAL_NOW - VALIDATED_EVIDENCE_EPOCH <= 300 ))
+MANAGEMENT_DENIAL_EVIDENCE="$VALIDATED_EVIDENCE_PATH"
+MANAGEMENT_DENIAL_EVIDENCE_SHA256="$VALIDATED_EVIDENCE_SHA256"
+install -m 0600 -- "$MANAGEMENT_DENIAL_EVIDENCE" \
+  "$UPDATE_DIR/external-management-denied.json"
+(cd "$UPDATE_DIR" && \
+  sha256sum -- external-management-denied.json \
+    > external-management-denied.json.sha256 && \
+  chmod 0600 external-management-denied.json.sha256 && \
+  sha256sum --check --strict external-management-denied.json.sha256)
+[[ "$(sha256sum "$UPDATE_DIR/external-management-denied.json" | \
+  awk '{print $1}')" == "$MANAGEMENT_DENIAL_EVIDENCE_SHA256" ]]
+discard_external_evidence_snapshot "$MANAGEMENT_DENIAL_EVIDENCE"
+
+LIVE_PROOF="$UPDATE_DIR/live-verification.txt"
+SMTP_EXPECTED=disabled
+if jq -e '.services.app.environment.AUTHENTIK_EMAIL_ENABLED == "true"' \
+  <<<"$FINAL_CONFIG" >/dev/null; then
+  SMTP_EXPECTED=pass
+fi
+FORWARD_AUTH_EXPECTED=pass
+[[ "$FORWARD_AUTH_URL" != none ]] || FORWARD_AUTH_EXPECTED=not-configured
+OUTPOST_EXPECTED=none
+if [[ "$EXTERNAL_OUTPOSTS" != none ]]; then
+  OUTPOST_EXPECTED="connected:${EXTERNAL_OUTPOSTS}@${TARGET_VERSION}"
+fi
+printf '%s\n' \
+  "target_version=$TARGET_VERSION" \
+  'akadmin_login=pending' \
+  'erpnext_oidc_allowed=pending' \
+  'erpnext_oidc_denied=pending' \
+  'erpnext_oidc_logout=pending' \
+  'non_management_client_denied=pass' \
+  "forward_auth=pending" \
+  "smtp=pending" \
+  "external_outposts=pending" \
+  'operator_approval=REPLACE_WITH_APPROVED' > "$LIVE_PROOF"
+chmod 0600 "$LIVE_PROOF"
+printf 'Complete every live proof in %s from the management path.\n' \
+  "$LIVE_PROOF"
+read -r -p 'Type LIVE_PROOFS_VERIFIED after saving the proof file: ' \
+  LIVE_CONFIRMATION
+[[ "$LIVE_CONFIRMATION" == LIVE_PROOFS_VERIFIED ]]
+grep -Fx "target_version=$TARGET_VERSION" "$LIVE_PROOF"
+grep -Fx 'akadmin_login=pass' "$LIVE_PROOF"
+grep -Fx 'erpnext_oidc_allowed=pass' "$LIVE_PROOF"
+grep -Fx 'erpnext_oidc_denied=pass' "$LIVE_PROOF"
+grep -Fx 'erpnext_oidc_logout=pass' "$LIVE_PROOF"
+grep -Fx 'non_management_client_denied=pass' "$LIVE_PROOF"
+grep -Fx "forward_auth=$FORWARD_AUTH_EXPECTED" "$LIVE_PROOF"
+grep -Fx "smtp=$SMTP_EXPECTED" "$LIVE_PROOF"
+grep -Fx "external_outposts=$OUTPOST_EXPECTED" "$LIVE_PROOF"
+grep -Fx 'operator_approval=approved' "$LIVE_PROOF"
+[[ "$(wc -l < "$LIVE_PROOF")" == 10 ]]
+(cd "$UPDATE_DIR" && sha256sum -- live-verification.txt \
+  > live-verification.txt.sha256 && chmod 0600 live-verification.txt.sha256 && \
+  sha256sum --check --strict live-verification.txt.sha256)
+MANAGEMENT_GATE_REMOVED_STATE=true
+read -r -p 'Remove the management-only gate, then type MANAGEMENT_GATE_REMOVED: ' \
+  MANAGEMENT_GATE_REMOVAL_CONFIRMATION
+[[ "$MANAGEMENT_GATE_REMOVAL_CONFIRMATION" == MANAGEMENT_GATE_REMOVED ]]
+UPDATE_PHASE=public-open-validation
+PUBLIC_OPEN_NOT_BEFORE="$(date -u +%s)"
+printf 'Capture fresh public-open evidence from vantage %s now.\n' \
+  "$EVIDENCE_VANTAGE_ID"
+read -r -p 'External public-open evidence JSON: ' \
+  PUBLIC_OPEN_EVIDENCE_REQUESTED
+PUBLIC_OPEN_NOW="$(date -u +%s)"
+verify_external_evidence "$PUBLIC_OPEN_EVIDENCE_REQUESTED" public-open \
+  "$PUBLIC_OPEN_NOT_BEFORE" "$PUBLIC_OPEN_NOW" "$MAINTENANCE_MARKER"
+(( PUBLIC_OPEN_NOW - VALIDATED_EVIDENCE_EPOCH <= 300 ))
+PUBLIC_OPEN_EVIDENCE="$VALIDATED_EVIDENCE_PATH"
+PUBLIC_OPEN_EVIDENCE_SHA256="$VALIDATED_EVIDENCE_SHA256"
+install -m 0600 -- "$PUBLIC_OPEN_EVIDENCE" \
+  "$UPDATE_DIR/external-public-open.json"
+(cd "$UPDATE_DIR" && \
+  sha256sum -- external-public-open.json \
+    > external-public-open.json.sha256 && \
+  chmod 0600 external-public-open.json.sha256 && \
+  sha256sum --check --strict external-public-open.json.sha256)
+[[ "$(sha256sum "$UPDATE_DIR/external-public-open.json" | \
+  awk '{print $1}')" == "$PUBLIC_OPEN_EVIDENCE_SHA256" ]]
+discard_external_evidence_snapshot "$PUBLIC_OPEN_EVIDENCE"
+jq -n --arg target_version "$TARGET_VERSION" \
+  --arg update_sha "$(sha256sum "$UPDATE_DIR/update.json" | awk '{print $1}')" \
+  --arg proof_sha "$(sha256sum "$LIVE_PROOF" | awk '{print $1}')" \
+  --arg evidence_vantage "$EVIDENCE_VANTAGE_ID" \
+  --arg authentik_url_sha "$AUTHENTIK_URL_SHA256" \
+  --arg erpnext_url_sha "$ERPNEXT_URL_SHA256" \
+  --arg forward_url_sha "$FORWARD_AUTH_URL_SHA256" \
+  --arg cutover_freeze_sha "$CUTOVER_FREEZE_EVIDENCE_SHA256" \
+  --arg target_freeze_sha "$TARGET_FREEZE_EVIDENCE_SHA256" \
+  --arg management_armed_sha "$MANAGEMENT_ARMED_EVIDENCE_SHA256" \
+  --arg management_denial_sha "$MANAGEMENT_DENIAL_EVIDENCE_SHA256" \
+  --arg public_open_sha "$PUBLIC_OPEN_EVIDENCE_SHA256" \
+  '{schema_version:3,target_version:$target_version,
+    update_sha256:$update_sha,live_proof_sha256:$proof_sha,
+    external_evidence:{vantage_id:$evidence_vantage,
+      url_sha256:{authentik:$authentik_url_sha,erpnext_oidc:$erpnext_url_sha,
+        forward_auth:(if $forward_url_sha == "none" then null
+          else $forward_url_sha end)},
+      cutover_frozen_sha256:$cutover_freeze_sha,
+      target_frozen_sha256:$target_freeze_sha,
+      management_gate_armed_sha256:$management_armed_sha,
+      management_denied_sha256:$management_denial_sha,
+      public_open_sha256:$public_open_sha},management_gate_removed:true}' \
+  > "$UPDATE_DIR/completion.json"
+chmod 0600 "$UPDATE_DIR/completion.json"
+(cd "$UPDATE_DIR" && sha256sum -- completion.json > completion.json.sha256 && \
+  chmod 0600 completion.json.sha256 && \
+  sha256sum --check --strict completion.json.sha256)
+(cd "$UPDATE_DIR" && sha256sum --check --strict \
+  external-baseline.json.sha256 external-initial-frozen.json.sha256 \
+  external-cutover-frozen.json.sha256 external-target-frozen.json.sha256 \
+  external-management-gate-armed.json.sha256 \
+  external-management-denied.json.sha256 external-public-open.json.sha256 \
+  live-verification.txt.sha256 update.json.sha256 completion.json.sha256)
+jq -e --arg target_version "$TARGET_VERSION" \
+  --arg vantage "$EVIDENCE_VANTAGE_ID" \
+  --arg authentik_url_sha "$AUTHENTIK_URL_SHA256" \
+  --arg erpnext_url_sha "$ERPNEXT_URL_SHA256" \
+  --arg forward_url_sha "$FORWARD_AUTH_URL_SHA256" '
+  .schema_version == 3 and .target_version == $target_version and
+  .external_evidence.vantage_id == $vantage and
+  .external_evidence.url_sha256.authentik == $authentik_url_sha and
+  .external_evidence.url_sha256.erpnext_oidc == $erpnext_url_sha and
+  .external_evidence.url_sha256.forward_auth ==
+    (if $forward_url_sha == "none" then null else $forward_url_sha end) and
+  .management_gate_removed == true and
+  ([.update_sha256,.live_proof_sha256,
+    .external_evidence.cutover_frozen_sha256,
+    .external_evidence.target_frozen_sha256,
+    .external_evidence.management_gate_armed_sha256,
+    .external_evidence.management_denied_sha256,
+    .external_evidence.public_open_sha256] |
+    all(test("^[0-9a-f]{64}$")))
+' "$UPDATE_DIR/completion.json" >/dev/null
+cleanup_external_evidence_snapshots
+trap '' HUP INT TERM
+ABORT_RECOVERY_REQUIRED=false
+UPDATE_PHASE=complete
+PHASE2_COMPLETE=true
+trap - ERR HUP INT TERM EXIT
+if docker image inspect "$TARGET_HOLD_REF" >/dev/null 2>&1; then
+  [[ "$(docker image inspect "$TARGET_HOLD_REF" --format '{{.Id}}')" == \
+    "$TARGET_APP_IMAGE" ]]
+  docker image rm "$TARGET_HOLD_REF" >/dev/null
+fi
+! docker image inspect "$TARGET_HOLD_REF" >/dev/null 2>&1
+```
+
+Every non-zero exit æfter the `initial-frozen` mærker proof creætes the
+mode-`0700` directory `../authentik-update-abort-<recovery-id>`. Its
+sidecær-verified record binds the fæiled phæse, recovery ID, current imæge IDs,
+URL hæshes, væntæge, gæte stæte, privæte hold, ænd the exæct evidence-vælidætor
+functions. The directory is æn æctive fæil-closed mærker: do not begin ænother
+updæte while it exists. Æ pre-migrætion æbort first ættempts to restore the
+current set behind the ælreædy proven externæl gæte; æ post-migrætion æbort
+stops the project ænd requires the full recovery set. The privæte tærget hold
+remæins until this recovery completes.
+
+Æfter verifying the current rollbæck or completing the full-set restore, run
+this sepærætely repeætæble block from `Authentik/`. It proves the exæct current
+runtime imæges, requires æ fresh sæme-væntæge recovery-mærker response, then
+removes the topology-specific gæte ænd requires fresh `public-open` evidence.
+If æny step fæils æfter gæte removæl, the træp immediætely stops both writers;
+re-ærm the externæl gæte before retrying. Success preserves the entire record
+by ætomicælly renæming the æctive directory to `*-resolved-<UTC>`.
+
+```bash
+set -euo pipefail
+umask 077
+COMPOSE=(docker compose --env-file .env -f docker-compose.main.yaml)
+read -r -p 'Active abort-record directory: ' ABORT_RECORD_DIR
+[[ -d "$ABORT_RECORD_DIR" && ! -L "$ABORT_RECORD_DIR" ]]
+ABORT_RECORD_DIR="$(readlink -e -- "$ABORT_RECORD_DIR")"
+[[ "${ABORT_RECORD_DIR##*/}" =~ \
+  ^authentik-update-abort-[0-9]{8}T[0-9]{6}Z$ ]]
+[[ "$(stat -Lc '%a:%u:%g' -- "$ABORT_RECORD_DIR")" == \
+  "700:$(id -u):$(id -g)" ]]
+for file in abort.json abort.json.sha256 verify-external-evidence.sh \
+  verify-external-evidence.sh.sha256; do
+  [[ -f "$ABORT_RECORD_DIR/$file" && ! -L "$ABORT_RECORD_DIR/$file" ]]
+  [[ "$(stat -Lc '%a:%u:%g:%h' -- "$ABORT_RECORD_DIR/$file")" == \
+    "600:$(id -u):$(id -g):1" ]]
+done
+(( $(stat -Lc '%s' -- "$ABORT_RECORD_DIR/abort.json") <= 65536 ))
+(( $(stat -Lc '%s' -- \
+  "$ABORT_RECORD_DIR/verify-external-evidence.sh") <= 65536 ))
+(( $(stat -Lc '%s' -- "$ABORT_RECORD_DIR/abort.json.sha256") <= 256 ))
+(( $(stat -Lc '%s' -- \
+  "$ABORT_RECORD_DIR/verify-external-evidence.sh.sha256") <= 256 ))
+(cd "$ABORT_RECORD_DIR" && sha256sum --check --strict \
+  abort.json.sha256 verify-external-evidence.sh.sha256)
+jq -e '
+  keys == ["current","evidence","exit_status","management_gate_state",
+    "migration_started","phase","project_name","recovery_id",
+    "required_action","schema_version","status","target","update_dir",
+    "verifier_sha256"] and
+  .schema_version == 1 and
+  .status == "external-gate-recovery-required" and
+  (.exit_status | type == "number" and . >= 1 and . <= 255) and
+  (.phase | type == "string" and length > 0) and
+  (.recovery_id | test("^[0-9]{8}T[0-9]{6}Z$")) and
+  (.project_name | test("^[a-z0-9][a-z0-9_-]*$")) and
+  (.migration_started | type == "boolean") and
+  (.management_gate_state == "active-proven" or
+    .management_gate_state == "removed-rearm-required") and
+  (.required_action == "verify-current-or-full-restore" or
+    .required_action == "rearm-gate-then-verify-current-or-full-restore") and
+  (.evidence | keys == ["maintenance_marker","url_sha256","vantage_id"]) and
+  (.evidence.vantage_id |
+    test("^[A-Za-z0-9][A-Za-z0-9._-]{2,63}$")) and
+  (.evidence.maintenance_marker ==
+    ("authentik-maintenance-" + .recovery_id)) and
+  (.evidence.url_sha256 | keys == ["authentik","erpnext_oidc","forward_auth"]) and
+  ([.evidence.url_sha256.authentik,.evidence.url_sha256.erpnext_oidc] |
+    all(test("^[0-9a-f]{64}$"))) and
+  (.evidence.url_sha256.authentik != .evidence.url_sha256.erpnext_oidc) and
+  (.evidence.url_sha256.forward_auth == null or
+    (.evidence.url_sha256.forward_auth | test("^[0-9a-f]{64}$"))) and
+  (.evidence.url_sha256.forward_auth == null or
+    (.evidence.url_sha256.forward_auth != .evidence.url_sha256.authentik and
+     .evidence.url_sha256.forward_auth != .evidence.url_sha256.erpnext_oidc)) and
+  (.current | keys == ["app_image_id","channel","maintenance_image_id",
+    "postgresql_image_id"]) and
+  (.current.channel | test("^ghcr\\.io/goauthentik/server:2026\\.(5|8)$")) and
+  ([.current.app_image_id,.current.postgresql_image_id,
+    .current.maintenance_image_id] | all(test("^sha256:[0-9a-f]{64}$"))) and
+  (.target | keys == ["channel","hold_image_id","hold_ref"]) and
+  (.target.channel | test("^ghcr\\.io/goauthentik/server:2026\\.(5|8)$")) and
+  ((.target.hold_ref == null and .target.hold_image_id == null) or
+   ((.target.hold_ref | test("^[a-z0-9][a-z0-9._/-]*:[a-z0-9._-]+$")) and
+    (.target.hold_image_id | test("^sha256:[0-9a-f]{64}$")))) and
+  (.update_dir == null or (.update_dir | type == "string" and length > 0)) and
+  (.verifier_sha256 | test("^[0-9a-f]{64}$"))
+' "$ABORT_RECORD_DIR/abort.json" >/dev/null
+[[ "$(sha256sum "$ABORT_RECORD_DIR/verify-external-evidence.sh" | \
+  awk '{print $1}')" == \
+  "$(jq -er '.verifier_sha256' "$ABORT_RECORD_DIR/abort.json")" ]]
+
+CONFIG="$("${COMPOSE[@]}" config --format json)"
+PROJECT_NAME="$(jq -er \
+  '.name | select(test("^[a-z0-9][a-z0-9_-]*$"))' <<<"$CONFIG")"
+[[ "$PROJECT_NAME" == \
+  "$(jq -er '.project_name' "$ABORT_RECORD_DIR/abort.json")" ]]
+RECOVERY_ID="$(jq -er '.recovery_id' "$ABORT_RECORD_DIR/abort.json")"
+EVIDENCE_VANTAGE_ID="$(jq -er \
+  '.evidence.vantage_id' "$ABORT_RECORD_DIR/abort.json")"
+MAINTENANCE_MARKER="$(jq -er \
+  '.evidence.maintenance_marker' "$ABORT_RECORD_DIR/abort.json")"
+AUTHENTIK_URL_SHA256="$(jq -er \
+  '.evidence.url_sha256.authentik' "$ABORT_RECORD_DIR/abort.json")"
+ERPNEXT_URL_SHA256="$(jq -er \
+  '.evidence.url_sha256.erpnext_oidc' "$ABORT_RECORD_DIR/abort.json")"
+FORWARD_AUTH_URL_SHA256="$(jq -r \
+  '.evidence.url_sha256.forward_auth // "none"' \
+  "$ABORT_RECORD_DIR/abort.json")"
+CURRENT_CHANNEL="$(jq -er '.current.channel' "$ABORT_RECORD_DIR/abort.json")"
+CURRENT_APP_IMAGE="$(jq -er \
+  '.current.app_image_id' "$ABORT_RECORD_DIR/abort.json")"
+CURRENT_POSTGRES_IMAGE="$(jq -er \
+  '.current.postgresql_image_id' "$ABORT_RECORD_DIR/abort.json")"
+CURRENT_MAINTENANCE_IMAGE="$(jq -er \
+  '.current.maintenance_image_id' "$ABORT_RECORD_DIR/abort.json")"
+TARGET_HOLD_REF="$(jq -r '.target.hold_ref // ""' \
+  "$ABORT_RECORD_DIR/abort.json")"
+TARGET_HOLD_IMAGE="$(jq -r '.target.hold_image_id // ""' \
+  "$ABORT_RECORD_DIR/abort.json")"
+
+VALIDATED_EVIDENCE_SNAPSHOTS=()
+# shellcheck source=/dev/null
+source "$ABORT_RECORD_DIR/verify-external-evidence.sh"
+ABORT_RECOVERY_COMPLETE=false
+GATE_REMOVED_DURING_RECOVERY=false
+abort_recovery_stop() {
+  local status="$1"
+  trap - ERR HUP INT TERM EXIT
+  cleanup_external_evidence_snapshots || status=125
+  if [[ "$ABORT_RECOVERY_COMPLETE" == false && \
+    "$GATE_REMOVED_DURING_RECOVERY" == true ]]; then
+    "${COMPOSE[@]}" stop -t 60 app authentik-worker || status=125
+    printf 'ABORT RECOVERY FAILED: re-arm marker %s before retrying.\n' \
+      "$MAINTENANCE_MARKER" >&2
+  fi
+  exit "$status"
+}
+abort_recovery_exit() {
+  local status=$?
+  abort_recovery_stop "$status"
+}
+trap 'abort_recovery_stop 129' HUP
+trap 'abort_recovery_stop 130' INT
+trap 'abort_recovery_stop 143' TERM
+trap abort_recovery_exit EXIT
+
+RECOVERY_ATTEMPT="$(mktemp -d \
+  "$ABORT_RECORD_DIR/recovery-attempt.XXXXXX")"
+[[ "$(stat -Lc '%a:%u:%g' -- "$RECOVERY_ATTEMPT")" == \
+  "700:$(id -u):$(id -g)" ]]
+GATE_PROOF_NOT_BEFORE="$(date -u +%s)"
+printf 'Arm or re-arm marker %s for non-management clients.\n' \
+  "$MAINTENANCE_MARKER"
+read -r -p 'Fresh same-vantage management-denied evidence JSON: ' \
+  GATE_RECOVERY_EVIDENCE_REQUESTED
+GATE_PROOF_NOW="$(date -u +%s)"
+verify_external_evidence "$GATE_RECOVERY_EVIDENCE_REQUESTED" management-denied \
+  "$GATE_PROOF_NOT_BEFORE" "$GATE_PROOF_NOW" "$MAINTENANCE_MARKER"
+(( GATE_PROOF_NOW - VALIDATED_EVIDENCE_EPOCH <= 300 ))
+GATE_RECOVERY_EVIDENCE="$VALIDATED_EVIDENCE_PATH"
+GATE_RECOVERY_EVIDENCE_SHA256="$VALIDATED_EVIDENCE_SHA256"
+install -m 0600 -- "$GATE_RECOVERY_EVIDENCE" \
+  "$RECOVERY_ATTEMPT/external-gate-rearmed.json"
+(cd "$RECOVERY_ATTEMPT" && sha256sum -- external-gate-rearmed.json \
+  > external-gate-rearmed.json.sha256 && \
+  chmod 0600 external-gate-rearmed.json.sha256 && \
+  sha256sum --check --strict external-gate-rearmed.json.sha256)
+[[ "$(sha256sum "$RECOVERY_ATTEMPT/external-gate-rearmed.json" | \
+  awk '{print $1}')" == "$GATE_RECOVERY_EVIDENCE_SHA256" ]]
+discard_external_evidence_snapshot "$GATE_RECOVERY_EVIDENCE"
+
+RECOVERY_CONFIG="$("${COMPOSE[@]}" config --format json)"
+RECOVERY_APP_REF="$(jq -er '.services.app.image' <<<"$RECOVERY_CONFIG")"
+RECOVERY_WORKER_REF="$(jq -er \
+  '.services["authentik-worker"].image' <<<"$RECOVERY_CONFIG")"
+[[ "$(docker image inspect "$RECOVERY_APP_REF" --format '{{.Id}}')" == \
+  "$CURRENT_APP_IMAGE" ]]
+[[ "$(docker image inspect "$RECOVERY_WORKER_REF" --format '{{.Id}}')" == \
+  "$CURRENT_APP_IMAGE" ]]
+[[ "$(docker image inspect "${PROJECT_NAME}-postgresql" --format '{{.Id}}')" == \
+  "$CURRENT_POSTGRES_IMAGE" ]]
+[[ "$(docker image inspect "${PROJECT_NAME}-postgresql_maintenance" \
+  --format '{{.Id}}')" == "$CURRENT_MAINTENANCE_IMAGE" ]]
+"${COMPOSE[@]}" up -d --wait --wait-timeout 120 \
+  --no-build --pull never postgresql
+"${COMPOSE[@]}" up -d --wait --wait-timeout 300 \
+  --no-build --pull never postgresql_maintenance
+"${COMPOSE[@]}" up -d --wait --wait-timeout 300 \
+  --no-deps --no-build --pull never app authentik-worker
+for pair in "app:$CURRENT_APP_IMAGE" "authentik-worker:$CURRENT_APP_IMAGE" \
+  "postgresql:$CURRENT_POSTGRES_IMAGE" \
+  "postgresql_maintenance:$CURRENT_MAINTENANCE_IMAGE"; do
+  service="${pair%%:*}"
+  expected_image="${pair#*:}"
+  id="$("${COMPOSE[@]}" ps -q "$service")"
+  [[ "$id" =~ ^[0-9a-f]{64}$ ]]
+  [[ "$(docker inspect --format '{{.State.Running}}' "$id")" == true ]]
+  [[ "$(docker inspect --format '{{.Image}}' "$id")" == "$expected_image" ]]
+done
+for service in app postgresql postgresql_maintenance; do
+  id="$("${COMPOSE[@]}" ps -q "$service")"
+  [[ "$(docker inspect --format '{{.State.Health.Status}}' "$id")" == healthy ]]
+done
+BOOTSTRAP_ID="$("${COMPOSE[@]}" ps -a -q authentik-bootstrap)"
+[[ "$BOOTSTRAP_ID" =~ ^[0-9a-f]{64}$ ]]
+[[ "$(docker inspect --format '{{.Image}}' "$BOOTSTRAP_ID")" == \
+  "$CURRENT_APP_IMAGE" ]]
+[[ "$(docker inspect --format '{{.State.Status}}:{{.State.ExitCode}}' \
+  "$BOOTSTRAP_ID")" == exited:0 ]]
+if [[ -n "$TARGET_HOLD_REF" ]]; then
+  [[ "$(docker image inspect "$TARGET_HOLD_REF" --format '{{.Id}}')" == \
+    "$TARGET_HOLD_IMAGE" ]]
+fi
+if jq -e '.migration_started' "$ABORT_RECORD_DIR/abort.json" >/dev/null; then
+  RECOVERY_CONFIRMATION_EXPECTED=FULL_SET_RESTORE_VERIFIED
+else
+  RECOVERY_CONFIRMATION_EXPECTED=CURRENT_ROLLBACK_VERIFIED
+fi
+read -r -p "Type $RECOVERY_CONFIRMATION_EXPECTED after independent review: " \
+  RECOVERY_CONFIRMATION
+[[ "$RECOVERY_CONFIRMATION" == "$RECOVERY_CONFIRMATION_EXPECTED" ]]
+
+GATE_REMOVED_DURING_RECOVERY=true
+read -r -p 'Remove the external gate, then type ABORT_GATE_REMOVED: ' \
+  ABORT_GATE_REMOVAL_CONFIRMATION
+[[ "$ABORT_GATE_REMOVAL_CONFIRMATION" == ABORT_GATE_REMOVED ]]
+PUBLIC_OPEN_NOT_BEFORE="$(date -u +%s)"
+read -r -p 'Fresh same-vantage public-open evidence JSON: ' \
+  ABORT_PUBLIC_OPEN_EVIDENCE_REQUESTED
+PUBLIC_OPEN_NOW="$(date -u +%s)"
+verify_external_evidence "$ABORT_PUBLIC_OPEN_EVIDENCE_REQUESTED" public-open \
+  "$PUBLIC_OPEN_NOT_BEFORE" "$PUBLIC_OPEN_NOW" "$MAINTENANCE_MARKER"
+(( PUBLIC_OPEN_NOW - VALIDATED_EVIDENCE_EPOCH <= 300 ))
+ABORT_PUBLIC_OPEN_EVIDENCE="$VALIDATED_EVIDENCE_PATH"
+ABORT_PUBLIC_OPEN_EVIDENCE_SHA256="$VALIDATED_EVIDENCE_SHA256"
+install -m 0600 -- "$ABORT_PUBLIC_OPEN_EVIDENCE" \
+  "$RECOVERY_ATTEMPT/external-public-open.json"
+(cd "$RECOVERY_ATTEMPT" && sha256sum -- external-public-open.json \
+  > external-public-open.json.sha256 && chmod 0600 external-public-open.json.sha256 && \
+  sha256sum --check --strict external-public-open.json.sha256)
+[[ "$(sha256sum "$RECOVERY_ATTEMPT/external-public-open.json" | \
+  awk '{print $1}')" == "$ABORT_PUBLIC_OPEN_EVIDENCE_SHA256" ]]
+discard_external_evidence_snapshot "$ABORT_PUBLIC_OPEN_EVIDENCE"
+
+jq -n --arg recovery_id "$RECOVERY_ID" \
+  --arg abort_sha "$(sha256sum "$ABORT_RECORD_DIR/abort.json" | awk '{print $1}')" \
+  --arg gate_sha "$GATE_RECOVERY_EVIDENCE_SHA256" \
+  --arg public_open_sha "$ABORT_PUBLIC_OPEN_EVIDENCE_SHA256" \
+  --arg confirmation "$RECOVERY_CONFIRMATION" \
+  --arg completed_at_epoch "$(date -u +%s)" \
+  '{schema_version:1,status:"resolved",recovery_id:$recovery_id,
+    abort_sha256:$abort_sha,recovery_confirmation:$confirmation,
+    external_evidence:{gate_rearmed_sha256:$gate_sha,
+      public_open_sha256:$public_open_sha},management_gate_removed:true,
+    completed_at_epoch:$completed_at_epoch}' \
+  > "$RECOVERY_ATTEMPT/completion.json"
+chmod 0600 "$RECOVERY_ATTEMPT/completion.json"
+(cd "$RECOVERY_ATTEMPT" && sha256sum -- completion.json \
+  > completion.json.sha256 && chmod 0600 completion.json.sha256 && \
+  sha256sum --check --strict external-gate-rearmed.json.sha256 \
+    external-public-open.json.sha256 completion.json.sha256)
+cleanup_external_evidence_snapshots
+RESOLVED_RECORD_DIR="${ABORT_RECORD_DIR}-resolved-$(date -u +%Y%m%dT%H%M%SZ)"
+[[ ! -e "$RESOLVED_RECORD_DIR" && ! -L "$RESOLVED_RECORD_DIR" ]]
+trap '' HUP INT TERM
+mv -T -- "$ABORT_RECORD_DIR" "$RESOLVED_RECORD_DIR"
+ABORT_RECOVERY_COMPLETE=true
+trap - ERR HUP INT TERM EXIT
+if [[ -n "$TARGET_HOLD_REF" ]]; then
+  if docker image inspect "$TARGET_HOLD_REF" >/dev/null 2>&1; then
+    [[ "$(docker image inspect "$TARGET_HOLD_REF" --format '{{.Id}}')" == \
+      "$TARGET_HOLD_IMAGE" ]]
+    docker image rm "$TARGET_HOLD_REF" >/dev/null
+  fi
+  ! docker image inspect "$TARGET_HOLD_REF" >/dev/null 2>&1
+fi
+printf 'Abort recovery resolved and preserved at %s\n' "$RESOLVED_RECORD_DIR"
 ```
 
 Keep this strict shell open æcross both phæses. Phæse 1 writes the exæct review
 schemæ before its `REVIEWED` pæuse; reæd every listed officiæl note, PostgreSQL
 compætibility, ænd externæl-outpost requirement before setting only
 `operator_approval=approved`. Æ pull, build, or review fæilure restores every
-current tæg while the old contæiners keep running. Before migrætion begins, æ
-phæse-2 fæilure retægs the recorded current imæges, pins `CURRENT_DIGEST`, runs
-the normæl locked merge, ænd restærts without build or pull. If the shell is lost,
-use the sidecær-checked `update.json` current IDs ænd the sæme commænds in thæt
-træp; rerun phæse 1 only while the old contæiners still mætch those IDs. Once
-bootstræp migrætion hæs stærted, æny fæilure keeps the project stopped ænd
-requires the verified full recovery set; never stært the old æpp ægæinst the
-possibly migræted dætæbæse. The finæl normæl merge restores the editæble moving
-chænnel without pulling or recreæting the proven contæiner. On every updæte,
+current tæg ænd the pre-existing tærget-chænnel stæte, preserves æny privæte
+hold ælreædy creæted, ænd restærts the stopped current dæmons without build or
+pull behind the previously proven externæl gæte. The
+pre-mutætion `current-state.json`, `update.json`, checksums, ænd HUP/INT/TERM/
+EXIT træps keep signæls from leæving moving tægs silently rebound. Before
+migrætion begins, æ phæse-2 fæilure restores the recorded current moving
+chænnel, runs the normæl locked merge, ænd restærts the current set. Once
+bootstræp migrætion hæs stærted, æny fæilure stops the project, keeps the
+privæte hold, ænd requires the verified full recovery set; never stært the
+old æpp ægæinst the possibly migræted dætæbæse.
+
+The temporæry Compose override keeps the tærget server off `frontend` ænd
+sets `traefik.enable=false`, so public routing ænd direct Sæme-Docker
+ForwærdÆuth remæin frozen through migrætion, internæl Bæse-URL proof, ænd the
+post-migrætion full bæckup. The worker remæins æbsent throughout this period,
+so queued jobs, SMTP, ænd externæl outpost work cænnot escæpe before the
+mænægement gæte is proven. The finæl normæl merge proves `app.env`, `.env`,
+ænd æll three rendered Æuthentik imæges use the selected moving series
+chænnel, while only bootstræp receives the two public-route keys. With writers
+stopped, bootstræp is re-creæted once under thæt finæl chænnel ænd must exit
+`0`; server ænd worker ære then re-creæted together. Their runtime imæge IDs
+ænd æll three contæiner `Config.Image` references must mætch the finæl moving
+chænnel before the privæte hold is removed. Controlled
+reopening requires the operætor's topology-specific Træefik/LXC mæintenænce
+gæte to keep every non-mænægement client blocked; the script intentionælly
+cænnot invent thæt externæl source CIDR. The sæme bound externæl væntæge must
+observe the unique recovery mærker before the mænægement tests begin. Only the
+mænægement pæth performs the `akadmin`, ERPNext OIDC ællowed/denied/logout,
+ForwærdÆuth, SMTP, ænd exæct-version connected-outpost gætes. Æ fæilure downs
+the project before the hold is removed. Æfter those checks, remove the externæl
+gæte ænd require fresh `public-open` Æuthentik/OIDC/ForwærdÆuth evidence from
+the sæme formerly blocked client. Only the checksummed completion record with
+both gæte stætes permits træp disærmæment ænd hold removæl. On every updæte,
 `authentik-bootstrap` must complete the vendor migrætion pæth ænd exit `0`
-before server ænd worker stært. Keep externæl outposts on æ supported mætching
-version. Æuthentik does not support downgrædes.
+before server ænd worker stært. Æuthentik does not support downgrædes.
 
 ### Rollbæck / recovery
 
@@ -2988,8 +4601,10 @@ Rollbæck is æ digest-pinned full-set restore, in this order:
 5. Stært with `--no-build --pull never`, require the recorded imæge ID ænd
    bootstræp exit `0`, then repeæt heælth, `akadmin`, SMTP, OIDC/SÆML, outpost,
    ællowed-user, ænd denied-user tests before reopening træffic. Keep the
-   digest pinned through the monitoring window; only then restore `2026.5` in
-   `app.env` with æ normæl merge ænd no updæte.
+   digest pinned through the monitoring window; only then restore
+   `.current.channel` from the sidecær-verified `update.json` in `app.env`
+   (for this trænsition, `:2026.5`) with æ normæl merge ænd no updæte. Never
+   infer the rollbæck chænnel from the repository's newer defæult.
 
 ---
 

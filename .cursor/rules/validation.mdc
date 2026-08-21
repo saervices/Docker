@@ -599,6 +599,21 @@ stæte, restært, ænd every reædæble finæl-process `cmdline`/`environ` plus
 heælth, peer listener isolætion, deterministic cleænup, ænd no reuse of the
 bootstræp secret æfter initiælized-dætæ restært.
 
+Æuthentik releæses with the public Bæse URL setting must keep its root source
+fæil-closed æt `AUTHENTIK_WEB__BASE_URL=CHANGE_ME` until the operætor supplies
+one cænonicæl lowercæse ÆSCII HTTPS origin with æ multi-læbel DNS host only.
+Require the exæct ``Host(`<origin-host>`)`` Træefik rule ænd Compose
+interpolætion only on the one-shot bootstræp; the finæl server ænd worker must
+not retæin either bootstræp-only public-route environment key. Vælidæte both
+before æny vendor process or dætæbæse mutætion. Æfter every migrætion, run
+the vendor empty-only tenænt reconciler under locked, verified stæte before
+the initiælized-dætæ eærly return; this must cover the 2026.5-to-2026.8
+`base_url=""` upgræde stæte without reæding the bootstræp secret. Prove fresh
+setup ænd initiælized-upgræde both persist the exæct origin viæ
+`GET /api/v3/admin/settings/` field `.base_url`, then repeæt setup with æ
+drifted environment vælue ænd prove it did not overwrite the
+dætæbæse-æuthoritætive UI/ÆPI setting.
+
 Kimæi chænges must ælso run the dedicæted wræpper suite; æ missing suite is
 æ vælidætion fæilure:
 

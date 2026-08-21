@@ -954,6 +954,7 @@ run_authentik_bootstrap_secret_preflight() {
   python3 - "$AUTHENTIK_BOOTSTRAP_HELPER_SCRIPT" \
     "${fixture}/secrets/AUTHENTIK_BOOTSTRAP_PASSWORD" <<'PY'
 import importlib.util
+import os
 import sys
 from pathlib import Path
 
@@ -1118,6 +1119,7 @@ case_authentik_bootstrap_entrypoint_failure() {
 case_authentik_bootstrap_orchestration() {
   python3 - "$AUTHENTIK_BOOTSTRAP_HELPER_SCRIPT" <<'PY'
 import importlib.util
+import os
 import sys
 import types
 from pathlib import Path
@@ -1139,30 +1141,75 @@ sys.modules["django"] = django
 sys.modules["django.db"] = django_db
 
 module.bounded_seconds = lambda _name, default, _minimum, _maximum: default
+expected_base_url = "https://authentik.example.test"
+os.environ[module.BASE_URL_ENV] = expected_base_url
+os.environ[module.TRAEFIK_HOST_RULE_ENV] = "Host(`authentik.example.test`)"
 
 calls = []
 module.run_migrations = lambda migration_timeout, stop_timeout: calls.append(
     ("migrate", migration_timeout, stop_timeout)
 )
 module.configure_django = lambda: calls.append(("configure",))
+module.backfill_empty_base_urls = lambda base_url: calls.append(
+    ("backfill", base_url)
+) or 0
 module.database_state = lambda: (True, set())
 module.run_bootstrap = lambda *_args: calls.append(("unexpected-bootstrap",))
 module.orchestrate(Path("/missing-secret-is-not-read"))
-if calls != [("migrate", 3600, 60), ("configure",)]:
+if calls != [
+    ("migrate", 3600, 60),
+    ("configure",),
+    ("backfill", expected_base_url),
+]:
     raise SystemExit(f"initialized orchestration drifted: {calls!r}")
 
 calls.clear()
 module.database_state = lambda: (False, {"public"})
-module.run_bootstrap = lambda secret, pending, ready, stop: calls.append(
-    ("bootstrap", str(secret), pending, ready, stop)
+module.run_bootstrap = lambda secret, pending, base_url, ready, stop: calls.append(
+    ("bootstrap", str(secret), pending, base_url, ready, stop)
 )
 module.orchestrate(Path("/fresh-secret"))
 if calls != [
     ("migrate", 3600, 60),
     ("configure",),
-    ("bootstrap", "/fresh-secret", {"public"}, 900, 60),
+    ("backfill", expected_base_url),
+    ("bootstrap", "/fresh-secret", {"public"}, expected_base_url, 900, 60),
 ]:
     raise SystemExit(f"fresh orchestration drifted: {calls!r}")
+
+for invalid_base_url in (
+    "",
+    "CHANGE_ME",
+    "http://authentik.example.test",
+    "https://authentik.example.test/",
+):
+    calls.clear()
+    os.environ[module.BASE_URL_ENV] = invalid_base_url
+    module.run_migrations = lambda *_args: calls.append(("unexpected-migration",))
+    try:
+        module.orchestrate(Path("/invalid-base-url"))
+    except SystemExit as error:
+        if error.code == 0:
+            raise SystemExit("invalid public base URL exited successfully")
+    else:
+        raise SystemExit("invalid public base URL did not fail")
+    if calls:
+        raise SystemExit(f"invalid public base URL released mutation: {calls!r}")
+os.environ[module.BASE_URL_ENV] = expected_base_url
+
+calls.clear()
+os.environ[module.TRAEFIK_HOST_RULE_ENV] = "Host(`wrong.example.test`)"
+module.run_migrations = lambda *_args: calls.append(("unexpected-migration",))
+try:
+    module.orchestrate(Path("/mismatched-traefik-host"))
+except SystemExit as error:
+    if error.code == 0:
+        raise SystemExit("mismatched Traefik host rule exited successfully")
+else:
+    raise SystemExit("mismatched Traefik host rule did not fail")
+if calls:
+    raise SystemExit(f"mismatched Traefik host released mutation: {calls!r}")
+os.environ[module.TRAEFIK_HOST_RULE_ENV] = "Host(`authentik.example.test`)"
 
 calls.clear()
 def interrupt_during_migration(_migration_timeout, _stop_timeout):
@@ -1213,6 +1260,29 @@ if module.VENDOR_IMPORT_ROOT != "/":
     raise SystemExit("authentik vendor import root drifted")
 if module.VENDOR_SETUP_MODULE != "/authentik/root/setup.py":
     raise SystemExit("authentik vendor setup module path drifted")
+expected_base_url = "https://authentik.example.test"
+if module.validate_public_base_url(expected_base_url) != expected_base_url:
+    raise SystemExit("canonical authentik public base URL was rejected")
+for invalid_base_url in (
+    "",
+    "CHANGE_ME",
+    "http://authentik.example.test",
+    "https://AUTHENTIK.example.test",
+    "https://authentik",
+    "https://authentik.example.com",
+    "https://user@authentik.example.test",
+    "https://authentik.example.test:443",
+    "https://authentik.example.test/",
+    "https://authentik.example.test/path",
+    "https://authentik.example.test?query=yes",
+    "https://authentik.example.test#fragment",
+    "https://127.0.0.1",
+):
+    expect_nonzero(
+        lambda value=invalid_base_url: module.validate_public_base_url(value),
+        f"unsafe authentik public base URL was accepted: {invalid_base_url!r}",
+    )
+os.environ[module.BASE_URL_ENV] = expected_base_url
 original_lstat = module.os.lstat
 module.os.lstat = lambda path: types.SimpleNamespace(st_mode=0o100444)
 while "/" in sys.path:
@@ -1273,6 +1343,7 @@ sys.modules["authentik.core.models"] = authentik_models
 
 class Tenant:
     schema_name = "public"
+    base_url = expected_base_url
 
     def __enter__(self):
         return self
@@ -1322,7 +1393,9 @@ authentik_models.User = User
 tenant = Tenant()
 module.ready_tenants = lambda: [tenant]
 module.tenant_is_initialized = lambda _tenant: True
-if not module.expected_setup_is_persisted("pbkdf2_sha256$fixture", {"public"}):
+if not module.expected_setup_is_persisted(
+    "pbkdf2_sha256$fixture", {"public"}, expected_base_url
+):
     raise SystemExit("exact persisted setup verifier was rejected")
 for row in (
     None,
@@ -1331,15 +1404,27 @@ for row in (
     UserRow(superuser=False),
 ):
     user_state["row"] = row
-    if module.expected_setup_is_persisted("pbkdf2_sha256$fixture", {"public"}):
+    if module.expected_setup_is_persisted(
+        "pbkdf2_sha256$fixture", {"public"}, expected_base_url
+    ):
         raise SystemExit("invalid persisted setup state was accepted")
 user_state["row"] = UserRow()
-if module.expected_setup_is_persisted("pbkdf2_sha256$fixture", {"missing"}):
+if module.expected_setup_is_persisted(
+    "pbkdf2_sha256$fixture", {"missing"}, expected_base_url
+):
     raise SystemExit("unknown pending tenant schema was accepted")
 module.tenant_is_initialized = lambda _tenant: False
-if module.expected_setup_is_persisted("pbkdf2_sha256$fixture", {"public"}):
+if module.expected_setup_is_persisted(
+    "pbkdf2_sha256$fixture", {"public"}, expected_base_url
+):
     raise SystemExit("missing persistent setup marker was accepted")
 module.tenant_is_initialized = lambda _tenant: True
+tenant.base_url = "https://drift.example.test"
+if module.expected_setup_is_persisted(
+    "pbkdf2_sha256$fixture", {"public"}, expected_base_url
+):
+    raise SystemExit("drifted persisted public base URL was accepted")
+tenant.base_url = expected_base_url
 
 
 class WorkerProcess:
@@ -1366,7 +1451,7 @@ class WorkerProcess:
 
 
 module.read_password = lambda _path: "strong-bootstrap-password"
-module.expected_setup_is_persisted = lambda _hash, _pending: True
+module.expected_setup_is_persisted = lambda _hash, _pending, _base_url: True
 captured = {}
 successful_worker = WorkerProcess()
 
@@ -1380,7 +1465,7 @@ def start_successful_worker(arguments, *, env, stdin):
 
 module.subprocess.Popen = start_successful_worker
 module.INTERRUPTED = False
-module.run_bootstrap(Path("/unused"), {"public"}, 60, 10)
+module.run_bootstrap(Path("/unused"), {"public"}, expected_base_url, 60, 10)
 if captured["arguments"] != ["/lifecycle/ak", "worker"]:
     raise SystemExit("native worker command drifted")
 if captured["stdin"] is not subprocess.DEVNULL:
@@ -1390,6 +1475,8 @@ if child_environment.get("AUTHENTIK_BOOTSTRAP_PASSWORD_HASH") != "pbkdf2_sha256$
     raise SystemExit("native worker did not receive the generated verifier")
 if {"AUTHENTIK_BOOTSTRAP_PASSWORD", "AUTHENTIK_BOOTSTRAP_TOKEN"} & set(child_environment):
     raise SystemExit("plaintext bootstrap credential reached native worker")
+if child_environment.get(module.BASE_URL_ENV) != expected_base_url:
+    raise SystemExit("public base URL did not reach native bootstrap worker")
 if successful_worker.terminated != 1 or successful_worker.killed != 0:
     raise SystemExit("verified native worker was not retired cleanly")
 
@@ -1397,7 +1484,9 @@ early_worker = WorkerProcess(returncode=23)
 module.subprocess.Popen = lambda *_args, **_kwargs: early_worker
 module.INTERRUPTED = False
 expect_nonzero(
-    lambda: module.run_bootstrap(Path("/unused"), {"public"}, 60, 10),
+    lambda: module.run_bootstrap(
+        Path("/unused"), {"public"}, expected_base_url, 60, 10
+    ),
     "early native-worker exit released one-shot successfully",
 )
 
@@ -1405,7 +1494,9 @@ interrupted_worker = WorkerProcess()
 module.subprocess.Popen = lambda *_args, **_kwargs: interrupted_worker
 module.INTERRUPTED = True
 expect_nonzero(
-    lambda: module.run_bootstrap(Path("/unused"), {"public"}, 60, 10),
+    lambda: module.run_bootstrap(
+        Path("/unused"), {"public"}, expected_base_url, 60, 10
+    ),
     "interrupted native worker released one-shot successfully",
 )
 if interrupted_worker.terminated != 1 or interrupted_worker.killed != 0:
@@ -1468,6 +1559,8 @@ if any(name in migration_capture["environment"] for name in (
     "AUTHENTIK_BOOTSTRAP_TOKEN",
 )):
     raise SystemExit("bootstrap credential reached native migrations")
+if migration_capture["environment"].get(module.BASE_URL_ENV) != expected_base_url:
+    raise SystemExit("public base URL did not reach native migrations")
 
 failed_migration = MigrationProcess(returncode=17)
 module.subprocess.Popen = lambda *_args, **_kwargs: failed_migration

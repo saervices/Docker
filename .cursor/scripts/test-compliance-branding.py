@@ -8,6 +8,7 @@ from __future__ import annotations
 import contextlib
 import importlib.util
 import io
+import os
 import re
 import sys
 import tempfile
@@ -19,6 +20,9 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 COMPLIANCE_PATH = REPO_ROOT / ".cursor/scripts/enforce-app-template-compliance.py"
 BRANDING_PATH = REPO_ROOT / ".cursor/scripts/enforce-branding.py"
 ANCHORS_PATH = REPO_ROOT / ".cursor/scripts/verify-anchors.py"
+AUTHENTIK_BOOTSTRAP_PATH = (
+    REPO_ROOT / "templates/authentik-bootstrap/scripts/authentik-bootstrap.py"
+)
 
 
 def require(condition: bool, message: str) -> None:
@@ -1089,11 +1093,28 @@ def test_product_security_readme_contract(compliance: ModuleType) -> None:
         (
             targets[0],
             lambda text: text.replace(
-                "`authorization_code`.",
-                "`authorization_code` ænd `token_exchange`.",
+                "`urn:ietf:params:oauth:grant-type:token-exchange`",
+                "`token_exchange`",
                 1,
             ),
-            "must not add unsupported token_exchange",
+            "explicit token-exchange grant denial",
+        ),
+        (
+            targets[0],
+            lambda text: text.replace("goauthentik.io/oidc/dcr", "dcr_scope"),
+            "Dynamic Client Registration scope denial",
+        ),
+        (
+            targets[0],
+            lambda text: text.replace("registration_endpoint", "dcr_endpoint"),
+            "Dynamic Client Registration discovery denial",
+        ),
+        (
+            targets[0],
+            lambda text: text.replace(
+                "/application/o/<slug>/register/", "/application/o/register/"
+            ),
+            "Dynamic Client Registration endpoint denial",
         ),
         (
             targets[0],
@@ -1931,6 +1952,360 @@ def test_product_security_readme_contract(compliance: ModuleType) -> None:
         )
 
 
+def test_authentik_release_contract(compliance: ModuleType) -> None:
+    authentik_root = REPO_ROOT / "Authentik"
+    issues = compliance.check_authentik_release_contract(
+        authentik_root,
+        authentik_root / "docker-compose.app.yaml",
+        authentik_root / ".env",
+        REPO_ROOT,
+    )
+    require(not issues, f"Authentik releæse contræct failed: {issues}")
+
+    fixture_files = (
+        Path("Authentik/.env"),
+        Path("Authentik/README.md"),
+        Path("Authentik/docker-compose.app.yaml"),
+        Path("templates/authentik-worker/docker-compose.authentik-worker.yaml"),
+        Path("templates/authentik-bootstrap/docker-compose.authentik-bootstrap.yaml"),
+        Path("templates/authentik-bootstrap/scripts/authentik-bootstrap.py"),
+        Path(".cursor/scripts/test-authentik-runtime.sh"),
+    )
+    mutations = (
+        (
+            Path("Authentik/.env"),
+            lambda text: text.replace(
+                "ghcr.io/goauthentik/server:2026.8",
+                "ghcr.io/goauthentik/server:2026.8.0",
+                1,
+            ),
+            "`APP_IMAGE`",
+        ),
+        (
+            Path("Authentik/.env"),
+            lambda text: text + "\nAUTHENTIK_WEB__BASE_URL=CHANGE_ME\n",
+            "`AUTHENTIK_WEB__BASE_URL`",
+        ),
+        (
+            Path("templates/authentik-bootstrap/docker-compose.authentik-bootstrap.yaml"),
+            lambda text: text.replace(
+                "AUTHENTIK_WEB__BASE_URL:", "AUTHENTIK_WEB__BASE_URL_DRIFT:", 1
+            ),
+            "must be required",
+        ),
+        (
+            Path("templates/authentik-bootstrap/docker-compose.authentik-bootstrap.yaml"),
+            lambda text: text.replace(
+                "AUTHENTIK_TRAEFIK_HOST_RULE:",
+                "AUTHENTIK_TRAEFIK_HOST_RULE_DRIFT:",
+                1,
+            ),
+            "AUTHENTIK_TRAEFIK_HOST_RULE must be required",
+        ),
+        (
+            Path("templates/authentik-worker/docker-compose.authentik-worker.yaml"),
+            lambda text: text.replace(
+                "      AUTHENTIK_POSTGRESQL__HOST:",
+                "      AUTHENTIK_WEB__BASE_URL: CHANGE_ME\n"
+                "      AUTHENTIK_POSTGRESQL__HOST:",
+                1,
+            ),
+            "must not reæch finæl dæmons",
+        ),
+        (
+            Path("templates/authentik-bootstrap/scripts/authentik-bootstrap.py"),
+            lambda text: text.replace(
+                "def validate_public_base_url(", "def validate_drifted_base_url(", 1
+            ),
+            "fail-closed Bæse-URL parser",
+        ),
+        (
+            Path("templates/authentik-bootstrap/scripts/authentik-bootstrap.py"),
+            lambda text: text.replace(
+                "tenant_reconciler.backfill_base_url()",
+                "tenant_reconciler.backfill_drifted_url()",
+                1,
+            ),
+            "vendor empty-only Bæse-URL reconciler",
+        ),
+        (
+            Path("Authentik/README.md"),
+            lambda text: text.replace("/api/v3/admin/settings/", "/api/v3/settings/"),
+            "persisted Bæse URL ÆPI proof",
+        ),
+        (
+            Path("Authentik/README.md"),
+            lambda text: text.replace("ports: !override []", "ports: []", 1),
+            "published-port freeze",
+        ),
+        (
+            Path("Authentik/README.md"),
+            lambda text: text.replace(
+                "MANAGEMENT_GATE_REMOVED", "MANAGEMENT_GATE_ASSUMED"
+            ),
+            "explicit management-gate teardown",
+        ),
+        (
+            Path("Authentik/README.md"),
+            lambda text: text.replace(
+                'type == "string" and test("^[0-9]{10}$")',
+                'type == "number"',
+            ),
+            "overflow-safe external-evidence timestamp",
+        ),
+        (
+            Path("Authentik/README.md"),
+            lambda text: text.replace(
+                '"/proc/${BASHPID}/fd/${evidence_fd}"',
+                '"$evidence_directory/$evidence_name"',
+            ),
+            "descriptor-bound external-evidence snapshot",
+        ),
+        (
+            Path("Authentik/README.md"),
+            lambda text: text.replace(
+                "snapshot_size > 65536", "snapshot_size > 1048576"
+            ),
+            "post-copy external-evidence size bound",
+        ),
+        (
+            Path("Authentik/README.md"),
+            lambda text: text.replace(
+                "cleanup_external_evidence_snapshots",
+                "forget_external_evidence_snapshots",
+            ),
+            "all-trap external-evidence snapshot cleanup",
+        ),
+        (
+            Path("Authentik/README.md"),
+            lambda text: text.replace(
+                "then all_management_denied", "then all_online", 1
+            ),
+            "mandatory recovery-marker frozen-state proof",
+        ),
+        (
+            Path("Authentik/README.md"),
+            lambda text: text.replace(
+                "external-gate-recovery-required",
+                "external-gate-recovery-assumed",
+            ),
+            "durable fail-closed abort record",
+        ),
+        (
+            Path("Authentik/README.md"),
+            lambda text: text.replace(
+                'mv -T -- "$staging" "$ABORT_RECORD_DIR"',
+                'cp -a -- "$staging" "$ABORT_RECORD_DIR"',
+            ),
+            "atomic abort-record publication",
+        ),
+        (
+            Path("Authentik/README.md"),
+            lambda text: text.replace(
+                '--arg target_hold_ref "$hold_ref"',
+                '--arg target_hold_ref "$candidate_hold_ref"',
+            ),
+            "atomically paired abort-record hold fields",
+        ),
+        (
+            Path("Authentik/README.md"),
+            lambda text: text.replace(
+                "restore_discovery_tags\nDISCOVERY_TAGS_MUTATED=false\n",
+                "restore_discovery_tags\nDISCOVERY_TAGS_MUTATED=false\n"
+                "trap - ERR HUP INT TERM EXIT\n",
+                1,
+            ),
+            "discovery traps must remain armed",
+        ),
+        (
+            Path("Authentik/README.md"),
+            lambda text: text.replace(
+                'discard_external_evidence_snapshot "$GATE_RECOVERY_EVIDENCE"',
+                "true # gate evidence discarded without binding",
+                1,
+            ),
+            "abort recovery must prove the external gate",
+        ),
+        (
+            Path("Authentik/README.md"),
+            lambda text: text.replace(
+                "GATE_REMOVED_DURING_RECOVERY",
+                "GATE_REMOVAL_NOT_TRACKED",
+            ),
+            "abort-recovery writer-stop boundary",
+        ),
+        (
+            Path("Authentik/README.md"),
+            lambda text: text.replace(
+                "restart_current_writers || return 125", "true || return 125", 1
+            ),
+            "discovery rollback must restore",
+        ),
+        (
+            Path("Authentik/README.md"),
+            lambda text: text.replace(
+                'MIGRATION_STARTED=true\nUPDATE_PHASE=migration-started\n'
+                '"${COMPOSE[@]}" up -d --wait --wait-timeout 120 \\\n'
+                "  --no-build --pull never postgresql",
+                'UPDATE_PHASE=migration-started\n'
+                '"${COMPOSE[@]}" up -d --wait --wait-timeout 120 \\\n'
+                "  --no-build --pull never postgresql\nMIGRATION_STARTED=true",
+                1,
+            ),
+            "target PostgreSQL must cross the full-recovery boundary",
+        ),
+        (
+            Path("Authentik/README.md"),
+            lambda text: text.replace(
+                "external_probe_url_sha256", "external_probe_url_digest"
+            ),
+            "persisted external-probe URL identities",
+        ),
+        (
+            Path("Authentik/README.md"),
+            lambda text: text.replace("DESTRUCTIVE_EPOCH", "STALE_CUTOVER_EPOCH"),
+            "immediate destructive-cutover freshness gate",
+        ),
+        (
+            Path(".cursor/scripts/test-authentik-runtime.sh"),
+            lambda text: text.replace(
+                "retained bootstrap-only public-route environment",
+                "retained public origin environment",
+            ),
+            "env æbsence proof",
+        ),
+    )
+    for relative_path, mutate, expected in mutations:
+        with tempfile.TemporaryDirectory(
+            prefix="authentik-release-contract.", dir="/tmp"
+        ) as raw_fixture_root:
+            fixture_repo = Path(raw_fixture_root) / "repo"
+            for fixture_file in fixture_files:
+                source = REPO_ROOT / fixture_file
+                target = fixture_repo / fixture_file
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(source.read_bytes())
+            target = fixture_repo / relative_path
+            original = target.read_text(encoding="utf-8")
+            mutated = mutate(original)
+            require(
+                mutated != original,
+                f"Authentik release mutation did not alter {relative_path}",
+            )
+            target.write_text(mutated, encoding="utf-8")
+            fixture_authentik = fixture_repo / "Authentik"
+            issues = compliance.check_authentik_release_contract(
+                fixture_authentik,
+                fixture_authentik / "docker-compose.app.yaml",
+                fixture_authentik / ".env",
+                fixture_repo,
+            )
+            require(
+                any(expected in issue for issue in issues),
+                f"Authentik release mutation must fail for {expected}: {issues}",
+            )
+
+
+def test_authentik_base_url_validator(bootstrap: ModuleType) -> None:
+    valid = "https://authentik.runtime.invalid"
+    require(
+        bootstrap.validate_public_base_url(valid) == valid,
+        "canonical Authentik public base URL must pass",
+    )
+    bootstrap.validate_traefik_host_rule(
+        valid, "Host(`authentik.runtime.invalid`)"
+    )
+    for invalid_rule in (
+        "",
+        "Host(`drift.runtime.invalid`)",
+        "Host(`authentik.runtime.invalid`) || Host(`alias.runtime.invalid`)",
+        "HostRegexp(`authentik.runtime.invalid`)",
+    ):
+        with contextlib.redirect_stderr(io.StringIO()):
+            try:
+                bootstrap.validate_traefik_host_rule(valid, invalid_rule)
+            except SystemExit:
+                pass
+            else:
+                raise AssertionError(
+                    f"unsafe Authentik Traefik host rule passed: {invalid_rule!r}"
+                )
+    for invalid in (
+        "",
+        "CHANGE_ME",
+        " https://authentik.runtime.invalid",
+        "https://authentik.runtime.invalid ",
+        "http://authentik.runtime.invalid",
+        "https://AUTHENTIK.runtime.invalid",
+        "https://authentik",
+        "https://authentik.example.com",
+        "https://user@authentik.runtime.invalid",
+        "https://authentik.runtime.invalid:443",
+        "https://127.0.0.1",
+        "https://authentik.runtime.invalid/",
+        "https://authentik.runtime.invalid/path",
+        "https://authentik.runtime.invalid?query=yes",
+        "https://authentik.runtime.invalid#fragment",
+        "https://authentik..runtime.invalid",
+        "https://authentik_runtime.invalid",
+        "https://äuthentik.example.invalid",
+    ):
+        with contextlib.redirect_stderr(io.StringIO()):
+            try:
+                bootstrap.validate_public_base_url(invalid)
+            except SystemExit:
+                pass
+            else:
+                raise AssertionError(f"unsafe Authentik public base URL passed: {invalid!r}")
+
+    calls: list[str] = []
+    original_value = os.environ.get(bootstrap.BASE_URL_ENV)
+    original_host_rule = os.environ.get(bootstrap.TRAEFIK_HOST_RULE_ENV)
+    os.environ[bootstrap.BASE_URL_ENV] = "CHANGE_ME"
+    os.environ[bootstrap.TRAEFIK_HOST_RULE_ENV] = "Host(`authentik.runtime.invalid`)"
+    original_migrations = bootstrap.run_migrations
+    bootstrap.run_migrations = lambda *_args: calls.append("migrations")
+    try:
+        with contextlib.redirect_stderr(io.StringIO()):
+            try:
+                bootstrap.orchestrate(Path("/unused"))
+            except SystemExit:
+                pass
+            else:
+                raise AssertionError("placeholder Authentik base URL did not fail closed")
+    finally:
+        bootstrap.run_migrations = original_migrations
+        if original_value is None:
+            os.environ.pop(bootstrap.BASE_URL_ENV, None)
+        else:
+            os.environ[bootstrap.BASE_URL_ENV] = original_value
+
+    calls.clear()
+    os.environ[bootstrap.BASE_URL_ENV] = valid
+    os.environ[bootstrap.TRAEFIK_HOST_RULE_ENV] = "Host(`drift.runtime.invalid`)"
+    bootstrap.run_migrations = lambda *_args: calls.append("migrations")
+    try:
+        with contextlib.redirect_stderr(io.StringIO()):
+            try:
+                bootstrap.orchestrate(Path("/unused"))
+            except SystemExit:
+                pass
+            else:
+                raise AssertionError("mismatched Authentik route did not fail closed")
+        require(not calls, "mismatched Authentik route reached migrations")
+    finally:
+        bootstrap.run_migrations = original_migrations
+        if original_value is None:
+            os.environ.pop(bootstrap.BASE_URL_ENV, None)
+        else:
+            os.environ[bootstrap.BASE_URL_ENV] = original_value
+        if original_host_rule is None:
+            os.environ.pop(bootstrap.TRAEFIK_HOST_RULE_ENV, None)
+        else:
+            os.environ[bootstrap.TRAEFIK_HOST_RULE_ENV] = original_host_rule
+    require(not calls, "invalid Authentik base URL must fail before migrations")
+
+
 def test_branded_technical_token_recovery(branding: ModuleType) -> None:
     source = (
         "Actual apps use /vær/tmp, /heælthz, /æuth/openid/æuthentik, "
@@ -2529,6 +2904,9 @@ def main() -> None:
     compliance = load_script("compliance_regressions", COMPLIANCE_PATH)
     branding = load_script("branding_regressions", BRANDING_PATH)
     anchors = load_script("anchor_regressions", ANCHORS_PATH)
+    authentik_bootstrap = load_script(
+        "authentik_bootstrap_regressions", AUTHENTIK_BOOTSTRAP_PATH
+    )
     test_compliance_resolution(compliance)
     test_required_services_contract(compliance)
     test_host_logrotate_contract(compliance)
@@ -2538,6 +2916,8 @@ def main() -> None:
     test_redis_host_requirement(compliance)
     test_application_configuration_contract(compliance)
     test_product_security_readme_contract(compliance)
+    test_authentik_release_contract(compliance)
+    test_authentik_base_url_validator(authentik_bootstrap)
     test_branded_technical_token_recovery(branding)
     test_short_code_inline_comment_alignment(branding)
     test_python_branding(branding)

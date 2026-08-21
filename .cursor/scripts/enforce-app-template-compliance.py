@@ -1145,6 +1145,10 @@ def check_readme_product_security_contract(
             ("refresh_token", "conditional refresh-token grant handling"),
             ("client_credentials", "separate machine-client grant handling"),
             ("device_code", "explicit device-code grant denial or exception"),
+            (
+                "urn:ietf:params:oauth:grant-type:token-exchange",
+                "explicit token-exchange grant denial or exception",
+            ),
         ):
             require_raw(marker, description)
         require_topic(r"access code validity", "the OAuth access-code validity")
@@ -1155,11 +1159,26 @@ def check_readme_product_security_contract(
             "per-use OAuth refresh-token renewal",
         )
         require_topic(r"refresh[- ]token rotation", "the OAuth refresh-token rotation policy")
-        if re.search(r"\btoken[_ -]exchange\b", readme_text, flags=re.IGNORECASE):
-            issues.append(
-                "README.md: Authentik must not add unsupported token_exchange to "
-                "the 2026.5 OAuth grant contract"
-            )
+        require_topic(
+            r"token exchange.{0,180}(disabled|separate|dedicated)",
+            "fail-closed token-exchange handling",
+        )
+        require_raw(
+            "goauthentik.io/oidc/dcr",
+            "explicit Dynamic Client Registration scope denial or exception",
+        )
+        require_raw(
+            "registration_endpoint",
+            "Dynamic Client Registration discovery denial",
+        )
+        require_topic(
+            r"dynamic client registration.{0,220}(disabled|separate|dedicated)",
+            "fail-closed Dynamic Client Registration handling",
+        )
+        require_topic(
+            r"application/o/<slug>/register/.{0,80}404",
+            "Dynamic Client Registration endpoint denial",
+        )
         require_topic(r"asymmetric signing key", "asymmetric OIDC signing")
         require_topic(r"/blueprints", "the custom-blueprint backup boundary")
         require_topic(r"ssl\s+cert\s+file", "the private SMTP-CA support boundary")
@@ -2079,6 +2098,367 @@ def check_readme_redis_host_contract(compose_path: Path, readme_text: str) -> li
     ]
 
 
+def check_authentik_release_contract(
+    target_root: Path,
+    compose_path: Path,
+    env_path: Path,
+    repo_root: Path,
+) -> list[str]:
+    """Pin the reviewed moving series ænd Bæse-URL wiring for Æuthentik."""
+    if target_root.name != "Authentik":
+        return []
+
+    issues: list[str] = []
+    expected_image = "ghcr.io/goauthentik/server:2026.8"
+    expected_base_url = "CHANGE_ME"
+    expected_compose_value = (
+        "${AUTHENTIK_WEB__BASE_URL:?Public HTTPS base URL required}"
+    )
+    expected_traefik_rule_value = (
+        "${TRAEFIK_HOST:?Exact Traefik Host rule required}"
+    )
+
+    env_values: dict[str, list[str]] = {}
+    for line in env_path.read_text(encoding="utf-8").splitlines():
+        match = re.match(r"^([A-Z][A-Z0-9_]*)=(.*?)\s*(?:#.*)?$", line)
+        if match:
+            env_values.setdefault(match.group(1), []).append(match.group(2).strip())
+    for key, expected in (
+        ("APP_IMAGE", expected_image),
+        ("AUTHENTIK_WEB__BASE_URL", expected_base_url),
+    ):
+        if env_values.get(key) != [expected]:
+            issues.append(
+                f".env: Æuthentik `{key}` must occur once with `{expected}`"
+            )
+
+    final_compose_contracts = (
+        (compose_path, "app"),
+        (
+            repo_root
+            / "templates/authentik-worker/docker-compose.authentik-worker.yaml",
+            "authentik-worker",
+        ),
+    )
+    for contract_path, service_name in final_compose_contracts:
+        if not contract_path.is_file():
+            issues.append(
+                f"{contract_path.name}: missing Æuthentik Bæse-URL service source"
+            )
+            continue
+        service = (
+            _load_compose(contract_path).get("services", {}).get(service_name, {})
+        )
+        environment = service.get("environment", {}) if isinstance(service, dict) else {}
+        if not isinstance(environment, dict):
+            issues.append(
+                f"{contract_path.name}:{service_name}: environment must be a mapping"
+            )
+        elif {
+            "AUTHENTIK_WEB__BASE_URL",
+            "AUTHENTIK_TRAEFIK_HOST_RULE",
+        } & set(environment):
+            issues.append(
+                f"{contract_path.name}:{service_name}: public-route configuration "
+                "is bootstræp-only ænd must not reæch finæl dæmons"
+            )
+
+    bootstrap_path = (
+        repo_root
+        / "templates/authentik-bootstrap/docker-compose.authentik-bootstrap.yaml"
+    )
+    if not bootstrap_path.is_file():
+        issues.append(f"{bootstrap_path.name}: missing Æuthentik Bæse-URL service source")
+    else:
+        bootstrap_service = (
+            _load_compose(bootstrap_path)
+            .get("services", {})
+            .get("authentik-bootstrap", {})
+        )
+        bootstrap_environment = (
+            bootstrap_service.get("environment", {})
+            if isinstance(bootstrap_service, dict)
+            else {}
+        )
+        if not isinstance(bootstrap_environment, dict) or bootstrap_environment.get(
+            "AUTHENTIK_WEB__BASE_URL"
+        ) != expected_compose_value:
+            issues.append(
+                f"{bootstrap_path.name}:authentik-bootstrap: AUTHENTIK_WEB__BASE_URL "
+                "must be required ænd forwarded exæctly"
+            )
+        if not isinstance(bootstrap_environment, dict) or bootstrap_environment.get(
+            "AUTHENTIK_TRAEFIK_HOST_RULE"
+        ) != expected_traefik_rule_value:
+            issues.append(
+                f"{bootstrap_path.name}:authentik-bootstrap: "
+                "AUTHENTIK_TRAEFIK_HOST_RULE must be required ænd forwarded exæctly"
+            )
+
+    helper_path = (
+        repo_root / "templates/authentik-bootstrap/scripts/authentik-bootstrap.py"
+    )
+    helper_text = (
+        helper_path.read_text(encoding="utf-8") if helper_path.is_file() else ""
+    )
+    for marker, description in (
+        ("def validate_public_base_url(", "the fail-closed Bæse-URL parser"),
+        ("def validate_traefik_host_rule(", "the exæct Træefik Host-rule parser"),
+        (
+            'expected_base_url = validate_public_base_url(os.getenv(BASE_URL_ENV, ""))',
+            "Bæse-URL validation before migrætion",
+        ),
+        ("def backfill_empty_base_urls(", "the initialized-upgræde Bæse-URL path"),
+        (
+            "tenant_reconciler.backfill_base_url()",
+            "the vendor empty-only Bæse-URL reconciler",
+        ),
+        (
+            "backfilled = backfill_empty_base_urls(expected_base_url)",
+            "the pre-state-check Bæse-URL backfill",
+        ),
+        ("tenant.base_url != expected_base_url", "persisted first-run Bæse-URL proof"),
+    ):
+        if marker not in helper_text:
+            issues.append(f"{helper_path.name}: missing {description}")
+
+    readme_path = target_root / "README.md"
+    runtime_path = repo_root / ".cursor/scripts/test-authentik-runtime.sh"
+    readme_text = (
+        readme_path.read_text(encoding="utf-8") if readme_path.is_file() else ""
+    )
+    runtime_text = (
+        runtime_path.read_text(encoding="utf-8") if runtime_path.is_file() else ""
+    )
+    normalized_readme = _normalize_branded_readme(readme_text)
+    for marker, description in (
+        (expected_image, "the reviewed 2026.8 moving channel"),
+        ("/api/v3/admin/settings/", "the persisted Bæse URL ÆPI proof"),
+        ("CURRENT_CHANNEL", "the current-series update binding"),
+        ("TARGET_CHANNEL", "the target-series update binding"),
+        ("KEEP_WRITERS_STOPPED", "the write-frozen recovery mode"),
+        ("current-state.json", "the pre-mutation recovery record"),
+        ("restart_current_writers", "the discovery/review writer recovery"),
+        (
+            'type == "string" and test("^[0-9]{10}$")',
+            "the overflow-safe external-evidence timestamp",
+        ),
+        (
+            '"/proc/${BASHPID}/fd/${evidence_fd}"',
+            "the descriptor-bound external-evidence snapshot",
+        ),
+        (
+            "snapshot_size > 65536",
+            "the post-copy external-evidence size bound",
+        ),
+        (
+            "cleanup_external_evidence_snapshots",
+            "the all-trap external-evidence snapshot cleanup",
+        ),
+        (
+            "then all_management_denied",
+            "the mandatory recovery-marker frozen-state proof",
+        ),
+        (
+            '"$ERP_NEXT_OIDC_URL" != "$AUTHENTIK_FLOW_URL"',
+            "the distinct external OIDC surface",
+        ),
+        (
+            "external_probe_url_sha256",
+            "the persisted external-probe URL identities",
+        ),
+        ("DESTRUCTIVE_EPOCH", "the immediate destructive-cutover freshness gate"),
+        ("docker-compose.traffic-frozen.yaml", "the target traffic freeze"),
+        ("ports: !override []", "the published-port freeze"),
+        ("verify_external_evidence", "the bound external-evidence validator"),
+        ("external-baseline.json", "the online baseline evidence"),
+        ("external-initial-frozen.json", "the initial traffic-freeze evidence"),
+        ("external-cutover-frozen.json", "the cutover traffic-freeze evidence"),
+        ("external-target-frozen.json", "the target traffic-freeze evidence"),
+        (
+            "external-management-gate-armed.json",
+            "the pre-worker management-gate evidence",
+        ),
+        (
+            "external-management-denied.json",
+            "the non-management denial evidence",
+        ),
+        ("non_management_client_denied=pass", "the management-gate denial proof"),
+        ("{{.Config.Image}}", "the final moving-channel container convergence"),
+        ("MANAGEMENT_GATE_REMOVED", "the explicit management-gate teardown"),
+        ("external-public-open.json", "the final public OIDC availability proof"),
+        (
+            "external-gate-recovery-required",
+            "the durable fail-closed abort record",
+        ),
+        (
+            '"../.authentik-update-abort-${RECOVERY_ID}.XXXXXX"',
+            "the private abort-record staging directory",
+        ),
+        (
+            'mv -T -- "$staging" "$ABORT_RECORD_DIR"',
+            "the atomic abort-record publication",
+        ),
+        (
+            '--arg target_hold_ref "$hold_ref"',
+            "the atomically paired abort-record hold fields",
+        ),
+        (
+            "trap '' HUP INT TERM",
+            "the signal-safe abort-record publication boundary",
+        ),
+        (
+            "verify-external-evidence.sh",
+            "the abort-recovery evidence-validator binding",
+        ),
+        (
+            "GATE_REMOVED_DURING_RECOVERY",
+            "the abort-recovery writer-stop boundary",
+        ),
+        (
+            "ABORT_RECOVERY_COMPLETE",
+            "the resolved abort-marker lifecycle",
+        ),
+        ("LIVE_PROOFS_VERIFIED", "the post-update integration gate"),
+    ):
+        if marker not in readme_text:
+            issues.append(f"README.md: Æuthentik must document {description}")
+    cutover_anchor = readme_text.find('rewrite_app_image "$TARGET_HOLD_REF"')
+    migration_boundary = readme_text.find("MIGRATION_STARTED=true", cutover_anchor)
+    target_postgresql_start = readme_text.find(
+        '"${COMPOSE[@]}" up -d --wait --wait-timeout 120 \\\n'
+        "  --no-build --pull never postgresql",
+        cutover_anchor,
+    )
+    if not (
+        cutover_anchor >= 0
+        and cutover_anchor < migration_boundary < target_postgresql_start
+    ):
+        issues.append(
+            "README.md: target PostgreSQL must cross the full-recovery boundary "
+            "before its first start"
+        )
+    discovery_rollback_start = readme_text.find("rollback_discovery()")
+    discovery_rollback_end = readme_text.find(
+        "abort_discovery()", discovery_rollback_start
+    )
+    if not (
+        discovery_rollback_start >= 0
+        and discovery_rollback_end > discovery_rollback_start
+        and "restart_current_writers || return 125"
+        in readme_text[discovery_rollback_start:discovery_rollback_end]
+    ):
+        issues.append(
+            "README.md: discovery rollback must restore the stopped current writers"
+        )
+    review_rollback_start = readme_text.find("cleanup_review_failure()")
+    review_rollback_end = readme_text.find("abort_review()", review_rollback_start)
+    phase2_rollback_start = readme_text.find("rollback_pre_migration_update()")
+    phase2_rollback_end = readme_text.find("abort_phase2()", phase2_rollback_start)
+    for start, end, phase in (
+        (discovery_rollback_start, discovery_rollback_end, "discovery"),
+        (review_rollback_start, review_rollback_end, "review"),
+        (phase2_rollback_start, phase2_rollback_end, "pre-migration"),
+    ):
+        if not (
+            start >= 0
+            and end > start
+            and "record_abort_gate_recovery_required" in readme_text[start:end]
+            and 'docker image rm "$TARGET_HOLD_REF"' not in readme_text[start:end]
+        ):
+            issues.append(
+                f"README.md: {phase} abort must record the gate lifecycle and "
+                "preserve the private hold"
+            )
+    gate_removed_boundary = readme_text.find("MANAGEMENT_GATE_REMOVED_STATE=true")
+    public_open_validation = readme_text.find(
+        'verify_external_evidence "$PUBLIC_OPEN_EVIDENCE_REQUESTED" public-open'
+    )
+    if not (
+        gate_removed_boundary >= 0
+        and gate_removed_boundary < public_open_validation
+        and '"${COMPOSE[@]}" stop -t 60 app authentik-worker'
+        in readme_text[public_open_validation:]
+    ):
+        issues.append(
+            "README.md: public-open failure must bind gate removal and stop both writers"
+        )
+    discovery_review_transition = readme_text.find(
+        "restore_discovery_tags\nDISCOVERY_TAGS_MUTATED=false"
+    )
+    review_handler = readme_text.find(
+        "cleanup_review_failure()", discovery_review_transition
+    )
+    if not (
+        discovery_review_transition >= 0
+        and review_handler > discovery_review_transition
+        and "trap - ERR HUP INT TERM EXIT"
+        not in readme_text[discovery_review_transition:review_handler]
+    ):
+        issues.append(
+            "README.md: discovery traps must remain armed through the review handoff"
+        )
+    abort_recovery_start = readme_text.find("Active abort-record directory:")
+    abort_gate_proof = readme_text.find(
+        'discard_external_evidence_snapshot "$GATE_RECOVERY_EVIDENCE"',
+        abort_recovery_start,
+    )
+    abort_writer_restart = readme_text.find(
+        "--no-deps --no-build --pull never app authentik-worker",
+        abort_recovery_start,
+    )
+    abort_gate_removal = readme_text.find(
+        "GATE_REMOVED_DURING_RECOVERY=true", abort_recovery_start
+    )
+    if not (
+        abort_recovery_start >= 0
+        and abort_recovery_start < abort_gate_proof
+        < abort_writer_restart
+        < abort_gate_removal
+    ):
+        issues.append(
+            "README.md: abort recovery must prove the external gate before a "
+            "current-image writer restart and before gate removal"
+        )
+    for pattern, description in (
+        (r"bootstrap-only", "the bootstræp-only Bæse-URL environment boundæry"),
+        (r"only when.{0,100}(empty|unset)", "the empty-only first-run seed"),
+        (r"never overwrite", "the persisted Bæse-URL non-overwrite contræct"),
+        (r"traefik.{0,80}host", "the exæct Træefik-host mætch"),
+        (r"database.{0,80}authoritative", "the dætæbæse-authoritætive Bæse URL"),
+        (r"\.base\s+url", "the persisted Bæse-URL ÆPI field"),
+    ):
+        if not re.search(pattern, normalized_readme):
+            issues.append(f"README.md: Æuthentik must document {description}")
+    if (
+        "DEFAULT_AUTHENTIK_IMAGE" not in runtime_text
+        or '"${TEST_REPO_ROOT}/Authentik/.env"' not in runtime_text
+    ):
+        issues.append(
+            "test-authentik-runtime.sh: default image must derive from Authentik/.env"
+        )
+    if "persisted Base URL system setting is missing or drifted" not in runtime_text:
+        issues.append(
+            "test-authentik-runtime.sh: missing persisted Bæse URL ÆPI regression"
+        )
+    if "retained bootstrap-only public-route environment" not in runtime_text:
+        issues.append(
+            "test-authentik-runtime.sh: missing finæl-dæmon Bæse-URL env æbsence proof"
+        )
+    if (
+        "initialized-upgrade Base-URL backfill" not in runtime_text
+        or "BASE_URL_STATE_EDITOR" not in runtime_text
+    ):
+        issues.append(
+            "test-authentik-runtime.sh: missing initialized-upgræde Bæse-URL proof"
+        )
+    if "AUTHENTIK_WEB_BASE_URL_DRIFT" not in runtime_text:
+        issues.append(
+            "test-authentik-runtime.sh: missing persisted Bæse-URL non-overwrite proof"
+        )
+    return issues
+
+
 def check_readme_contract(
     env_path: Path | None,
     compose_path: Path,
@@ -2633,6 +3013,17 @@ def main() -> None:
                     print(f"  {issue}")
             else:
                 print(f"  {env_path.name}: OK (structure)")
+
+            authentik_release_issues = check_authentik_release_contract(
+                target_root,
+                compose_path,
+                env_path,
+                repo_root,
+            )
+            if authentik_release_issues:
+                total_issues += len(authentik_release_issues)
+                for issue in authentik_release_issues:
+                    print(f"  {issue}")
 
         else:
             expected_env = ".env or app.env" if is_app else ".env"

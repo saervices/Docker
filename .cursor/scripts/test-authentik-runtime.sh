@@ -11,15 +11,26 @@ readonly TEST_SCRIPT_DIR
 TEST_REPO_ROOT="$(cd -- "${TEST_SCRIPT_DIR}/../.." &>/dev/null && pwd)" \
   || { printf 'FAIL authentik-runtime: repository root resolution failed\n' >&2; exit 1; }
 readonly TEST_REPO_ROOT
+DEFAULT_AUTHENTIK_IMAGE="$(sed -nE \
+  's/^APP_IMAGE=([^[:space:]#]+)[[:space:]]*(#.*)?$/\1/p' \
+  "${TEST_REPO_ROOT}/Authentik/.env")"
+if [[ ! "$DEFAULT_AUTHENTIK_IMAGE" =~ ^ghcr\.io/goauthentik/server:[0-9]{4}\.[0-9]+$ ]]; then
+  printf 'FAIL authentik-runtime: Authentik/.env must contain one official moving calendar-series image\n' >&2
+  exit 1
+fi
+readonly DEFAULT_AUTHENTIK_IMAGE
 TEST_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/authentik-runtime.XXXXXX")" \
   || { printf 'FAIL authentik-runtime: private fixture creation failed\n' >&2; exit 1; }
 readonly TEST_ROOT
 readonly RUN_ID="${TEST_ROOT##*.}-${BASHPID}"
-readonly AUTHENTIK_IMAGE="${AUTHENTIK_TEST_IMAGE:-ghcr.io/goauthentik/server:2026.5}"
+readonly AUTHENTIK_IMAGE="${AUTHENTIK_TEST_IMAGE:-$DEFAULT_AUTHENTIK_IMAGE}"
 readonly POSTGRES_IMAGE="${AUTHENTIK_TEST_POSTGRES_IMAGE:-docker.io/library/postgres:18}"
+readonly AUTHENTIK_WEB_BASE_URL="https://authentik.runtime.invalid"
+readonly AUTHENTIK_WEB_BASE_URL_DRIFT="https://drift.authentik.runtime.invalid"
 readonly TEST_PREFIX="codex-authentik-runtime-${RUN_ID}"
 readonly POSTGRES_CONTAINER="${TEST_PREFIX}-postgresql"
 readonly BOOTSTRAP_CONTAINER="${TEST_PREFIX}-bootstrap"
+readonly BOOTSTRAP_UPGRADE_CONTAINER="${TEST_PREFIX}-bootstrap-upgrade"
 readonly BOOTSTRAP_REPEAT_CONTAINER="${TEST_PREFIX}-bootstrap-repeat"
 readonly BOOTSTRAP_PEER_CONTAINER="${TEST_PREFIX}-bootstrap-peer"
 readonly SERVER_CONTAINER="${TEST_PREFIX}-server"
@@ -43,6 +54,7 @@ readonly BOOTSTRAP_PEER_CLIENT="${TEST_ROOT}/authentik-bootstrap-peer-probe.py"
 readonly BOOTSTRAP_PEER_CONTROL="${TEST_ROOT}/bootstrap-peer-control"
 readonly FORWARD_HEADER_CLIENT="${TEST_ROOT}/authentik-forward-header-probe.py"
 readonly PASSWORD_VERIFIER="${TEST_ROOT}/authentik-password-verifier.py"
+readonly BASE_URL_STATE_EDITOR="${TEST_ROOT}/authentik-base-url-state.py"
 readonly POSTGRES_PASSWORD_VALUE="authentik-postgresql-${RUN_ID}-safe-password"
 readonly AUTHENTIK_SECRET_KEY_VALUE="authentik-secret-key-${RUN_ID}-0123456789abcdefghijklmnopqrstuvwxyz"
 readonly AUTHENTIK_BOOTSTRAP_PASSWORD_VALUE="authentik-bootstrap-${RUN_ID}-safe-password"
@@ -81,7 +93,8 @@ cleanup() {
     fi
     for resource_name in \
       "$SERVER_CONTAINER" "$WORKER_CONTAINER" \
-      "$BOOTSTRAP_CONTAINER" "$BOOTSTRAP_REPEAT_CONTAINER" \
+      "$BOOTSTRAP_CONTAINER" "$BOOTSTRAP_UPGRADE_CONTAINER" \
+      "$BOOTSTRAP_REPEAT_CONTAINER" \
       "$BOOTSTRAP_PEER_CONTAINER" \
       "$POSTGRES_CONTAINER"; do
       remove_owned_container "$resource_name" || cleanup_status=1
@@ -102,7 +115,8 @@ cleanup() {
     if docker info >/dev/null 2>&1; then
       for resource_name in \
         "$SERVER_CONTAINER" "$WORKER_CONTAINER" \
-        "$BOOTSTRAP_CONTAINER" "$BOOTSTRAP_REPEAT_CONTAINER" \
+        "$BOOTSTRAP_CONTAINER" "$BOOTSTRAP_UPGRADE_CONTAINER" \
+        "$BOOTSTRAP_REPEAT_CONTAINER" \
         "$BOOTSTRAP_PEER_CONTAINER" \
         "$POSTGRES_CONTAINER"; do
         if docker container inspect "$resource_name" >/dev/null 2>&1; then
@@ -138,7 +152,7 @@ cleanup() {
       final_status=1
     fi
   elif [[ "$original_status" -eq 0 && "$SUITE_COMPLETED" == true ]]; then
-    printf 'PASS authentik-runtime: fresh one-shot, persisted verifier, real login, restart, skip, no final secret exposure, exact two-network proxy boundary, native health, peer isolation, clean stop, and verified cleanup\n'
+    printf 'PASS authentik-runtime: fresh one-shot, initialized-upgrade Base-URL backfill, persisted verifier, real login, restart, non-overwrite, no final secret exposure, exact two-network proxy boundary, native health, peer isolation, clean stop, and verified cleanup\n'
   elif [[ "$original_status" -eq 0 ]]; then
     printf 'FAIL authentik-runtime: suite exited before its final completion marker\n' >&2
     final_status=1
@@ -155,7 +169,8 @@ require_resource_names_available() {
 
   for resource_name in \
     "$SERVER_CONTAINER" "$WORKER_CONTAINER" \
-    "$BOOTSTRAP_CONTAINER" "$BOOTSTRAP_REPEAT_CONTAINER" \
+    "$BOOTSTRAP_CONTAINER" "$BOOTSTRAP_UPGRADE_CONTAINER" \
+    "$BOOTSTRAP_REPEAT_CONTAINER" \
     "$BOOTSTRAP_PEER_CONTAINER" \
     "$POSTGRES_CONTAINER"; do
     ! docker container inspect "$resource_name" >/dev/null 2>&1 \
@@ -339,14 +354,20 @@ wait_for_authentik_worker() {
 #   Runs one bounded one-shot bootstræp contæiner ænd requires exit zero.
 #   Ærguments:
 #     $1 - contæiner næme
+#     $2 - whether to require the peer-listener probe
+#     $3 - public Bæse URL bootstræp vælue
 #ææææææææææææææææææææææææææææææææææ
 run_bootstrap() {
   local container_name="$1"
   local require_peer_probe="${2:-false}"
+  local public_base_url="${3:-$AUTHENTIK_WEB_BASE_URL}"
   local bootstrap_status
   local healthcheck_test
+  local traefik_host_rule
   local timeout_status
   local wait_status
+
+  printf -v traefik_host_rule 'Host(`%s`)' "${public_base_url#https://}"
 
   docker create \
     --name "$container_name" \
@@ -373,6 +394,8 @@ run_bootstrap() {
     --env "AUTHENTIK_POSTGRESQL__NAME=${AUTHENTIK_DATABASE_NAME}" \
     --env AUTHENTIK_POSTGRESQL__PASSWORD=file:///run/secrets/POSTGRES_PASSWORD \
     --env AUTHENTIK_SECRET_KEY=file:///run/secrets/AUTHENTIK_SECRET_KEY_PASSWORD \
+    --env "AUTHENTIK_WEB__BASE_URL=${public_base_url}" \
+    --env "AUTHENTIK_TRAEFIK_HOST_RULE=${traefik_host_rule}" \
     --env AUTHENTIK_ERROR_REPORTING__ENABLED=false \
     --env AUTHENTIK_DISABLE_STARTUP_ANALYTICS=true \
     --env AUTHENTIK_LISTEN__HTTP=127.0.0.1:9000 \
@@ -388,6 +411,16 @@ run_bootstrap() {
     '{{json .Config.Healthcheck.Test}}' "$container_name")"
   [[ "$healthcheck_test" == '["NONE"]' ]] \
     || fail 'authentik bootstrap did not disable the inherited vendor healthcheck'
+  [[ "$(docker container inspect --format \
+    '{{range .Config.Env}}{{println .}}{{end}}' "$container_name" | \
+    grep -Fx "AUTHENTIK_WEB__BASE_URL=${public_base_url}")" == \
+    "AUTHENTIK_WEB__BASE_URL=${public_base_url}" ]] \
+    || fail 'authentik bootstrap did not receive the exact public base URL'
+  [[ "$(docker container inspect --format \
+    '{{range .Config.Env}}{{println .}}{{end}}' "$container_name" | \
+    grep -Fx "AUTHENTIK_TRAEFIK_HOST_RULE=${traefik_host_rule}")" == \
+    "AUTHENTIK_TRAEFIK_HOST_RULE=${traefik_host_rule}" ]] \
+    || fail 'authentik bootstrap did not receive the exact Traefik Host rule'
   if [[ "$require_peer_probe" == true ]]; then
     start_bootstrap_peer_monitor
   fi
@@ -622,7 +655,8 @@ run_login() {
     --mount "type=bind,source=${AUTHENTIK_BOOTSTRAP_PASSWORD_FILE},destination=/run/secrets/AUTHENTIK_BOOTSTRAP_PASSWORD,readonly" \
     --entrypoint python3 \
     "$AUTHENTIK_IMAGE" /fixture/authentik-login.py \
-      http://authentik-frontend:9000 /run/secrets/AUTHENTIK_BOOTSTRAP_PASSWORD
+      http://authentik-frontend:9000 /run/secrets/AUTHENTIK_BOOTSTRAP_PASSWORD \
+      "$AUTHENTIK_WEB_BASE_URL"
 }
 
 #ææææææææææææææææææææææææææææææææææ
@@ -672,6 +706,44 @@ run_password_verifier() {
       fail 'persisted-password verifier evidence exposed test secret content'
     fi
   done
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: clear_persisted_base_url
+#   Reproduces the initialized 2026.5-to-2026.8 migrætion stæte exæctly.
+#ææææææææææææææææææææææææææææææææææ
+clear_persisted_base_url() {
+  local evidence_file="${TEST_ROOT}/base-url-upgrade-fixture.log"
+
+  if ! docker run --rm \
+    --label "codex.authentik-runtime=${RUN_ID}" \
+    --network "$BACKEND_NETWORK" \
+    --user 1000:1000 \
+    --read-only \
+    --cap-drop ALL \
+    --security-opt no-new-privileges:true \
+    --init \
+    --tmpfs /run:rw,noexec,nosuid,nodev,size=64m \
+    --tmpfs /tmp:rw,noexec,nosuid,nodev,size=128m \
+    --tmpfs /var/tmp:rw,noexec,nosuid,nodev,size=128m \
+    --mount "type=volume,source=${AUTHENTIK_DATA_VOLUME},destination=/data" \
+    --mount "type=bind,source=${BASE_URL_STATE_EDITOR},destination=/fixture/authentik-base-url-state.py,readonly" \
+    --mount "type=bind,source=${POSTGRES_PASSWORD_FILE},destination=/run/secrets/POSTGRES_PASSWORD,readonly" \
+    --mount "type=bind,source=${AUTHENTIK_SECRET_KEY_FILE},destination=/run/secrets/AUTHENTIK_SECRET_KEY_PASSWORD,readonly" \
+    --env AUTHENTIK_POSTGRESQL__HOST=postgresql \
+    --env "AUTHENTIK_POSTGRESQL__USER=${AUTHENTIK_DATABASE_USER}" \
+    --env "AUTHENTIK_POSTGRESQL__NAME=${AUTHENTIK_DATABASE_NAME}" \
+    --env AUTHENTIK_POSTGRESQL__PASSWORD=file:///run/secrets/POSTGRES_PASSWORD \
+    --env AUTHENTIK_SECRET_KEY=file:///run/secrets/AUTHENTIK_SECRET_KEY_PASSWORD \
+    --env AUTHENTIK_ERROR_REPORTING__ENABLED=false \
+    --env AUTHENTIK_DISABLE_STARTUP_ANALYTICS=true \
+    --entrypoint python3 \
+    "$AUTHENTIK_IMAGE" /fixture/authentik-base-url-state.py \
+      "$AUTHENTIK_WEB_BASE_URL" >"$evidence_file" 2>&1; then
+    fail 'initialized empty-Base-URL upgrade fixture could not be established'
+  fi
+  grep -Fx 'initialized-ready-tenants-cleared' "$evidence_file" >/dev/null \
+    || fail 'initialized empty-Base-URL upgrade fixture lacked exact read-back proof'
 }
 
 #ææææææææææææææææææææææææææææææææææ
@@ -748,7 +820,8 @@ with open(evidence_path, encoding="utf-8") as evidence_handle:
 
 server = containers[server_name]
 server_networks = server["NetworkSettings"]["Networks"]
-worker_networks = containers[worker_name]["NetworkSettings"]["Networks"]
+worker = containers[worker_name]
+worker_networks = worker["NetworkSettings"]["Networks"]
 if set(server_networks) != {frontend_name, backend_name}:
     raise SystemExit("server does not have the exact frontend/backend network set")
 if set(worker_networks) != {backend_name}:
@@ -771,12 +844,20 @@ trusted_proxy_setting = (
 )
 if trusted_proxy_setting not in server["Config"].get("Env", []):
     raise SystemExit("server trusted-proxy configuration is not the exact frontend subnet")
+
+for role, container in (("server", server), ("worker", worker)):
+    if any(
+        value.partition("=")[0]
+        in {"AUTHENTIK_WEB__BASE_URL", "AUTHENTIK_TRAEFIK_HOST_RULE"}
+        for value in container["Config"].get("Env", [])
+    ):
+        raise SystemExit(f"{role} retained bootstrap-only public-route environment")
 PY
 }
 
 #ææææææææææææææææææææææææææææææææææ
 # FUNCTION: assert_forward_header_boundary
-#   Proves frontend-only XFF trust ænd records the independent XFP limitætion.
+#   Proves frontend-only XFF ænd XFP trust.
 #ææææææææææææææææææææææææææææææææææ
 assert_forward_header_boundary() {
   local trusted_path="/runtime-proxy-probe-${RUN_ID}-trusted/"
@@ -826,10 +907,8 @@ if untrusted["remote"] == untrusted_address:
     raise SystemExit("untrusted backend peer controlled X-Forwarded-For")
 if trusted["scheme"] != "https":
     raise SystemExit("trusted frontend X-Forwarded-Proto was not honored")
-if untrusted["scheme"] != "https":
-    raise SystemExit(
-        "current vendor limitation changed: untrusted X-Forwarded-Proto was not honored"
-    )
+if untrusted["scheme"] != "http":
+    raise SystemExit("untrusted backend peer controlled X-Forwarded-Proto")
 PY
     assertion_status=$?
     set -e
@@ -909,6 +988,12 @@ PY
       >/dev/null; then
     fail 'disabled SMTP vendor environment reached final runtime evidence'
   fi
+  if rg -n 'AUTHENTIK_(WEB__BASE_URL|TRAEFIK_HOST_RULE)' \
+      "${TEST_ROOT}/server.inspect.json" "${TEST_ROOT}/server.process.json" \
+      "${TEST_ROOT}/worker.inspect.json" "${TEST_ROOT}/worker.process.json" \
+      >/dev/null; then
+    fail 'final server or worker retained bootstrap-only public-route environment'
+  fi
   python3 - \
     "${TEST_ROOT}/server.process.json" server \
     "${TEST_ROOT}/worker.process.json" worker <<'PY'
@@ -922,7 +1007,7 @@ for evidence_path, role in zip(sys.argv[1::2], sys.argv[2::2], strict=True):
         command = process["cmdline"]
         executable = command[0].rsplit("/", 1)[-1] if command else ""
         if role == "server":
-            return executable == "authentik-server"
+            return executable == "authentik" and "server" in command[1:]
         return executable == "authentik" and "worker" in command[1:]
 
     daemon_processes = [
@@ -940,6 +1025,13 @@ for evidence_path, role in zip(sys.argv[1::2], sys.argv[2::2], strict=True):
         ):
             raise SystemExit(
                 f"disabled SMTP environment reached {role} process {process['pid']}"
+            )
+        if environment_names & {
+            "AUTHENTIK_WEB__BASE_URL",
+            "AUTHENTIK_TRAEFIK_HOST_RULE",
+        }:
+            raise SystemExit(
+                f"bootstrap-only public-route environment reached {role} process {process['pid']}"
             )
 PY
 }
@@ -978,6 +1070,7 @@ from pathlib import Path
 
 base_url = sys.argv[1].rstrip("/")
 password = Path(sys.argv[2]).read_text(encoding="utf-8")
+expected_public_base_url = sys.argv[3]
 cookie_jar = http.cookiejar.CookieJar()
 opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(cookie_jar))
 executor_url = (
@@ -1032,6 +1125,10 @@ try:
     status, user = request("GET", f"{base_url}/api/v3/core/users/me/")
     if status != 200 or user.get("user", {}).get("username") != "akadmin":
         raise RuntimeError("authenticated users/me response did not identify akadmin")
+    phase = "admin-settings-get"
+    status, settings = request("GET", f"{base_url}/api/v3/admin/settings/")
+    if status != 200 or settings.get("base_url") != expected_public_base_url:
+        raise RuntimeError("persisted Base URL system setting is missing or drifted")
 except (OSError, ValueError, RuntimeError, urllib.error.HTTPError) as error:
     error_url = getattr(error, "url", "")
     print(
@@ -1040,6 +1137,52 @@ except (OSError, ValueError, RuntimeError, urllib.error.HTTPError) as error:
     )
     raise SystemExit(1)
 PY
+
+cat >"$BASE_URL_STATE_EDITOR" <<'PY'
+#!/usr/bin/env python3
+import os
+import sys
+
+sys.path.insert(0, "/")
+from authentik.root.setup import setup
+
+setup()
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "authentik.root.settings")
+
+import django
+
+django.setup()
+
+from django.db import transaction
+
+from authentik.core.apps import Setup
+from authentik.tenants.models import Tenant
+
+expected_base_url = sys.argv[1]
+with transaction.atomic():
+    tenants = list(
+        Tenant.objects.select_for_update()
+        .filter(ready=True)
+        .order_by("schema_name")
+    )
+    if not tenants or any(not Setup.get(tenant=tenant) for tenant in tenants):
+        raise SystemExit("ready tenant is not initialized")
+    if any(tenant.base_url != expected_base_url for tenant in tenants):
+        raise SystemExit("ready tenant did not contain the expected persisted Base URL")
+    tenant_ids = [tenant.pk for tenant in tenants]
+    updated = Tenant.objects.filter(
+        pk__in=tenant_ids, ready=True, base_url=expected_base_url
+    ).update(base_url="")
+    if updated != len(tenant_ids):
+        raise SystemExit("ready tenant set changed while Base URL was cleared")
+    persisted = list(
+        Tenant.objects.filter(pk__in=tenant_ids).values_list("base_url", flat=True)
+    )
+    if len(persisted) != len(tenant_ids) or any(persisted):
+        raise SystemExit("empty Base URL fixture read-back failed")
+print("initialized-ready-tenants-cleared")
+PY
+chmod 0555 "$BASE_URL_STATE_EDITOR"
 
 cat >"$PEER_CLIENT" <<'PY'
 #!/usr/bin/env python3
@@ -1281,8 +1424,38 @@ run_peer_probe "$FRONTEND_NETWORK" frontend
 run_peer_probe "$BACKEND_NETWORK" backend
 assert_forward_header_boundary
 
+docker stop --time 60 "$SERVER_CONTAINER" "$WORKER_CONTAINER" >/dev/null
+for container_name in "$SERVER_CONTAINER" "$WORKER_CONTAINER"; do
+  [[ "$(docker container inspect --format '{{.State.ExitCode}}' "$container_name")" -eq 0 ]] \
+    || fail "${container_name} did not stop cleanly before the upgrade fixture"
+done
+clear_persisted_base_url
 printf 'CHANGE_ME' >"$AUTHENTIK_BOOTSTRAP_PASSWORD_FILE"
-run_bootstrap "$BOOTSTRAP_REPEAT_CONTAINER"
+run_bootstrap "$BOOTSTRAP_UPGRADE_CONTAINER" false
+capture_container_log "$BOOTSTRAP_UPGRADE_CONTAINER" bootstrap-upgrade
+if ! grep -Fq -- \
+  '[INFO] authentik public Base URL seeded for ' \
+  "${TEST_ROOT}/bootstrap-upgrade.diagnostic.log"; then
+  fail 'initialized empty-Base-URL upgrade did not run the verified vendor backfill'
+fi
+if ! grep -Fq -- \
+  '[INFO] authentik is already initialized; credential phase skipped' \
+  "${TEST_ROOT}/bootstrap-upgrade.diagnostic.log"; then
+  fail 'initialized empty-Base-URL upgrade did not prove its credential-phase skip'
+fi
+if rg -q 'credential-bearing worker exited|CHANGE_ME' \
+  "${TEST_ROOT}/bootstrap-upgrade.diagnostic.log"; then
+  fail 'initialized empty-Base-URL upgrade consumed or exposed the replaced credential'
+fi
+
+printf '%s' "$AUTHENTIK_BOOTSTRAP_PASSWORD_VALUE" >"$AUTHENTIK_BOOTSTRAP_PASSWORD_FILE"
+docker start "$SERVER_CONTAINER" "$WORKER_CONTAINER" >/dev/null
+wait_for_authentik_server
+wait_for_authentik_worker
+run_login
+
+printf 'CHANGE_ME' >"$AUTHENTIK_BOOTSTRAP_PASSWORD_FILE"
+run_bootstrap "$BOOTSTRAP_REPEAT_CONTAINER" false "$AUTHENTIK_WEB_BASE_URL_DRIFT"
 capture_container_log "$BOOTSTRAP_REPEAT_CONTAINER" bootstrap-repeat
 if ! grep -Fq -- \
   '[INFO] authentik is already initialized; credential phase skipped' \
@@ -1292,6 +1465,11 @@ fi
 if rg -q 'credential-bearing worker exited|CHANGE_ME' \
   "${TEST_ROOT}/bootstrap-repeat.diagnostic.log"; then
   fail 'initialized-data bootstrap consumed or exposed the replaced credential'
+fi
+if ! grep -Fq -- \
+  '[INFO] authentik public Base URL already persisted; seed skipped' \
+  "${TEST_ROOT}/bootstrap-repeat.diagnostic.log"; then
+  fail 'initialized-data bootstrap did not prove Base-URL non-overwrite'
 fi
 
 printf '%s' "$AUTHENTIK_BOOTSTRAP_PASSWORD_VALUE" >"$AUTHENTIK_BOOTSTRAP_PASSWORD_FILE"

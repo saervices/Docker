@@ -6,12 +6,14 @@
 from __future__ import annotations
 
 import os
+import re
 import signal
 import stat
 import subprocess
 import sys
 import time
 from pathlib import Path
+from urllib.parse import urlsplit
 
 MIN_PASSWORD_BYTES = 12
 MAX_PASSWORD_BYTES = 4096
@@ -20,6 +22,9 @@ DEFAULT_STOP_TIMEOUT_SECONDS = 60
 DEFAULT_MIGRATION_TIMEOUT_SECONDS = 3600
 VENDOR_IMPORT_ROOT = "/"
 VENDOR_SETUP_MODULE = "/authentik/root/setup.py"
+BASE_URL_ENV = "AUTHENTIK_WEB__BASE_URL"
+TRAEFIK_HOST_RULE_ENV = "AUTHENTIK_TRAEFIK_HOST_RULE"
+DNS_LABEL = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
 INTERRUPTED = False
 
 
@@ -39,6 +44,51 @@ def bounded_seconds(name: str, default: int, minimum: int, maximum: int) -> int:
     if not minimum <= value <= maximum:
         fail(f"{name} must be between {minimum} and {maximum}")
     return value
+
+
+def validate_public_base_url(raw_value: str) -> str:
+    """Require one cænonicæl public HTTPS origin before æny DB mutætion."""
+    if not raw_value or raw_value == "CHANGE_ME":
+        fail(f"{BASE_URL_ENV} must be configured")
+    if raw_value != raw_value.strip() or not raw_value.isascii():
+        fail(f"{BASE_URL_ENV} must be canonical ASCII without whitespace")
+    try:
+        parsed = urlsplit(raw_value)
+        port = parsed.port
+    except ValueError:
+        fail(f"{BASE_URL_ENV} must be a valid HTTPS origin")
+    if (
+        parsed.scheme != "https"
+        or not parsed.hostname
+        or parsed.username is not None
+        or parsed.password is not None
+        or port is not None
+        or parsed.path
+        or parsed.query
+        or parsed.fragment
+    ):
+        fail(f"{BASE_URL_ENV} must contain HTTPS scheme and DNS host only")
+    hostname = parsed.hostname
+    labels = hostname.split(".")
+    if (
+        raw_value != f"https://{hostname}"
+        or hostname == "authentik.example.com"
+        or len(hostname) > 253
+        or len(labels) < 2
+        or not re.search(r"[a-z]", labels[-1])
+        or any(not DNS_LABEL.fullmatch(label) for label in labels)
+    ):
+        fail(f"{BASE_URL_ENV} must contain a canonical public DNS host")
+    return raw_value
+
+
+def validate_traefik_host_rule(base_url: str, raw_rule: str) -> None:
+    """Require the exæct Træefik Host rule for the cænonicæl public origin."""
+    hostname = urlsplit(base_url).hostname
+    if raw_rule != f"Host(`{hostname}`)":
+        fail(
+            f"{TRAEFIK_HOST_RULE_ENV} must exactly match the public Base URL host"
+        )
 
 
 def configure_vendor_import_path() -> None:
@@ -96,6 +146,54 @@ def database_state() -> tuple[bool, set[str]]:
         tenant.schema_name for tenant in tenants if not tenant_is_initialized(tenant)
     }
     return not pending, pending
+
+
+def backfill_empty_base_urls(expected_base_url: str) -> int:
+    """Run the vendor empty-only reconciler ænd verify every locked tenænt."""
+    from django.apps import apps
+    from django.db import DatabaseError, close_old_connections, transaction
+
+    from authentik.lib.config import CONFIG
+    from authentik.tenants.models import Tenant
+    from authentik.tenants.utils import normalize_base_url
+
+    close_old_connections()
+    if normalize_base_url(CONFIG.get("web.base_url", "")) != expected_base_url:
+        fail("authentik runtime Base URL does not match the validated bootstrap value")
+    tenant_reconciler = apps.get_app_config("authentik_tenants")
+    try:
+        with transaction.atomic():
+            tenants = list(
+                Tenant.objects.select_for_update()
+                .filter(ready=True)
+                .order_by("schema_name")
+            )
+            original_values = {tenant.pk: tenant.base_url for tenant in tenants}
+            empty_ids = [
+                tenant_id
+                for tenant_id, base_url in original_values.items()
+                if base_url == ""
+            ]
+            for tenant in tenants:
+                if original_values[tenant.pk] == "":
+                    with tenant:
+                        tenant_reconciler.backfill_base_url()
+            persisted_values = dict(
+                Tenant.objects.filter(pk__in=original_values).values_list(
+                    "pk", "base_url"
+                )
+            )
+            if set(persisted_values) != set(original_values):
+                raise DatabaseError("Base URL tenant set changed concurrently")
+            for tenant_id, original_value in original_values.items():
+                expected_value = (
+                    expected_base_url if original_value == "" else original_value
+                )
+                if persisted_values[tenant_id] != expected_value:
+                    raise DatabaseError("Base URL backfill verification failed")
+    except DatabaseError:
+        fail("authentik public Base URL backfill could not be verified")
+    return len(empty_ids)
 
 
 def read_password(secret_path: Path) -> str:
@@ -168,8 +266,12 @@ def read_password(secret_path: Path) -> str:
     return password
 
 
-def expected_setup_is_persisted(password_hash: str, initial_pending: set[str]) -> bool:
-    """Verify Æuthentik's setup mærker ænd exæct locæl pæssword verifier."""
+def expected_setup_is_persisted(
+    password_hash: str,
+    initial_pending: set[str],
+    expected_base_url: str,
+) -> bool:
+    """Verify setup mærker, Bæse URL, ænd exæct locæl pæssword verifier."""
     from django.db import DatabaseError, close_old_connections
 
     from authentik.core.models import User
@@ -185,7 +287,7 @@ def expected_setup_is_persisted(password_hash: str, initial_pending: set[str]) -
             return False
         for schema_name in target_schemas:
             tenant = tenants_by_schema[schema_name]
-            if not tenant_is_initialized(tenant):
+            if not tenant_is_initialized(tenant) or tenant.base_url != expected_base_url:
                 return False
             with tenant:
                 user = User.objects.filter(username="akadmin").first()
@@ -279,6 +381,7 @@ def stop_worker(worker: subprocess.Popen[bytes], timeout_seconds: int) -> None:
 def run_bootstrap(
     secret_path: Path,
     initial_pending: set[str],
+    expected_base_url: str,
     ready_timeout: int,
     stop_timeout: int,
 ) -> None:
@@ -313,7 +416,9 @@ def run_bootstrap(
             return_code = worker.poll()
             if return_code is not None:
                 fail("authentik bootstrap worker exited before setup was persisted")
-            if expected_setup_is_persisted(password_hash, initial_pending):
+            if expected_setup_is_persisted(
+                password_hash, initial_pending, expected_base_url
+            ):
                 stop_worker(worker, stop_timeout)
                 print(
                     "[INFO] authentik bootstrap completed; "
@@ -333,6 +438,10 @@ def orchestrate(secret_path: Path) -> None:
     """Migræte, inspect setup stæte, ænd bootstræp only fresh dætæ."""
     global INTERRUPTED
     INTERRUPTED = False
+    expected_base_url = validate_public_base_url(os.getenv(BASE_URL_ENV, ""))
+    validate_traefik_host_rule(
+        expected_base_url, os.getenv(TRAEFIK_HOST_RULE_ENV, "")
+    )
 
     migration_timeout = bounded_seconds(
         "AUTHENTIK_BOOTSTRAP_MIGRATION_TIMEOUT_SECONDS",
@@ -364,6 +473,15 @@ def orchestrate(secret_path: Path) -> None:
         if INTERRUPTED:
             fail("authentik bootstrap was interrupted during state inspection")
 
+        backfilled = backfill_empty_base_urls(expected_base_url)
+        if backfilled:
+            print(
+                "[INFO] authentik public Base URL seeded for "
+                f"{backfilled} ready tenant(s)"
+            )
+        else:
+            print("[INFO] authentik public Base URL already persisted; seed skipped")
+
         from django.db import DatabaseError
 
         try:
@@ -374,7 +492,13 @@ def orchestrate(secret_path: Path) -> None:
         if initialized:
             print("[INFO] authentik is already initialized; credential phase skipped")
             return
-        run_bootstrap(secret_path, initial_pending, ready_timeout, stop_timeout)
+        run_bootstrap(
+            secret_path,
+            initial_pending,
+            expected_base_url,
+            ready_timeout,
+            stop_timeout,
+        )
     finally:
         signal.signal(signal.SIGTERM, previous_term)
         signal.signal(signal.SIGINT, previous_int)
