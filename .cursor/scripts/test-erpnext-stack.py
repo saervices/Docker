@@ -10,6 +10,7 @@ import copy
 import hashlib
 import os
 import re
+import shlex
 import shutil
 import stat
 import subprocess
@@ -6442,7 +6443,172 @@ def _check_site_bootstrap(root: Path, contract: Contract) -> None:
     )
 
 
+def _authentik_tenant_baseline_section(
+    source: str,
+) -> tuple[int, int, str] | None:
+    marker = re.search(
+        r'(?m)^<div[ \t]+id=["\']downstream-authentik-tenant-baseline["\']'
+        r">[ \t]*</div>[ \t]*$",
+        source,
+    )
+    if marker is None:
+        return None
+    heading = re.search(
+        r"(?m)^(?P<marks>#{1,6})[ \t]+[^\r\n]+$",
+        source[marker.end() :],
+    )
+    if heading is None:
+        return None
+    body_start = marker.end() + heading.end()
+    heading_level = len(heading.group("marks"))
+    next_heading = re.search(
+        rf"(?m)^#{{1,{heading_level}}}[ \t]+",
+        source[body_start:],
+    )
+    body_end = (
+        len(source)
+        if next_heading is None
+        else body_start + next_heading.start()
+    )
+    return body_start, body_end, source[body_start:body_end]
+
+
+def _verified_email_mapping_count(section_source: str) -> int:
+    def request_user_attribute(node: ast.AST, attribute: str) -> bool:
+        return (
+            isinstance(node, ast.Attribute)
+            and node.attr == attribute
+            and isinstance(node.value, ast.Attribute)
+            and node.value.attr == "user"
+            and isinstance(node.value.value, ast.Name)
+            and node.value.value.id == "request"
+        )
+
+    block_matches = tuple(
+        re.finditer(
+            r"(?ms)^[ \t]*```python[ \t]*\n(?P<body>.*?)^[ \t]*```[ \t]*$",
+            section_source,
+        )
+    )
+    if len(block_matches) != 1:
+        return 0
+
+    count = 0
+    for block_match in block_matches:
+        indented = "\n".join(
+            f"    {line}" for line in block_match.group("body").splitlines()
+        )
+        try:
+            tree = ast.parse(f"def _mapping(request):\n{indented}\n")
+        except SyntaxError:
+            continue
+        function = tree.body[0]
+        if (
+            not isinstance(function, ast.FunctionDef)
+            or len(function.body) != 1
+            or not isinstance(function.body[0], ast.Return)
+        ):
+            continue
+        return_node = function.body[0]
+        if not isinstance(return_node.value, ast.Dict):
+            continue
+        keys = return_node.value.keys
+        values = return_node.value.values
+        if any(
+            not isinstance(key, ast.Constant) or not isinstance(key.value, str)
+            for key in keys
+        ):
+            continue
+        fields = {
+            key.value: value
+            for key, value in zip(keys, values, strict=True)
+            if isinstance(key, ast.Constant) and isinstance(key.value, str)
+        }
+        email = fields.get("email")
+        verified = fields.get("email_verified")
+        exact_verified_lookup = (
+            isinstance(verified, ast.Call)
+            and isinstance(verified.func, ast.Attribute)
+            and verified.func.attr == "get"
+            and request_user_attribute(verified.func.value, "attributes")
+            and len(verified.args) == 2
+            and isinstance(verified.args[0], ast.Constant)
+            and verified.args[0].value == "email_verified"
+            and isinstance(verified.args[1], ast.Constant)
+            and verified.args[1].value is False
+            and not verified.keywords
+        )
+        if (
+            set(fields) == {"email", "email_verified"}
+            and request_user_attribute(email, "email")
+            and exact_verified_lookup
+        ):
+            count += 1
+    return count
+
+
+def _check_oidc_documentation(root: Path, contract: Contract) -> None:
+    authentik_path = root / "Authentik/README.md"
+    authentik_source = _regular_text(authentik_path, contract, "oidc")
+    section_match = _authentik_tenant_baseline_section(authentik_source)
+    contract.expect(
+        section_match is not None,
+        "[oidc] Authentik README must retain its stable downstream tenant "
+        "baseline anchor and bounded section",
+    )
+    if section_match is None:
+        return
+
+    section_source = section_match[2]
+    contract.expect(
+        _verified_email_mapping_count(section_source) == 1,
+        "[oidc] the canonical Authentik baseline must contain exactly one "
+        "syntactically valid official verified-email mapping",
+    )
+    normalized = re.sub(r"\s+", " ", section_source)
+    typed_boundary_ok = (
+        re.search(r"(?i)does not norm[aæ]lize", normalized) is not None
+        and re.search(
+            r"(?i)RP must [aæ]ccept only liter[aæ]l JSON boole[aæ]n `true`",
+            normalized,
+        )
+        is not None
+        and 'string `"true"`' in normalized
+        and "integer `1`" in normalized
+    )
+    contract.expect(
+        typed_boundary_ok,
+        "[oidc] the canonical Authentik baseline must disclose that the mapping "
+        "preserves source types and require strict literal-boolean RP validation",
+    )
+    provider_local_ok = all(
+        re.search(pattern, normalized) is not None
+        for pattern in (
+            r"(?i)Selected Scopes",
+            r"(?i)deselect.{0,120}built-in `email`",
+            r"(?i)select ex[aæ]ctly.{0,120}[aæ]pp-specific.{0,120}Scope N[aæ]me `email`",
+            r"(?i)do not delete.{0,120}glob[aæ]l m[aæ]n[aæ]ged m[aæ]pping",
+        )
+    )
+    contract.expect(
+        provider_local_ok,
+        "[oidc] the canonical Authentik baseline must describe provider-local "
+        "deselection, exactly one custom email mapping, and no global deletion",
+    )
+    erpnext_source = _regular_text(root / "ERPNext/README.md", contract, "oidc")
+    canonical_link = (
+        "../Authentik/README.md#downstream-authentik-tenant-baseline"
+    )
+    contract.expect(
+        canonical_link in erpnext_source
+        and "`ERPNext verified email`" in erpnext_source,
+        "[oidc] ERPNext documentation must link to the canonical Authentik "
+        "baseline and retain its app-specific mapping name",
+    )
+
+
 def _check_oidc(root: Path, env: dict[str, str], contract: Contract) -> None:
+    _check_oidc_documentation(root, contract)
     path = root / "templates/erpnext-sso-bootstrap/scripts/erpnext-sso-bootstrap.py"
     source = _regular_text(path, contract, "oidc")
     try:
@@ -8810,6 +8976,88 @@ def _check_secret_placeholders(
     )
 
 
+def _check_fresh_host_quick_start(root: Path, contract: Contract) -> None:
+    readme_path = root / "ERPNext/README.md"
+    readme_source = _regular_text(readme_path, contract, "quick-start")
+    section_match = re.search(
+        r"(?ms)^## Quick Stært[ \t]*\n(?P<body>.*?)(?=^##[ \t]|\Z)",
+        readme_source,
+    )
+    contract.expect(
+        section_match is not None,
+        "[quick-start] ERPNext README must contain one bounded Quick Stært section",
+    )
+    if section_match is None:
+        return
+
+    commands: list[tuple[int, tuple[str, ...]]] = []
+    for block_match in re.finditer(
+        r"(?ms)^[ \t]*```bash[ \t]*\n(?P<body>.*?)^[ \t]*```[ \t]*$",
+        section_match.group("body"),
+    ):
+        block_source = re.sub(r"\\\r?\n[ \t]*", " ", block_match.group("body"))
+        for raw_line in block_source.splitlines():
+            command_source = raw_line.strip()
+            if not command_source or command_source.startswith("#"):
+                continue
+            try:
+                tokens = tuple(shlex.split(command_source, comments=True, posix=True))
+            except ValueError as error:
+                contract.expect(
+                    False,
+                    "[quick-start] ERPNext README contains an invalid shell command "
+                    f"in Quick Stært: {error}",
+                )
+                continue
+            if tokens:
+                commands.append((len(commands), tokens))
+
+    merge_command = ("./run.sh", "ERPNext")
+    update_command = ("./run.sh", "ERPNext", "--update")
+    start_command = (
+        "docker",
+        "compose",
+        "--env-file",
+        ".env",
+        "-f",
+        "docker-compose.main.yaml",
+        "up",
+        "-d",
+        "--no-build",
+        "--pull",
+        "never",
+    )
+    merge_positions = [
+        position for position, tokens in commands if tokens == merge_command
+    ]
+    update_positions = [
+        position for position, tokens in commands if tokens == update_command
+    ]
+    compose_up_commands = [
+        (position, tokens)
+        for position, tokens in commands
+        if len(tokens) >= 3 and tokens[:2] == ("docker", "compose") and "up" in tokens[2:]
+    ]
+    exact_inventory = (
+        len(merge_positions) == 1
+        and len(update_positions) == 1
+        and len(compose_up_commands) == 1
+        and compose_up_commands[0][1] == start_command
+    )
+    contract.expect(
+        exact_inventory,
+        "[quick-start] a clean host must document exactly one normal ERPNext merge, "
+        "one explicit ./run.sh ERPNext --update image preparation, and one exact "
+        "docker compose up -d --no-build --pull never start",
+    )
+    if exact_inventory:
+        contract.expect(
+            merge_positions[0] < update_positions[0] < compose_up_commands[0][0],
+            "[quick-start] clean-host order must be normal run.sh merge, explicit "
+            "--update image preparation, then pull-free no-build Compose start",
+        )
+
+
 def validate_stack(root: Path) -> ValidationResult:
     contract = Contract()
     app_path = root / "ERPNext/docker-compose.app.yaml"
@@ -9684,6 +9932,7 @@ def validate_stack(root: Path) -> ValidationResult:
     _check_site_bootstrap(root, contract)
     _check_oidc(root, root_env, contract)
     _check_sso_guard(root, root_env, services, contract)
+    _check_fresh_host_quick_start(root, contract)
     _check_maintenance(
         root,
         root_env,
@@ -9729,6 +9978,58 @@ def _replace_count(
             f"{old!r}"
         )
     path.write_text(source.replace(old, new), encoding="utf-8")
+
+
+def _mutate_oidc_verified_email_expression(path: Path) -> None:
+    source = path.read_text(encoding="utf-8")
+    section_match = _authentik_tenant_baseline_section(source)
+    if section_match is None:
+        raise AssertionError(
+            f"fixture could not find the Authentik tenant baseline in {path}"
+        )
+    section_start, section_end, section_source = section_match
+    expression = 'request.user.attributes.get("email_verified", False)'
+    if section_source.count(expression) != 1:
+        raise AssertionError(
+            "fixture expected one official verified-email expression in the "
+            f"canonical Authentik baseline: {path}"
+        )
+    mutated_section = section_source.replace(
+        expression,
+        'request.user.attributes.get("email_verified", True)',
+        1,
+    )
+    path.write_text(
+        source[:section_start]
+        + mutated_section
+        + source[section_end:],
+        encoding="utf-8",
+    )
+
+
+def _mutate_oidc_add_conflicting_mapping(path: Path) -> None:
+    source = path.read_text(encoding="utf-8")
+    section_match = _authentik_tenant_baseline_section(source)
+    if section_match is None:
+        raise AssertionError(
+            f"fixture could not find the Authentik tenant baseline in {path}"
+        )
+    section_start, section_end, section_source = section_match
+    conflicting_block = (
+        "\n```python\n"
+        "return {\n"
+        '    "email": request.user.email,\n'
+        '    "email_verified": True,\n'
+        "}\n"
+        "```\n"
+    )
+    path.write_text(
+        source[:section_start]
+        + section_source
+        + conflicting_block
+        + source[section_end:],
+        encoding="utf-8",
+    )
 
 
 def _move_logger_guard_after_call(
@@ -9942,6 +10243,12 @@ def _set_env(path: Path, key: str, value: str) -> None:
 
 def _copy_fixture(source_root: Path, fixture_root: Path) -> None:
     shutil.copytree(source_root / "ERPNext", fixture_root / "ERPNext", symlinks=True)
+    (fixture_root / "Authentik").mkdir()
+    shutil.copy2(
+        source_root / "Authentik/README.md",
+        fixture_root / "Authentik/README.md",
+        follow_symlinks=False,
+    )
     (fixture_root / "templates").mkdir()
     for service in EXPECTED_REQUIRED_SERVICES:
         shutil.copytree(
@@ -9953,7 +10260,7 @@ def _copy_fixture(source_root: Path, fixture_root: Path) -> None:
 
 def _tree_fingerprint(root: Path) -> str:
     digest = hashlib.sha256()
-    selected = [root / "ERPNext"] + [
+    selected = [root / "ERPNext", root / "Authentik"] + [
         root / "templates" / service for service in EXPECTED_REQUIRED_SERVICES
     ]
     for selected_root in selected:
@@ -10072,6 +10379,15 @@ def _negative_cases() -> tuple[NegativeCase, ...]:
             Path("templates/erpnext-backend/docker-compose.erpnext-backend.yaml"),
             lambda document: document["services"]["erpnext-backend"].update(
                 {"pull_policy": "always"}
+            ),
+        ),
+        NegativeCase(
+            "fresh-host-update-step-removed",
+            "[quick-start]",
+            lambda root: _replace_once(
+                root / "ERPNext/README.md",
+                "   ```bash\n   ./run.sh ERPNext --update\n   ```",
+                "   ```bash\n   ./run.sh ERPNext --dry-run\n   ```",
             ),
         ),
         yaml_case(
@@ -11017,6 +11333,20 @@ def _negative_cases() -> tuple[NegativeCase, ...]:
                     / "templates/erpnext-sso-bootstrap/scripts/erpnext-sso-bootstrap.py",
                     '"scope": "openid email profile"',
                     '"scope": "openid"',
+                ),
+            ),
+            NegativeCase(
+                "verified-email-mapping-expression-drift",
+                "[oidc]",
+                lambda root: _mutate_oidc_verified_email_expression(
+                    root / "Authentik/README.md"
+                ),
+            ),
+            NegativeCase(
+                "verified-email-conflicting-mapping-added",
+                "[oidc]",
+                lambda root: _mutate_oidc_add_conflicting_mapping(
+                    root / "Authentik/README.md"
                 ),
             ),
             NegativeCase(

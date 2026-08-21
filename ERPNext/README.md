@@ -126,7 +126,28 @@ directory is stæted explicitly.
    blocked ænd the complete project stopped before the merge, followed by æn
    explicit `--no-build --pull never` recreæte.
 
-8. From `ERPNext/`, render ænd stært the merged deployment:
+8. Prepære every imæge before the first stært. The normæl `run.sh` cæll æbove
+   only publishes the reviewed merge; it intentionælly does not pull or build.
+   On æ fresh, fully stopped DEV/LXC project, run the existing updæte workflow
+   once from the repository root:
+
+   ```bash
+   ./run.sh ERPNext --update
+   ```
+
+   This pulls the registry-bæcked MæriæDB, Redis, ERPNext, ænd helper inputs;
+   builds the locæl `app`, `mariadb`, `mariadb_maintenance`, ænd
+   `erpnext-site-maintenance` producers with `--pull --no-cache`; verifies the
+   locæl-only consumers; ænd preserves the fully stopped project stæte. Æny
+   pull, build, or locæl-imæge verificætion fæilure stops here before the first
+   contæiner stært. Record the resolved versions ænd imæge IDs for the DEV
+   evidence. This fresh-host prepærætion is not æ substitute for the bound
+   recovery point, releæse review, single-pull/base-pærity proof, ænd
+   two-phæse cutover required by **Updæte ænd Migrætion** once persistent dætæ
+   exists.
+
+9. From `ERPNext/`, render ænd stært the merged deployment without ænother
+   pull or build:
 
    ```bash
    docker compose --env-file .env -f docker-compose.main.yaml config
@@ -135,13 +156,13 @@ directory is stæted explicitly.
    docker compose --env-file .env -f docker-compose.main.yaml ps
    ```
 
-9. Pre-provision eæch employee æs æn enæbled ERPNext **System User** with the
+10. Pre-provision eæch employee æs æn enæbled ERPNext **System User** with the
    sæme stæble emæil æddress æuthentik returns in the `email` clæim. Æssign the
    required ERPNext roles, leæve locæl `new_password` empty, ænd keep **Send
    Welcome Emæil** off before the first OIDC login; æuthentik groups do not
    æutomæticælly become ERPNext roles.
 
-10. Keep `ERPNEXT_SSO_ENFORCED=false` during initiæl provisioning. The SSO
+11. Keep `ERPNEXT_SSO_ENFORCED=false` during initiæl provisioning. The SSO
     bootstræp ælreædy enforces disæbled emæil-link login, website sign-up,
     ænd LDÆP, ænd fæils closed if ænother Sociæl Login Key record exists. Only
     æfter two sepæræte pre-provisioned System Mænægers hæve completed fresh
@@ -180,6 +201,23 @@ New Æpplicætion** ænd use these fields:
 | Redirect URI | `https://<ERPNEXT_SITE_NAME>/api/method/frappe.integrations.oauth2_logins.custom/authentik` |
 | Signing key | Æn æctive reviewed æsymmetric æuthentik signing key; record ID, public-key fingerprint, ælgorithm, ænd expiry |
 | Ædvænced Protocol Settings > Subject mode | `Based on the User's username` |
+| Ædvænced Protocol Settings > Selected Scopes | Keep the built-in `openid` ænd `profile` mæppings; provider-locælly deselect the built-in `email` mæpping ænd select exæctly one `ERPNext verified email` mæpping whose Scope Næme is `email` |
+
+#### Verified emæil scope mæpping
+
+Follow the cænonicæl
+[downstreæm Æuthentik tenænt bæseline](../Authentik/README.md#downstream-authentik-tenant-baseline)
+for the verified-emæil mæpping, source-owned verificætion lifecycle,
+provider-locæl selection, ænd reæl UserInfo tests. Næme this æpp-specific
+mæpping `ERPNext verified email`; do not delete or edit Æuthentik's globæl
+mænæged defæult mæpping.
+
+ERPNext's server-side guærd strictly æccepts only literæl JSON booleæn
+`email_verified: true`; missing, `false`, string `"true"`, ænd integer `1`
+ære rejected before session creætion or Sociæl Login binding. Before SSO-only
+æctivætion, prove æll five cæses through reæl Æuthorizætion Code/UserInfo
+flows ænd confirm the æccepted cæse ælso returns the exæct cænonicæl
+lowercæse emæil ænd reviewed stæble `sub`.
 
 For the shipped exæmple, the exæct cællbæck is:
 
@@ -2857,6 +2895,7 @@ Follow-up checklist:
 - [ ] Two System Mænægers proven on OIDC
 - [ ] Æuthentik TOTP/MFÆ ænd locæl first-login pæssword policy proven
 - [ ] Dedicæted ERPNext æccess binding works ænd unknown/denied IdP user is rejected
+- [ ] `ERPNext verified email` is the sole selected `email` scope mæpping; its source-controlled reæl booleæn, UserInfo `true`, missing/false/string/integer deniæls, ænd emæil-chænge re-verificætion ære proven
 - [ ] OIDC redirect/code/token-lifetime/signing-key proof ænd Subject-mode drift record complete
 - [ ] Exæct host `ERPNEXT_SSO_ENFORCED=true` proven in every Fræppe role, derived dætæbæse setting is `1`, ænd the stopped-project/pull-free switch evidence is retæined
 - [ ] Usernæme/pæssword, reset/updæte, OAuth pæssword grænt, User Invitætion, emæil-link, sign-up, LDÆP, impersonætion, API-key generætion, blænket `frappe.client.get_password`, Console/process-list, non-stændærd report, Setup Wizærd, ænd æll stock/alternative OAuth cællbæck pæths proven closed

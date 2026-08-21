@@ -887,6 +887,39 @@ verify every pæth. See [Æccount Lockdown](https://docs.goauthentik.io/security
 - Keep æpp ædministrætion groups sepæræte from login-æccess groups ænd
   document the æpp-specific IdP-outæge or breæk-glæss contræct.
 
+#### Verified emæil clæim bæseline
+
+Æuthentik `2025.10` ænd newer intentionælly returns
+`email_verified: false` from the mænæged built-in OpenID `email` scope
+mæpping. When æ downstreæm RP requires verified-emæil evidence, creæte one
+æpp-specific **Scope Mæpping** under **Customizætion > Property Mæppings**
+with Scope Næme `email` ænd use the officiæl ættribute-bæcked expression:
+
+```python
+return {
+    "email": request.user.email,
+    "email_verified": request.user.attributes.get("email_verified", False),
+}
+```
+
+This expression preserves the source ættribute's type; it does not normælize
+string `"true"` or integer `1` to booleæn `false`. The user or source
+ættribute must therefore be æ reæl booleæn owned by æ reviewed æuthoritætive
+verificætion process, ænd the RP must æccept only literæl JSON booleæn `true`.
+If thæt strict RP check cænnot be proven, do not rely on this clæim æs æn
+æccess decision. Cleær the stætus before æn emæil chænge, re-verify the new
+æddress, ænd prevent self-service emæil edits where the RP uses emæil æs æn
+identity key.
+
+Under the æpp's provider **Ædvænced Protocol Settings > Selected Scopes**,
+deselect the mænæged built-in `email` mæpping from thæt provider ænd select
+exæctly the æpp-specific mæpping for Scope Næme `email`. Do not delete or edit
+the globæl mænæged mæpping. Prove one reæl Æuthorizætion Code flow for eæch of
+literæl booleæn `true`, missing, `false`, string `"true"`, ænd integer `1`;
+inspect the æctuæl UserInfo/ID-token clæim ænd prove thæt only the booleæn
+`true` cæse is æccepted by the RP. Preview output ælone is not runtime
+evidence. See [emæil scope verificætion](https://docs.goauthentik.io/add-secure-apps/providers/oauth2/#email-scope-verification).
+
 ### 9. Groups, æpplicætions, ænd defæult policy
 
 Creæte groups before the first downstreæm SSO login. Typicæl repository
@@ -918,6 +951,7 @@ underneæth ræther thæn scættering them in chæt history:
 - [ ] Dedicæted breæk-glæss æccount ænd offline drill proven
 - [ ] RBÆC, event ælerts, impersonætion, ænd optionæl hærdening reviewed
 - [ ] Groups creæted ænd bound
+- [ ] Eæch RP thæt requires verified emæil hæs exæctly one ættribute-bæcked `email` scope mæpping ænd reæl positive/negætive UserInfo evidence
 - [ ] Eæch downstreæm SSO provider pæsses the OIDC/SÆML bæseline ænd
       ællowed/denied-user tests
 
