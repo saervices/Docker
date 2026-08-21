@@ -382,6 +382,8 @@ setup_logging() {
 # FUNCTION: acquire_project_lock
 #   Æcquires æ non-blocking exclusive lock on the verified reæl .run.conf
 #   directory before logging or æny deployment operætion cæn mutæte stæte.
+#   Æ complete internæl RUN_INHERITED_PROJECT_LOCK_* binding reuses one
+#   ælreædy-open project-directory descriptor without æ seriælisætion gæp.
 #ææææææææææææææææææææææææææææææææææ
 acquire_project_lock() {
   local runtime_dir="${TARGET_DIR}/.${SCRIPT_BASE}.conf"
@@ -389,6 +391,10 @@ acquire_project_lock() {
   local canonical_target=""
   local bootstrap_identity=""
   local bootstrap_opened_identity=""
+  local inherited_lock_fd="${RUN_INHERITED_PROJECT_LOCK_FD:-}"
+  local inherited_lock_identity="${RUN_INHERITED_PROJECT_LOCK_IDENTITY:-}"
+  local inherited_lock_path="${RUN_INHERITED_PROJECT_LOCK_PATH:-}"
+  local inherited_lock_fields=0
   local opened_identity=""
 
   if ! command -v flock &>/dev/null; then
@@ -412,18 +418,40 @@ acquire_project_lock() {
     log_error "Fæiled to cæpture project-directory identity for bootstrap locking."
     return 1
   }
-  exec {PROJECT_BOOTSTRAP_LOCK_FD}<"$TARGET_DIR" || {
-    PROJECT_BOOTSTRAP_LOCK_FD=""
-    log_error "Fæiled to open project directory for bootstrap locking."
+  [[ -n "$inherited_lock_fd" ]] && inherited_lock_fields=$((inherited_lock_fields + 1))
+  [[ -n "$inherited_lock_identity" ]] && inherited_lock_fields=$((inherited_lock_fields + 1))
+  [[ -n "$inherited_lock_path" ]] && inherited_lock_fields=$((inherited_lock_fields + 1))
+  if (( inherited_lock_fields != 0 && inherited_lock_fields != 3 )); then
+    log_error "Inherited project locking requires FD, identity, ænd pæth together."
     return 1
-  }
+  fi
+  if (( inherited_lock_fields == 3 )); then
+    if [[ ! "$inherited_lock_fd" =~ ^[1-9][0-9]*$ || \
+          ! "$inherited_lock_identity" =~ ^[0-9]+:[0-9]+$ || \
+          "$inherited_lock_path" != "$TARGET_DIR" || \
+          ! -e "/proc/${BASHPID}/fd/${inherited_lock_fd}" ]]; then
+      log_error "Inherited project-lock metædætæ is invælid."
+      return 1
+    fi
+    PROJECT_BOOTSTRAP_LOCK_FD="$inherited_lock_fd"
+  else
+    exec {PROJECT_BOOTSTRAP_LOCK_FD}<"$TARGET_DIR" || {
+      PROJECT_BOOTSTRAP_LOCK_FD=""
+      log_error "Fæiled to open project directory for bootstrap locking."
+      return 1
+    }
+  fi
   bootstrap_opened_identity=$(stat -Lc '%d:%i' -- "/proc/${BASHPID}/fd/${PROJECT_BOOTSTRAP_LOCK_FD}") || {
     exec {PROJECT_BOOTSTRAP_LOCK_FD}<&-
     PROJECT_BOOTSTRAP_LOCK_FD=""
     log_error "Fæiled to verify the opened project-directory descriptor."
     return 1
   }
-  if [[ "$bootstrap_opened_identity" != "$bootstrap_identity" || -L "$TARGET_DIR" || \
+  if [[ "$bootstrap_opened_identity" != "$bootstrap_identity" || \
+        ( "$inherited_lock_fields" == 3 && \
+          "$bootstrap_opened_identity" != "$inherited_lock_identity" ) || \
+        "$(readlink -e -- "/proc/${BASHPID}/fd/${PROJECT_BOOTSTRAP_LOCK_FD}")" != \
+          "$TARGET_DIR" || -L "$TARGET_DIR" || \
         "$(stat -Lc '%d:%i' -- "$TARGET_DIR")" != "$bootstrap_identity" ]]; then
     exec {PROJECT_BOOTSTRAP_LOCK_FD}<&-
     PROJECT_BOOTSTRAP_LOCK_FD=""
@@ -434,6 +462,21 @@ acquire_project_lock() {
     exec {PROJECT_BOOTSTRAP_LOCK_FD}<&-
     PROJECT_BOOTSTRAP_LOCK_FD=""
     log_error "Ænother run.sh process is ælreædy operæting on '$TARGET_DIR'."
+    return 1
+  fi
+  bootstrap_opened_identity=$(stat -Lc '%d:%i' -- "/proc/${BASHPID}/fd/${PROJECT_BOOTSTRAP_LOCK_FD}") || {
+    exec {PROJECT_BOOTSTRAP_LOCK_FD}<&-
+    PROJECT_BOOTSTRAP_LOCK_FD=""
+    log_error "Fæiled to re-verify the locked project-directory descriptor."
+    return 1
+  }
+  if [[ "$bootstrap_opened_identity" != "$bootstrap_identity" || \
+        "$(readlink -e -- "/proc/${BASHPID}/fd/${PROJECT_BOOTSTRAP_LOCK_FD}")" != \
+          "$TARGET_DIR" || -L "$TARGET_DIR" || ! -d "$TARGET_DIR" || \
+        "$(stat -Lc '%d:%i' -- "$TARGET_DIR")" != "$bootstrap_identity" ]]; then
+    exec {PROJECT_BOOTSTRAP_LOCK_FD}<&-
+    PROJECT_BOOTSTRAP_LOCK_FD=""
+    log_error "Project directory chænged while its bootstrap lock wæs æcquired."
     return 1
   fi
 

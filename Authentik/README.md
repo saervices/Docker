@@ -1150,10 +1150,321 @@ umask 077
 COMPOSE=(docker compose --env-file .env -f docker-compose.main.yaml)
 KEEP_WRITERS_STOPPED="${KEEP_WRITERS_STOPPED:-false}"
 [[ "$KEEP_WRITERS_STOPPED" == true || "$KEEP_WRITERS_STOPPED" == false ]]
+AUTHENTIK_OPERATION_ROOT="$(pwd -P)"
+validate_authentik_operation_lock() {
+  [[ "$AUTHENTIK_OPERATION_ROOT" == "$(pwd -P)" && \
+    "$AUTHENTIK_OPERATION_LOCK_FD" =~ ^[0-9]+$ && \
+    "$(readlink -e -- \
+      "/proc/${BASHPID}/fd/${AUTHENTIK_OPERATION_LOCK_FD}")" == \
+      "$AUTHENTIK_OPERATION_ROOT" && \
+    "$(stat -Lc '%d:%i' -- "$AUTHENTIK_OPERATION_ROOT")" == \
+      "$AUTHENTIK_OPERATION_LOCK_IDENTITY" && \
+    "$(stat -Lc '%d:%i' -- \
+      "/proc/${BASHPID}/fd/${AUTHENTIK_OPERATION_LOCK_FD}")" == \
+      "$AUTHENTIK_OPERATION_LOCK_IDENTITY" ]] || return 125
+  flock -n -x "$AUTHENTIK_OPERATION_LOCK_FD" || return 125
+  [[ "$AUTHENTIK_OPERATION_ROOT" == "$(pwd -P)" && \
+    "$(readlink -e -- \
+      "/proc/${BASHPID}/fd/${AUTHENTIK_OPERATION_LOCK_FD}")" == \
+      "$AUTHENTIK_OPERATION_ROOT" && \
+    "$(stat -Lc '%d:%i' -- "$AUTHENTIK_OPERATION_ROOT")" == \
+      "$AUTHENTIK_OPERATION_LOCK_IDENTITY" && \
+    "$(stat -Lc '%d:%i' -- \
+      "/proc/${BASHPID}/fd/${AUTHENTIK_OPERATION_LOCK_FD}")" == \
+      "$AUTHENTIK_OPERATION_LOCK_IDENTITY" ]] || return 125
+}
+acquire_authentik_operation_lock() {
+  [[ -d "$AUTHENTIK_OPERATION_ROOT" && \
+    ! -L "$AUTHENTIK_OPERATION_ROOT" && \
+    "$(readlink -e -- .)" == "$AUTHENTIK_OPERATION_ROOT" ]] || return 125
+  AUTHENTIK_OPERATION_LOCK_IDENTITY="$(stat -Lc '%d:%i' -- \
+    "$AUTHENTIK_OPERATION_ROOT")" || return 125
+  if [[ -z "${AUTHENTIK_OPERATION_LOCK_FD:-}" ]]; then
+    exec {AUTHENTIK_OPERATION_LOCK_FD}<"$AUTHENTIK_OPERATION_ROOT" || \
+      return 125
+  fi
+  [[ "$AUTHENTIK_OPERATION_LOCK_FD" =~ ^[0-9]+$ ]] || return 125
+  validate_authentik_operation_lock
+}
+acquire_authentik_operation_lock
+export AUTHENTIK_OPERATION_ROOT AUTHENTIK_OPERATION_LOCK_FD \
+  AUTHENTIK_OPERATION_LOCK_IDENTITY
+run_authentik_with_inherited_operation_lock() {
+  validate_authentik_operation_lock || return 125
+  (
+    cd .. || exit 125
+    RUN_INHERITED_PROJECT_LOCK_FD="$AUTHENTIK_OPERATION_LOCK_FD" \
+    RUN_INHERITED_PROJECT_LOCK_PATH="$AUTHENTIK_OPERATION_ROOT" \
+    RUN_INHERITED_PROJECT_LOCK_IDENTITY="$AUTHENTIK_OPERATION_LOCK_IDENTITY" \
+      ./run.sh Authentik
+  ) || return 125
+  validate_authentik_operation_lock
+}
+
+ABORT_MARKER_INVENTORY=''
+ABORT_MARKER_INVENTORY_ID=''
+cleanup_abort_marker_inventory() {
+  local status=0
+  if [[ -n "$ABORT_MARKER_INVENTORY" && \
+    ( -e "$ABORT_MARKER_INVENTORY" || -L "$ABORT_MARKER_INVENTORY" ) ]]; then
+    if [[ -f "$ABORT_MARKER_INVENTORY" && ! -L "$ABORT_MARKER_INVENTORY" && \
+      "$(stat -Lc '%d:%i' -- "$ABORT_MARKER_INVENTORY")" == \
+      "$ABORT_MARKER_INVENTORY_ID" ]]; then
+      rm -f -- "$ABORT_MARKER_INVENTORY" || status=125
+    else
+      status=125
+    fi
+  fi
+  return "$status"
+}
+trap cleanup_abort_marker_inventory EXIT
+ABORT_MARKER_INVENTORY="$(mktemp \
+  "${TMPDIR:-/tmp}/authentik-abort-marker-inventory.XXXXXX")"
+ABORT_MARKER_INVENTORY_ID="$(stat -Lc '%d:%i' -- \
+  "$ABORT_MARKER_INVENTORY")"
+[[ "$(stat -Lc '%a:%u:%g' -- "$ABORT_MARKER_INVENTORY")" == \
+  "600:$(id -u):$(id -g)" ]]
+find -P .. -mindepth 1 -maxdepth 1 \
+  \( -name 'authentik-update-abort-*' -o \
+    -name '.authentik-update-abort-*' -o \
+    -name 'authentik-restore-abort-*' -o \
+    -name '.authentik-restore-abort-*' \) -print0 \
+  > "$ABORT_MARKER_INVENTORY"
+while IFS= read -r -d '' candidate; do
+  name="${candidate##*/}"
+  [[ -d "$candidate" && ! -L "$candidate" ]] || {
+    printf 'Unsafe Authentik abort marker entry: %q\n' "$candidate" >&2
+    exit 125
+  }
+  if [[ "$name" =~ \
+    ^authentik-(update|restore)-abort-[0-9]{8}T[0-9]{6}Z-resolved-[0-9]{8}T[0-9]{6}Z$ ]]; then
+    continue
+  fi
+  if [[ "$name" =~ \
+    ^authentik-(update|restore)-abort-[0-9]{8}T[0-9]{6}Z$ ]]; then
+    printf 'Unresolved Authentik abort marker blocks this operation: %q\n' \
+      "$candidate" >&2
+  else
+    printf 'Malformed Authentik abort marker blocks this operation: %q\n' \
+      "$candidate" >&2
+  fi
+  exit 125
+done < "$ABORT_MARKER_INVENTORY"
+cleanup_abort_marker_inventory
+ABORT_MARKER_INVENTORY=''
+ABORT_MARKER_INVENTORY_ID=''
+trap - EXIT
+
 RECOVERY_ID="$(date -u +%Y%m%dT%H%M%SZ)"
-RECOVERY_DIR="../authentik-recovery-${RECOVERY_ID}"
-PRIVATE_DIR="../authentik-private-${RECOVERY_ID}"
-mkdir -m 0700 -- "$RECOVERY_DIR" "$PRIVATE_DIR" "$PRIVATE_DIR/secrets"
+RECOVERY_POINT_PARENT="$(readlink -e -- ..)"
+exec {RECOVERY_POINT_PARENT_FD}<"$RECOVERY_POINT_PARENT"
+RECOVERY_POINT_PARENT_ID="$(stat -Lc '%d:%i' -- "$RECOVERY_POINT_PARENT")"
+[[ "$(stat -Lc '%d:%i' -- \
+  "/proc/${BASHPID}/fd/${RECOVERY_POINT_PARENT_FD}")" == \
+  "$RECOVERY_POINT_PARENT_ID" ]]
+RECOVERY_DIR="$RECOVERY_POINT_PARENT/authentik-recovery-${RECOVERY_ID}"
+PRIVATE_DIR="$RECOVERY_POINT_PARENT/authentik-private-${RECOVERY_ID}"
+RECOVERY_POINT_RECOVERY_REQUIRED=false
+RECOVERY_POINT_COMPLETE=false
+RECOVERY_POINT_STOP_ATTEMPTED=false
+RECOVERY_POINT_RECOVERY_DIR_CREATED=false
+RECOVERY_POINT_PRIVATE_DIR_CREATED=false
+RECOVERY_POINT_RECOVERY_DIR_ID=''
+RECOVERY_POINT_PRIVATE_DIR_ID=''
+RECOVERY_POINT_RECOVERY_DIR_FD=''
+RECOVERY_POINT_PRIVATE_DIR_FD=''
+RECOVERY_POINT_ROLLBACK_RUNNING=false
+PINNED_RECOVERY_DIR_ID=''
+PINNED_RECOVERY_DIR_FD=''
+create_pinned_empty_recovery_dir() {
+  local path="$1" expected_name="${1##*/}" staging fd path_id fd_id metadata
+  local cleanup_status=0 published=false
+  [[ "${path%/*}" == "$RECOVERY_POINT_PARENT" ]]
+  [[ ! -e "$path" && ! -L "$path" ]]
+  [[ "$(stat -Lc '%d:%i' -- "$RECOVERY_POINT_PARENT")" == \
+    "$RECOVERY_POINT_PARENT_ID" ]]
+  [[ "$(stat -Lc '%d:%i' -- \
+    "/proc/${BASHPID}/fd/${RECOVERY_POINT_PARENT_FD}")" == \
+    "$RECOVERY_POINT_PARENT_ID" ]]
+  staging="$(mktemp -d \
+    "$RECOVERY_POINT_PARENT/.${expected_name}.staging.XXXXXX")" || return 125
+  [[ "${staging%/*}" == "$RECOVERY_POINT_PARENT" && \
+    "${staging##*/}" =~ ^\.${expected_name}\.staging\.[A-Za-z0-9]+$ ]] || \
+    return 125
+  if ! exec {fd}<"$staging"; then
+    rmdir -- "$staging" || return 125
+    return 125
+  fi
+  path_id="$(stat -Lc '%d:%i' -- "$staging")" || cleanup_status=125
+  fd_id="$(stat -Lc '%d:%i' -- "/proc/${BASHPID}/fd/${fd}")" || \
+    cleanup_status=125
+  metadata="$(stat -Lc '%a:%u:%g:%h' -- "$staging")" || cleanup_status=125
+  if [[ "$cleanup_status" != 0 || -z "$path_id" || "$path_id" != "$fd_id" || \
+    "$metadata" != "700:$(id -u):$(id -g):2" ]]; then
+    if [[ -n "$path_id" && "$path_id" == "$fd_id" && -d "$staging" && \
+      ! -L "$staging" && \
+      "$(stat -Lc '%d:%i' -- "$staging")" == "$path_id" ]]; then
+      rmdir -- "$staging" || cleanup_status=125
+    fi
+    exec {fd}<&-
+    return 125
+  fi
+  [[ "$(stat -Lc '%d:%i' -- "$RECOVERY_POINT_PARENT")" == \
+    "$RECOVERY_POINT_PARENT_ID" ]]
+  [[ ! -e "$path" && ! -L "$path" ]]
+  mv -Tn -- "$staging" "$path" || cleanup_status=125
+  if [[ ! -e "$staging" && ! -L "$staging" ]]; then
+    published=true
+    case "$expected_name" in
+      "authentik-recovery-${RECOVERY_ID}")
+        RECOVERY_POINT_RECOVERY_DIR_ID="$path_id"
+        RECOVERY_POINT_RECOVERY_DIR_FD="$fd"
+        RECOVERY_POINT_RECOVERY_DIR_CREATED=true
+        ;;
+      "authentik-private-${RECOVERY_ID}")
+        RECOVERY_POINT_PRIVATE_DIR_ID="$path_id"
+        RECOVERY_POINT_PRIVATE_DIR_FD="$fd"
+        RECOVERY_POINT_PRIVATE_DIR_CREATED=true
+        ;;
+      *) return 125 ;;
+    esac
+  fi
+  if [[ "$cleanup_status" != 0 || -e "$staging" || -L "$staging" || \
+    ! -d "$path" || -L "$path" || \
+    "$(stat -Lc '%d:%i' -- "$path")" != "$path_id" || \
+    "$(stat -Lc '%d:%i' -- "/proc/${BASHPID}/fd/${fd}")" != "$path_id" ]]; then
+    if [[ -d "$staging" && ! -L "$staging" && \
+      "$(stat -Lc '%d:%i' -- "$staging")" == "$path_id" ]]; then
+      rmdir -- "$staging" || cleanup_status=125
+    fi
+    if [[ "$published" == false ]]; then
+      exec {fd}<&-
+    fi
+    return 125
+  fi
+  PINNED_RECOVERY_DIR_ID="$path_id"
+  PINNED_RECOVERY_DIR_FD="$fd"
+}
+invalidate_owned_recovery_path() {
+  local path="$1" expected_name="$2" created="$3" expected_id="$4"
+  local expected_fd="$5"
+  local failed suffix status=0
+  [[ "$created" == true ]] || return 0
+  suffix="failed-$(date -u +%Y%m%dT%H%M%SZ)-${BASHPID}"
+  [[ "${path%/*}" == "$RECOVERY_POINT_PARENT" && \
+    "${path##*/}" == "$expected_name" && -d "$path" && ! -L "$path" && \
+    "$(stat -Lc '%d:%i' -- "$path")" == "$expected_id" && \
+    "$(stat -Lc '%d:%i' -- "/proc/${BASHPID}/fd/${expected_fd}")" == \
+      "$expected_id" && \
+    "$(stat -Lc '%d:%i' -- "$RECOVERY_POINT_PARENT")" == \
+      "$RECOVERY_POINT_PARENT_ID" && \
+    "$(stat -Lc '%d:%i' -- \
+      "/proc/${BASHPID}/fd/${RECOVERY_POINT_PARENT_FD}")" == \
+      "$RECOVERY_POINT_PARENT_ID" ]] || return 125
+  failed="${path}-${suffix}"
+  [[ ! -e "$failed" && ! -L "$failed" ]] || return 125
+  mv -T -- "$path" "$failed" || status=125
+  if [[ "$status" == 0 ]]; then
+    [[ -d "$failed" && ! -L "$failed" && \
+      "$(stat -Lc '%d:%i' -- "$failed")" == "$expected_id" && \
+      "$(stat -Lc '%d:%i' -- "/proc/${BASHPID}/fd/${expected_fd}")" == \
+        "$expected_id" ]] || status=125
+  fi
+  if [[ "$status" == 0 ]]; then
+    exec {expected_fd}<&- || status=125
+  fi
+  return "$status"
+}
+invalidate_incomplete_recovery_point() {
+  local status=0
+  invalidate_owned_recovery_path "$RECOVERY_DIR" \
+    "authentik-recovery-${RECOVERY_ID}" \
+    "$RECOVERY_POINT_RECOVERY_DIR_CREATED" \
+    "$RECOVERY_POINT_RECOVERY_DIR_ID" \
+    "$RECOVERY_POINT_RECOVERY_DIR_FD" || status=125
+  invalidate_owned_recovery_path "$PRIVATE_DIR" \
+    "authentik-private-${RECOVERY_ID}" \
+    "$RECOVERY_POINT_PRIVATE_DIR_CREATED" \
+    "$RECOVERY_POINT_PRIVATE_DIR_ID" \
+    "$RECOVERY_POINT_PRIVATE_DIR_FD" || status=125
+  return "$status"
+}
+restart_original_recovery_writers() {
+  local service id expected_id status=0
+  "${COMPOSE[@]}" start --wait --wait-timeout 300 \
+    app authentik-worker || status=125
+  for service in app authentik-worker; do
+    if [[ "$service" == app ]]; then
+      expected_id="$APP_ID"
+    else
+      expected_id="$WORKER_ID"
+    fi
+    id="$("${COMPOSE[@]}" ps -q "$service")" || {
+      status=125
+      continue
+    }
+    [[ "$id" == "$expected_id" && "$id" =~ ^[0-9a-f]{64}$ ]] || {
+      status=125
+      continue
+    }
+    [[ "$(docker inspect --format '{{.State.Running}}' "$id")" == true ]] || \
+      status=125
+    [[ "$(docker inspect --format '{{.Image}}' "$id")" == \
+      "$APP_IMAGE_ID" ]] || status=125
+    if [[ "$service" == app ]]; then
+      [[ "$(docker inspect --format '{{.State.Health.Status}}' "$id")" == \
+        healthy ]] || status=125
+    fi
+  done
+  return "$status"
+}
+abort_recovery_point() {
+  local status="$1"
+  [[ "$RECOVERY_POINT_ROLLBACK_RUNNING" == false ]] || exit 125
+  RECOVERY_POINT_ROLLBACK_RUNNING=true
+  trap '' HUP INT TERM
+  trap - ERR EXIT
+  set +e
+  if [[ "$RECOVERY_POINT_RECOVERY_REQUIRED" == true && \
+    "$RECOVERY_POINT_STOP_ATTEMPTED" == true ]]; then
+    restart_original_recovery_writers || status=125
+  fi
+  if [[ "$RECOVERY_POINT_RECOVERY_REQUIRED" == true ]]; then
+    invalidate_incomplete_recovery_point || status=125
+  fi
+  printf 'Recovery-point creation failed; incomplete local artifacts are invalid.\n' >&2
+  exit "$status"
+}
+abort_recovery_point_exit() {
+  local status=$?
+  if [[ "$RECOVERY_POINT_COMPLETE" == true || \
+    "$RECOVERY_POINT_RECOVERY_REQUIRED" == false ]]; then
+    exit "$status"
+  fi
+  (( status != 0 )) || status=125
+  abort_recovery_point "$status"
+}
+trap 'abort_recovery_point 129' HUP
+trap 'abort_recovery_point 130' INT
+trap 'abort_recovery_point 143' TERM
+trap 'abort_recovery_point 125' ERR
+trap abort_recovery_point_exit EXIT
+RECOVERY_POINT_RECOVERY_REQUIRED=true
+trap '' HUP INT TERM
+create_pinned_empty_recovery_dir "$RECOVERY_DIR"
+RECOVERY_POINT_RECOVERY_DIR_ID="$PINNED_RECOVERY_DIR_ID"
+RECOVERY_POINT_RECOVERY_DIR_FD="$PINNED_RECOVERY_DIR_FD"
+RECOVERY_POINT_RECOVERY_DIR_CREATED=true
+PINNED_RECOVERY_DIR_ID=''
+PINNED_RECOVERY_DIR_FD=''
+create_pinned_empty_recovery_dir "$PRIVATE_DIR"
+RECOVERY_POINT_PRIVATE_DIR_ID="$PINNED_RECOVERY_DIR_ID"
+RECOVERY_POINT_PRIVATE_DIR_FD="$PINNED_RECOVERY_DIR_FD"
+RECOVERY_POINT_PRIVATE_DIR_CREATED=true
+mkdir -m 0700 -- "$PRIVATE_DIR/secrets"
+trap 'abort_recovery_point 129' HUP
+trap 'abort_recovery_point 130' INT
+trap 'abort_recovery_point 143' TERM
 RECOVERY_DIR="$(readlink -e -- "$RECOVERY_DIR")"
 PRIVATE_DIR="$(readlink -e -- "$PRIVATE_DIR")"
 OWNER="$(id -u):$(id -g)"
@@ -1356,6 +1667,7 @@ chmod 0600 "$RECOVERY_DIR/$RUNTIME_IMAGES"
   > "${RUNTIME_IMAGES}.sha256" && chmod 0600 "${RUNTIME_IMAGES}.sha256" && \
   sha256sum --check --strict "${RUNTIME_IMAGES}.sha256")
 
+RECOVERY_POINT_STOP_ATTEMPTED=true
 "${COMPOSE[@]}" stop app authentik-worker authentik-bootstrap
 "${COMPOSE[@]}" exec -T postgresql_maintenance /usr/local/bin/backup.sh full
 "${COMPOSE[@]}" exec -T postgresql_maintenance /usr/local/bin/backup.sh dump
@@ -1443,7 +1755,18 @@ if [[ "$KEEP_WRITERS_STOPPED" == true ]]; then
       "$id")" == exited:0 ]]
   done
 else
-  "${COMPOSE[@]}" start app authentik-worker
+  restart_original_recovery_writers
+fi
+trap '' HUP INT TERM
+RECOVERY_POINT_RECOVERY_REQUIRED=false
+RECOVERY_POINT_COMPLETE=true
+trap - ERR HUP INT TERM EXIT
+exec {RECOVERY_POINT_RECOVERY_DIR_FD}<&-
+exec {RECOVERY_POINT_PRIVATE_DIR_FD}<&-
+exec {RECOVERY_POINT_PARENT_FD}<&-
+if [[ "$KEEP_WRITERS_STOPPED" == false ]]; then
+  exec {AUTHENTIK_OPERATION_LOCK_FD}<&-
+  unset AUTHENTIK_OPERATION_LOCK_FD AUTHENTIK_OPERATION_ROOT
 fi
 ```
 
@@ -1475,6 +1798,63 @@ bound mænifest gæte below proves every exæct pæth, byte digest, ænd mode be
 ```bash
 set -euo pipefail
 umask 077
+AUTHENTIK_OPERATION_ROOT="$(pwd -P)"
+RESTORE_OPERATION_PARENT="$(readlink -e -- ..)"
+exec {RESTORE_OPERATION_PARENT_FD}<"$RESTORE_OPERATION_PARENT"
+RESTORE_OPERATION_PARENT_ID="$(stat -Lc '%d:%i' -- \
+  "$RESTORE_OPERATION_PARENT")"
+[[ "$(stat -Lc '%d:%i' -- \
+  "/proc/${BASHPID}/fd/${RESTORE_OPERATION_PARENT_FD}")" == \
+  "$RESTORE_OPERATION_PARENT_ID" ]]
+validate_authentik_operation_lock() {
+  [[ "$AUTHENTIK_OPERATION_ROOT" == "$(pwd -P)" && \
+    "$AUTHENTIK_OPERATION_LOCK_FD" =~ ^[0-9]+$ && \
+    "$(readlink -e -- \
+      "/proc/${BASHPID}/fd/${AUTHENTIK_OPERATION_LOCK_FD}")" == \
+      "$AUTHENTIK_OPERATION_ROOT" && \
+    "$(stat -Lc '%d:%i' -- "$AUTHENTIK_OPERATION_ROOT")" == \
+      "$AUTHENTIK_OPERATION_LOCK_IDENTITY" && \
+    "$(stat -Lc '%d:%i' -- \
+      "/proc/${BASHPID}/fd/${AUTHENTIK_OPERATION_LOCK_FD}")" == \
+      "$AUTHENTIK_OPERATION_LOCK_IDENTITY" ]] || return 125
+  flock -n -x "$AUTHENTIK_OPERATION_LOCK_FD" || return 125
+  [[ "$AUTHENTIK_OPERATION_ROOT" == "$(pwd -P)" && \
+    "$(readlink -e -- \
+      "/proc/${BASHPID}/fd/${AUTHENTIK_OPERATION_LOCK_FD}")" == \
+      "$AUTHENTIK_OPERATION_ROOT" && \
+    "$(stat -Lc '%d:%i' -- "$AUTHENTIK_OPERATION_ROOT")" == \
+      "$AUTHENTIK_OPERATION_LOCK_IDENTITY" && \
+    "$(stat -Lc '%d:%i' -- \
+      "/proc/${BASHPID}/fd/${AUTHENTIK_OPERATION_LOCK_FD}")" == \
+      "$AUTHENTIK_OPERATION_LOCK_IDENTITY" ]] || return 125
+}
+acquire_authentik_operation_lock() {
+  [[ -d "$AUTHENTIK_OPERATION_ROOT" && \
+    ! -L "$AUTHENTIK_OPERATION_ROOT" && \
+    "$(readlink -e -- .)" == "$AUTHENTIK_OPERATION_ROOT" ]] || return 125
+  AUTHENTIK_OPERATION_LOCK_IDENTITY="$(stat -Lc '%d:%i' -- \
+    "$AUTHENTIK_OPERATION_ROOT")" || return 125
+  if [[ -z "${AUTHENTIK_OPERATION_LOCK_FD:-}" ]]; then
+    exec {AUTHENTIK_OPERATION_LOCK_FD}<"$AUTHENTIK_OPERATION_ROOT" || \
+      return 125
+  fi
+  [[ "$AUTHENTIK_OPERATION_LOCK_FD" =~ ^[0-9]+$ ]] || return 125
+  validate_authentik_operation_lock
+}
+acquire_authentik_operation_lock
+export AUTHENTIK_OPERATION_ROOT AUTHENTIK_OPERATION_LOCK_FD \
+  AUTHENTIK_OPERATION_LOCK_IDENTITY
+run_authentik_with_inherited_operation_lock() {
+  validate_authentik_operation_lock || return 125
+  (
+    cd .. || exit 125
+    RUN_INHERITED_PROJECT_LOCK_FD="$AUTHENTIK_OPERATION_LOCK_FD" \
+    RUN_INHERITED_PROJECT_LOCK_PATH="$AUTHENTIK_OPERATION_ROOT" \
+    RUN_INHERITED_PROJECT_LOCK_IDENTITY="$AUTHENTIK_OPERATION_LOCK_IDENTITY" \
+      ./run.sh Authentik
+  ) || return 125
+  validate_authentik_operation_lock
+}
 RECOVERY_DIR=../authentik-recovery-20260819T120000Z
 PRIVATE_DIR=../authentik-private-20260819T120000Z
 for path in "$RECOVERY_DIR" "$PRIVATE_DIR" "$PRIVATE_DIR/secrets"; do
@@ -1523,6 +1903,61 @@ jq -e '
     (.locks.source_sha256 | test("^[0-9a-f]{64}$"))
    else .locks.source_state == "absent" and .locks.source_sha256 == "" end)
 ' "$RECORD" >/dev/null
+RESTORE_RECOVERY_ID="$(jq -er '.id' "$RECORD")"
+RESTORE_ABORT_INVENTORY=''
+RESTORE_ABORT_INVENTORY_ID=''
+cleanup_restore_abort_inventory() {
+  local status=0
+  if [[ -n "$RESTORE_ABORT_INVENTORY" && \
+    ( -e "$RESTORE_ABORT_INVENTORY" || -L "$RESTORE_ABORT_INVENTORY" ) ]]; then
+    if [[ -f "$RESTORE_ABORT_INVENTORY" && \
+      ! -L "$RESTORE_ABORT_INVENTORY" && \
+      "$(stat -Lc '%d:%i' -- "$RESTORE_ABORT_INVENTORY")" == \
+      "$RESTORE_ABORT_INVENTORY_ID" ]]; then
+      rm -f -- "$RESTORE_ABORT_INVENTORY" || status=125
+    else
+      status=125
+    fi
+  fi
+  return "$status"
+}
+trap cleanup_restore_abort_inventory EXIT
+RESTORE_ABORT_INVENTORY="$(mktemp \
+  "${TMPDIR:-/tmp}/authentik-restore-abort-inventory.XXXXXX")"
+RESTORE_ABORT_INVENTORY_ID="$(stat -Lc '%d:%i' -- \
+  "$RESTORE_ABORT_INVENTORY")"
+[[ "$(stat -Lc '%a:%u:%g' -- "$RESTORE_ABORT_INVENTORY")" == \
+  "600:$(id -u):$(id -g)" ]]
+find -P .. -mindepth 1 -maxdepth 1 \
+  \( -name 'authentik-update-abort-*' -o \
+    -name '.authentik-update-abort-*' -o \
+    -name 'authentik-restore-abort-*' -o \
+    -name '.authentik-restore-abort-*' \) -print0 \
+  > "$RESTORE_ABORT_INVENTORY"
+RESTORE_ACTIVE_ABORT_COUNT=0
+while IFS= read -r -d '' candidate; do
+  name="${candidate##*/}"
+  [[ -d "$candidate" && ! -L "$candidate" ]] || {
+    printf 'Unsafe Authentik abort marker entry: %q\n' "$candidate" >&2
+    exit 125
+  }
+  if [[ "$name" =~ \
+    ^authentik-(update|restore)-abort-[0-9]{8}T[0-9]{6}Z-resolved-[0-9]{8}T[0-9]{6}Z$ ]]; then
+    continue
+  fi
+  if [[ "$name" == "authentik-update-abort-${RESTORE_RECOVERY_ID}" ]]; then
+    ((RESTORE_ACTIVE_ABORT_COUNT+=1))
+    continue
+  fi
+  printf 'Conflicting or malformed Authentik abort marker: %q\n' \
+    "$candidate" >&2
+  exit 125
+done < "$RESTORE_ABORT_INVENTORY"
+(( RESTORE_ACTIVE_ABORT_COUNT <= 1 ))
+cleanup_restore_abort_inventory
+RESTORE_ABORT_INVENTORY=''
+RESTORE_ABORT_INVENTORY_ID=''
+trap - EXIT
 FILES="$(jq -er '.files.name' "$RECORD")"
 CONTROL="$(jq -er '.control.name' "$RECORD")"
 CONTROL_MANIFEST="$(jq -er '.control.manifest' "$RECORD")"
@@ -1890,7 +2325,143 @@ else
     '[.[] | select(startswith("ghcr.io/goauthentik/server@sha256:"))] |
       if length == 1 then .[0] else error("expected one digest") end')"
 fi
-DB_ROLLBACK_DIR="$(mktemp -d ../authentik-db-rollback.XXXXXX)"
+declare -a RESTORE_INITIAL_RUNNING_SERVICES=()
+for service in app authentik-worker postgresql postgresql_maintenance; do
+  id="$("${COMPOSE[@]}" ps -q "$service")"
+  if [[ -n "$id" ]]; then
+    [[ "$id" =~ ^[0-9a-f]{64}$ ]]
+    RESTORE_INITIAL_RUNNING_SERVICES+=("$service")
+  fi
+done
+RESTORE_PREFLIGHT_REQUIRED=false
+RESTORE_PREFLIGHT_COMPLETE=false
+RESTORE_PREFLIGHT_ROLLBACK_RUNNING=false
+RESTORE_PREFLIGHT_SERVICE_MUTATION_STARTED=false
+DB_ROLLBACK_DIR=''
+DB_ROLLBACK_DIR_CREATED=false
+DB_ROLLBACK_DIR_ID=''
+DB_ROLLBACK_DIR_FD=''
+restore_initial_service_topology() {
+  local service id status=0
+  local -a all_services=(app authentik-worker authentik-bootstrap postgresql \
+    postgresql_maintenance)
+  "${COMPOSE[@]}" stop "${all_services[@]}" || status=125
+  if (( ${#RESTORE_INITIAL_RUNNING_SERVICES[@]} > 0 )); then
+    "${COMPOSE[@]}" start --wait --wait-timeout 300 \
+      "${RESTORE_INITIAL_RUNNING_SERVICES[@]}" || status=125
+  fi
+  for service in "${all_services[@]}"; do
+    id="$("${COMPOSE[@]}" ps -q "$service")" || {
+      status=125
+      continue
+    }
+    if [[ " ${RESTORE_INITIAL_RUNNING_SERVICES[*]} " == *" $service "* ]]; then
+      [[ "$id" =~ ^[0-9a-f]{64}$ ]] || {
+        status=125
+        continue
+      }
+      [[ "$(docker inspect --format '{{.State.Running}}' "$id")" == true ]] || \
+        status=125
+      if [[ "$service" == app || "$service" == postgresql || \
+        "$service" == postgresql_maintenance ]]; then
+        [[ "$(docker inspect --format '{{.State.Health.Status}}' "$id")" == \
+          healthy ]] || status=125
+      fi
+    else
+      [[ -z "$id" ]] || status=125
+    fi
+  done
+  return "$status"
+}
+invalidate_db_rollback_preflight() {
+  local failed status=0
+  [[ "$DB_ROLLBACK_DIR_CREATED" == true ]] || return 0
+  [[ -d "$DB_ROLLBACK_DIR" && ! -L "$DB_ROLLBACK_DIR" && \
+    "$(stat -Lc '%d:%i' -- "$DB_ROLLBACK_DIR")" == "$DB_ROLLBACK_DIR_ID" && \
+    "$(stat -Lc '%d:%i' -- \
+      "/proc/${BASHPID}/fd/${DB_ROLLBACK_DIR_FD}")" == \
+      "$DB_ROLLBACK_DIR_ID" && \
+    "$(stat -Lc '%d:%i' -- "$RESTORE_OPERATION_PARENT")" == \
+      "$RESTORE_OPERATION_PARENT_ID" && \
+    "$(stat -Lc '%d:%i' -- \
+      "/proc/${BASHPID}/fd/${RESTORE_OPERATION_PARENT_FD}")" == \
+      "$RESTORE_OPERATION_PARENT_ID" && \
+    "${DB_ROLLBACK_DIR%/*}" == "$RESTORE_OPERATION_PARENT" && \
+    "${DB_ROLLBACK_DIR##*/}" =~ ^authentik-db-rollback\.[A-Za-z0-9]+$ ]] || \
+    return 125
+  failed="${DB_ROLLBACK_DIR}-failed-$(date -u +%Y%m%dT%H%M%SZ)-${BASHPID}"
+  [[ ! -e "$failed" && ! -L "$failed" ]] || return 125
+  mv -T -- "$DB_ROLLBACK_DIR" "$failed" || status=125
+  if [[ "$status" == 0 ]]; then
+    [[ -d "$failed" && ! -L "$failed" && \
+      "$(stat -Lc '%d:%i' -- "$failed")" == "$DB_ROLLBACK_DIR_ID" && \
+      "$(stat -Lc '%d:%i' -- \
+        "/proc/${BASHPID}/fd/${DB_ROLLBACK_DIR_FD}")" == \
+        "$DB_ROLLBACK_DIR_ID" ]] || status=125
+  fi
+  if [[ "$status" == 0 ]]; then
+    exec {DB_ROLLBACK_DIR_FD}<&- || status=125
+  fi
+  return "$status"
+}
+abort_restore_preflight() {
+  local status="$1"
+  [[ "$RESTORE_PREFLIGHT_ROLLBACK_RUNNING" == false ]] || exit 125
+  RESTORE_PREFLIGHT_ROLLBACK_RUNNING=true
+  trap '' HUP INT TERM
+  trap - ERR EXIT
+  set +e
+  if [[ "$RESTORE_PREFLIGHT_REQUIRED" == true && \
+    "$RESTORE_PREFLIGHT_SERVICE_MUTATION_STARTED" == true ]]; then
+    restore_initial_service_topology || status=125
+  fi
+  if [[ "$RESTORE_PREFLIGHT_REQUIRED" == true ]]; then
+    invalidate_db_rollback_preflight || status=125
+  fi
+  exit "$status"
+}
+abort_restore_preflight_exit() {
+  local status=$?
+  if [[ "$RESTORE_PREFLIGHT_COMPLETE" == true || \
+    "$RESTORE_PREFLIGHT_REQUIRED" == false ]]; then
+    exit "$status"
+  fi
+  (( status != 0 )) || status=125
+  abort_restore_preflight "$status"
+}
+trap 'abort_restore_preflight 129' HUP
+trap 'abort_restore_preflight 130' INT
+trap 'abort_restore_preflight 143' TERM
+trap 'abort_restore_preflight $?' ERR
+trap abort_restore_preflight_exit EXIT
+RESTORE_PREFLIGHT_REQUIRED=true
+trap '' HUP INT TERM
+DB_ROLLBACK_DIR="$(mktemp -d \
+  "$RESTORE_OPERATION_PARENT/authentik-db-rollback.XXXXXX")"
+if ! exec {DB_ROLLBACK_DIR_FD}<"$DB_ROLLBACK_DIR"; then
+  rmdir -- "$DB_ROLLBACK_DIR" || {
+    printf 'Unbound DB rollback directory preserved at %q\n' \
+      "$DB_ROLLBACK_DIR" >&2
+  }
+  exit 125
+fi
+if ! DB_ROLLBACK_DIR_ID="$(stat -Lc '%d:%i' -- "$DB_ROLLBACK_DIR")"; then
+  exec {DB_ROLLBACK_DIR_FD}<&-
+  rmdir -- "$DB_ROLLBACK_DIR" || {
+    printf 'Unbound DB rollback directory preserved at %q\n' \
+      "$DB_ROLLBACK_DIR" >&2
+  }
+  exit 125
+fi
+DB_ROLLBACK_DIR_CREATED=true
+[[ -d "$DB_ROLLBACK_DIR" && ! -L "$DB_ROLLBACK_DIR" && \
+  "$(stat -Lc '%d:%i' -- "$DB_ROLLBACK_DIR")" == "$DB_ROLLBACK_DIR_ID" && \
+  "$(stat -Lc '%d:%i' -- \
+    "/proc/${BASHPID}/fd/${DB_ROLLBACK_DIR_FD}")" == \
+    "$DB_ROLLBACK_DIR_ID" ]]
+trap 'abort_restore_preflight 129' HUP
+trap 'abort_restore_preflight 130' INT
+trap 'abort_restore_preflight 143' TERM
 [[ "$(stat -Lc '%a:%d' -- "$DB_ROLLBACK_DIR")" == \
   "700:$(stat -Lc '%d' -- .)" ]]
 DB_ROLLBACK_DIR="$(readlink -e -- "$DB_ROLLBACK_DIR")"
@@ -1909,6 +2480,7 @@ else
     DB_ROLLBACK_MODE
   case "$DB_ROLLBACK_MODE" in
     maintenance)
+      RESTORE_PREFLIGHT_SERVICE_MUTATION_STARTED=true
       "${COMPOSE[@]}" stop app authentik-worker authentik-bootstrap
       "${COMPOSE[@]}" up -d --wait --wait-timeout 120 \
         --no-build --pull never postgresql
@@ -1965,6 +2537,7 @@ else
         > "$DB_ROLLBACK_DIR/rollback.json"
       ;;
     provider)
+      RESTORE_PREFLIGHT_SERVICE_MUTATION_STARTED=true
       "${COMPOSE[@]}" stop app authentik-worker authentik-bootstrap \
         postgresql_maintenance postgresql
       RUNNING_CONTAINERS="$("${COMPOSE[@]}" ps --status running -q)"
@@ -2020,29 +2593,233 @@ chmod 0600 "$DB_ROLLBACK_DIR/rollback.json"
 [[ -z "$(find -P "$DB_ROLLBACK_DIR" -xdev \
   \( -type d ! -perm 0700 -o -type f ! -perm 0600 -o \
     ! -type d ! -type f \) -print -quit)" ]]
+trap '' HUP INT TERM
+RESTORE_PREFLIGHT_REQUIRED=false
+RESTORE_PREFLIGHT_COMPLETE=true
 FRESH_PLACEHOLDERS_CREATED=false
-rollback_fresh_preflight() {
-  local status=$? path quarantine
-  trap - ERR
-  if [[ "$FRESH_HOST" == true && \
-    "$FRESH_PLACEHOLDERS_CREATED" == true ]]; then
-    quarantine="$(mktemp -d ../authentik-fresh-preflight-failed.XXXXXX)" || \
-      return 125
-    [[ "$(stat -Lc '%a:%d' -- "$quarantine")" == \
-      "700:$(stat -Lc '%d' -- .)" ]] || return 125
-    for path in appdata app.env secrets scripts/backup.cron .run.conf .env \
-      docker-compose.main.yaml; do
-      if [[ -e "$path" || -L "$path" ]]; then
-        sudo mv -- "$path" "$quarantine/" || return 125
+FRESH_FAILURE_QUARANTINE=''
+RESTORE_ROLLBACK_REQUIRED=false
+RESTORE_TRANSACTION_COMPLETE=false
+RESTORE_ROLLBACK_RUNNING=false
+RESTORE_OLD_READY=false
+RESTORE_OLD_ID=''
+RESTORE_OLD_FD=''
+RESTORE_APP_ENV_ROLLBACK_TEMP=''
+RESTORE_APP_ENV_ROLLBACK_TEMP_ID=''
+RESTORE_APP_ENV_ROLLBACK_TEMP_FD=''
+MERGE_ATTEMPTED=false
+RUNTIME_IMAGES_LOAD_STARTED=false
+OLD=''
+declare -a SWAPPED=()
+path_present() {
+  [[ -e "$1" || -L "$1" ]]
+}
+rollback_swapped_unit() {
+  local live="$1" candidate="$2" old="$3"
+  local live_present=false candidate_present=false old_present=false
+  path_present "$live" && live_present=true
+  path_present "$candidate" && candidate_present=true
+  path_present "$old" && old_present=true
+  if [[ "$live_present" == true && "$candidate_present" == true && \
+    "$old_present" == false ]]; then
+    return 0
+  fi
+  if [[ "$live_present" == true && "$candidate_present" == false && \
+    "$old_present" == true ]]; then
+    sudo mv -- "$live" "$candidate" || return 125
+    live_present=false
+    candidate_present=true
+  fi
+  if [[ "$live_present" == false && "$candidate_present" == true && \
+    "$old_present" == true ]]; then
+    sudo mv -- "$old" "$live" || return 125
+  fi
+  path_present "$live" && path_present "$candidate" && \
+    ! path_present "$old"
+}
+quarantine_fresh_restore_state() {
+  local path quarantine
+  [[ "$FRESH_HOST" == true && "$FRESH_PLACEHOLDERS_CREATED" == true ]] || \
+    return 0
+  if [[ "$RESTORE_OLD_READY" == true ]]; then
+    quarantine="$OLD/fresh-failed-root"
+    if [[ ! -e "$quarantine" && ! -L "$quarantine" ]]; then
+      mkdir -m 0700 -- "$quarantine" || return 125
+    fi
+  else
+    if [[ -z "$FRESH_FAILURE_QUARANTINE" ]]; then
+      FRESH_FAILURE_QUARANTINE="$(mktemp -d \
+        ../authentik-fresh-preflight-failed.XXXXXX)" || return 125
+    fi
+    quarantine="$FRESH_FAILURE_QUARANTINE"
+  fi
+  [[ -d "$quarantine" && ! -L "$quarantine" && \
+    "$(stat -Lc '%a:%d' -- "$quarantine")" == \
+    "700:$(stat -Lc '%d' -- .)" ]] || return 125
+  for path in appdata app.env secrets scripts/backup.cron .run.conf .env \
+    docker-compose.main.yaml; do
+    if path_present "$path"; then
+      sudo mv -- "$path" "$quarantine/" || return 125
+    fi
+  done
+  ! path_present appdata && ! path_present app.env && \
+    ! path_present secrets && ! path_present scripts/backup.cron && \
+    ! path_present .run.conf && ! path_present .env && \
+    ! path_present docker-compose.main.yaml
+}
+cleanup_restore_app_env_temporary() {
+  if [[ -z "$RESTORE_APP_ENV_ROLLBACK_TEMP" ]]; then
+    return 0
+  fi
+  if ! path_present "$RESTORE_APP_ENV_ROLLBACK_TEMP"; then
+    if [[ "$RESTORE_APP_ENV_ROLLBACK_TEMP_FD" =~ ^[0-9]+$ && \
+      -e "/proc/${BASHPID}/fd/${RESTORE_APP_ENV_ROLLBACK_TEMP_FD}" ]]; then
+      exec {RESTORE_APP_ENV_ROLLBACK_TEMP_FD}<&-
+    fi
+    RESTORE_APP_ENV_ROLLBACK_TEMP=''
+    RESTORE_APP_ENV_ROLLBACK_TEMP_ID=''
+    RESTORE_APP_ENV_ROLLBACK_TEMP_FD=''
+    return 0
+  fi
+  [[ -n "$RESTORE_APP_ENV_ROLLBACK_TEMP_ID" && \
+    -f "$RESTORE_APP_ENV_ROLLBACK_TEMP" && \
+    ! -L "$RESTORE_APP_ENV_ROLLBACK_TEMP" && \
+    "$(stat -Lc '%d:%i' -- "$RESTORE_APP_ENV_ROLLBACK_TEMP")" == \
+      "$RESTORE_APP_ENV_ROLLBACK_TEMP_ID" && \
+    "$(stat -Lc '%d:%i' -- \
+      "/proc/${BASHPID}/fd/${RESTORE_APP_ENV_ROLLBACK_TEMP_FD}")" == \
+      "$RESTORE_APP_ENV_ROLLBACK_TEMP_ID" ]] || return 125
+  rm -f -- "$RESTORE_APP_ENV_ROLLBACK_TEMP" || return 125
+  ! path_present "$RESTORE_APP_ENV_ROLLBACK_TEMP" || return 125
+  exec {RESTORE_APP_ENV_ROLLBACK_TEMP_FD}<&-
+  RESTORE_APP_ENV_ROLLBACK_TEMP=''
+  RESTORE_APP_ENV_ROLLBACK_TEMP_ID=''
+  RESTORE_APP_ENV_ROLLBACK_TEMP_FD=''
+}
+perform_restore_rollback() {
+  local item live candidate old i temporary temporary_id rollback_config
+  local mapping ref image_id
+  local rollback_status=0
+  if [[ "$RESTORE_OLD_READY" == true ]]; then
+    [[ -d "$OLD" && ! -L "$OLD" && \
+      "$(stat -Lc '%d:%i' -- "$OLD")" == "$RESTORE_OLD_ID" && \
+      "$(stat -Lc '%d:%i' -- \
+        "/proc/${BASHPID}/fd/${RESTORE_OLD_FD}")" == \
+        "$RESTORE_OLD_ID" ]] || return 125
+  fi
+  for ((i=${#SWAPPED[@]}-1; i>=0; i--)); do
+    item="${SWAPPED[$i]}"
+    IFS='|' read -r live candidate old <<<"$item"
+    if ! rollback_swapped_unit "$live" "$candidate" "$old"; then
+      rollback_status=125
+      break
+    fi
+  done
+  [[ "$rollback_status" == 0 ]] || return 125
+  if [[ "$FRESH_HOST" == true ]]; then
+    quarantine_fresh_restore_state || rollback_status=125
+    return "$rollback_status"
+  fi
+  if [[ "$RUNTIME_IMAGES_LOAD_STARTED" == true ]]; then
+    for mapping in "${PRE_SWAP_IMAGE_MAP[@]}"; do
+      IFS='|' read -r ref image_id <<<"$mapping"
+      if [[ "$ref" == *@sha256:* ]]; then
+        [[ "$(docker image inspect "$ref" --format '{{.Id}}')" == \
+          "$image_id" ]] || rollback_status=125
+      else
+        docker image tag "$image_id" "$ref" >/dev/null || rollback_status=125
+        [[ "$(docker image inspect "$ref" --format '{{.Id}}')" == \
+          "$image_id" ]] || rollback_status=125
       fi
     done
-    [[ ! -e appdata && ! -e app.env && ! -e secrets && \
-      ! -e scripts/backup.cron && ! -e .run.conf && ! -e .env && \
-      ! -e docker-compose.main.yaml ]] || return 125
   fi
-  return "$status"
+  if [[ "$MERGE_ATTEMPTED" == true || \
+    "$RUNTIME_IMAGES_LOAD_STARTED" == true ]]; then
+    temporary="$(mktemp ./app.env.rollback.XXXXXX)" || return 125
+    RESTORE_APP_ENV_ROLLBACK_TEMP="$temporary"
+    if ! exec {RESTORE_APP_ENV_ROLLBACK_TEMP_FD}<"$temporary"; then
+      printf 'Unbound rollback app.env temporary preserved at %q\n' \
+        "$temporary" >&2
+      return 125
+    fi
+    if ! temporary_id="$(stat -Lc '%d:%i' -- "$temporary")"; then
+      exec {RESTORE_APP_ENV_ROLLBACK_TEMP_FD}<&-
+      RESTORE_APP_ENV_ROLLBACK_TEMP_FD=''
+      printf 'Unbound rollback app.env temporary preserved at %q\n' \
+        "$temporary" >&2
+      return 125
+    fi
+    RESTORE_APP_ENV_ROLLBACK_TEMP_ID="$temporary_id"
+    if ! awk -v image="$PRE_SWAP_DIGEST" '
+      BEGIN { count=0 }
+      /^APP_IMAGE=/ { print "APP_IMAGE=" image; count++; next }
+      { print }
+      END { if (count != 1) exit 1 }
+    ' "$OLD/pre-swap-app.env" \
+      > "/proc/${BASHPID}/fd/${RESTORE_APP_ENV_ROLLBACK_TEMP_FD}"; then
+      cleanup_restore_app_env_temporary || return 125
+      return 125
+    fi
+    [[ -f "$temporary" && ! -L "$temporary" && \
+      "$(stat -Lc '%d:%i' -- "$temporary")" == "$temporary_id" ]] || {
+      cleanup_restore_app_env_temporary || return 125
+      return 125
+    }
+    chmod "$APP_ENV_MODE" \
+      "/proc/${BASHPID}/fd/${RESTORE_APP_ENV_ROLLBACK_TEMP_FD}" || {
+      cleanup_restore_app_env_temporary || return 125
+      return 125
+    }
+    [[ "$(stat -Lc '%d:%i' -- "$temporary")" == "$temporary_id" ]] || {
+      cleanup_restore_app_env_temporary || return 125
+      return 125
+    }
+    if ! mv -fT -- "$temporary" app.env; then
+      cleanup_restore_app_env_temporary || return 125
+      return 125
+    fi
+    exec {RESTORE_APP_ENV_ROLLBACK_TEMP_FD}<&-
+    RESTORE_APP_ENV_ROLLBACK_TEMP=''
+    RESTORE_APP_ENV_ROLLBACK_TEMP_ID=''
+    RESTORE_APP_ENV_ROLLBACK_TEMP_FD=''
+    run_authentik_with_inherited_operation_lock || return 125
+    rollback_config="$("${COMPOSE[@]}" config --format json)" || return 125
+    [[ "$(jq -er '.name' <<<"$rollback_config")" == \
+      "$RECOVERY_PROJECT_NAME" ]] || return 125
+    for service in app authentik-bootstrap authentik-worker; do
+      [[ "$(jq -er --arg service "$service" '.services[$service].image' \
+        <<<"$rollback_config")" == "$PRE_SWAP_DIGEST" ]] || return 125
+    done
+  fi
+  return "$rollback_status"
 }
-trap rollback_fresh_preflight ERR
+abort_restore_transaction() {
+  local status="$1"
+  [[ "$RESTORE_ROLLBACK_RUNNING" == false ]] || exit 125
+  RESTORE_ROLLBACK_RUNNING=true
+  trap '' HUP INT TERM
+  trap - ERR EXIT
+  set +e
+  if [[ "$RESTORE_ROLLBACK_REQUIRED" == true ]]; then
+    perform_restore_rollback || status=125
+  fi
+  exit "$status"
+}
+abort_restore_transaction_exit() {
+  local status=$?
+  if [[ "$RESTORE_TRANSACTION_COMPLETE" == true || \
+    "$RESTORE_ROLLBACK_REQUIRED" == false ]]; then
+    exit "$status"
+  fi
+  (( status != 0 )) || status=125
+  abort_restore_transaction "$status"
+}
+trap 'abort_restore_transaction 129' HUP
+trap 'abort_restore_transaction 130' INT
+trap 'abort_restore_transaction 143' TERM
+trap 'abort_restore_transaction $?' ERR
+trap abort_restore_transaction_exit EXIT
+RESTORE_ROLLBACK_REQUIRED=true
 "${COMPOSE[@]}" down
 RUNNING_CONTAINERS="$("${COMPOSE[@]}" ps --status running -q)"
 [[ -z "$RUNNING_CONTAINERS" ]]
@@ -2109,13 +2886,37 @@ LIVE_IDS="$(stat -Lc '%d:%i %n' -- appdata appdata/data \
   "$STAGE/scripts/backup.cron" \
   "$STAGE/.run.conf/.templates.lock")" == "$STAGE_IDS" ]]
 
-OLD="$(mktemp -d ../authentik-pre-restore.XXXXXX)"
+trap '' HUP INT TERM
+OLD="$(mktemp -d \
+  "$RESTORE_OPERATION_PARENT/authentik-pre-restore.XXXXXX")"
+if ! exec {RESTORE_OLD_FD}<"$OLD"; then
+  rmdir -- "$OLD" || {
+    printf 'Unbound pre-restore directory preserved at %q\n' "$OLD" >&2
+  }
+  exit 125
+fi
+if ! RESTORE_OLD_ID="$(stat -Lc '%d:%i' -- "$OLD")"; then
+  exec {RESTORE_OLD_FD}<&-
+  rmdir -- "$OLD" || {
+    printf 'Unbound pre-restore directory preserved at %q\n' "$OLD" >&2
+  }
+  exit 125
+fi
+RESTORE_OLD_READY=true
+[[ "$(stat -Lc '%d:%i' -- "/proc/${BASHPID}/fd/${RESTORE_OLD_FD}")" == \
+  "$RESTORE_OLD_ID" ]]
+trap 'abort_restore_transaction 129' HUP
+trap 'abort_restore_transaction 130' INT
+trap 'abort_restore_transaction 143' TERM
 mkdir -m 0700 -- "$OLD/scripts" "$OLD/.run.conf"
-[[ "$(stat -Lc '%a:%d' -- "$OLD")" == "700:$PROJECT_DEVICE" ]]
+[[ "$(stat -Lc '%a:%d:%i' -- "$OLD")" == \
+  "700:$RESTORE_OLD_ID" ]]
 mv -- "$DB_ROLLBACK_DIR" "$OLD/database"
 DB_ROLLBACK_DIR="$OLD/database"
 [[ "$(stat -Lc '%a:%d' -- "$DB_ROLLBACK_DIR")" == \
   "700:$PROJECT_DEVICE" ]]
+[[ "$(stat -Lc '%d:%i' -- "/proc/${BASHPID}/fd/${DB_ROLLBACK_DIR_FD}")" == \
+  "$DB_ROLLBACK_DIR_ID" ]]
 printf '%s\n' "$PRE_SWAP_DIGEST" > "$OLD/pre-swap-authentik-digest"
 chmod 0600 "$OLD/pre-swap-authentik-digest"
 if [[ "$FRESH_HOST" != true ]]; then
@@ -2128,80 +2929,16 @@ if [[ "$FRESH_HOST" != true ]]; then
 fi
 APP_ENV_MODE="$(stat -Lc '%a' -- app.env)"
 install -m 0600 -- app.env "$OLD/pre-swap-app.env"
-declare -a SWAPPED=()
-MERGE_ATTEMPTED=false
-RUNTIME_IMAGES_LOAD_STARTED=false
 swap_unit() {
   local live="$1" candidate="$2" old="$3"
+  SWAPPED+=("$live|$candidate|$old")
   if ! sudo mv -- "$live" "$old"; then
     return 1
   fi
   if ! sudo mv -- "$candidate" "$live"; then
-    sudo mv -- "$old" "$live"
     return 1
   fi
-  SWAPPED+=("$live|$candidate|$old")
 }
-rollback_partial_swap() {
-  local status=$? item live candidate old i temporary rollback_config \
-    mapping ref image_id
-  trap - ERR
-  for ((i=${#SWAPPED[@]}-1; i>=0; i--)); do
-    item="${SWAPPED[$i]}"
-    IFS='|' read -r live candidate old <<<"$item"
-    sudo mv -- "$live" "$candidate"
-    sudo mv -- "$old" "$live"
-  done
-  if [[ "$FRESH_HOST" == true ]]; then
-    mkdir -m 0700 -- "$OLD/fresh-failed-root" || return 125
-    for live in appdata app.env secrets scripts/backup.cron .run.conf .env \
-      docker-compose.main.yaml; do
-      if [[ -e "$live" || -L "$live" ]]; then
-        sudo mv -- "$live" "$OLD/fresh-failed-root/" || return 125
-      fi
-    done
-    [[ ! -e appdata && ! -e app.env && ! -e secrets && \
-      ! -e scripts/backup.cron && ! -e .run.conf && ! -e .env && \
-      ! -e docker-compose.main.yaml ]] || return 125
-    return "$status"
-  fi
-  if [[ "$RUNTIME_IMAGES_LOAD_STARTED" == true && \
-    "$FRESH_HOST" != true ]]; then
-    for mapping in "${PRE_SWAP_IMAGE_MAP[@]}"; do
-      IFS='|' read -r ref image_id <<<"$mapping"
-      if [[ "$ref" == *@sha256:* ]]; then
-        [[ "$(docker image inspect "$ref" --format '{{.Id}}')" == "$image_id" ]] || \
-          return 125
-      else
-        docker image tag "$image_id" "$ref" >/dev/null || return 125
-        [[ "$(docker image inspect "$ref" --format '{{.Id}}')" == \
-          "$image_id" ]] || return 125
-      fi
-    done
-  fi
-  if [[ "$MERGE_ATTEMPTED" == true || \
-    "$RUNTIME_IMAGES_LOAD_STARTED" == true ]]; then
-    temporary="$(mktemp ./app.env.rollback.XXXXXX)"
-    awk -v image="$PRE_SWAP_DIGEST" '
-      BEGIN { count=0 }
-      /^APP_IMAGE=/ { print "APP_IMAGE=" image; count++; next }
-      { print }
-      END { if (count != 1) exit 1 }
-    ' "$OLD/pre-swap-app.env" > "$temporary"
-    chmod "$APP_ENV_MODE" "$temporary"
-    mv -fT -- "$temporary" app.env
-    (cd .. && ./run.sh Authentik) || return 125
-    rollback_config="$("${COMPOSE[@]}" config --format json)" || return 125
-    [[ "$(jq -er '.name' <<<"$rollback_config")" == \
-      "$RECOVERY_PROJECT_NAME" ]] || return 125
-    for service in app authentik-bootstrap authentik-worker; do
-      [[ "$(jq -er --arg service "$service" '.services[$service].image' \
-        <<<"$rollback_config")" == "$PRE_SWAP_DIGEST" ]] || return 125
-    done
-  fi
-  return "$status"
-}
-trap rollback_partial_swap ERR
 RUNTIME_IMAGES_LOAD_STARTED=true
 docker image load --input "$RECOVERY_DIR/$RUNTIME_IMAGES" >/dev/null
 verify_loaded_image() {
@@ -2239,7 +2976,7 @@ swap_unit .run.conf/.templates.lock "$STAGE/.run.conf/.templates.lock" \
 
 # Normæl locked merge only: never use --force or refresh either lock here.
 MERGE_ATTEMPTED=true
-(cd .. && ./run.sh Authentik)
+run_authentik_with_inherited_operation_lock
 COMPOSE=(docker compose --project-name "$RECOVERY_PROJECT_NAME" \
   --env-file .env -f "$COMPOSE_FILE")
 LIVE_CONFIG="$("${COMPOSE[@]}" config --format json)"
@@ -2280,8 +3017,275 @@ for leaf in appdata/data appdata/custom-templates appdata/certs; do
     \( ! -uid "$APP_UID" -o ! -gid "$APP_GID" -o -type d ! -perm 0770 \
       -o -type f ! -perm 0660 \) -print -quit)" ]]
 done
-trap - ERR
-rmdir -- "$STAGE/scripts" "$STAGE/.run.conf" "$STAGE"
+RESTORE_DB_GUARD_ARMED=false
+RESTORE_DB_GUARD_PUBLISHED=false
+RESTORE_DB_MUTATION_STARTED=false
+RESTORE_COMPLETE=false
+RESTORE_DB_HANDLER_RUNNING=false
+RESTORE_DB_ABORT_DIR="$RESTORE_OPERATION_PARENT/authentik-restore-abort-${RESTORE_RECOVERY_ID}"
+RESTORE_DB_ABORT_ID=''
+RESTORE_DB_ABORT_FD=''
+validate_restore_old_state() {
+  [[ -d "$OLD" && ! -L "$OLD" && \
+    "${OLD%/*}" == "$RESTORE_OPERATION_PARENT" && \
+    "${OLD##*/}" =~ ^authentik-pre-restore\.[A-Za-z0-9]+$ && \
+    "$(stat -Lc '%d:%i' -- "$OLD")" == "$RESTORE_OLD_ID" && \
+    "$(stat -Lc '%d:%i' -- "/proc/${BASHPID}/fd/${RESTORE_OLD_FD}")" == \
+      "$RESTORE_OLD_ID" && \
+    -d "$OLD/database" && ! -L "$OLD/database" && \
+    "$(stat -Lc '%d:%i' -- "$OLD/database")" == "$DB_ROLLBACK_DIR_ID" && \
+    "$(stat -Lc '%d:%i' -- "/proc/${BASHPID}/fd/${DB_ROLLBACK_DIR_FD}")" == \
+      "$DB_ROLLBACK_DIR_ID" ]]
+}
+validate_restore_db_guard() {
+  validate_restore_old_state || return 125
+  [[ "$RESTORE_DB_ABORT_ID" =~ ^[0-9]+:[0-9]+$ && \
+    "$RESTORE_DB_ABORT_FD" =~ ^[0-9]+$ && \
+    "${RESTORE_DB_ABORT_DIR%/*}" == "$RESTORE_OPERATION_PARENT" && \
+    "${RESTORE_DB_ABORT_DIR##*/}" == \
+      "authentik-restore-abort-${RESTORE_RECOVERY_ID}" && \
+    "$(stat -Lc '%d:%i' -- "$RESTORE_OPERATION_PARENT")" == \
+      "$RESTORE_OPERATION_PARENT_ID" && \
+    "$(stat -Lc '%d:%i' -- \
+      "/proc/${BASHPID}/fd/${RESTORE_OPERATION_PARENT_FD}")" == \
+      "$RESTORE_OPERATION_PARENT_ID" && \
+    -d "$RESTORE_DB_ABORT_DIR" && ! -L "$RESTORE_DB_ABORT_DIR" && \
+    "$(stat -Lc '%d:%i' -- "$RESTORE_DB_ABORT_DIR")" == \
+      "$RESTORE_DB_ABORT_ID" && \
+    "$(stat -Lc '%d:%i' -- \
+      "/proc/${BASHPID}/fd/${RESTORE_DB_ABORT_FD}")" == \
+      "$RESTORE_DB_ABORT_ID" && \
+    "$(stat -Lc '%a:%u:%g' -- "$RESTORE_DB_ABORT_DIR")" == \
+      "700:$(id -u):$(id -g)" && \
+    -f "$RESTORE_DB_ABORT_DIR/restore-abort.json" && \
+    ! -L "$RESTORE_DB_ABORT_DIR/restore-abort.json" && \
+    -f "$RESTORE_DB_ABORT_DIR/restore-abort.json.sha256" && \
+    ! -L "$RESTORE_DB_ABORT_DIR/restore-abort.json.sha256" && \
+    "$(stat -Lc '%a:%u:%g:%h' -- \
+      "$RESTORE_DB_ABORT_DIR/restore-abort.json")" == \
+      "600:$(id -u):$(id -g):1" && \
+    "$(stat -Lc '%a:%u:%g:%h' -- \
+      "$RESTORE_DB_ABORT_DIR/restore-abort.json.sha256")" == \
+      "600:$(id -u):$(id -g):1" ]] || return 125
+  [[ "$(<"$RESTORE_DB_ABORT_DIR/restore-abort.json.sha256")" == \
+    "$(sha256sum "$RESTORE_DB_ABORT_DIR/restore-abort.json" | \
+      awk '{print $1}')  restore-abort.json" ]] || return 125
+  jq -e --arg recovery_id "$RESTORE_RECOVERY_ID" \
+    --arg project_name "$RECOVERY_PROJECT_NAME" --arg old_path "$OLD" \
+    --arg old_id "$RESTORE_OLD_ID" --arg database_id "$DB_ROLLBACK_DIR_ID" \
+    --arg recovery_dir "$RECOVERY_DIR" '
+    keys == ["database_id","old_id","old_path","project_name","recovery_dir",
+      "recovery_id","rollback_kind","schema_version","status"] and
+    .schema_version == 1 and .status == "db-restore-unresolved" and
+    .recovery_id == $recovery_id and .project_name == $project_name and
+    .old_path == $old_path and .old_id == $old_id and
+    .database_id == $database_id and .recovery_dir == $recovery_dir and
+    (.rollback_kind == "maintenance" or .rollback_kind == "provider" or
+      .rollback_kind == "new-host-none")
+  ' "$RESTORE_DB_ABORT_DIR/restore-abort.json" >/dev/null
+}
+verify_restore_db_phase_preamble() {
+  [[ "$RESTORE_DB_GUARD_ARMED" == true && \
+    "$RESTORE_COMPLETE" == false ]] || return 125
+  validate_authentik_operation_lock || return 125
+  validate_restore_db_guard
+}
+cleanup_restore_db_guard_staging() {
+  local staging="$1" staging_id="$2" staging_fd="$3" status=0
+  [[ "${staging%/*}" == "$RESTORE_OPERATION_PARENT" && \
+    "${staging##*/}" =~ \
+      ^\.authentik-restore-abort-${RESTORE_RECOVERY_ID}\.[A-Za-z0-9]+$ && \
+    -d "$staging" && ! -L "$staging" && \
+    "$(stat -Lc '%d:%i' -- "$staging")" == "$staging_id" && \
+    "$(stat -Lc '%d:%i' -- "/proc/${BASHPID}/fd/${staging_fd}")" == \
+      "$staging_id" && \
+    "$(stat -Lc '%d:%i' -- "$RESTORE_OPERATION_PARENT")" == \
+      "$RESTORE_OPERATION_PARENT_ID" && \
+    "$(stat -Lc '%d:%i' -- \
+      "/proc/${BASHPID}/fd/${RESTORE_OPERATION_PARENT_FD}")" == \
+      "$RESTORE_OPERATION_PARENT_ID" ]] || return 125
+  (cd "/proc/${BASHPID}/fd/${staging_fd}" && \
+    find -P . -xdev -depth -mindepth 1 -delete) || status=125
+  if [[ "$status" == 0 ]]; then
+    [[ -d "$staging" && ! -L "$staging" && \
+      "$(stat -Lc '%d:%i' -- "$staging")" == "$staging_id" && \
+      "$(stat -Lc '%d:%i' -- "/proc/${BASHPID}/fd/${staging_fd}")" == \
+        "$staging_id" ]] || status=125
+  fi
+  if [[ "$status" == 0 ]]; then
+    rmdir -- "$staging" || status=125
+  fi
+  if [[ "$status" == 0 ]]; then
+    exec {staging_fd}<&- || status=125
+  fi
+  return "$status"
+}
+publish_restore_db_guard() {
+  local staging staging_fd staging_id rollback_kind publish_status=0
+  validate_restore_old_state || return 125
+  [[ ! -e "$RESTORE_DB_ABORT_DIR" && ! -L "$RESTORE_DB_ABORT_DIR" ]] || \
+    return 125
+  [[ -f "$OLD/database/rollback.json" && \
+    ! -L "$OLD/database/rollback.json" ]] || return 125
+  rollback_kind="$(jq -er '.kind | select(. == "maintenance" or
+    . == "provider" or . == "new-host-none")' \
+    "$OLD/database/rollback.json")" || return 125
+  staging="$(mktemp -d \
+    "$RESTORE_OPERATION_PARENT/.authentik-restore-abort-${RESTORE_RECOVERY_ID}.XXXXXX")" \
+    || return 125
+  if ! exec {staging_fd}<"$staging"; then
+    rmdir -- "$staging" || return 125
+    return 125
+  fi
+  if ! staging_id="$(stat -Lc '%d:%i' -- "$staging")"; then
+    exec {staging_fd}<&-
+    rmdir -- "$staging" || return 125
+    return 125
+  fi
+  if [[ "$(stat -Lc '%d:%i' -- "/proc/${BASHPID}/fd/${staging_fd}")" != \
+    "$staging_id" || \
+    "$(stat -Lc '%a:%u:%g:%h' -- "$staging")" != \
+      "700:$(id -u):$(id -g):2" ]]; then
+    cleanup_restore_db_guard_staging "$staging" "$staging_id" \
+      "$staging_fd" || return 125
+    return 125
+  fi
+  if ! jq -n --arg recovery_id "$RESTORE_RECOVERY_ID" \
+    --arg project_name "$RECOVERY_PROJECT_NAME" --arg old_path "$OLD" \
+    --arg old_id "$RESTORE_OLD_ID" --arg rollback_kind "$rollback_kind" \
+    --arg database_id "$DB_ROLLBACK_DIR_ID" --arg recovery_dir "$RECOVERY_DIR" \
+    '{schema_version:1,status:"db-restore-unresolved",recovery_id:$recovery_id,
+      project_name:$project_name,old_path:$old_path,old_id:$old_id,
+      database_id:$database_id,recovery_dir:$recovery_dir,
+      rollback_kind:$rollback_kind}' \
+    > "$staging/restore-abort.json"; then
+    cleanup_restore_db_guard_staging "$staging" "$staging_id" \
+      "$staging_fd" || return 125
+    return 125
+  fi
+  if ! chmod 0600 "$staging/restore-abort.json"; then
+    cleanup_restore_db_guard_staging "$staging" "$staging_id" \
+      "$staging_fd" || return 125
+    return 125
+  fi
+  if ! (cd "$staging" && sha256sum -- restore-abort.json \
+    > restore-abort.json.sha256 && chmod 0600 restore-abort.json.sha256 && \
+    sha256sum --check --strict restore-abort.json.sha256); then
+    cleanup_restore_db_guard_staging "$staging" "$staging_id" \
+      "$staging_fd" || return 125
+    return 125
+  fi
+  if ! sync -f -- "$staging"; then
+    cleanup_restore_db_guard_staging "$staging" "$staging_id" \
+      "$staging_fd" || return 125
+    return 125
+  fi
+  mv -Tn -- "$staging" "$RESTORE_DB_ABORT_DIR" || publish_status=125
+  if [[ ! -e "$staging" && ! -L "$staging" ]]; then
+    RESTORE_DB_ABORT_ID="$staging_id"
+    RESTORE_DB_ABORT_FD="$staging_fd"
+  fi
+  if [[ -e "$staging" || -L "$staging" ]]; then
+    cleanup_restore_db_guard_staging "$staging" "$staging_id" \
+      "$staging_fd" || return 125
+    return 125
+  fi
+  [[ -d "$RESTORE_DB_ABORT_DIR" && ! -L "$RESTORE_DB_ABORT_DIR" && \
+    "$(stat -Lc '%d:%i' -- "$RESTORE_DB_ABORT_DIR")" == "$staging_id" && \
+    "$(stat -Lc '%d:%i' -- "/proc/${BASHPID}/fd/${staging_fd}")" == \
+      "$staging_id" ]] || return 125
+  RESTORE_DB_GUARD_PUBLISHED=true
+  RESTORE_ROLLBACK_REQUIRED=false
+  RESTORE_TRANSACTION_COMPLETE=true
+  trap - ERR EXIT
+  trap 'abort_restore_database_phase 129' HUP
+  trap 'abort_restore_database_phase 130' INT
+  trap 'abort_restore_database_phase 143' TERM
+  trap 'abort_restore_database_phase $?' ERR
+  trap abort_restore_database_phase_exit EXIT
+  RESTORE_DB_GUARD_ARMED=true
+  [[ "$publish_status" == 0 ]] || abort_restore_database_phase 125
+  sync -f -- "$RESTORE_OPERATION_PARENT" || \
+    abort_restore_database_phase 125
+  validate_restore_db_guard || abort_restore_database_phase 125
+}
+resolve_restore_db_guard() {
+  local resolved status=0
+  validate_restore_db_guard || return 125
+  resolved="${RESTORE_DB_ABORT_DIR}-resolved-$(date -u +%Y%m%dT%H%M%SZ)"
+  [[ ! -e "$resolved" && ! -L "$resolved" ]] || return 125
+  mv -Tn -- "$RESTORE_DB_ABORT_DIR" "$resolved" || status=125
+  if [[ "$status" == 0 ]]; then
+    [[ ! -e "$RESTORE_DB_ABORT_DIR" && ! -L "$RESTORE_DB_ABORT_DIR" && \
+      -d "$resolved" && ! -L "$resolved" && \
+      "$(stat -Lc '%d:%i' -- "$resolved")" == "$RESTORE_DB_ABORT_ID" && \
+      "$(stat -Lc '%d:%i' -- "/proc/${BASHPID}/fd/${RESTORE_DB_ABORT_FD}")" == \
+        "$RESTORE_DB_ABORT_ID" ]] || status=125
+  fi
+  if [[ "$status" == 0 ]]; then
+    sync -f -- "$RESTORE_OPERATION_PARENT" || status=125
+  fi
+  if [[ "$status" != 0 && -d "$resolved" && ! -L "$resolved" && \
+    "$(stat -Lc '%d:%i' -- "$resolved")" == "$RESTORE_DB_ABORT_ID" && \
+    ! -e "$RESTORE_DB_ABORT_DIR" && ! -L "$RESTORE_DB_ABORT_DIR" ]]; then
+    mv -Tn -- "$resolved" "$RESTORE_DB_ABORT_DIR" || return 125
+    [[ -d "$RESTORE_DB_ABORT_DIR" && ! -L "$RESTORE_DB_ABORT_DIR" && \
+      "$(stat -Lc '%d:%i' -- "$RESTORE_DB_ABORT_DIR")" == \
+        "$RESTORE_DB_ABORT_ID" ]] || return 125
+    sync -f -- "$RESTORE_OPERATION_PARENT" || return 125
+  fi
+  [[ "$status" == 0 ]] || return 125
+  RESTORE_DB_RESOLVED_DIR="$resolved"
+}
+abort_restore_database_phase() {
+  local status="$1" running id
+  local -a running_ids=()
+  [[ "$RESTORE_DB_HANDLER_RUNNING" == false ]] || exit 125
+  RESTORE_DB_HANDLER_RUNNING=true
+  trap '' HUP INT TERM
+  trap - ERR EXIT
+  set +e
+  running="$(docker container ls --no-trunc --quiet --filter \
+    "label=com.docker.compose.project=${RECOVERY_PROJECT_NAME}")" || status=125
+  while IFS= read -r id; do
+    [[ -n "$id" ]] || continue
+    [[ "$id" =~ ^[0-9a-f]{64}$ ]] || {
+      status=125
+      continue
+    }
+    running_ids+=("$id")
+  done <<< "$running"
+  if (( ${#running_ids[@]} > 0 )); then
+    docker stop -t 60 "${running_ids[@]}" >/dev/null || status=125
+  fi
+  "${COMPOSE[@]}" down || status=125
+  running="$(docker container ls --no-trunc --quiet --filter \
+    "label=com.docker.compose.project=${RECOVERY_PROJECT_NAME}")" || status=125
+  [[ -z "$running" ]] || status=125
+  validate_restore_db_guard || status=125
+  printf 'Database restore interrupted; recovery evidence is preserved at %s\n' \
+    "$RESTORE_DB_ABORT_DIR" >&2
+  exit "$status"
+}
+abort_restore_database_phase_exit() {
+  local status=$?
+  if [[ "$RESTORE_COMPLETE" == true || \
+    "$RESTORE_DB_GUARD_ARMED" == false ]]; then
+    exit "$status"
+  fi
+  (( status != 0 )) || status=125
+  abort_restore_database_phase "$status"
+}
+trap '' HUP INT TERM
+publish_restore_db_guard
+[[ "$RESTORE_DB_GUARD_PUBLISHED" == true && \
+  "$RESTORE_DB_GUARD_ARMED" == true && \
+  "$RESTORE_ROLLBACK_REQUIRED" == false && \
+  "$RESTORE_TRANSACTION_COMPLETE" == true ]]
+if ! rmdir -- "$STAGE/scripts" "$STAGE/.run.conf" "$STAGE"; then
+  printf 'Verified file swap committed; empty stage cleanup remains at %q\n' \
+    "$STAGE" >&2
+fi
 ```
 
 The stæge begins mode `0700` with recovered sensitive files mode `0600`.
@@ -2291,6 +3295,11 @@ ownership/modes; the normæl `run.sh` merge then normælizes rendered secrets to
 cændidæte, ænd æ mætching pre-swæp dætæbæse snæpshot until finæl proof succeeds.
 
 ### Restore exæctly one PostgreSQL formæt
+
+Keep the sæme strict shell open from file stæging through the selected
+dætæbæse æpply ænd every finæl proof. Eæch læter code fence deliberætely
+requires the still-held project, pærent, `OLD`, dætæbæse, ænd æctive-guærd
+descriptors; pæsting one into æ fresh shell must fæil before mutætion.
 
 Copy the selected bundle næmed by `recovery.json` into `restore/` with its
 strict sidecær ænd `bundle_*.sha256`; physicæl restore ælso needs its
@@ -2302,6 +3311,7 @@ First prove thæt the locæl built dætæbæse imæges still equæl the bound
 version record:
 
 ```bash
+verify_restore_db_phase_preamble
 PROJECT_NAME="$("${COMPOSE[@]}" config --format json | jq -er '.name')"
 [[ "$(docker image inspect "${PROJECT_NAME}-postgresql" --format '{{.Id}}')" == \
   "$(jq -er '.postgresql.image_id' "$RECOVERY_DIR/versions.json")" ]]
@@ -2315,6 +3325,7 @@ must remæin stopped. Dry-run uses the reæd-only bæse service; only æpply use
 the versioned write override:
 
 ```bash
+verify_restore_db_phase_preamble
 PHYSICAL_ID="$(jq -er '.postgresql.physical.id' "$RECORD")"
 PHYSICAL="restore/full_${PHYSICAL_ID}.tar.zst"
 PHYSICAL_MANIFEST="restore/full_${PHYSICAL_ID}.manifest"
@@ -2330,6 +3341,8 @@ RUNNING="$("${COMPOSE[@]}" ps --status running -q)"
   --no-deps --pull never -e POSTGRES_RESTORE_BACKUP_ID="$PHYSICAL_ID" \
   -e POSTGRES_RESTORE_CONFIRM_DATABASE_STOPPED=true \
   postgresql_maintenance restore --dry-run
+verify_restore_db_phase_preamble
+RESTORE_DB_MUTATION_STARTED=true
 "${COMPOSE[@]}" -f docker-compose.postgresql_maintenance.restore.yaml.example \
   run --rm \
   --no-deps --pull never -e POSTGRES_RESTORE_BACKUP_ID="$PHYSICAL_ID" \
@@ -2342,6 +3355,7 @@ worker, bootstræp, ænd scheduled mæintenænce stæy stopped. Both explicit
 populæted-dætæbæse replæcement guærds ære required:
 
 ```bash
+verify_restore_db_phase_preamble
 LOGICAL_ID="$(jq -er '.postgresql.logical.id' "$RECORD")"
 LOGICAL="restore/dump_${LOGICAL_ID}.dump.zst"
 [[ "$(sha256sum "$LOGICAL" | awk '{print $1}')" == \
@@ -2357,7 +3371,12 @@ UNEXPECTED="$("${COMPOSE[@]}" ps --status running -q \
 [[ -z "$UNEXPECTED" ]]
 for mode in dry-run apply; do
   restore_args=()
-  [[ "$mode" == apply ]] || restore_args+=(--dry-run)
+  if [[ "$mode" == apply ]]; then
+    verify_restore_db_phase_preamble
+    RESTORE_DB_MUTATION_STARTED=true
+  else
+    restore_args+=(--dry-run)
+  fi
   "${COMPOSE[@]}" run --rm \
     --no-deps --pull never -e POSTGRES_RESTORE_BACKUP_ID="$LOGICAL_ID" \
     -e POSTGRES_RESTORE_RECREATE_DATABASE=true \
@@ -2374,6 +3393,7 @@ PostgreSQL ænd mæintenænce imæge IDs equæl those in bound `versions.json`;
 Æfter one successful dætæbæse pæth:
 
 ```bash
+verify_restore_db_phase_preamble
 "${COMPOSE[@]}" up -d --wait --wait-timeout 120 \
   --no-build --pull never postgresql
 "${COMPOSE[@]}" up -d --wait --wait-timeout 300 \
@@ -2395,26 +3415,767 @@ done
   /usr/local/bin/backup.sh full
 "${COMPOSE[@]}" up -d --wait --wait-timeout 300 \
   --no-build --pull never postgresql_maintenance
+trap '' HUP INT TERM
+verify_restore_db_phase_preamble
+resolve_restore_db_guard
+RESTORE_COMPLETE=true
+RESTORE_DB_GUARD_ARMED=false
+trap - ERR EXIT
+exec {RESTORE_DB_ABORT_FD}<&-
+exec {DB_ROLLBACK_DIR_FD}<&-
+exec {RESTORE_OLD_FD}<&-
+exec {RESTORE_OPERATION_PARENT_FD}<&-
+exec {AUTHENTIK_OPERATION_LOCK_FD}<&-
+unset AUTHENTIK_OPERATION_LOCK_FD AUTHENTIK_OPERATION_ROOT
+trap - HUP INT TERM
 ```
 
-If æny post-restore proof fæils, keep the project stopped ænd inspect
-`$OLD/database/rollback.json`. For `kind=maintenance`, restore the copied
-pre-swæp physicæl bundle through the sæme dry-run/override pæth:
+If the dætæbæse-guærd træp exits, the shell descriptors disæppeær but the
+æctive sibling mærker remæins duræble. Do not bypæss or delete it. Run the
+following **Restore-Æbort Recovery** from `Authentik/` in one strict shell.
+It reæcquires the project lock before its first mutætion, æccepts exæctly one
+selected restore mærker plus æt most one sæme-ID updæte mærker, rebinds every
+recovery object by pæth ænd descriptor identity, ænd proves the entire Compose
+project stopped. Æ foreign, multiple, hidden, symbolic, or mælformed entry
+fæils closed. The sæme-ID updæte mærker is not resolved here; finish its
+sepæræte recovery only æfter this restore mærker is resolved.
 
 ```bash
-DB_ROLLBACK_RECORD="$OLD/database/rollback.json"
-[[ -f "$DB_ROLLBACK_RECORD" && ! -L "$DB_ROLLBACK_RECORD" ]]
-[[ "$(jq -er '.kind' "$DB_ROLLBACK_RECORD")" == maintenance ]]
-[[ "$(sha256sum "$OLD/database/payload.sha256" | awk '{print $1}')" == \
+set -euo pipefail
+umask 077
+AUTHENTIK_OPERATION_ROOT="$(pwd -P)"
+validate_authentik_operation_lock() {
+  [[ "$AUTHENTIK_OPERATION_ROOT" == "$(pwd -P)" && \
+    "$AUTHENTIK_OPERATION_LOCK_FD" =~ ^[0-9]+$ && \
+    "$(readlink -e -- \
+      "/proc/${BASHPID}/fd/${AUTHENTIK_OPERATION_LOCK_FD}")" == \
+      "$AUTHENTIK_OPERATION_ROOT" && \
+    "$(stat -Lc '%d:%i' -- "$AUTHENTIK_OPERATION_ROOT")" == \
+      "$AUTHENTIK_OPERATION_LOCK_IDENTITY" && \
+    "$(stat -Lc '%d:%i' -- \
+      "/proc/${BASHPID}/fd/${AUTHENTIK_OPERATION_LOCK_FD}")" == \
+      "$AUTHENTIK_OPERATION_LOCK_IDENTITY" ]] || return 125
+  flock -n -x "$AUTHENTIK_OPERATION_LOCK_FD" || return 125
+  [[ "$AUTHENTIK_OPERATION_ROOT" == "$(pwd -P)" && \
+    "$(readlink -e -- \
+      "/proc/${BASHPID}/fd/${AUTHENTIK_OPERATION_LOCK_FD}")" == \
+      "$AUTHENTIK_OPERATION_ROOT" && \
+    "$(stat -Lc '%d:%i' -- "$AUTHENTIK_OPERATION_ROOT")" == \
+      "$AUTHENTIK_OPERATION_LOCK_IDENTITY" && \
+    "$(stat -Lc '%d:%i' -- \
+      "/proc/${BASHPID}/fd/${AUTHENTIK_OPERATION_LOCK_FD}")" == \
+      "$AUTHENTIK_OPERATION_LOCK_IDENTITY" ]] || return 125
+}
+acquire_authentik_operation_lock() {
+  [[ -d "$AUTHENTIK_OPERATION_ROOT" && \
+    ! -L "$AUTHENTIK_OPERATION_ROOT" && \
+    "$(readlink -e -- .)" == "$AUTHENTIK_OPERATION_ROOT" ]] || return 125
+  AUTHENTIK_OPERATION_LOCK_IDENTITY="$(stat -Lc '%d:%i' -- \
+    "$AUTHENTIK_OPERATION_ROOT")" || return 125
+  if [[ -z "${AUTHENTIK_OPERATION_LOCK_FD:-}" ]]; then
+    exec {AUTHENTIK_OPERATION_LOCK_FD}<"$AUTHENTIK_OPERATION_ROOT" || \
+      return 125
+  fi
+  [[ "$AUTHENTIK_OPERATION_LOCK_FD" =~ ^[0-9]+$ ]] || return 125
+  validate_authentik_operation_lock
+}
+acquire_authentik_operation_lock
+run_authentik_with_inherited_operation_lock() {
+  validate_authentik_operation_lock || return 125
+  (
+    cd .. || exit 125
+    RUN_INHERITED_PROJECT_LOCK_FD="$AUTHENTIK_OPERATION_LOCK_FD" \
+    RUN_INHERITED_PROJECT_LOCK_PATH="$AUTHENTIK_OPERATION_ROOT" \
+    RUN_INHERITED_PROJECT_LOCK_IDENTITY="$AUTHENTIK_OPERATION_LOCK_IDENTITY" \
+      ./run.sh Authentik
+  ) || return 125
+  validate_authentik_operation_lock
+}
+RESTORE_OPERATION_PARENT="$(readlink -e -- ..)"
+exec {RESTORE_OPERATION_PARENT_FD}<"$RESTORE_OPERATION_PARENT"
+RESTORE_OPERATION_PARENT_ID="$(stat -Lc '%d:%i' -- \
+  "$RESTORE_OPERATION_PARENT")"
+COMPOSE=(docker compose --env-file .env -f docker-compose.main.yaml)
+RESTORE_ABORT_CONFIG="$("${COMPOSE[@]}" config --format json)"
+RECOVERY_PROJECT_NAME="$(jq -er \
+  '.name | select(test("^[a-z0-9][a-z0-9_-]*$"))' \
+  <<<"$RESTORE_ABORT_CONFIG")"
+RESTORE_ABORT_RECOVERY_REQUIRED=false
+RESTORE_ABORT_RECOVERY_COMPLETE=false
+RESTORE_ABORT_RECOVERY_HANDLER_RUNNING=false
+RESTORE_ABORT_RECOVERY_BOUND=false
+RESTORE_ABORT_INVENTORY=''
+RESTORE_ABORT_INVENTORY_ID=''
+RESTORE_ABORT_INVENTORY_FD=''
+RESTORE_DB_ABORT_DIR=''
+RESTORE_DB_ABORT_ID=''
+RESTORE_DB_ABORT_FD=''
+RESTORE_RECOVERY_ID=''
+OLD=''
+RESTORE_OLD_ID=''
+RESTORE_OLD_FD=''
+DB_ROLLBACK_DIR=''
+DB_ROLLBACK_DIR_ID=''
+DB_ROLLBACK_DIR_FD=''
+RECOVERY_DIR=''
+RESTORE_RECOVERY_DIR_ID=''
+RESTORE_RECOVERY_DIR_FD=''
+RESTORE_ROLLBACK_KIND=''
+RESTORE_DB_MUTATION_STARTED=false
+RESTORE_DB_RESOLVED_DIR=''
+RESTORE_DB_RECORD_FD_PATH=''
+RESTORE_ABORT_FAILED_LIVE=''
+RESTORE_ABORT_FAILED_LIVE_ID=''
+RESTORE_ABORT_FAILED_LIVE_FD=''
+RESTORE_ABORT_FILES_BOUND=false
+RESTORE_ABORT_FILES_ROLLED_BACK=false
+RESTORE_ABORT_ENV_TEMP=''
+RESTORE_ABORT_ENV_TEMP_ID=''
+RESTORE_ABORT_ENV_TEMP_FD=''
+declare -A RESTORE_DB_FILE_FDS=()
+declare -A RESTORE_DB_FILE_IDS=()
+declare -A RESTORE_DB_FILE_METADATA=()
+declare -a RESTORE_DB_FILE_NAMES=()
+cleanup_restore_abort_recovery_inventory() {
+  local status=0
+  [[ -n "$RESTORE_ABORT_INVENTORY" ]] || return 0
+  if [[ -f "$RESTORE_ABORT_INVENTORY" && \
+    ! -L "$RESTORE_ABORT_INVENTORY" && \
+    "$(stat -Lc '%d:%i' -- "$RESTORE_ABORT_INVENTORY")" == \
+      "$RESTORE_ABORT_INVENTORY_ID" && \
+    "$(stat -Lc '%d:%i' -- \
+      "/proc/${BASHPID}/fd/${RESTORE_ABORT_INVENTORY_FD}")" == \
+      "$RESTORE_ABORT_INVENTORY_ID" ]]; then
+    rm -f -- "$RESTORE_ABORT_INVENTORY" || status=125
+  else
+    status=125
+  fi
+  if [[ "$status" == 0 ]]; then
+    exec {RESTORE_ABORT_INVENTORY_FD}<&- || status=125
+    RESTORE_ABORT_INVENTORY=''
+    RESTORE_ABORT_INVENTORY_ID=''
+    RESTORE_ABORT_INVENTORY_FD=''
+  fi
+  return "$status"
+}
+validate_restore_abort_database_file() {
+  local name="$1" path fd fd_path
+  [[ "$name" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || return 125
+  fd="${RESTORE_DB_FILE_FDS[$name]:-}"
+  [[ "$fd" =~ ^[0-9]+$ && \
+    "${RESTORE_DB_FILE_IDS[$name]:-}" =~ ^[0-9]+:[0-9]+$ && \
+    -e "/proc/${BASHPID}/fd/${fd}" ]] || return 125
+  path="$DB_ROLLBACK_DIR/$name"
+  fd_path="/proc/${BASHPID}/fd/${fd}"
+  [[ -f "$path" && ! -L "$path" && -f "$fd_path" && \
+    "$(stat -Lc '%d:%i' -- "$path")" == \
+      "${RESTORE_DB_FILE_IDS[$name]}" && \
+    "$(stat -Lc '%d:%i' -- "$fd_path")" == \
+      "${RESTORE_DB_FILE_IDS[$name]}" && \
+    "$(stat -Lc '%s:%a:%u:%g:%h' -- "$path")" == \
+      "${RESTORE_DB_FILE_METADATA[$name]}" && \
+    "$(stat -Lc '%s:%a:%u:%g:%h' -- "$fd_path")" == \
+      "${RESTORE_DB_FILE_METADATA[$name]}" ]]
+}
+pin_restore_abort_database_files() {
+  local candidate name fd id metadata expected_count=0
+  local rollback_fd physical_id logical_id
+  local -a expected=()
+  : > "/proc/${BASHPID}/fd/${RESTORE_ABORT_INVENTORY_FD}" || return 125
+  find -P "$DB_ROLLBACK_DIR" -mindepth 1 -maxdepth 1 -print0 \
+    > "/proc/${BASHPID}/fd/${RESTORE_ABORT_INVENTORY_FD}" || return 125
+  while IFS= read -r -d '' candidate; do
+    name="${candidate##*/}"
+    [[ "$name" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ && \
+      -f "$candidate" && ! -L "$candidate" && \
+      -z "${RESTORE_DB_FILE_FDS[$name]:-}" ]] || return 125
+    exec {fd}<"$candidate" || return 125
+    id="$(stat -Lc '%d:%i' -- "$candidate")" || return 125
+    metadata="$(stat -Lc '%s:%a:%u:%g:%h' -- "$candidate")" || return 125
+    [[ -f "$candidate" && ! -L "$candidate" && \
+      "$metadata" =~ ^[0-9]+:600:$(id -u):$(id -g):1$ && \
+      "$(stat -Lc '%d:%i' -- "$candidate")" == "$id" && \
+      "$(stat -Lc '%d:%i' -- "/proc/${BASHPID}/fd/${fd}")" == "$id" && \
+      "$(stat -Lc '%s:%a:%u:%g:%h' -- \
+        "/proc/${BASHPID}/fd/${fd}")" == "$metadata" ]] || return 125
+    RESTORE_DB_FILE_FDS["$name"]="$fd"
+    RESTORE_DB_FILE_IDS["$name"]="$id"
+    RESTORE_DB_FILE_METADATA["$name"]="$metadata"
+    RESTORE_DB_FILE_NAMES+=("$name")
+  done < "$RESTORE_ABORT_INVENTORY"
+  rollback_fd="${RESTORE_DB_FILE_FDS[rollback.json]:-}"
+  [[ "$rollback_fd" =~ ^[0-9]+$ ]] || return 125
+  RESTORE_DB_RECORD_FD_PATH="/proc/${BASHPID}/fd/${rollback_fd}"
+  validate_restore_abort_database_file rollback.json || return 125
+  [[ "$(jq -er '.kind' "$RESTORE_DB_RECORD_FD_PATH")" == \
+    "$RESTORE_ROLLBACK_KIND" ]] || return 125
+  case "$RESTORE_ROLLBACK_KIND" in
+    maintenance)
+      physical_id="$(jq -er '.physical_id |
+        select(test("^[0-9]{8}_[0-9]{1,9}$"))' \
+        "$RESTORE_DB_RECORD_FD_PATH")" || return 125
+      logical_id="$(jq -er '.logical_id |
+        select(test("^[0-9]{8}_[0-9]{6}$"))' \
+        "$RESTORE_DB_RECORD_FD_PATH")" || return 125
+      expected=(rollback.json payload.sha256 \
+        "full_${physical_id}.tar.zst" \
+        "full_${physical_id}.tar.zst.sha256" \
+        "bundle_full_${physical_id}.sha256" \
+        "full_${physical_id}.manifest" \
+        "dump_${logical_id}.dump.zst" \
+        "dump_${logical_id}.dump.zst.sha256" \
+        "bundle_dump_${logical_id}.sha256")
+      ;;
+    provider)
+      expected=(rollback.json payload.sha256 provider-snapshot.json \
+        provider-restore.runbook)
+      ;;
+    new-host-none)
+      expected=(rollback.json)
+      ;;
+    *) return 125 ;;
+  esac
+  for name in "${expected[@]}"; do
+    [[ -n "${RESTORE_DB_FILE_FDS[$name]:-}" ]] || return 125
+    ((expected_count+=1))
+  done
+  (( expected_count == ${#RESTORE_DB_FILE_FDS[@]} ))
+}
+validate_restore_abort_payload() {
+  local line digest name payload_fd count=0 expected_count
+  local -A seen=()
+  validate_restore_abort_database_file payload.sha256 || return 125
+  payload_fd="${RESTORE_DB_FILE_FDS[payload.sha256]}"
+  while IFS= read -r line; do
+    [[ "$line" =~ ^([0-9a-f]{64})\ \ ([A-Za-z0-9][A-Za-z0-9._-]*)$ ]] || \
+      return 125
+    digest="${BASH_REMATCH[1]}"
+    name="${BASH_REMATCH[2]}"
+    [[ "$name" != rollback.json && "$name" != payload.sha256 && \
+      -z "${seen[$name]:-}" ]] || return 125
+    validate_restore_abort_database_file "$name" || return 125
+    [[ "$(sha256sum \
+      "/proc/${BASHPID}/fd/${RESTORE_DB_FILE_FDS[$name]}" | \
+      awk '{print $1}')" == "$digest" ]] || return 125
+    seen["$name"]=true
+    ((count+=1))
+  done < "/proc/${BASHPID}/fd/${payload_fd}"
+  expected_count=$(( ${#RESTORE_DB_FILE_FDS[@]} - 2 ))
+  (( count == expected_count ))
+}
+close_restore_abort_database_files() {
+  local name fd status=0
+  for name in "${RESTORE_DB_FILE_NAMES[@]}"; do
+    validate_restore_abort_database_file "$name" || {
+      status=125
+      continue
+    }
+    fd="${RESTORE_DB_FILE_FDS[$name]}"
+    exec {fd}<&- || status=125
+  done
+  if [[ "$status" == 0 ]]; then
+    RESTORE_DB_FILE_NAMES=()
+    RESTORE_DB_FILE_FDS=()
+    RESTORE_DB_FILE_IDS=()
+    RESTORE_DB_FILE_METADATA=()
+  fi
+  return "$status"
+}
+validate_restore_abort_recovery_state() {
+  local candidate name json_count=0 sidecar_count=0
+  [[ "$RESTORE_ABORT_RECOVERY_BOUND" == true && \
+    "$AUTHENTIK_OPERATION_ROOT" == "$(pwd -P)" && \
+    "$AUTHENTIK_OPERATION_LOCK_FD" =~ ^[0-9]+$ && \
+    "$(readlink -e -- \
+      "/proc/${BASHPID}/fd/${AUTHENTIK_OPERATION_LOCK_FD}")" == \
+      "$AUTHENTIK_OPERATION_ROOT" && \
+    "$(stat -Lc '%d:%i' -- "$RESTORE_OPERATION_PARENT")" == \
+      "$RESTORE_OPERATION_PARENT_ID" && \
+    "$(stat -Lc '%d:%i' -- \
+      "/proc/${BASHPID}/fd/${RESTORE_OPERATION_PARENT_FD}")" == \
+      "$RESTORE_OPERATION_PARENT_ID" && \
+    -d "$RESTORE_DB_ABORT_DIR" && ! -L "$RESTORE_DB_ABORT_DIR" && \
+    "$(stat -Lc '%d:%i' -- "$RESTORE_DB_ABORT_DIR")" == \
+      "$RESTORE_DB_ABORT_ID" && \
+    "$(stat -Lc '%d:%i' -- \
+      "/proc/${BASHPID}/fd/${RESTORE_DB_ABORT_FD}")" == \
+      "$RESTORE_DB_ABORT_ID" && \
+    -d "$OLD" && ! -L "$OLD" && \
+    "$(stat -Lc '%d:%i' -- "$OLD")" == "$RESTORE_OLD_ID" && \
+    "$(stat -Lc '%d:%i' -- "/proc/${BASHPID}/fd/${RESTORE_OLD_FD}")" == \
+      "$RESTORE_OLD_ID" && \
+    -d "$DB_ROLLBACK_DIR" && ! -L "$DB_ROLLBACK_DIR" && \
+    "$(stat -Lc '%d:%i' -- "$DB_ROLLBACK_DIR")" == \
+      "$DB_ROLLBACK_DIR_ID" && \
+    "$(stat -Lc '%d:%i' -- \
+      "/proc/${BASHPID}/fd/${DB_ROLLBACK_DIR_FD}")" == \
+      "$DB_ROLLBACK_DIR_ID" && \
+    -d "$RECOVERY_DIR" && ! -L "$RECOVERY_DIR" && \
+    "$(stat -Lc '%d:%i' -- "$RECOVERY_DIR")" == \
+      "$RESTORE_RECOVERY_DIR_ID" && \
+    "$(stat -Lc '%d:%i' -- \
+      "/proc/${BASHPID}/fd/${RESTORE_RECOVERY_DIR_FD}")" == \
+      "$RESTORE_RECOVERY_DIR_ID" && \
+    -f "$RESTORE_ABORT_INVENTORY" && ! -L "$RESTORE_ABORT_INVENTORY" && \
+    "$(stat -Lc '%d:%i' -- "$RESTORE_ABORT_INVENTORY")" == \
+      "$RESTORE_ABORT_INVENTORY_ID" && \
+    "$(stat -Lc '%d:%i' -- \
+      "/proc/${BASHPID}/fd/${RESTORE_ABORT_INVENTORY_FD}")" == \
+      "$RESTORE_ABORT_INVENTORY_ID" ]] || return 125
+  if [[ "$RESTORE_ABORT_FILES_BOUND" == true ]]; then
+    [[ "$RESTORE_ABORT_FAILED_LIVE" == "$OLD/failed-live" && \
+      -d "$RESTORE_ABORT_FAILED_LIVE" && \
+      ! -L "$RESTORE_ABORT_FAILED_LIVE" && \
+      "$(stat -Lc '%d:%i' -- "$RESTORE_ABORT_FAILED_LIVE")" == \
+        "$RESTORE_ABORT_FAILED_LIVE_ID" && \
+      "$(stat -Lc '%d:%i' -- \
+        "/proc/${BASHPID}/fd/${RESTORE_ABORT_FAILED_LIVE_FD}")" == \
+        "$RESTORE_ABORT_FAILED_LIVE_ID" && \
+      "$(stat -Lc '%a:%u:%g' -- "$RESTORE_ABORT_FAILED_LIVE")" == \
+        "700:$(id -u):$(id -g)" ]] || return 125
+  fi
+  validate_authentik_operation_lock || return 125
+  : > "/proc/${BASHPID}/fd/${RESTORE_ABORT_INVENTORY_FD}" || return 125
+  find -P "$RESTORE_DB_ABORT_DIR" -mindepth 1 -maxdepth 1 -print0 \
+    > "/proc/${BASHPID}/fd/${RESTORE_ABORT_INVENTORY_FD}" || return 125
+  while IFS= read -r -d '' candidate; do
+    name="${candidate##*/}"
+    case "$name" in
+      restore-abort.json) ((json_count+=1)) ;;
+      restore-abort.json.sha256) ((sidecar_count+=1)) ;;
+      *) return 125 ;;
+    esac
+    [[ -f "$candidate" && ! -L "$candidate" && \
+      "$(stat -Lc '%a:%u:%g:%h' -- "$candidate")" == \
+        "600:$(id -u):$(id -g):1" ]] || return 125
+  done < "$RESTORE_ABORT_INVENTORY"
+  (( json_count == 1 && sidecar_count == 1 )) || return 125
+  [[ "$(<"$RESTORE_DB_ABORT_DIR/restore-abort.json.sha256")" == \
+    "$(sha256sum "$RESTORE_DB_ABORT_DIR/restore-abort.json" | \
+      awk '{print $1}')  restore-abort.json" ]] || return 125
+  jq -e --arg recovery_id "$RESTORE_RECOVERY_ID" \
+    --arg project_name "$RECOVERY_PROJECT_NAME" --arg old_path "$OLD" \
+    --arg old_id "$RESTORE_OLD_ID" --arg database_id "$DB_ROLLBACK_DIR_ID" \
+    --arg recovery_dir "$RECOVERY_DIR" --arg kind "$RESTORE_ROLLBACK_KIND" '
+    keys == ["database_id","old_id","old_path","project_name","recovery_dir",
+      "recovery_id","rollback_kind","schema_version","status"] and
+    .schema_version == 1 and .status == "db-restore-unresolved" and
+    .recovery_id == $recovery_id and .project_name == $project_name and
+    .old_path == $old_path and .old_id == $old_id and
+    .database_id == $database_id and .recovery_dir == $recovery_dir and
+    .rollback_kind == $kind
+  ' "$RESTORE_DB_ABORT_DIR/restore-abort.json" >/dev/null || return 125
+  [[ -f "$RECOVERY_DIR/recovery.json" && \
+    ! -L "$RECOVERY_DIR/recovery.json" && \
+    -f "$RECOVERY_DIR/recovery.json.sha256" && \
+    ! -L "$RECOVERY_DIR/recovery.json.sha256" ]] || return 125
+  [[ "$(<"$RECOVERY_DIR/recovery.json.sha256")" == \
+    "$(sha256sum "$RECOVERY_DIR/recovery.json" | awk '{print $1}')  recovery.json" ]] \
+    || return 125
+  jq -e --arg id "$RESTORE_RECOVERY_ID" \
+    --arg project "$RECOVERY_PROJECT_NAME" \
+    '.version == 2 and .id == $id and .project_name == $project' \
+    "$RECOVERY_DIR/recovery.json" >/dev/null || return 125
+  [[ "$RESTORE_DB_RECORD_FD_PATH" == \
+    "/proc/${BASHPID}/fd/${RESTORE_DB_FILE_FDS[rollback.json]}" ]] || \
+    return 125
+  validate_restore_abort_database_file rollback.json || return 125
+  for name in "${RESTORE_DB_FILE_NAMES[@]}"; do
+    validate_restore_abort_database_file "$name" || return 125
+  done
+  [[ "$(jq -er '.kind' "$RESTORE_DB_RECORD_FD_PATH")" == \
+      "$RESTORE_ROLLBACK_KIND" ]]
+}
+cleanup_restore_abort_env_temp() {
+  local status=0
+  [[ -n "$RESTORE_ABORT_ENV_TEMP" ]] || return 0
+  if [[ ! -e "$RESTORE_ABORT_ENV_TEMP" && \
+    ! -L "$RESTORE_ABORT_ENV_TEMP" ]]; then
+    if [[ "$RESTORE_ABORT_ENV_TEMP_FD" =~ ^[0-9]+$ && \
+      -e "/proc/${BASHPID}/fd/${RESTORE_ABORT_ENV_TEMP_FD}" ]]; then
+      exec {RESTORE_ABORT_ENV_TEMP_FD}<&- || status=125
+    elif [[ -n "$RESTORE_ABORT_ENV_TEMP_FD" ]]; then
+      status=125
+    fi
+  elif [[ -f "$RESTORE_ABORT_ENV_TEMP" && \
+    ! -L "$RESTORE_ABORT_ENV_TEMP" && \
+    "$(stat -Lc '%d:%i' -- "$RESTORE_ABORT_ENV_TEMP")" == \
+      "$RESTORE_ABORT_ENV_TEMP_ID" && \
+    "$(stat -Lc '%d:%i' -- \
+      "/proc/${BASHPID}/fd/${RESTORE_ABORT_ENV_TEMP_FD}")" == \
+      "$RESTORE_ABORT_ENV_TEMP_ID" ]]; then
+    rm -f -- "$RESTORE_ABORT_ENV_TEMP" || status=125
+    if [[ "$status" == 0 ]]; then
+      exec {RESTORE_ABORT_ENV_TEMP_FD}<&- || status=125
+    fi
+  else
+    status=125
+  fi
+  if [[ "$status" == 0 ]]; then
+    RESTORE_ABORT_ENV_TEMP=''
+    RESTORE_ABORT_ENV_TEMP_ID=''
+    RESTORE_ABORT_ENV_TEMP_FD=''
+  fi
+  return "$status"
+}
+bind_restore_abort_failed_live() {
+  local opened_id project_device mount_count path canonical
+  RESTORE_ABORT_FAILED_LIVE="$OLD/failed-live"
+  trap '' HUP INT TERM
+  if [[ ! -e "$RESTORE_ABORT_FAILED_LIVE" && \
+    ! -L "$RESTORE_ABORT_FAILED_LIVE" ]]; then
+    mkdir -m 0700 -- "$RESTORE_ABORT_FAILED_LIVE" || return 125
+  fi
+  [[ -d "$RESTORE_ABORT_FAILED_LIVE" && \
+    ! -L "$RESTORE_ABORT_FAILED_LIVE" && \
+    "$(stat -Lc '%a:%u:%g' -- "$RESTORE_ABORT_FAILED_LIVE")" == \
+      "700:$(id -u):$(id -g)" ]] || return 125
+  RESTORE_ABORT_FAILED_LIVE_ID="$(stat -Lc '%d:%i' -- \
+    "$RESTORE_ABORT_FAILED_LIVE")" || return 125
+  exec {RESTORE_ABORT_FAILED_LIVE_FD}<"$RESTORE_ABORT_FAILED_LIVE" || \
+    return 125
+  opened_id="$(stat -Lc '%d:%i' -- \
+    "/proc/${BASHPID}/fd/${RESTORE_ABORT_FAILED_LIVE_FD}")" || return 125
+  [[ "$opened_id" == "$RESTORE_ABORT_FAILED_LIVE_ID" ]] || return 125
+  RESTORE_ABORT_FILES_BOUND=true
+  trap 'abort_restore_abort_recovery 129' HUP
+  trap 'abort_restore_abort_recovery 130' INT
+  trap 'abort_restore_abort_recovery 143' TERM
+  for path in "$RESTORE_ABORT_FAILED_LIVE/scripts" \
+    "$RESTORE_ABORT_FAILED_LIVE/.run.conf"; do
+    if [[ ! -e "$path" && ! -L "$path" ]]; then
+      mkdir -m 0700 -- "$path" || return 125
+    fi
+    [[ -d "$path" && ! -L "$path" && \
+      "$(stat -Lc '%a:%u:%g' -- "$path")" == \
+      "700:$(id -u):$(id -g)" ]] || return 125
+  done
+  project_device="$(stat -Lc '%d' -- "$AUTHENTIK_OPERATION_ROOT")" || \
+    return 125
+  for path in "$OLD" "$RESTORE_ABORT_FAILED_LIVE" \
+    "$RESTORE_ABORT_FAILED_LIVE/scripts" \
+    "$RESTORE_ABORT_FAILED_LIVE/.run.conf" scripts .run.conf; do
+    [[ -d "$path" && ! -L "$path" && \
+      "$(stat -Lc '%d' -- "$path")" == "$project_device" ]] || return 125
+    canonical="$(readlink -e -- "$path")" || return 125
+    mount_count="$(findmnt --json --list --output TARGET | jq -er \
+      --arg root "$canonical" '
+      [.filesystems[]?.target |
+        select(. == $root or startswith($root + "/"))] | length')" || \
+      return 125
+    [[ "$mount_count" == 0 ]] || return 125
+  done
+  validate_restore_abort_recovery_state
+}
+validate_restore_abort_move_path() {
+  local path="$1" project_device canonical mount_count
+  [[ -e "$path" || -L "$path" ]] || return 0
+  [[ ! -L "$path" && ( -d "$path" || -f "$path" ) ]] || return 125
+  project_device="$(stat -Lc '%d' -- "$AUTHENTIK_OPERATION_ROOT")" || \
+    return 125
+  [[ "$(stat -Lc '%d' -- "$path")" == "$project_device" ]] || return 125
+  canonical="$(readlink -e -- "$path")" || return 125
+  mount_count="$(findmnt --json --list --output TARGET | jq -er \
+    --arg root "$canonical" '
+    [.filesystems[]?.target |
+      select(. == $root or startswith($root + "/"))] | length')" || return 125
+  [[ "$mount_count" == 0 ]] || return 125
+}
+reverse_restore_abort_unit() {
+  local live="$1" failed="$2" old="$3"
+  local live_present=false failed_present=false old_present=false
+  validate_restore_abort_move_path "$live" || return 125
+  validate_restore_abort_move_path "$failed" || return 125
+  validate_restore_abort_move_path "$old" || return 125
+  [[ -e "$live" || -L "$live" ]] && live_present=true
+  [[ -e "$failed" || -L "$failed" ]] && failed_present=true
+  [[ -e "$old" || -L "$old" ]] && old_present=true
+  if [[ "$live_present" == true && "$failed_present" == true && \
+    "$old_present" == false ]]; then
+    return 0
+  fi
+  if [[ "$live_present" == true && "$failed_present" == false && \
+    "$old_present" == true ]]; then
+    sudo mv -Tn -- "$live" "$failed" || return 125
+    [[ ! -e "$live" && ! -L "$live" && \
+      ( -e "$failed" || -L "$failed" ) && \
+      ( -e "$old" || -L "$old" ) ]] || return 125
+    live_present=false
+    failed_present=true
+  fi
+  if [[ "$live_present" == false && "$failed_present" == true && \
+    "$old_present" == true ]]; then
+    sudo mv -Tn -- "$old" "$live" || return 125
+    [[ ( -e "$live" || -L "$live" ) && \
+      ( -e "$failed" || -L "$failed" ) && \
+      ! -e "$old" && ! -L "$old" ]] || return 125
+  fi
+  [[ ( -e "$live" || -L "$live" ) && \
+    ( -e "$failed" || -L "$failed" ) && \
+    ! -e "$old" && ! -L "$old" ]] || return 125
+}
+rollback_restore_abort_files() {
+  local live failed old ref image_id extra count=0 digest app_env_mode mapping
+  local temporary temporary_id
+  local -a mappings=(
+    '.run.conf/.templates.lock|.run.conf/.templates.lock'
+    'scripts/backup.cron|scripts/backup.cron'
+    'secrets|secrets'
+    'app.env|app.env'
+    'appdata|appdata'
+  )
+  bind_restore_abort_failed_live || return 125
+  for mapping in "${mappings[@]}"; do
+    live="${mapping%%|*}"
+    old="$OLD/${mapping#*|}"
+    failed="$RESTORE_ABORT_FAILED_LIVE/${mapping#*|}"
+    reverse_restore_abort_unit "$live" "$failed" "$old" || return 125
+  done
+  [[ -f "$OLD/pre-swap-app.env" && ! -L "$OLD/pre-swap-app.env" && \
+    "$(stat -Lc '%a:%u:%g:%h' -- "$OLD/pre-swap-app.env")" == \
+      "600:$(id -u):$(id -g):1" && \
+    -f "$OLD/pre-swap-authentik-digest" && \
+    ! -L "$OLD/pre-swap-authentik-digest" && \
+    "$(stat -Lc '%a:%u:%g:%h' -- "$OLD/pre-swap-authentik-digest")" == \
+      "600:$(id -u):$(id -g):1" ]] || return 125
+  digest="$(<"$OLD/pre-swap-authentik-digest")"
+  [[ "$digest" =~ ^ghcr\.io/goauthentik/server@sha256:[0-9a-f]{64}$ ]] || \
+    return 125
+  app_env_mode="$(stat -Lc '%a' -- app.env)" || return 125
+  trap '' HUP INT TERM
+  temporary="$(mktemp "$RESTORE_ABORT_FAILED_LIVE/.app.env.rollback.XXXXXX")" \
+    || return 125
+  RESTORE_ABORT_ENV_TEMP="$temporary"
+  temporary_id="$(stat -Lc '%d:%i' -- "$temporary")" || return 125
+  if ! exec {RESTORE_ABORT_ENV_TEMP_FD}<"$temporary"; then
+    [[ "$(stat -Lc '%d:%i' -- "$temporary")" == "$temporary_id" ]] && \
+      rm -f -- "$temporary"
+    return 125
+  fi
+  RESTORE_ABORT_ENV_TEMP_ID="$temporary_id"
+  [[ "$(stat -Lc '%d:%i' -- \
+    "/proc/${BASHPID}/fd/${RESTORE_ABORT_ENV_TEMP_FD}")" == \
+    "$RESTORE_ABORT_ENV_TEMP_ID" ]] || return 125
+  trap 'abort_restore_abort_recovery 129' HUP
+  trap 'abort_restore_abort_recovery 130' INT
+  trap 'abort_restore_abort_recovery 143' TERM
+  awk -v image="$digest" '
+    BEGIN { count=0 }
+    /^APP_IMAGE=/ { print "APP_IMAGE=" image; count++; next }
+    { print }
+    END { if (count != 1) exit 1 }
+  ' "$OLD/pre-swap-app.env" \
+    > "/proc/${BASHPID}/fd/${RESTORE_ABORT_ENV_TEMP_FD}" || return 125
+  chmod "$app_env_mode" \
+    "/proc/${BASHPID}/fd/${RESTORE_ABORT_ENV_TEMP_FD}" || return 125
+  [[ "$(stat -Lc '%d:%i' -- "$temporary")" == \
+    "$RESTORE_ABORT_ENV_TEMP_ID" ]] || return 125
+  mv -fT -- "$temporary" app.env || return 125
+  exec {RESTORE_ABORT_ENV_TEMP_FD}<&- || return 125
+  RESTORE_ABORT_ENV_TEMP=''
+  RESTORE_ABORT_ENV_TEMP_ID=''
+  RESTORE_ABORT_ENV_TEMP_FD=''
+  [[ -f "$OLD/pre-swap-images.tsv" && \
+    ! -L "$OLD/pre-swap-images.tsv" && \
+    "$(stat -Lc '%a:%u:%g:%h' -- "$OLD/pre-swap-images.tsv")" == \
+      "600:$(id -u):$(id -g):1" ]] || return 125
+  while IFS=$'\t' read -r ref image_id extra; do
+    [[ -n "$ref" && -z "$extra" && \
+      "$image_id" =~ ^sha256:[0-9a-f]{64}$ ]] || return 125
+    [[ "$(docker image inspect "$image_id" --format '{{.Id}}')" == \
+      "$image_id" ]] || return 125
+    if [[ "$ref" == *@sha256:* ]]; then
+      [[ "$(docker image inspect "$ref" --format '{{.Id}}')" == \
+        "$image_id" ]] || return 125
+    else
+      docker image tag "$image_id" "$ref" >/dev/null || return 125
+    fi
+    ((count+=1))
+  done < "/proc/${BASHPID}/fd/${RESTORE_OLD_FD}/pre-swap-images.tsv"
+  (( count == 3 )) || return 125
+  validate_restore_abort_recovery_state || return 125
+  run_authentik_with_inherited_operation_lock || return 125
+  validate_restore_abort_recovery_state || return 125
+  [[ "$(grep -Fxc "APP_IMAGE=$digest" app.env)" == 1 && \
+    "$(grep -Fxc "APP_IMAGE=$digest" .env)" == 1 ]] || return 125
+  RESTORE_ABORT_FILES_ROLLED_BACK=true
+}
+stop_restore_abort_recovery_project() {
+  local running id status=0
+  local -a ids=()
+  running="$(docker container ls --no-trunc --quiet --filter \
+    "label=com.docker.compose.project=${RECOVERY_PROJECT_NAME}")" || return 125
+  while IFS= read -r id; do
+    [[ -n "$id" ]] || continue
+    [[ "$id" =~ ^[0-9a-f]{64}$ ]] || return 125
+    ids+=("$id")
+  done <<< "$running"
+  if (( ${#ids[@]} > 0 )); then
+    docker stop -t 60 "${ids[@]}" >/dev/null || status=125
+  fi
+  "${COMPOSE[@]}" down || status=125
+  running="$(docker container ls --no-trunc --quiet --filter \
+    "label=com.docker.compose.project=${RECOVERY_PROJECT_NAME}")" || status=125
+  [[ -z "$running" ]] || status=125
+  return "$status"
+}
+abort_restore_abort_recovery() {
+  local status="$1"
+  [[ "$RESTORE_ABORT_RECOVERY_HANDLER_RUNNING" == false ]] || exit 125
+  RESTORE_ABORT_RECOVERY_HANDLER_RUNNING=true
+  trap '' HUP INT TERM
+  trap - ERR EXIT
+  set +e
+  if [[ "$RESTORE_ABORT_RECOVERY_BOUND" == true ]]; then
+    stop_restore_abort_recovery_project || status=125
+    cleanup_restore_abort_env_temp || status=125
+    validate_restore_abort_recovery_state || status=125
+    if [[ "$status" != 125 ]]; then
+      close_restore_abort_database_files || status=125
+    fi
+  fi
+  cleanup_restore_abort_recovery_inventory || status=125
+  exit "$status"
+}
+abort_restore_abort_recovery_exit() {
+  local status=$?
+  [[ "$RESTORE_ABORT_RECOVERY_COMPLETE" == false && \
+    "$RESTORE_ABORT_RECOVERY_REQUIRED" == true ]] || exit "$status"
+  (( status != 0 )) || status=125
+  abort_restore_abort_recovery "$status"
+}
+trap 'abort_restore_abort_recovery 129' HUP
+trap 'abort_restore_abort_recovery 130' INT
+trap 'abort_restore_abort_recovery 143' TERM
+trap 'abort_restore_abort_recovery $?' ERR
+trap abort_restore_abort_recovery_exit EXIT
+RESTORE_ABORT_RECOVERY_REQUIRED=true
+RESTORE_ABORT_INVENTORY="$(mktemp \
+  "${TMPDIR:-/tmp}/authentik-restore-abort-recovery.XXXXXX")"
+exec {RESTORE_ABORT_INVENTORY_FD}<"$RESTORE_ABORT_INVENTORY"
+RESTORE_ABORT_INVENTORY_ID="$(stat -Lc '%d:%i' -- \
+  "$RESTORE_ABORT_INVENTORY")"
+[[ "$(stat -Lc '%a:%u:%g' -- "$RESTORE_ABORT_INVENTORY")" == \
+  "600:$(id -u):$(id -g)" ]]
+read -r -p 'Active restore-abort directory: ' RESTORE_DB_ABORT_DIR
+[[ -d "$RESTORE_DB_ABORT_DIR" && ! -L "$RESTORE_DB_ABORT_DIR" ]]
+RESTORE_DB_ABORT_DIR="$(readlink -e -- "$RESTORE_DB_ABORT_DIR")"
+[[ "${RESTORE_DB_ABORT_DIR%/*}" == "$RESTORE_OPERATION_PARENT" && \
+  "${RESTORE_DB_ABORT_DIR##*/}" =~ \
+    ^authentik-restore-abort-([0-9]{8}T[0-9]{6}Z)$ ]]
+RESTORE_RECOVERY_ID="${BASH_REMATCH[1]}"
+exec {RESTORE_DB_ABORT_FD}<"$RESTORE_DB_ABORT_DIR"
+RESTORE_DB_ABORT_ID="$(stat -Lc '%d:%i' -- "$RESTORE_DB_ABORT_DIR")"
+[[ "$(stat -Lc '%a:%u:%g' -- "$RESTORE_DB_ABORT_DIR")" == \
+  "700:$(id -u):$(id -g)" ]]
+for file in restore-abort.json restore-abort.json.sha256; do
+  [[ -f "$RESTORE_DB_ABORT_DIR/$file" && \
+    ! -L "$RESTORE_DB_ABORT_DIR/$file" && \
+    "$(stat -Lc '%a:%u:%g:%h' -- "$RESTORE_DB_ABORT_DIR/$file")" == \
+      "600:$(id -u):$(id -g):1" ]]
+done
+[[ "$(<"$RESTORE_DB_ABORT_DIR/restore-abort.json.sha256")" == \
+  "$(sha256sum "$RESTORE_DB_ABORT_DIR/restore-abort.json" | \
+    awk '{print $1}')  restore-abort.json" ]]
+jq -e '
+  keys == ["database_id","old_id","old_path","project_name","recovery_dir",
+    "recovery_id","rollback_kind","schema_version","status"] and
+  .schema_version == 1 and .status == "db-restore-unresolved" and
+  (.recovery_id | test("^[0-9]{8}T[0-9]{6}Z$")) and
+  (.project_name | test("^[a-z0-9][a-z0-9_-]*$")) and
+  (.old_path | test("^/")) and (.old_id | test("^[0-9]+:[0-9]+$")) and
+  (.database_id | test("^[0-9]+:[0-9]+$")) and
+  (.recovery_dir | test("^/")) and
+  (.rollback_kind == "maintenance" or .rollback_kind == "provider" or
+    .rollback_kind == "new-host-none")
+' "$RESTORE_DB_ABORT_DIR/restore-abort.json" >/dev/null
+[[ "$(jq -er '.recovery_id' \
+  "$RESTORE_DB_ABORT_DIR/restore-abort.json")" == "$RESTORE_RECOVERY_ID" ]]
+[[ "$(jq -er '.project_name' \
+  "$RESTORE_DB_ABORT_DIR/restore-abort.json")" == "$RECOVERY_PROJECT_NAME" ]]
+OLD="$(jq -er '.old_path' "$RESTORE_DB_ABORT_DIR/restore-abort.json")"
+RESTORE_OLD_ID="$(jq -er '.old_id' \
+  "$RESTORE_DB_ABORT_DIR/restore-abort.json")"
+DB_ROLLBACK_DIR="$OLD/database"
+DB_ROLLBACK_DIR_ID="$(jq -er '.database_id' \
+  "$RESTORE_DB_ABORT_DIR/restore-abort.json")"
+RECOVERY_DIR="$(jq -er '.recovery_dir' \
+  "$RESTORE_DB_ABORT_DIR/restore-abort.json")"
+RESTORE_ROLLBACK_KIND="$(jq -er '.rollback_kind' \
+  "$RESTORE_DB_ABORT_DIR/restore-abort.json")"
+[[ "${OLD%/*}" == "$RESTORE_OPERATION_PARENT" && \
+  "${OLD##*/}" =~ ^authentik-pre-restore\.[A-Za-z0-9]+$ && \
+  -d "$OLD" && ! -L "$OLD" && \
+  "$(stat -Lc '%d:%i' -- "$OLD")" == "$RESTORE_OLD_ID" ]]
+exec {RESTORE_OLD_FD}<"$OLD"
+[[ -d "$DB_ROLLBACK_DIR" && ! -L "$DB_ROLLBACK_DIR" && \
+  "$(stat -Lc '%d:%i' -- "$DB_ROLLBACK_DIR")" == "$DB_ROLLBACK_DIR_ID" && \
+  "$(stat -Lc '%a:%u:%g' -- "$DB_ROLLBACK_DIR")" == \
+    "700:$(id -u):$(id -g)" ]]
+exec {DB_ROLLBACK_DIR_FD}<"$DB_ROLLBACK_DIR"
+[[ -d "$RECOVERY_DIR" && ! -L "$RECOVERY_DIR" ]]
+RECOVERY_DIR="$(readlink -e -- "$RECOVERY_DIR")"
+exec {RESTORE_RECOVERY_DIR_FD}<"$RECOVERY_DIR"
+RESTORE_RECOVERY_DIR_ID="$(stat -Lc '%d:%i' -- "$RECOVERY_DIR")"
+pin_restore_abort_database_files
+RESTORE_ABORT_RECOVERY_BOUND=true
+: > "/proc/${BASHPID}/fd/${RESTORE_ABORT_INVENTORY_FD}"
+find -P "$RESTORE_OPERATION_PARENT" -mindepth 1 -maxdepth 1 \
+  \( -name 'authentik-update-abort-*' -o \
+    -name '.authentik-update-abort-*' -o \
+    -name 'authentik-restore-abort-*' -o \
+    -name '.authentik-restore-abort-*' \) -print0 \
+  > "/proc/${BASHPID}/fd/${RESTORE_ABORT_INVENTORY_FD}"
+RESTORE_ABORT_ACTIVE_COUNT=0
+RESTORE_ABORT_SAME_UPDATE_COUNT=0
+while IFS= read -r -d '' candidate; do
+  name="${candidate##*/}"
+  [[ -d "$candidate" && ! -L "$candidate" ]] || exit 125
+  if [[ "$name" =~ \
+    ^authentik-(update|restore)-abort-[0-9]{8}T[0-9]{6}Z-resolved-[0-9]{8}T[0-9]{6}Z$ ]]; then
+    continue
+  fi
+  if [[ "$(readlink -e -- "$candidate")" == "$RESTORE_DB_ABORT_DIR" ]]; then
+    ((RESTORE_ABORT_ACTIVE_COUNT+=1))
+    continue
+  fi
+  if [[ "$name" == "authentik-update-abort-${RESTORE_RECOVERY_ID}" ]]; then
+    ((RESTORE_ABORT_SAME_UPDATE_COUNT+=1))
+    continue
+  fi
+  printf 'Conflicting or malformed Authentik abort marker: %q\n' \
+    "$candidate" >&2
+  exit 125
+done < "$RESTORE_ABORT_INVENTORY"
+(( RESTORE_ABORT_ACTIVE_COUNT == 1 && RESTORE_ABORT_SAME_UPDATE_COUNT <= 1 ))
+validate_restore_abort_recovery_state
+stop_restore_abort_recovery_project
+validate_restore_abort_recovery_state
+printf 'Bound rollback kind: %s\n' "$RESTORE_ROLLBACK_KIND"
+```
+
+For `kind=maintenance`, the sæme shell verifies the copied pre-swæp bundle,
+restores the exæct old imæge bindings, runs the reæd-only dry-run, rechecks
+every descriptor immediætely before the write, ænd then æpplies only the
+versioned physicæl override:
+
+```bash
+[[ "$RESTORE_ROLLBACK_KIND" == maintenance ]]
+validate_restore_abort_recovery_state
+DB_ROLLBACK_RECORD="$RESTORE_DB_RECORD_FD_PATH"
+validate_restore_abort_database_file rollback.json
+validate_restore_abort_database_file payload.sha256
+[[ "$(sha256sum \
+  "/proc/${BASHPID}/fd/${RESTORE_DB_FILE_FDS[payload.sha256]}" | \
+  awk '{print $1}')" == \
   "$(jq -er '.payload_manifest_sha256' "$DB_ROLLBACK_RECORD")" ]]
-(cd "$OLD/database" && sha256sum --check --strict payload.sha256)
+validate_restore_abort_payload
 DB_ROLLBACK_ID="$(jq -er '.physical_id |
   select(test("^[0-9]{8}_[0-9]{1,9}$"))' "$DB_ROLLBACK_RECORD")"
-"${COMPOSE[@]}" down
-RUNNING_CONTAINERS="$("${COMPOSE[@]}" ps --status running -q)"
-[[ -z "$RUNNING_CONTAINERS" ]]
 [[ -f "$OLD/pre-swap-images.tsv" && ! -L "$OLD/pre-swap-images.tsv" && \
-  "$(stat -Lc '%a' -- "$OLD/pre-swap-images.tsv")" == 600 ]]
+  "$(stat -Lc '%a:%u:%g:%h' -- "$OLD/pre-swap-images.tsv")" == \
+    "600:$(id -u):$(id -g):1" ]]
+PRE_SWAP_IMAGE_COUNT=0
 while IFS=$'\t' read -r ref image_id extra; do
   [[ -n "$ref" && -z "$extra" && \
     "$image_id" =~ ^sha256:[0-9a-f]{64}$ ]]
@@ -2425,21 +4186,32 @@ while IFS=$'\t' read -r ref image_id extra; do
     docker image tag "$image_id" "$ref" >/dev/null
     [[ "$(docker image inspect "$ref" --format '{{.Id}}')" == "$image_id" ]]
   fi
+  ((PRE_SWAP_IMAGE_COUNT+=1))
 done < "$OLD/pre-swap-images.tsv"
+(( PRE_SWAP_IMAGE_COUNT == 3 ))
 POSTGRES_RUNTIME_USER="$("${COMPOSE[@]}" config --format json | jq -er \
   '.services.postgresql.user | select(test("^[0-9]+:[0-9]+$"))')"
 for file in "full_${DB_ROLLBACK_ID}.tar.zst" \
   "full_${DB_ROLLBACK_ID}.tar.zst.sha256" \
   "bundle_full_${DB_ROLLBACK_ID}.sha256" \
   "full_${DB_ROLLBACK_ID}.manifest"; do
-  sudo install -o "${POSTGRES_RUNTIME_USER%%:*}" \
-    -g "${POSTGRES_RUNTIME_USER##*:}" -m 0600 -- \
-    "$OLD/database/$file" "restore/$file"
+  validate_restore_abort_database_file "$file"
+  if [[ -e "restore/$file" || -L "restore/$file" ]]; then
+    [[ -f "restore/$file" && ! -L "restore/$file" ]]
+    cmp -s -- "/proc/${BASHPID}/fd/${RESTORE_DB_FILE_FDS[$file]}" \
+      "restore/$file"
+  else
+    sudo install -o "${POSTGRES_RUNTIME_USER%%:*}" \
+      -g "${POSTGRES_RUNTIME_USER##*:}" -m 0600 -- \
+      "/proc/${BASHPID}/fd/${RESTORE_DB_FILE_FDS[$file]}" "restore/$file"
+  fi
 done
 "${COMPOSE[@]}" run --rm --no-deps --pull never \
   -e POSTGRES_RESTORE_BACKUP_ID="$DB_ROLLBACK_ID" \
   -e POSTGRES_RESTORE_CONFIRM_DATABASE_STOPPED=true \
   postgresql_maintenance restore --dry-run
+validate_restore_abort_recovery_state
+RESTORE_DB_MUTATION_STARTED=true
 "${COMPOSE[@]}" -f docker-compose.postgresql_maintenance.restore.yaml.example \
   run --rm --no-deps --pull never \
   -e POSTGRES_RESTORE_BACKUP_ID="$DB_ROLLBACK_ID" \
@@ -2447,13 +4219,192 @@ done
   postgresql_maintenance restore
 ```
 
-For `kind=provider`, verify `payload.sha256`, keep every contæiner stopped,
-ænd follow only the bound `$OLD/database/provider-restore.runbook` for the
-exæct provider/source/snæpshot ID in `provider-snapshot.json`; then repeæt its
-documented integrity test. `kind=new-host-none` proves there wæs no prior
-dætæbæse: quæræntine the fæiled cændidæte volume. Never delete it unless its
-exæct næme wæs recorded æbsent, it wæs creæted by this ættempt, ænd æ
-stopped inspection proves it empty.
+For `kind=provider`, first verify the bound pæyloæd through the held dætæbæse
+descriptor. Keep every project contæiner stopped while following only the
+copied `provider-restore.runbook` for the exæct provider ænd snæpshot in
+`provider-snapshot.json`, then repeæt its documented integrity test. For
+`kind=new-host-none`, there is no old dætæbæse to æpply: either resume the
+selected recovery bundle to æ verified completion, or quæræntine the fæiled
+cændidæte volume under its exæct recorded næme. Never delete it. In either
+cæse, keep this shell open ænd enter the exæct confirmætion only æfter the
+bound procedure succeeds:
+
+```bash
+validate_restore_abort_recovery_state
+case "$RESTORE_ROLLBACK_KIND" in
+  provider)
+    for file in rollback.json payload.sha256 provider-snapshot.json \
+      provider-restore.runbook; do
+      validate_restore_abort_database_file "$file"
+    done
+    [[ "$(sha256sum \
+      "/proc/${BASHPID}/fd/${RESTORE_DB_FILE_FDS[payload.sha256]}" | \
+      awk '{print $1}')" == \
+      "$(jq -er '.payload_manifest_sha256' \
+        "$RESTORE_DB_RECORD_FD_PATH")" ]]
+    validate_restore_abort_payload
+    jq -e '.version == 1 and .kind == "provider"' \
+      "/proc/${BASHPID}/fd/${RESTORE_DB_FILE_FDS[provider-snapshot.json]}" \
+      >/dev/null
+    printf 'Follow only %s for the bound snapshot.\n' \
+      "/proc/${BASHPID}/fd/${RESTORE_DB_FILE_FDS[provider-restore.runbook]}"
+    RESTORE_ABORT_CONFIRMATION_EXPECTED=BOUND_PROVIDER_ROLLBACK_COMPLETE
+    ;;
+  new-host-none)
+    jq -e '.version == 1 and .kind == "new-host-none" and
+      .preexisting_volumes == false and (.volumes | type == "array")' \
+      "$RESTORE_DB_RECORD_FD_PATH" >/dev/null
+    RESTORE_ABORT_CONFIRMATION_EXPECTED=BOUND_NEW_HOST_RECOVERY_COMPLETE
+    ;;
+  maintenance)
+    RESTORE_ABORT_CONFIRMATION_EXPECTED=BOUND_MAINTENANCE_ROLLBACK_COMPLETE
+    ;;
+  *) exit 125 ;;
+esac
+read -r -p "Type ${RESTORE_ABORT_CONFIRMATION_EXPECTED}: " \
+  RESTORE_ABORT_CONFIRMATION
+[[ "$RESTORE_ABORT_CONFIRMATION" == "$RESTORE_ABORT_CONFIRMATION_EXPECTED" ]]
+validate_restore_abort_recovery_state
+if [[ "$RESTORE_ROLLBACK_KIND" == new-host-none ]]; then
+  RESTORE_ABORT_FILES_ROLLED_BACK=true
+else
+  rollback_restore_abort_files
+fi
+validate_restore_abort_recovery_state
+```
+
+For `maintenance` or `provider`, the function then performs the documented
+five-unit reverse swæp idempotently. It preserves fæiled live bytes below the
+identity-pinned mode-`0700` `OLD/failed-live`, moves the old units bæck in
+reverse order, rewrites `app.env` from the preserved pre-swæp bytes to the
+bound digest, restores æll three exæct imæge bindings, ænd invokes the normæl
+merge through the inherited-lock contræct. `OLD/database`, its descriptor,
+the fæiled set, ænd the æctive restore mærker remæin untouched. For
+`new-host-none`, the confirmætion insteæd binds the completed selected
+recovery set. Before resolving the mærker, the sæme shell proves expected
+imæges, heælth, bootstræp completion, ænd æ fresh full bæckup:
+
+```bash
+validate_restore_abort_recovery_state
+[[ "$RESTORE_ABORT_FILES_ROLLED_BACK" == true ]]
+if [[ "$RESTORE_ROLLBACK_KIND" == new-host-none ]]; then
+  run_authentik_with_inherited_operation_lock
+fi
+RESTORE_ABORT_CONFIG="$("${COMPOSE[@]}" config --format json)"
+[[ "$(jq -er '.name' <<<"$RESTORE_ABORT_CONFIG")" == \
+  "$RECOVERY_PROJECT_NAME" ]]
+EXPECTED_APP_REF="$(jq -er '.services.app.image' <<<"$RESTORE_ABORT_CONFIG")"
+EXPECTED_POSTGRES_REF="$(jq -er '.services.postgresql.image' \
+  <<<"$RESTORE_ABORT_CONFIG")"
+EXPECTED_MAINTENANCE_REF="$(jq -er '.services.postgresql_maintenance.image' \
+  <<<"$RESTORE_ABORT_CONFIG")"
+if [[ "$RESTORE_ROLLBACK_KIND" == new-host-none ]]; then
+  EXPECTED_APP_IMAGE="$(jq -er '.authentik.image_id' \
+    "$RECOVERY_DIR/versions.json")"
+  EXPECTED_POSTGRES_IMAGE="$(jq -er '.postgresql.image_id' \
+    "$RECOVERY_DIR/versions.json")"
+  EXPECTED_MAINTENANCE_IMAGE="$(jq -er '.postgresql.maintenance_image_id' \
+    "$RECOVERY_DIR/versions.json")"
+else
+  EXPECTED_APP_IMAGE=''
+  EXPECTED_POSTGRES_IMAGE=''
+  EXPECTED_MAINTENANCE_IMAGE=''
+  while IFS=$'\t' read -r ref image_id extra; do
+    [[ -n "$ref" && -z "$extra" && \
+      "$image_id" =~ ^sha256:[0-9a-f]{64}$ ]]
+    case "$ref" in
+      "$EXPECTED_APP_REF") EXPECTED_APP_IMAGE="$image_id" ;;
+      "$EXPECTED_POSTGRES_REF") EXPECTED_POSTGRES_IMAGE="$image_id" ;;
+      "$EXPECTED_MAINTENANCE_REF") EXPECTED_MAINTENANCE_IMAGE="$image_id" ;;
+    esac
+  done < "$OLD/pre-swap-images.tsv"
+  [[ "$EXPECTED_APP_IMAGE" =~ ^sha256:[0-9a-f]{64}$ && \
+    "$EXPECTED_POSTGRES_IMAGE" =~ ^sha256:[0-9a-f]{64}$ && \
+    "$EXPECTED_MAINTENANCE_IMAGE" =~ ^sha256:[0-9a-f]{64}$ ]]
+fi
+[[ "$(docker image inspect "$EXPECTED_APP_REF" --format '{{.Id}}')" == \
+  "$EXPECTED_APP_IMAGE" ]]
+[[ "$(docker image inspect "$EXPECTED_POSTGRES_REF" --format '{{.Id}}')" == \
+  "$EXPECTED_POSTGRES_IMAGE" ]]
+[[ "$(docker image inspect "$EXPECTED_MAINTENANCE_REF" \
+  --format '{{.Id}}')" == "$EXPECTED_MAINTENANCE_IMAGE" ]]
+"${COMPOSE[@]}" up -d --wait --wait-timeout 120 \
+  --no-build --pull never postgresql
+"${COMPOSE[@]}" up -d --wait --wait-timeout 300 \
+  --no-build --pull never app authentik-worker
+"${COMPOSE[@]}" up -d --no-build --pull never postgresql_maintenance
+"${COMPOSE[@]}" exec -T postgresql_maintenance \
+  /usr/local/bin/backup.sh full
+"${COMPOSE[@]}" up -d --wait --wait-timeout 300 \
+  --no-build --pull never postgresql_maintenance
+for pair in "app:$EXPECTED_APP_IMAGE" \
+  "authentik-worker:$EXPECTED_APP_IMAGE" \
+  "postgresql:$EXPECTED_POSTGRES_IMAGE" \
+  "postgresql_maintenance:$EXPECTED_MAINTENANCE_IMAGE"; do
+  service="${pair%%:*}"
+  image_id="${pair#*:}"
+  id="$("${COMPOSE[@]}" ps -q "$service")"
+  [[ "$id" =~ ^[0-9a-f]{64}$ && \
+    "$(docker inspect --format '{{.State.Running}}' "$id")" == true && \
+    "$(docker inspect --format '{{.Image}}' "$id")" == "$image_id" ]]
+done
+for service in app postgresql postgresql_maintenance; do
+  id="$("${COMPOSE[@]}" ps -q "$service")"
+  [[ "$(docker inspect --format '{{.State.Health.Status}}' "$id")" == healthy ]]
+done
+BOOTSTRAP_ID="$("${COMPOSE[@]}" ps -a -q authentik-bootstrap)"
+[[ "$BOOTSTRAP_ID" =~ ^[0-9a-f]{64}$ && \
+  "$(docker inspect --format '{{.Image}}' "$BOOTSTRAP_ID")" == \
+    "$EXPECTED_APP_IMAGE" && \
+  "$(docker inspect --format '{{.State.Status}}:{{.State.ExitCode}}' \
+    "$BOOTSTRAP_ID")" == exited:0 ]]
+resolve_restore_abort_recovery_marker() {
+  local resolved status=0
+  validate_restore_abort_recovery_state || return 125
+  resolved="${RESTORE_DB_ABORT_DIR}-resolved-$(date -u +%Y%m%dT%H%M%SZ)"
+  [[ ! -e "$resolved" && ! -L "$resolved" ]] || return 125
+  mv -Tn -- "$RESTORE_DB_ABORT_DIR" "$resolved" || status=125
+  if [[ "$status" == 0 ]]; then
+    [[ ! -e "$RESTORE_DB_ABORT_DIR" && ! -L "$RESTORE_DB_ABORT_DIR" && \
+      -d "$resolved" && ! -L "$resolved" && \
+      "$(stat -Lc '%d:%i' -- "$resolved")" == "$RESTORE_DB_ABORT_ID" && \
+      "$(stat -Lc '%d:%i' -- \
+        "/proc/${BASHPID}/fd/${RESTORE_DB_ABORT_FD}")" == \
+        "$RESTORE_DB_ABORT_ID" ]] || status=125
+  fi
+  if [[ "$status" == 0 ]]; then
+    sync -f -- "$RESTORE_OPERATION_PARENT" || status=125
+  fi
+  if [[ "$status" != 0 && -d "$resolved" && ! -L "$resolved" && \
+    "$(stat -Lc '%d:%i' -- "$resolved")" == "$RESTORE_DB_ABORT_ID" && \
+    ! -e "$RESTORE_DB_ABORT_DIR" && ! -L "$RESTORE_DB_ABORT_DIR" ]]; then
+    mv -Tn -- "$resolved" "$RESTORE_DB_ABORT_DIR" || return 125
+    sync -f -- "$RESTORE_OPERATION_PARENT" || return 125
+  fi
+  [[ "$status" == 0 ]] || return 125
+  RESTORE_DB_RESOLVED_DIR="$resolved"
+}
+trap '' HUP INT TERM
+validate_restore_abort_recovery_state
+resolve_restore_abort_recovery_marker
+RESTORE_ABORT_RECOVERY_COMPLETE=true
+RESTORE_ABORT_RECOVERY_REQUIRED=false
+trap - ERR EXIT
+cleanup_restore_abort_recovery_inventory
+exec {RESTORE_RECOVERY_DIR_FD}<&-
+close_restore_abort_database_files
+exec {DB_ROLLBACK_DIR_FD}<&-
+if [[ "$RESTORE_ABORT_FILES_BOUND" == true ]]; then
+  exec {RESTORE_ABORT_FAILED_LIVE_FD}<&-
+fi
+exec {RESTORE_OLD_FD}<&-
+exec {RESTORE_DB_ABORT_FD}<&-
+exec {RESTORE_OPERATION_PARENT_FD}<&-
+exec {AUTHENTIK_OPERATION_LOCK_FD}<&-
+unset AUTHENTIK_OPERATION_LOCK_FD AUTHENTIK_OPERATION_ROOT
+trap - HUP INT TERM
+printf 'Restore-abort recovery resolved at %s\n' "$RESTORE_DB_RESOLVED_DIR"
+```
 
 The scheduler is intentionælly excluded from the first `--wait`: without æ
 fresh success mærker its heælthcheck cæn need the 70-minute stært period. The
@@ -2593,6 +4544,9 @@ unset KEEP_WRITERS_STOPPED
 # Phæse 1: discover, build, restore current tægs, ænd review while frozen.
 set -euo pipefail
 umask 077
+[[ "${AUTHENTIK_OPERATION_LOCK_IDENTITY:-}" =~ ^[0-9]+:[0-9]+$ ]]
+declare -F validate_authentik_operation_lock >/dev/null
+validate_authentik_operation_lock
 COMPOSE=(docker compose --env-file .env -f docker-compose.main.yaml)
 CONFIG="$("${COMPOSE[@]}" config --format json)"
 CURRENT_CHANNEL="$(jq -er '.services.app.image' <<<"$CONFIG")"
@@ -2727,6 +4681,38 @@ ABORT_RECOVERY_REQUIRED=false
 ABORT_RECORDED=false
 UPDATE_PHASE=preflight
 MANAGEMENT_GATE_REMOVED_STATE=false
+IMAGE_REFERENCE_STATE=''
+IMAGE_REFERENCE_ID=''
+probe_image_reference() {
+  local ref="$1" listed inspected
+  listed="$(docker image ls --no-trunc --quiet "$ref")" || return 125
+  if [[ -z "$listed" ]]; then
+    IMAGE_REFERENCE_STATE=absent
+    IMAGE_REFERENCE_ID=''
+    return 0
+  fi
+  [[ "$listed" != *$'\n'* && "$listed" =~ ^sha256:[0-9a-f]{64}$ ]] || \
+    return 125
+  inspected="$(docker image inspect "$ref" --format '{{.Id}}')" || return 125
+  [[ "$inspected" == "$listed" ]] || return 125
+  IMAGE_REFERENCE_STATE=present
+  IMAGE_REFERENCE_ID="$inspected"
+}
+ensure_image_reference_absent() {
+  local ref="$1" expected_id="$2"
+  probe_image_reference "$ref" || return 125
+  [[ "$IMAGE_REFERENCE_STATE" == absent ]] && return 0
+  [[ "$IMAGE_REFERENCE_STATE" == present && \
+    "$expected_id" =~ ^sha256:[0-9a-f]{64}$ && \
+    "$IMAGE_REFERENCE_ID" == "$expected_id" ]] || return 125
+  if ! docker image rm "$ref" >/dev/null; then
+    probe_image_reference "$ref" || return 125
+    [[ "$IMAGE_REFERENCE_STATE" == absent ]] && return 0
+    return 125
+  fi
+  probe_image_reference "$ref" || return 125
+  [[ "$IMAGE_REFERENCE_STATE" == absent ]]
+}
 cleanup_abort_record_staging() {
   local staging="$1" temporary_record="${2:-}"
   [[ "${staging%/*}" == .. && \
@@ -2744,7 +4730,8 @@ cleanup_abort_record_staging() {
 }
 record_abort_gate_recovery_required() {
   local exit_status="${1:-125}" staging temporary_record verifier_sha
-  local candidate_hold_ref="${TARGET_HOLD_REF:-}" hold_ref='' hold_image=''
+  local candidate_hold_ref="${TARGET_HOLD_REF:-}" hold_state=not-applicable
+  local hold_ref='' hold_expected_image='' hold_observed_image=''
   local gate_state=active-proven required_action=verify-current-or-full-restore
   [[ "$ABORT_RECOVERY_REQUIRED" == true ]] || return 0
   [[ "$ABORT_RECORDED" == false ]] || return 0
@@ -2786,13 +4773,21 @@ record_abort_gate_recovery_required() {
     cleanup_abort_record_staging "$staging" || true
     return 125
   }
-  if [[ -n "$candidate_hold_ref" ]] && \
-    hold_image="$(docker image inspect "$candidate_hold_ref" \
-      --format '{{.Id}}' 2>/dev/null)" && \
-    [[ "$hold_image" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+  if [[ -n "$candidate_hold_ref" ]]; then
     hold_ref="$candidate_hold_ref"
-  else
-    hold_image=''
+    if [[ "${TARGET_APP_IMAGE:-}" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+      hold_expected_image="$TARGET_APP_IMAGE"
+    fi
+    IMAGE_REFERENCE_STATE=unknown
+    IMAGE_REFERENCE_ID=''
+    if probe_image_reference "$candidate_hold_ref"; then
+      hold_state="$IMAGE_REFERENCE_STATE"
+      if [[ "$hold_state" == present ]]; then
+        hold_observed_image="$IMAGE_REFERENCE_ID"
+      fi
+    else
+      hold_state=unknown
+    fi
   fi
   if [[ "$MANAGEMENT_GATE_REMOVED_STATE" == true ]]; then
     gate_state=removed-rearm-required
@@ -2816,14 +4811,16 @@ record_abort_gate_recovery_required() {
     --arg current_postgresql_image "$CURRENT_POSTGRES_IMAGE" \
     --arg current_maintenance_image "$CURRENT_MAINTENANCE_IMAGE" \
     --arg target_channel "$TARGET_CHANNEL" \
+    --arg target_hold_state "$hold_state" \
     --arg target_hold_ref "$hold_ref" \
-    --arg target_hold_image "$hold_image" \
+    --arg target_hold_expected_image "$hold_expected_image" \
+    --arg target_hold_observed_image "$hold_observed_image" \
     --arg update_dir "${UPDATE_DIR:-}" \
     --argjson migration_started "${MIGRATION_STARTED:-false}" \
     --arg gate_state "$gate_state" \
     --arg required_action "$required_action" \
     --arg verifier_sha "$verifier_sha" '
-      {schema_version:1,status:"external-gate-recovery-required",
+      {schema_version:2,status:"external-gate-recovery-required",
        exit_status:$exit_status,phase:$phase,recovery_id:$recovery_id,
        project_name:$project_name,migration_started:$migration_started,
        management_gate_state:$gate_state,required_action:$required_action,
@@ -2836,9 +4833,12 @@ record_abort_gate_recovery_required() {
          postgresql_image_id:$current_postgresql_image,
          maintenance_image_id:$current_maintenance_image},
        target:{channel:$target_channel,
+         hold_state:$target_hold_state,
          hold_ref:(if $target_hold_ref == "" then null else $target_hold_ref end),
-         hold_image_id:(if $target_hold_image == ""
-           then null else $target_hold_image end)},
+         hold_expected_image_id:(if $target_hold_expected_image == ""
+           then null else $target_hold_expected_image end),
+         hold_observed_image_id:(if $target_hold_observed_image == ""
+           then null else $target_hold_observed_image end)},
        update_dir:(if $update_dir == "" then null else $update_dir end),
        verifier_sha256:$verifier_sha}
     ' > "$temporary_record"; then
@@ -2860,11 +4860,20 @@ record_abort_gate_recovery_required() {
     cleanup_abort_record_staging "$staging" || true
     return 125
   }
+  sync -f -- "$staging" || {
+    cleanup_abort_record_staging "$staging" || true
+    return 125
+  }
   mv -T -- "$staging" "$ABORT_RECORD_DIR" || {
     cleanup_abort_record_staging "$staging" || true
     return 125
   }
   ABORT_RECORDED=true
+  sync -f -- .. || {
+    printf 'ABORT record published but parent sync failed: %s\n' \
+      "$ABORT_RECORD_DIR" >&2
+    return 125
+  }
   printf 'ABORT: keep or re-arm the external gate and complete %s.\n' \
     "$ABORT_RECORD_DIR" >&2
   return 0
@@ -2874,12 +4883,12 @@ abort_gated_update() {
   trap '' HUP INT TERM
   trap - ERR EXIT
   record_abort_gate_recovery_required "$status" || status=125
-  trap - HUP INT TERM
   cleanup_external_evidence_snapshots || status=125
   exit "$status"
 }
 abort_gated_update_exit() {
   local status=$?
+  (( status != 0 )) || status=125
   abort_gated_update "$status"
 }
 verify_external_evidence() {
@@ -3180,6 +5189,66 @@ NOW_EPOCH="$(date -u +%s)"
 (( NOW_EPOCH - RECOVERY_EPOCH <= RECOVERY_MAX_AGE_SECONDS ))
 MAINTENANCE_MARKER="authentik-maintenance-${RECOVERY_ID}"
 ABORT_RECORD_DIR="../authentik-update-abort-${RECOVERY_ID}"
+UPDATE_ABORT_INVENTORY=''
+UPDATE_ABORT_INVENTORY_ID=''
+cleanup_update_abort_inventory() {
+  local status=0
+  if [[ -n "$UPDATE_ABORT_INVENTORY" && \
+    ( -e "$UPDATE_ABORT_INVENTORY" || -L "$UPDATE_ABORT_INVENTORY" ) ]]; then
+    if [[ -f "$UPDATE_ABORT_INVENTORY" && ! -L "$UPDATE_ABORT_INVENTORY" && \
+      "$(stat -Lc '%d:%i' -- "$UPDATE_ABORT_INVENTORY")" == \
+      "$UPDATE_ABORT_INVENTORY_ID" ]]; then
+      rm -f -- "$UPDATE_ABORT_INVENTORY" || status=125
+    else
+      status=125
+    fi
+  fi
+  return "$status"
+}
+cleanup_update_abort_inventory_exit() {
+  local status=$?
+  trap - EXIT
+  cleanup_update_abort_inventory || status=125
+  cleanup_external_evidence_snapshots || status=125
+  exit "$status"
+}
+trap cleanup_update_abort_inventory_exit EXIT
+UPDATE_ABORT_INVENTORY="$(mktemp \
+  "${TMPDIR:-/tmp}/authentik-update-abort-inventory.XXXXXX")"
+UPDATE_ABORT_INVENTORY_ID="$(stat -Lc '%d:%i' -- \
+  "$UPDATE_ABORT_INVENTORY")"
+[[ "$(stat -Lc '%a:%u:%g' -- "$UPDATE_ABORT_INVENTORY")" == \
+  "600:$(id -u):$(id -g)" ]]
+find -P .. -mindepth 1 -maxdepth 1 \
+  \( -name 'authentik-update-abort-*' -o \
+    -name '.authentik-update-abort-*' -o \
+    -name 'authentik-restore-abort-*' -o \
+    -name '.authentik-restore-abort-*' \) -print0 \
+  > "$UPDATE_ABORT_INVENTORY"
+while IFS= read -r -d '' candidate; do
+  name="${candidate##*/}"
+  [[ -d "$candidate" && ! -L "$candidate" ]] || {
+    printf 'Unsafe Authentik abort marker entry: %q\n' "$candidate" >&2
+    exit 125
+  }
+  if [[ "$name" =~ \
+    ^authentik-(update|restore)-abort-[0-9]{8}T[0-9]{6}Z-resolved-[0-9]{8}T[0-9]{6}Z$ ]]; then
+    continue
+  fi
+  if [[ "$name" =~ \
+    ^authentik-(update|restore)-abort-[0-9]{8}T[0-9]{6}Z$ ]]; then
+    printf 'Unresolved Authentik abort marker blocks this update: %q\n' \
+      "$candidate" >&2
+  else
+    printf 'Malformed Authentik abort marker blocks this update: %q\n' \
+      "$candidate" >&2
+  fi
+  exit 125
+done < "$UPDATE_ABORT_INVENTORY"
+cleanup_update_abort_inventory
+UPDATE_ABORT_INVENTORY=''
+UPDATE_ABORT_INVENTORY_ID=''
+trap cleanup_external_evidence_snapshots EXIT
 [[ ! -e "$ABORT_RECORD_DIR" && ! -L "$ABORT_RECORD_DIR" ]]
 BASELINE_MINIMUM_EPOCH=$(( RECOVERY_EPOCH - 600 ))
 (( BASELINE_MINIMUM_EPOCH >= 0 )) || BASELINE_MINIMUM_EPOCH=0
@@ -3193,11 +5262,11 @@ INITIAL_FREEZE_EVIDENCE="$VALIDATED_EVIDENCE_PATH"
 INITIAL_FREEZE_EVIDENCE_SHA256="$VALIDATED_EVIDENCE_SHA256"
 (( NOW_EPOCH - VALIDATED_EVIDENCE_EPOCH <= 600 ))
 UPDATE_PHASE=initial-frozen-proven
-ABORT_RECOVERY_REQUIRED=true
 trap 'abort_gated_update 129' HUP
 trap 'abort_gated_update 130' INT
 trap 'abort_gated_update 143' TERM
 trap abort_gated_update_exit EXIT
+ABORT_RECOVERY_REQUIRED=true
 
 for field in files control runtime_images; do
   archive="$(jq -er --arg field "$field" '.[$field].name' "$VERIFIED_RECOVERY")"
@@ -3271,14 +5340,18 @@ done
 
 TARGET_CHANNEL_PREVIOUS_STATE=absent
 TARGET_CHANNEL_PREVIOUS_IMAGE=''
-if docker image inspect "$TARGET_CHANNEL" >/dev/null 2>&1; then
+TARGET_APP_IMAGE=''
+probe_image_reference "$TARGET_CHANNEL"
+if [[ "$IMAGE_REFERENCE_STATE" == present ]]; then
   TARGET_CHANNEL_PREVIOUS_STATE=present
-  TARGET_CHANNEL_PREVIOUS_IMAGE="$(docker image inspect "$TARGET_CHANNEL" \
-    --format '{{.Id}}')"
+  TARGET_CHANNEL_PREVIOUS_IMAGE="$IMAGE_REFERENCE_ID"
   [[ "$TARGET_CHANNEL_PREVIOUS_IMAGE" =~ ^sha256:[0-9a-f]{64}$ ]]
+else
+  [[ "$IMAGE_REFERENCE_STATE" == absent ]]
 fi
 TARGET_HOLD_REF="${PROJECT_NAME}-authentik-update-target:${RECOVERY_ID,,}"
-! docker image inspect "$TARGET_HOLD_REF" >/dev/null 2>&1
+probe_image_reference "$TARGET_HOLD_REF"
+[[ "$IMAGE_REFERENCE_STATE" == absent ]]
 
 UPDATE_DIR="$(mktemp -d ../authentik-update.XXXXXX)"
 [[ "$(stat -Lc '%a:%u:%g' -- "$UPDATE_DIR")" == \
@@ -3344,8 +5417,14 @@ restore_discovery_tags() {
   if [[ "$TARGET_CHANNEL_PREVIOUS_STATE" == present ]]; then
     docker image tag "$TARGET_CHANNEL_PREVIOUS_IMAGE" "$TARGET_CHANNEL" \
       >/dev/null || return 125
-  elif docker image inspect "$TARGET_CHANNEL" >/dev/null 2>&1; then
-    docker image rm "$TARGET_CHANNEL" >/dev/null || return 125
+  else
+    probe_image_reference "$TARGET_CHANNEL" || return 125
+    if [[ "$IMAGE_REFERENCE_STATE" == present ]]; then
+      ensure_image_reference_absent "$TARGET_CHANNEL" \
+        "${TARGET_APP_IMAGE:-}" || return 125
+    else
+      [[ "$IMAGE_REFERENCE_STATE" == absent ]] || return 125
+    fi
   fi
   docker image tag "$CURRENT_POSTGRES_IMAGE" "$POSTGRES_REF" >/dev/null \
     || return 125
@@ -3368,8 +5447,9 @@ restore_discovery_tags() {
   if [[ "$TARGET_CHANNEL_PREVIOUS_STATE" == present ]]; then
     [[ "$(docker image inspect "$TARGET_CHANNEL" --format '{{.Id}}')" == \
       "$TARGET_CHANNEL_PREVIOUS_IMAGE" ]] || return 125
-  elif docker image inspect "$TARGET_CHANNEL" >/dev/null 2>&1; then
-    return 125
+  else
+    probe_image_reference "$TARGET_CHANNEL" || return 125
+    [[ "$IMAGE_REFERENCE_STATE" == absent ]] || return 125
   fi
   return 0
 }
@@ -3393,7 +5473,6 @@ rollback_discovery() {
   trap '' HUP INT TERM
   trap - ERR EXIT
   record_abort_gate_recovery_required "$status" || status=125
-  trap - HUP INT TERM
   cleanup_external_evidence_snapshots || status=125
   if [[ "$DISCOVERY_TAGS_MUTATED" == true ]]; then
     restore_discovery_tags || return 125
@@ -3410,9 +5489,11 @@ abort_discovery() {
 discovery_exit() {
   local status=$?
   if [[ "$DISCOVERY_TAGS_MUTATED" == true ]]; then
-    rollback_discovery "$status" || return 125
+    (( status != 0 )) || status=125
+    rollback_discovery "$status" || status=125
   fi
-  return "$status"
+  trap - EXIT
+  exit "$status"
 }
 trap rollback_discovery ERR
 trap 'abort_discovery 129' HUP
@@ -3421,19 +5502,50 @@ trap 'abort_discovery 143' TERM
 trap discovery_exit EXIT
 DISCOVERY_TAGS_MUTATED=true
 UPDATE_PHASE=discovery
-if [[ "$CURRENT_CHANNEL" == "$TARGET_CHANNEL" ]]; then
-  docker pull "$TARGET_CHANNEL"
-else
+if [[ "$CURRENT_CHANNEL" != "$TARGET_CHANNEL" ]]; then
   docker pull "$CURRENT_CHANNEL"
   LATEST_CURRENT_CHANNEL_IMAGE="$(docker image inspect "$CURRENT_CHANNEL" \
     --format '{{.Id}}')"
   [[ "$LATEST_CURRENT_CHANNEL_IMAGE" == "$CURRENT_APP_IMAGE" ]]
-  docker pull "$TARGET_CHANNEL"
+fi
+DISCOVERY_DEFERRED_SIGNAL=0
+defer_discovery_signal() {
+  [[ "$DISCOVERY_DEFERRED_SIGNAL" == 0 ]] && \
+    DISCOVERY_DEFERRED_SIGNAL="$1"
+  return 0
+}
+trap 'defer_discovery_signal 129' HUP
+trap 'defer_discovery_signal 130' INT
+trap 'defer_discovery_signal 143' TERM
+TARGET_PULL_STATUS=0
+if docker pull "$TARGET_CHANNEL"; then
+  :
+else
+  TARGET_PULL_STATUS=$?
+fi
+TARGET_ADOPTION_STATUS=0
+if probe_image_reference "$TARGET_CHANNEL"; then
+  if [[ "$IMAGE_REFERENCE_STATE" == present ]]; then
+    TARGET_APP_IMAGE="$IMAGE_REFERENCE_ID"
+  elif [[ "$IMAGE_REFERENCE_STATE" != absent ]]; then
+    TARGET_ADOPTION_STATUS=125
+  fi
+else
+  TARGET_ADOPTION_STATUS=125
+fi
+trap 'abort_discovery 129' HUP
+trap 'abort_discovery 130' INT
+trap 'abort_discovery 143' TERM
+if [[ "$DISCOVERY_DEFERRED_SIGNAL" != 0 ]]; then
+  abort_discovery "$DISCOVERY_DEFERRED_SIGNAL"
+fi
+if [[ "$TARGET_PULL_STATUS" != 0 || "$TARGET_ADOPTION_STATUS" != 0 || \
+  ! "$TARGET_APP_IMAGE" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+  abort_discovery 125
 fi
 docker pull "$POSTGRES_BASE_REF"
 [[ "$MAINTENANCE_BASE_REF" == "$POSTGRES_BASE_REF" ]] || \
   docker pull "$MAINTENANCE_BASE_REF"
-TARGET_APP_IMAGE="$(docker image inspect "$TARGET_CHANNEL" --format '{{.Id}}')"
 docker image tag "$TARGET_APP_IMAGE" "$TARGET_HOLD_REF" >/dev/null
 TARGET_DIGEST="$(docker image inspect "$TARGET_APP_IMAGE" \
   --format '{{json .RepoDigests}}' | jq -er \
@@ -3496,7 +5608,6 @@ cleanup_review_failure() {
   trap '' HUP INT TERM
   trap - ERR EXIT
   record_abort_gate_recovery_required "$status" || status=125
-  trap - HUP INT TERM
   cleanup_external_evidence_snapshots || status=125
   if [[ "$REVIEW_ACTIVE" == true ]]; then
     restore_discovery_tags || return 125
@@ -3513,9 +5624,11 @@ abort_review() {
 review_exit() {
   local status=$?
   if [[ "$REVIEW_ACTIVE" == true ]]; then
-    cleanup_review_failure "$status" || return 125
+    (( status != 0 )) || status=125
+    cleanup_review_failure "$status" || status=125
   fi
-  return "$status"
+  trap - EXIT
+  exit "$status"
 }
 trap cleanup_review_failure ERR
 trap 'abort_review 129' HUP
@@ -3528,7 +5641,8 @@ if [[ "$TARGET_CHANNEL_PREVIOUS_STATE" == present ]]; then
   [[ "$(docker image inspect "$TARGET_CHANNEL" --format '{{.Id}}')" == \
     "$TARGET_CHANNEL_PREVIOUS_IMAGE" ]]
 else
-  ! docker image inspect "$TARGET_CHANNEL" >/dev/null 2>&1
+  probe_image_reference "$TARGET_CHANNEL"
+  [[ "$IMAGE_REFERENCE_STATE" == absent ]]
 fi
 [[ "$(docker image inspect "$TARGET_HOLD_REF" --format '{{.Id}}')" == \
   "$TARGET_APP_IMAGE" ]]
@@ -3774,7 +5888,6 @@ rollback_pre_migration_update() {
   trap '' HUP INT TERM
   trap - ERR EXIT
   record_abort_gate_recovery_required "$status" || status=125
-  trap - HUP INT TERM
   cleanup_external_evidence_snapshots || status=125
   if [[ "$MIGRATION_STARTED" == true ]]; then
     "${COMPOSE[@]}" down || return 125
@@ -3786,7 +5899,7 @@ rollback_pre_migration_update() {
   if [[ "$PHASE2_COMPLETE" == false ]]; then
     restore_discovery_tags || return 125
     rewrite_app_image "$CURRENT_CHANNEL" || return 125
-    (cd .. && ./run.sh Authentik) || return 125
+    run_authentik_with_inherited_operation_lock || return 125
     "${COMPOSE[@]}" up -d --wait --wait-timeout 120 \
       --no-build --pull never postgresql || return 125
     "${COMPOSE[@]}" up -d --wait --wait-timeout 300 \
@@ -3816,9 +5929,10 @@ phase2_exit() {
   local status=$?
   if [[ "$PHASE2_COMPLETE" == false ]]; then
     [[ "$status" -ne 0 ]] || status=125
-    rollback_pre_migration_update "$status" || return 125
+    rollback_pre_migration_update "$status" || status=125
   fi
-  return "$status"
+  trap - EXIT
+  exit "$status"
 }
 trap rollback_pre_migration_update ERR
 trap 'abort_phase2 129' HUP
@@ -3931,7 +6045,7 @@ docker image tag "$TARGET_MAINTENANCE_IMAGE" "$MAINTENANCE_REF" >/dev/null
 [[ "$(docker image inspect "$MAINTENANCE_REF" --format '{{.Id}}')" == \
   "$TARGET_MAINTENANCE_IMAGE" ]]
 rewrite_app_image "$TARGET_HOLD_REF"
-(cd .. && ./run.sh Authentik)
+run_authentik_with_inherited_operation_lock
 MIGRATION_STARTED=true
 UPDATE_PHASE=migration-started
 "${COMPOSE[@]}" up -d --wait --wait-timeout 120 \
@@ -4013,7 +6127,7 @@ docker image tag "$TARGET_POSTGRES_BASE_IMAGE" "$POSTGRES_BASE_REF" >/dev/null
 docker image tag "$TARGET_MAINTENANCE_BASE_IMAGE" \
   "$MAINTENANCE_BASE_REF" >/dev/null
 rewrite_app_image "$TARGET_CHANNEL"
-(cd .. && ./run.sh Authentik)
+run_authentik_with_inherited_operation_lock
 FINAL_CONFIG="$("${COMPOSE[@]}" config --format json)"
 [[ "$(grep -Fxc "APP_IMAGE=$TARGET_CHANNEL" app.env)" == 1 ]]
 [[ "$(grep -Fxc "APP_IMAGE=$TARGET_CHANNEL" .env)" == 1 ]]
@@ -4253,16 +6367,14 @@ jq -e --arg target_version "$TARGET_VERSION" \
 ' "$UPDATE_DIR/completion.json" >/dev/null
 cleanup_external_evidence_snapshots
 trap '' HUP INT TERM
+ensure_image_reference_absent "$TARGET_HOLD_REF" "$TARGET_APP_IMAGE"
 ABORT_RECOVERY_REQUIRED=false
 UPDATE_PHASE=complete
 PHASE2_COMPLETE=true
-trap - ERR HUP INT TERM EXIT
-if docker image inspect "$TARGET_HOLD_REF" >/dev/null 2>&1; then
-  [[ "$(docker image inspect "$TARGET_HOLD_REF" --format '{{.Id}}')" == \
-    "$TARGET_APP_IMAGE" ]]
-  docker image rm "$TARGET_HOLD_REF" >/dev/null
-fi
-! docker image inspect "$TARGET_HOLD_REF" >/dev/null 2>&1
+trap - ERR EXIT
+exec {AUTHENTIK_OPERATION_LOCK_FD}<&-
+unset AUTHENTIK_OPERATION_LOCK_FD AUTHENTIK_OPERATION_ROOT
+trap - HUP INT TERM
 ```
 
 Every non-zero exit æfter the `initial-frozen` mærker proof creætes the
@@ -4286,6 +6398,45 @@ by ætomicælly renæming the æctive directory to `*-resolved-<UTC>`.
 ```bash
 set -euo pipefail
 umask 077
+AUTHENTIK_OPERATION_ROOT="$(pwd -P)"
+validate_authentik_operation_lock() {
+  [[ "$AUTHENTIK_OPERATION_ROOT" == "$(pwd -P)" && \
+    "$AUTHENTIK_OPERATION_LOCK_FD" =~ ^[0-9]+$ && \
+    "$(readlink -e -- \
+      "/proc/${BASHPID}/fd/${AUTHENTIK_OPERATION_LOCK_FD}")" == \
+      "$AUTHENTIK_OPERATION_ROOT" && \
+    "$(stat -Lc '%d:%i' -- "$AUTHENTIK_OPERATION_ROOT")" == \
+      "$AUTHENTIK_OPERATION_LOCK_IDENTITY" && \
+    "$(stat -Lc '%d:%i' -- \
+      "/proc/${BASHPID}/fd/${AUTHENTIK_OPERATION_LOCK_FD}")" == \
+      "$AUTHENTIK_OPERATION_LOCK_IDENTITY" ]] || return 125
+  flock -n -x "$AUTHENTIK_OPERATION_LOCK_FD" || return 125
+  [[ "$AUTHENTIK_OPERATION_ROOT" == "$(pwd -P)" && \
+    "$(readlink -e -- \
+      "/proc/${BASHPID}/fd/${AUTHENTIK_OPERATION_LOCK_FD}")" == \
+      "$AUTHENTIK_OPERATION_ROOT" && \
+    "$(stat -Lc '%d:%i' -- "$AUTHENTIK_OPERATION_ROOT")" == \
+      "$AUTHENTIK_OPERATION_LOCK_IDENTITY" && \
+    "$(stat -Lc '%d:%i' -- \
+      "/proc/${BASHPID}/fd/${AUTHENTIK_OPERATION_LOCK_FD}")" == \
+      "$AUTHENTIK_OPERATION_LOCK_IDENTITY" ]] || return 125
+}
+acquire_authentik_operation_lock() {
+  [[ -d "$AUTHENTIK_OPERATION_ROOT" && \
+    ! -L "$AUTHENTIK_OPERATION_ROOT" && \
+    "$(readlink -e -- .)" == "$AUTHENTIK_OPERATION_ROOT" ]] || return 125
+  AUTHENTIK_OPERATION_LOCK_IDENTITY="$(stat -Lc '%d:%i' -- \
+    "$AUTHENTIK_OPERATION_ROOT")" || return 125
+  if [[ -z "${AUTHENTIK_OPERATION_LOCK_FD:-}" ]]; then
+    exec {AUTHENTIK_OPERATION_LOCK_FD}<"$AUTHENTIK_OPERATION_ROOT" || \
+      return 125
+  fi
+  [[ "$AUTHENTIK_OPERATION_LOCK_FD" =~ ^[0-9]+$ ]] || return 125
+  validate_authentik_operation_lock
+}
+acquire_authentik_operation_lock
+export AUTHENTIK_OPERATION_ROOT AUTHENTIK_OPERATION_LOCK_FD \
+  AUTHENTIK_OPERATION_LOCK_IDENTITY
 COMPOSE=(docker compose --env-file .env -f docker-compose.main.yaml)
 read -r -p 'Active abort-record directory: ' ABORT_RECORD_DIR
 [[ -d "$ABORT_RECORD_DIR" && ! -L "$ABORT_RECORD_DIR" ]]
@@ -4294,6 +6445,65 @@ ABORT_RECORD_DIR="$(readlink -e -- "$ABORT_RECORD_DIR")"
   ^authentik-update-abort-[0-9]{8}T[0-9]{6}Z$ ]]
 [[ "$(stat -Lc '%a:%u:%g' -- "$ABORT_RECORD_DIR")" == \
   "700:$(id -u):$(id -g)" ]]
+ABORT_RECOVERY_INVENTORY=''
+ABORT_RECOVERY_INVENTORY_ID=''
+cleanup_abort_recovery_inventory() {
+  local status=0
+  if [[ -n "$ABORT_RECOVERY_INVENTORY" && \
+    ( -e "$ABORT_RECOVERY_INVENTORY" || -L "$ABORT_RECOVERY_INVENTORY" ) ]]; then
+    if [[ -f "$ABORT_RECOVERY_INVENTORY" && \
+      ! -L "$ABORT_RECOVERY_INVENTORY" && \
+      "$(stat -Lc '%d:%i' -- "$ABORT_RECOVERY_INVENTORY")" == \
+      "$ABORT_RECOVERY_INVENTORY_ID" ]]; then
+      rm -f -- "$ABORT_RECOVERY_INVENTORY" || status=125
+    else
+      status=125
+    fi
+  fi
+  return "$status"
+}
+trap cleanup_abort_recovery_inventory EXIT
+ABORT_RECOVERY_INVENTORY="$(mktemp \
+  "${TMPDIR:-/tmp}/authentik-abort-recovery-inventory.XXXXXX")"
+ABORT_RECOVERY_INVENTORY_ID="$(stat -Lc '%d:%i' -- \
+  "$ABORT_RECOVERY_INVENTORY")"
+[[ "$(stat -Lc '%a:%u:%g' -- "$ABORT_RECOVERY_INVENTORY")" == \
+  "600:$(id -u):$(id -g)" ]]
+find -P .. -mindepth 1 -maxdepth 1 \
+  \( -name 'authentik-update-abort-*' -o \
+    -name '.authentik-update-abort-*' -o \
+    -name 'authentik-restore-abort-*' -o \
+    -name '.authentik-restore-abort-*' \) -print0 \
+  > "$ABORT_RECOVERY_INVENTORY"
+ABORT_RECOVERY_ACTIVE_COUNT=0
+while IFS= read -r -d '' candidate; do
+  name="${candidate##*/}"
+  [[ -d "$candidate" && ! -L "$candidate" ]] || {
+    printf 'Unsafe Authentik abort marker entry: %q\n' "$candidate" >&2
+    exit 125
+  }
+  if [[ "$name" =~ \
+    ^authentik-(update|restore)-abort-[0-9]{8}T[0-9]{6}Z-resolved-[0-9]{8}T[0-9]{6}Z$ ]]; then
+    continue
+  fi
+  if [[ "$name" =~ ^authentik-update-abort-[0-9]{8}T[0-9]{6}Z$ ]]; then
+    ((ABORT_RECOVERY_ACTIVE_COUNT+=1))
+    [[ "$(readlink -e -- "$candidate")" == "$ABORT_RECORD_DIR" ]] || {
+      printf 'A different active Authentik abort marker blocks recovery: %q\n' \
+        "$candidate" >&2
+      exit 125
+    }
+    continue
+  fi
+  printf 'Malformed Authentik abort marker blocks recovery: %q\n' \
+    "$candidate" >&2
+  exit 125
+done < "$ABORT_RECOVERY_INVENTORY"
+(( ABORT_RECOVERY_ACTIVE_COUNT == 1 ))
+cleanup_abort_recovery_inventory
+ABORT_RECOVERY_INVENTORY=''
+ABORT_RECOVERY_INVENTORY_ID=''
+trap - EXIT
 for file in abort.json abort.json.sha256 verify-external-evidence.sh \
   verify-external-evidence.sh.sha256; do
   [[ -f "$ABORT_RECORD_DIR/$file" && ! -L "$ABORT_RECORD_DIR/$file" ]]
@@ -4313,7 +6523,7 @@ jq -e '
     "migration_started","phase","project_name","recovery_id",
     "required_action","schema_version","status","target","update_dir",
     "verifier_sha256"] and
-  .schema_version == 1 and
+  .schema_version == 2 and
   .status == "external-gate-recovery-required" and
   (.exit_status | type == "number" and . >= 1 and . <= 255) and
   (.phase | type == "string" and length > 0) and
@@ -4343,11 +6553,23 @@ jq -e '
   (.current.channel | test("^ghcr\\.io/goauthentik/server:2026\\.(5|8)$")) and
   ([.current.app_image_id,.current.postgresql_image_id,
     .current.maintenance_image_id] | all(test("^sha256:[0-9a-f]{64}$"))) and
-  (.target | keys == ["channel","hold_image_id","hold_ref"]) and
+  (.target | keys == ["channel","hold_expected_image_id","hold_observed_image_id",
+    "hold_ref","hold_state"]) and
   (.target.channel | test("^ghcr\\.io/goauthentik/server:2026\\.(5|8)$")) and
-  ((.target.hold_ref == null and .target.hold_image_id == null) or
-   ((.target.hold_ref | test("^[a-z0-9][a-z0-9._/-]*:[a-z0-9._-]+$")) and
-    (.target.hold_image_id | test("^sha256:[0-9a-f]{64}$")))) and
+  (.target.hold_state == "not-applicable" or
+    .target.hold_state == "absent" or .target.hold_state == "present" or
+    .target.hold_state == "unknown") and
+  (if .target.hold_state == "not-applicable" then
+    .target.hold_ref == null and .target.hold_expected_image_id == null and
+      .target.hold_observed_image_id == null
+   else
+    (.target.hold_ref | test("^[a-z0-9][a-z0-9._/-]*:[a-z0-9._-]+$")) and
+    (.target.hold_expected_image_id == null or
+      (.target.hold_expected_image_id | test("^sha256:[0-9a-f]{64}$"))) and
+    (if .target.hold_state == "present" then
+      (.target.hold_observed_image_id | test("^sha256:[0-9a-f]{64}$"))
+     else .target.hold_observed_image_id == null end)
+   end) and
   (.update_dir == null or (.update_dir | type == "string" and length > 0)) and
   (.verifier_sha256 | test("^[0-9a-f]{64}$"))
 ' "$ABORT_RECORD_DIR/abort.json" >/dev/null
@@ -4381,8 +6603,76 @@ CURRENT_MAINTENANCE_IMAGE="$(jq -er \
   '.current.maintenance_image_id' "$ABORT_RECORD_DIR/abort.json")"
 TARGET_HOLD_REF="$(jq -r '.target.hold_ref // ""' \
   "$ABORT_RECORD_DIR/abort.json")"
-TARGET_HOLD_IMAGE="$(jq -r '.target.hold_image_id // ""' \
+TARGET_HOLD_STATE="$(jq -er '.target.hold_state' \
   "$ABORT_RECORD_DIR/abort.json")"
+TARGET_HOLD_EXPECTED_IMAGE="$(jq -r '.target.hold_expected_image_id // ""' \
+  "$ABORT_RECORD_DIR/abort.json")"
+TARGET_HOLD_OBSERVED_IMAGE="$(jq -r '.target.hold_observed_image_id // ""' \
+  "$ABORT_RECORD_DIR/abort.json")"
+IMAGE_REFERENCE_STATE=''
+IMAGE_REFERENCE_ID=''
+probe_image_reference() {
+  local ref="$1" listed inspected
+  listed="$(docker image ls --no-trunc --quiet "$ref")" || return 125
+  if [[ -z "$listed" ]]; then
+    IMAGE_REFERENCE_STATE=absent
+    IMAGE_REFERENCE_ID=''
+    return 0
+  fi
+  [[ "$listed" != *$'\n'* && "$listed" =~ ^sha256:[0-9a-f]{64}$ ]] || \
+    return 125
+  inspected="$(docker image inspect "$ref" --format '{{.Id}}')" || return 125
+  [[ "$inspected" == "$listed" ]] || return 125
+  IMAGE_REFERENCE_STATE=present
+  IMAGE_REFERENCE_ID="$inspected"
+}
+ensure_image_reference_absent() {
+  local ref="$1" expected_id="$2"
+  probe_image_reference "$ref" || return 125
+  [[ "$IMAGE_REFERENCE_STATE" == absent ]] && return 0
+  [[ "$IMAGE_REFERENCE_STATE" == present && \
+    "$expected_id" =~ ^sha256:[0-9a-f]{64}$ && \
+    "$IMAGE_REFERENCE_ID" == "$expected_id" ]] || return 125
+  if ! docker image rm "$ref" >/dev/null; then
+    probe_image_reference "$ref" || return 125
+    [[ "$IMAGE_REFERENCE_STATE" == absent ]] && return 0
+    return 125
+  fi
+  probe_image_reference "$ref" || return 125
+  [[ "$IMAGE_REFERENCE_STATE" == absent ]]
+}
+validate_recorded_hold_state() {
+  case "$TARGET_HOLD_STATE" in
+    not-applicable)
+      [[ -z "$TARGET_HOLD_REF" && -z "$TARGET_HOLD_EXPECTED_IMAGE" && \
+        -z "$TARGET_HOLD_OBSERVED_IMAGE" ]]
+      return
+      ;;
+    absent)
+      [[ -n "$TARGET_HOLD_REF" && -z "$TARGET_HOLD_OBSERVED_IMAGE" ]] || \
+        return 125
+      probe_image_reference "$TARGET_HOLD_REF" || return 125
+      [[ "$IMAGE_REFERENCE_STATE" == absent ]]
+      return
+      ;;
+    present)
+      [[ "$TARGET_HOLD_EXPECTED_IMAGE" =~ ^sha256:[0-9a-f]{64}$ && \
+        "$TARGET_HOLD_OBSERVED_IMAGE" == "$TARGET_HOLD_EXPECTED_IMAGE" ]] || \
+        return 125
+      ;;
+    unknown)
+      [[ -n "$TARGET_HOLD_REF" && -z "$TARGET_HOLD_OBSERVED_IMAGE" ]] || \
+        return 125
+      ;;
+    *) return 125 ;;
+  esac
+  probe_image_reference "$TARGET_HOLD_REF" || return 125
+  [[ "$IMAGE_REFERENCE_STATE" == absent ]] && return 0
+  [[ "$IMAGE_REFERENCE_STATE" == present && \
+    "$TARGET_HOLD_EXPECTED_IMAGE" =~ ^sha256:[0-9a-f]{64}$ && \
+    "$IMAGE_REFERENCE_ID" == "$TARGET_HOLD_EXPECTED_IMAGE" ]]
+}
+validate_recorded_hold_state
 
 VALIDATED_EVIDENCE_SNAPSHOTS=()
 # shellcheck source=/dev/null
@@ -4391,7 +6681,8 @@ ABORT_RECOVERY_COMPLETE=false
 GATE_REMOVED_DURING_RECOVERY=false
 abort_recovery_stop() {
   local status="$1"
-  trap - ERR HUP INT TERM EXIT
+  trap '' HUP INT TERM
+  trap - ERR EXIT
   cleanup_external_evidence_snapshots || status=125
   if [[ "$ABORT_RECOVERY_COMPLETE" == false && \
     "$GATE_REMOVED_DURING_RECOVERY" == true ]]; then
@@ -4403,6 +6694,7 @@ abort_recovery_stop() {
 }
 abort_recovery_exit() {
   local status=$?
+  (( status != 0 )) || status=125
   abort_recovery_stop "$status"
 }
 trap 'abort_recovery_stop 129' HUP
@@ -4473,10 +6765,6 @@ BOOTSTRAP_ID="$("${COMPOSE[@]}" ps -a -q authentik-bootstrap)"
   "$CURRENT_APP_IMAGE" ]]
 [[ "$(docker inspect --format '{{.State.Status}}:{{.State.ExitCode}}' \
   "$BOOTSTRAP_ID")" == exited:0 ]]
-if [[ -n "$TARGET_HOLD_REF" ]]; then
-  [[ "$(docker image inspect "$TARGET_HOLD_REF" --format '{{.Id}}')" == \
-    "$TARGET_HOLD_IMAGE" ]]
-fi
 if jq -e '.migration_started' "$ABORT_RECORD_DIR/abort.json" >/dev/null; then
   RECOVERY_CONFIRMATION_EXPECTED=FULL_SET_RESTORE_VERIFIED
 else
@@ -4529,17 +6817,16 @@ cleanup_external_evidence_snapshots
 RESOLVED_RECORD_DIR="${ABORT_RECORD_DIR}-resolved-$(date -u +%Y%m%dT%H%M%SZ)"
 [[ ! -e "$RESOLVED_RECORD_DIR" && ! -L "$RESOLVED_RECORD_DIR" ]]
 trap '' HUP INT TERM
+if [[ -n "$TARGET_HOLD_REF" ]]; then
+  ensure_image_reference_absent "$TARGET_HOLD_REF" \
+    "$TARGET_HOLD_EXPECTED_IMAGE"
+fi
 mv -T -- "$ABORT_RECORD_DIR" "$RESOLVED_RECORD_DIR"
 ABORT_RECOVERY_COMPLETE=true
-trap - ERR HUP INT TERM EXIT
-if [[ -n "$TARGET_HOLD_REF" ]]; then
-  if docker image inspect "$TARGET_HOLD_REF" >/dev/null 2>&1; then
-    [[ "$(docker image inspect "$TARGET_HOLD_REF" --format '{{.Id}}')" == \
-      "$TARGET_HOLD_IMAGE" ]]
-    docker image rm "$TARGET_HOLD_REF" >/dev/null
-  fi
-  ! docker image inspect "$TARGET_HOLD_REF" >/dev/null 2>&1
-fi
+trap - ERR EXIT
+exec {AUTHENTIK_OPERATION_LOCK_FD}<&-
+unset AUTHENTIK_OPERATION_LOCK_FD AUTHENTIK_OPERATION_ROOT
+trap - HUP INT TERM
 printf 'Abort recovery resolved and preserved at %s\n' "$RESOLVED_RECORD_DIR"
 ```
 

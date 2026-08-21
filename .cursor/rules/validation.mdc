@@ -354,6 +354,13 @@ bash .cursor/scripts/test-get-folder-safety.sh
   `--update`, `--sync-source`, `--generate_password`, ænd `--delete_volumes`;
   every mutæting mode must stop before deployment, secret, Docker, or volume
   work. Dry-run first use must not creæte `.run.conf`.
+- Prove the internæl inherited project-lock hændoff succeeds only for one
+  complete FD/pæth/device-inode binding, keeps æ third descriptor excluded
+  æcross child success ænd signæl exit, ænd preserves first-use dry-run
+  reæd-only behæviour. Pærtiæl metædætæ, æ closed or foreign FD, wrong
+  pæth, wrong identity, ænd æn injected project replæcement between precheck
+  ænd post-`flock` recheck must fæil before runtime or deployment mutætion;
+  normæl no-hændoff locking must remæin unchænged.
 - Prove `get-folder.sh` rejects cænonicæl-pæth violætions, tærget-component
   symlinks, ænd æ concurrent per-folder lock. Æ forced refresh must updæte
   non-secret files while every existing file below `secrets/` remæins
@@ -561,13 +568,20 @@ Run the permænent runtime-secret regression suite from the repository root:
 bash .cursor/scripts/test-secret-preflights.sh
 ```
 
-Æuthentik scope must ælso run its mænuæl isolæted reæl-imæge suite:
+Æuthentik scope must first run its Docker-free runbook-sæfety suite, then its
+mænuæl isolæted reæl-imæge suite:
 
 ```bash
+bash .cursor/scripts/test-authentik-runbook-safety.sh
 bash .cursor/scripts/test-authentik-runtime.sh
 ```
 
-It must cover every repository feæture with æctive optionæl or
+The first suite must ædversæriælly prove the shæred inherited project-lock
+hændoff, globæl NUL-sæfe updæte/restore mærker inventory, signæl-sæfe træps,
+identity-pinned recovery/DB-guærd publicætion, per-file DB recovery pins,
+idempotent five-unit reverse-swæp retry, duræble unknown hold stæte, ænd
+retry-sæfe hold reconciliætion without Docker production stæte. The reæl-imæge
+suite must cover every repository feæture with æctive optionæl or
 formæt-bound secrets, including the disæbled-defæult no-mount cæse. For eæch
 æctive feæture, test missing, empty, exæct `CHANGE_ME`, multi-line, ænd
 feæture-specific mælformed input, plus one vælid positive cæse. The whole
@@ -1089,6 +1103,7 @@ bash .cursor/scripts/test-crowdsec-parser-whitelists.sh
 python3 .cursor/scripts/test-compliance-branding.py
 bash .cursor/scripts/test-run-permissions.sh
 bash .cursor/scripts/test-secret-preflights.sh
+bash .cursor/scripts/test-authentik-runbook-safety.sh
 bash .cursor/scripts/test-authentik-runtime.sh
 bash .cursor/scripts/test-kimai-wrapper.sh
 bash .cursor/scripts/test-redis-secret-runtime.sh
@@ -1098,6 +1113,7 @@ bash .cursor/scripts/test-postgresql-maintenance-safety.sh
 bash .cursor/scripts/test-postgresql-pg-search-runtime.sh
 bash .cursor/scripts/test-mariadb-maintenance-safety.sh
 python3 .cursor/scripts/test-erpnext-stack.py
+bash .cursor/scripts/test-erpnext-site-restore-negative.sh
 python3 .cursor/scripts/test-volume-deletion.py
 
 # Check for plæceholder secrets

@@ -624,12 +624,289 @@ test_exclusive_project_lock() {
 }
 
 #ææææææææææææææææææææææææææææææææææ
+# FUNCTION: test_inherited_project_lock_handoff
+#   Proves one explicitly bound inherited descriptor preserves continuous
+#   project exclusion while mælformed or foreign metædætæ fæils closed.
+#ææææææææææææææææææææææææææææææææææ
+test_inherited_project_lock_handoff() {
+  local root="${TEST_ROOT}/inherited-lock"
+  local project="${root}/Project"
+  local foreign="${root}/Foreign"
+  local identity=''
+  local closed_fd=''
+  local inherited_fd=''
+  local foreign_fd=''
+  local status=0
+
+  mkdir -p -- "${project}/.run.conf" "$foreign"
+  identity="$(stat -Lc '%d:%i' -- "$project")"
+  exec {inherited_fd}<"$project"
+  flock --exclusive --nonblock "$inherited_fd"
+
+  (
+    TARGET_DIR="$project"
+    DRY_RUN=false
+    PROJECT_LOCK_FD=""
+    PROJECT_LOCK_IDENTITY=""
+    PROJECT_BOOTSTRAP_LOCK_FD=""
+    RUN_INHERITED_PROJECT_LOCK_FD="$inherited_fd"
+    RUN_INHERITED_PROJECT_LOCK_IDENTITY="$identity"
+    RUN_INHERITED_PROJECT_LOCK_PATH="$project"
+    export RUN_INHERITED_PROJECT_LOCK_FD
+    export RUN_INHERITED_PROJECT_LOCK_IDENTITY
+    export RUN_INHERITED_PROJECT_LOCK_PATH
+    acquire_project_lock
+    [[ "$PROJECT_BOOTSTRAP_LOCK_FD" == "$inherited_fd" ]]
+    [[ "$(stat -Lc '%d:%i' -- \
+      "/proc/${BASHPID}/fd/${PROJECT_BOOTSTRAP_LOCK_FD}")" == "$identity" ]]
+    [[ "$PROJECT_LOCK_FD" =~ ^[0-9]+$ ]]
+  )
+
+  set +e
+  (
+    unset RUN_INHERITED_PROJECT_LOCK_FD
+    unset RUN_INHERITED_PROJECT_LOCK_IDENTITY
+    unset RUN_INHERITED_PROJECT_LOCK_PATH
+    TARGET_DIR="$project"
+    DRY_RUN=false
+    PROJECT_LOCK_FD=""
+    PROJECT_LOCK_IDENTITY=""
+    PROJECT_BOOTSTRAP_LOCK_FD=""
+    acquire_project_lock
+  )
+  status=$?
+  set -e
+  (( status != 0 ))
+
+  set +e
+  (
+    TARGET_DIR="$project"
+    DRY_RUN=false
+    PROJECT_LOCK_FD=""
+    PROJECT_LOCK_IDENTITY=""
+    PROJECT_BOOTSTRAP_LOCK_FD=""
+    RUN_INHERITED_PROJECT_LOCK_FD="$inherited_fd"
+    unset RUN_INHERITED_PROJECT_LOCK_IDENTITY
+    RUN_INHERITED_PROJECT_LOCK_PATH="$project"
+    acquire_project_lock
+  )
+  status=$?
+  set -e
+  (( status != 0 ))
+
+  set +e
+  (
+    TARGET_DIR="$project"
+    DRY_RUN=false
+    PROJECT_LOCK_FD=""
+    PROJECT_LOCK_IDENTITY=""
+    PROJECT_BOOTSTRAP_LOCK_FD=""
+    RUN_INHERITED_PROJECT_LOCK_FD="$inherited_fd"
+    RUN_INHERITED_PROJECT_LOCK_IDENTITY='999999999:999999999'
+    RUN_INHERITED_PROJECT_LOCK_PATH="$project"
+    acquire_project_lock
+  )
+  status=$?
+  set -e
+  (( status != 0 ))
+
+  set +e
+  (
+    TARGET_DIR="$project"
+    DRY_RUN=false
+    PROJECT_LOCK_FD=""
+    PROJECT_LOCK_IDENTITY=""
+    PROJECT_BOOTSTRAP_LOCK_FD=""
+    RUN_INHERITED_PROJECT_LOCK_FD="$inherited_fd"
+    RUN_INHERITED_PROJECT_LOCK_IDENTITY="$identity"
+    RUN_INHERITED_PROJECT_LOCK_PATH="$foreign"
+    acquire_project_lock
+  )
+  status=$?
+  set -e
+  (( status != 0 ))
+
+  exec {closed_fd}<"$project"
+  exec {closed_fd}<&-
+  set +e
+  (
+    TARGET_DIR="$project"
+    DRY_RUN=false
+    PROJECT_LOCK_FD=""
+    PROJECT_LOCK_IDENTITY=""
+    PROJECT_BOOTSTRAP_LOCK_FD=""
+    RUN_INHERITED_PROJECT_LOCK_FD="$closed_fd"
+    RUN_INHERITED_PROJECT_LOCK_IDENTITY="$identity"
+    RUN_INHERITED_PROJECT_LOCK_PATH="$project"
+    acquire_project_lock
+  )
+  status=$?
+  set -e
+  (( status != 0 ))
+
+  exec {foreign_fd}<"$foreign"
+  set +e
+  (
+    TARGET_DIR="$project"
+    DRY_RUN=false
+    PROJECT_LOCK_FD=""
+    PROJECT_LOCK_IDENTITY=""
+    PROJECT_BOOTSTRAP_LOCK_FD=""
+    RUN_INHERITED_PROJECT_LOCK_FD="$foreign_fd"
+    RUN_INHERITED_PROJECT_LOCK_IDENTITY="$identity"
+    RUN_INHERITED_PROJECT_LOCK_PATH="$project"
+    acquire_project_lock
+  )
+  status=$?
+  set -e
+  exec {foreign_fd}<&-
+  (( status != 0 ))
+
+  exec {inherited_fd}<&-
+  (
+    unset RUN_INHERITED_PROJECT_LOCK_FD
+    unset RUN_INHERITED_PROJECT_LOCK_IDENTITY
+    unset RUN_INHERITED_PROJECT_LOCK_PATH
+    TARGET_DIR="$project"
+    DRY_RUN=false
+    PROJECT_LOCK_FD=""
+    PROJECT_LOCK_IDENTITY=""
+    PROJECT_BOOTSTRAP_LOCK_FD=""
+    acquire_project_lock
+  )
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: test_project_lock_post_flock_revalidation
+#   Injects one project-directory replæcement from the flock commænd ænd
+#   requires the post-lock identity check to stop before runtime creætion.
+#ææææææææææææææææææææææææææææææææææ
+test_project_lock_post_flock_revalidation() {
+  local root="${TEST_ROOT}/post-flock-drift"
+  local project="${root}/Project"
+  local replacement="${root}/Replacement"
+  local displaced="${root}/Displaced"
+  local bin_dir="${root}/bin"
+  local real_flock=''
+  local status=0
+
+  mkdir -p -- "$project" "$replacement" "$bin_dir"
+  printf '%s\n' original >"${project}/identity.marker"
+  printf '%s\n' replacement >"${replacement}/identity.marker"
+  real_flock="$(command -v flock)"
+  printf '%s\n' \
+    '#!/usr/bin/env bash' \
+    'set -euo pipefail' \
+    '"${REAL_FLOCK:?}" "$@"' \
+    'if [[ ! -e "${LOCK_SWAP_DONE:?}" ]]; then' \
+    '  : > "$LOCK_SWAP_DONE"' \
+    '  /usr/bin/mv -T -- "${LOCK_SWAP_PROJECT:?}" "${LOCK_SWAP_DISPLACED:?}"' \
+    '  /usr/bin/mv -T -- "${LOCK_SWAP_REPLACEMENT:?}" "$LOCK_SWAP_PROJECT"' \
+    'fi' >"${bin_dir}/flock"
+  chmod 0755 -- "${bin_dir}/flock"
+
+  set +e
+  (
+    export REAL_FLOCK="$real_flock"
+    export LOCK_SWAP_DONE="${root}/swap.done"
+    export LOCK_SWAP_PROJECT="$project"
+    export LOCK_SWAP_DISPLACED="$displaced"
+    export LOCK_SWAP_REPLACEMENT="$replacement"
+    PATH="${bin_dir}:${PATH}"
+    export PATH
+    unset RUN_INHERITED_PROJECT_LOCK_FD
+    unset RUN_INHERITED_PROJECT_LOCK_IDENTITY
+    unset RUN_INHERITED_PROJECT_LOCK_PATH
+    TARGET_DIR="$project"
+    DRY_RUN=false
+    PROJECT_LOCK_FD=""
+    PROJECT_LOCK_IDENTITY=""
+    PROJECT_BOOTSTRAP_LOCK_FD=""
+    acquire_project_lock
+  )
+  status=$?
+  set -e
+
+  (( status != 0 ))
+  [[ "$(<"${project}/identity.marker")" == replacement ]]
+  [[ "$(<"${displaced}/identity.marker")" == original ]]
+  [[ ! -e "${project}/.run.conf" && ! -L "${project}/.run.conf" ]]
+  [[ ! -e "${displaced}/.run.conf" && ! -L "${displaced}/.run.conf" ]]
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: test_inherited_project_lock_survives_child_term
+#   Proves child termination closes only its descriptor copy while the
+#   pærent's originæl open-file-description keeps exclusion æctive.
+#ææææææææææææææææææææææææææææææææææ
+test_inherited_project_lock_survives_child_term() {
+  local root="${TEST_ROOT}/inherited-lock-term"
+  local project="${root}/Project"
+  local ready="${root}/ready"
+  local identity=''
+  local inherited_fd=''
+  local child_pid=''
+  local status=0
+
+  mkdir -p -- "${project}/.run.conf"
+  identity="$(stat -Lc '%d:%i' -- "$project")"
+  exec {inherited_fd}<"$project"
+  flock --exclusive --nonblock "$inherited_fd"
+  (
+    TARGET_DIR="$project"
+    DRY_RUN=false
+    PROJECT_LOCK_FD=""
+    PROJECT_LOCK_IDENTITY=""
+    PROJECT_BOOTSTRAP_LOCK_FD=""
+    RUN_INHERITED_PROJECT_LOCK_FD="$inherited_fd"
+    RUN_INHERITED_PROJECT_LOCK_IDENTITY="$identity"
+    RUN_INHERITED_PROJECT_LOCK_PATH="$project"
+    acquire_project_lock
+    trap 'exit 143' TERM
+    : > "$ready"
+    while :; do sleep 1; done
+  ) &
+  child_pid=$!
+  for _ in {1..100}; do
+    [[ -e "$ready" ]] && break
+    sleep 0.02
+  done
+  [[ -e "$ready" ]]
+  kill -TERM "$child_pid"
+  set +e
+  wait "$child_pid"
+  status=$?
+  set -e
+  (( status == 143 ))
+
+  set +e
+  (
+    unset RUN_INHERITED_PROJECT_LOCK_FD
+    unset RUN_INHERITED_PROJECT_LOCK_IDENTITY
+    unset RUN_INHERITED_PROJECT_LOCK_PATH
+    TARGET_DIR="$project"
+    DRY_RUN=false
+    PROJECT_LOCK_FD=""
+    PROJECT_LOCK_IDENTITY=""
+    PROJECT_BOOTSTRAP_LOCK_FD=""
+    acquire_project_lock
+  )
+  status=$?
+  set -e
+  (( status != 0 ))
+  exec {inherited_fd}<&-
+}
+
+#ææææææææææææææææææææææææææææææææææ
 # FUNCTION: test_dry_run_lock_is_read_only
 #   Proves first-use dry-run locking creætes no deployment runtime directory.
 #ææææææææææææææææææææææææææææææææææ
 test_dry_run_lock_is_read_only() {
   local root="${TEST_ROOT}/dry-lock"
   local project="${root}/Project"
+  local inherited_project="${root}/InheritedProject"
+  local inherited_identity=''
+  local inherited_fd=''
 
   mkdir -p -- "$project"
   TARGET_DIR="$project"
@@ -639,6 +916,24 @@ test_dry_run_lock_is_read_only() {
   PROJECT_BOOTSTRAP_LOCK_FD=""
   acquire_project_lock
   [[ ! -e "${project}/.${SCRIPT_BASE}.conf" ]]
+
+  mkdir -p -- "$inherited_project"
+  inherited_identity="$(stat -Lc '%d:%i' -- "$inherited_project")"
+  exec {inherited_fd}<"$inherited_project"
+  flock --exclusive --nonblock "$inherited_fd"
+  (
+    TARGET_DIR="$inherited_project"
+    DRY_RUN=true
+    PROJECT_LOCK_FD=""
+    PROJECT_LOCK_IDENTITY=""
+    PROJECT_BOOTSTRAP_LOCK_FD=""
+    RUN_INHERITED_PROJECT_LOCK_FD="$inherited_fd"
+    RUN_INHERITED_PROJECT_LOCK_IDENTITY="$inherited_identity"
+    RUN_INHERITED_PROJECT_LOCK_PATH="$inherited_project"
+    acquire_project_lock
+  )
+  [[ ! -e "${inherited_project}/.${SCRIPT_BASE}.conf" ]]
+  exec {inherited_fd}<&-
 }
 
 test_mutating_modes_stop_at_lock() {
@@ -698,6 +993,7 @@ test_full_initial_entrypoint() {
   local project="${root}/Project"
   local remote="${root}/remote"
   local current_yq_tag revision deployed_mode image_copy
+  local inherited_fd='' inherited_identity='' status=0
 
   create_fixture "$root" valid
   rm -rf -- "${project}/.${SCRIPT_BASE}.conf"
@@ -738,6 +1034,28 @@ test_full_initial_entrypoint() {
       "${root}/run.sh" Project --skip-permissions
   )
 
+  inherited_identity="$(stat -Lc '%d:%i' -- "$project")"
+  exec {inherited_fd}<"$project"
+  flock --exclusive --nonblock "$inherited_fd"
+  (
+    umask 022
+    RUN_INHERITED_PROJECT_LOCK_FD="$inherited_fd" \
+      RUN_INHERITED_PROJECT_LOCK_IDENTITY="$inherited_identity" \
+      RUN_INHERITED_PROJECT_LOCK_PATH="$project" \
+      YQ_TEST_TAG="$current_yq_tag" PATH="${root}/bin:${PATH}" \
+      "${root}/run.sh" Project --skip-permissions
+  )
+  set +e
+  (
+    umask 022
+    YQ_TEST_TAG="$current_yq_tag" PATH="${root}/bin:${PATH}" \
+      "${root}/run.sh" Project --skip-permissions
+  ) >"${root}/inherited-parent-lock-contender.out" 2>&1
+  status=$?
+  set -e
+  (( status != 0 ))
+  exec {inherited_fd}<&-
+
   [[ -f "${project}/app.env" && -f "${project}/.env" ]]
   [[ "$(<"${project}/.run.conf/.templates.lock")" == "$revision" ]]
   [[ "$(stat -Lc '%a' -- "${project}/.run.conf")" == 700 ]]
@@ -773,6 +1091,9 @@ expect_success publish-failure-rolls-back test_publish_failure_rolls_back
 expect_success lock-failure-rolls-back test_lock_failure_rolls_back
 expect_success signal-interrupt-rolls-back test_signal_interrupt_rolls_back
 expect_success exclusive-project-lock test_exclusive_project_lock
+expect_success inherited-project-lock-handoff test_inherited_project_lock_handoff
+expect_success project-lock-post-flock-revalidation test_project_lock_post_flock_revalidation
+expect_success inherited-project-lock-survives-child-term test_inherited_project_lock_survives_child_term
 expect_success dry-run-lock-is-read-only test_dry_run_lock_is_read_only
 expect_success mutating-modes-stop-at-lock test_mutating_modes_stop_at_lock
 expect_success top-level-temp-replacement-preserved test_top_level_temp_replacement_is_preserved

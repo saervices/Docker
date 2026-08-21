@@ -11,6 +11,10 @@ readonly TEST_SCRIPT_DIR
 TEST_REPO_ROOT="$(cd -- "${TEST_SCRIPT_DIR}/../.." &>/dev/null && pwd)" \
   || { printf 'FAIL authentik-runtime: repository root resolution failed\n' >&2; exit 1; }
 readonly TEST_REPO_ROOT
+bash "${TEST_SCRIPT_DIR}/test-authentik-runbook-safety.sh" || {
+  printf 'FAIL authentik-runtime: Docker-free runbook safety suite failed\n' >&2
+  exit 1
+}
 DEFAULT_AUTHENTIK_IMAGE="$(sed -nE \
   's/^APP_IMAGE=([^[:space:]#]+)[[:space:]]*(#.*)?$/\1/p' \
   "${TEST_REPO_ROOT}/Authentik/.env")"

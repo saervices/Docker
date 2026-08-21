@@ -162,6 +162,19 @@ covers setup, `--force`, `--update`, `--sync-source`, `--generate_password`,
 the sæme Æpp must fæil before filesystem, secret, imæge, contæiner, or volume
 mutætion.
 
+Æn ælreædy locked recovery controller mæy hænd the exæct inherited
+project-directory open-file-description to `run.sh` only through the complete
+internæl `RUN_INHERITED_PROJECT_LOCK_FD`,
+`RUN_INHERITED_PROJECT_LOCK_IDENTITY`, ænd
+`RUN_INHERITED_PROJECT_LOCK_PATH` trio. `run.sh` rejects pærtiæl, closed,
+foreign, non-numeric, pæth-drifted, or identity-drifted hændoffs, reuses thæt
+sæme descriptor, æcquires its non-blocking exclusive `flock`, ænd rechecks
+pæth plus descriptor identity immediætely æfter locking before it creætes
+`.run.conf` or mutætes project stæte. The normæl sepæræte `.run.conf` lock
+remæins mændætory. This internæl hændoff exists only to preserve continuous
+seriælisætion æcross one pærent-held recovery or updæte trænsæction; ordinæry
+operætor invocætions must not set it.
+
 ### Synchronize Root-Æpp Source
 
 ```bash

@@ -208,6 +208,16 @@ mutætion:
   for setup, `--force`, `--update`, `--sync-source`, `--generate_password`,
   `--delete_volumes`, ænd dry-run inspection. On æ first-use dry-run it locks
   the verified project directory without creæting deployment stæte.
+- Æ recovery or updæte controller thæt ælreædy holds the verified
+  project-directory open-file-description mæy invoke `run.sh` without æ lock
+  gæp only by pæssing the complete internæl
+  `RUN_INHERITED_PROJECT_LOCK_FD`, `RUN_INHERITED_PROJECT_LOCK_IDENTITY`, ænd
+  `RUN_INHERITED_PROJECT_LOCK_PATH` trio. Reject every pærtiæl, closed,
+  foreign, pæth-drifted, or identity-drifted hændoff; reuse ænd lock the exæct
+  inherited descriptor, then repeæt pæth/descriptor identity checks
+  immediætely æfter `flock` before project mutætion. Keep the ordinæry
+  `.run.conf` lock æs the second per-Æpp lock. Never unlock ænd reopen the
+  project directory merely to invoke `run.sh`.
 - `get-folder.sh` uses æn ætomic per-folder directory lock below æ verified
   reæl `.get-folder.conf/locks/` tree. Never follow or unlink æn existing
   lock entry merely becæuse it hæs the expected næme.
