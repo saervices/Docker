@@ -84,7 +84,8 @@ Run this non-destructive, sæme-filesystem cæpæbility preflight from the sourc
 cd /home/r0gmar/Seafile/Development/Docker/Grafana
 set -euo pipefail
 export LC_ALL=C
-for recovery_tool in flock gzip tar mv sync timeout awk curl jq openssl grep; do
+for recovery_tool in flock gzip tar mv sync timeout awk curl jq openssl grep \
+  getfacl getfattr sha256sum stat find sort; do
   command -v "$recovery_tool" >/dev/null
 done
 tar --version | grep -F 'GNU tar'
@@ -325,6 +326,303 @@ successful exit ælso proves no æctive token violætes the ceiling; `app`,
 `postgresql`, ænd `postgresql_maintenance` ære running. The mæintenænce service
 mæy remæin in its documented stært-period until the first scheduled bæckup.
 
+### Continuous per-Æpp operætions lock
+
+Ædoption, SSO reconcile, breæk-glæss, restore, ænd updæte use the exæct three
+directory inodes locked by `run.sh`, in the sæme order: first the reæl
+repository root with æ shæred lock, then the reæl `Grafana/` project root
+with æn exclusive lock, then its reæl `.run.conf` with æn exclusive lock. This seriælises every
+cooperætive merge ænd Græfænæ runbook thæt cæn mutæte dætæbæse,
+configurætion, policy, imæges, or `appdata`. Open one dedicæted Bæsh shell,
+pæste the following definitions once, ænd keep thæt **sæme shell** open until
+the workflow's finæl æcceptænce block cælls `finish_grafana_operation`. Every
+continuætion verifies æll three inherited open FDs through
+`/proc/$BASHPID/fd`, æll device/inode identities, workflow/ID, ænd
+competing-lock negætive
+controls. Æ
+new shell hæs no FD ænd therefore fæils closed; never recreæte or export
+væriæbles to simulæte continuity. Before `app` stærts, it remæins stopped on
+shell loss. Æfter stært, the workflow-specific `EXIT` guærd stops every
+unæccepted `app` before the FD is releæsed.
+
+```bash
+cd /home/r0gmar/Seafile/Development/Docker/Grafana
+set -euo pipefail
+begin_grafana_operation() {
+  local requested_workflow=$1 requested_id=$2
+  local repository_opened_identity project_opened_identity
+  local runtime_opened_identity
+  case "$requested_workflow" in
+    adoption|sso-reconcile|break-glass|restore|update) ;;
+    *) printf '%s\n' 'ERROR: unsupported Grafana operation.' >&2; return 1 ;;
+  esac
+  [[ "$requested_id" =~ ^[0-9]{8}T[0-9]{6}Z$ ]]
+  test -z "${GRAFANA_OPS_REPOSITORY_FD:-}"
+  test -z "${GRAFANA_OPS_PROJECT_FD:-}"
+  test -z "${GRAFANA_OPS_RUNTIME_FD:-}"
+  test "$(realpath -e -- .)" = "$(pwd -P)"
+  test -d .
+  test ! -L .
+  test -d .run.conf
+  test ! -L .run.conf
+  GRAFANA_OPS_REPOSITORY_PATH="$(realpath -e -- ..)"
+  GRAFANA_OPS_PROJECT_PATH="$(pwd -P)"
+  GRAFANA_OPS_RUNTIME_PATH="$GRAFANA_OPS_PROJECT_PATH/.run.conf"
+  test -d "$GRAFANA_OPS_REPOSITORY_PATH"
+  test ! -L "$GRAFANA_OPS_REPOSITORY_PATH"
+  GRAFANA_OPS_REPOSITORY_IDENTITY="$(stat -Lc '%d:%i' -- \
+    "$GRAFANA_OPS_REPOSITORY_PATH")"
+  exec {GRAFANA_OPS_REPOSITORY_FD}<"$GRAFANA_OPS_REPOSITORY_PATH"
+  repository_opened_identity="$(stat -Lc '%d:%i' -- \
+    "/proc/$BASHPID/fd/$GRAFANA_OPS_REPOSITORY_FD")"
+  test "$repository_opened_identity" = "$GRAFANA_OPS_REPOSITORY_IDENTITY"
+  test "$(stat -Lc '%d:%i' -- "$GRAFANA_OPS_REPOSITORY_PATH")" = \
+    "$GRAFANA_OPS_REPOSITORY_IDENTITY"
+  if ! flock --shared --nonblock "$GRAFANA_OPS_REPOSITORY_FD"; then
+    exec {GRAFANA_OPS_REPOSITORY_FD}<&-
+    unset GRAFANA_OPS_REPOSITORY_FD
+    return 1
+  fi
+  GRAFANA_OPS_PROJECT_IDENTITY="$(stat -Lc '%d:%i' -- \
+    "$GRAFANA_OPS_PROJECT_PATH")"
+  exec {GRAFANA_OPS_PROJECT_FD}<"$GRAFANA_OPS_PROJECT_PATH"
+  project_opened_identity="$(stat -Lc '%d:%i' -- \
+    "/proc/$BASHPID/fd/$GRAFANA_OPS_PROJECT_FD")"
+  test "$project_opened_identity" = "$GRAFANA_OPS_PROJECT_IDENTITY"
+  test ! -L "$GRAFANA_OPS_PROJECT_PATH"
+  test "$(stat -Lc '%d:%i' -- "$GRAFANA_OPS_PROJECT_PATH")" = \
+    "$GRAFANA_OPS_PROJECT_IDENTITY"
+  if ! flock --exclusive --nonblock "$GRAFANA_OPS_PROJECT_FD"; then
+    exec {GRAFANA_OPS_PROJECT_FD}<&-
+    flock -u "$GRAFANA_OPS_REPOSITORY_FD"
+    exec {GRAFANA_OPS_REPOSITORY_FD}<&-
+    unset GRAFANA_OPS_PROJECT_FD GRAFANA_OPS_REPOSITORY_FD
+    return 1
+  fi
+  GRAFANA_OPS_RUNTIME_IDENTITY="$(stat -Lc '%d:%i' -- \
+    "$GRAFANA_OPS_RUNTIME_PATH")"
+  exec {GRAFANA_OPS_RUNTIME_FD}<"$GRAFANA_OPS_RUNTIME_PATH"
+  runtime_opened_identity="$(stat -Lc '%d:%i' -- \
+    "/proc/$BASHPID/fd/$GRAFANA_OPS_RUNTIME_FD")"
+  test "$runtime_opened_identity" = "$GRAFANA_OPS_RUNTIME_IDENTITY"
+  test ! -L "$GRAFANA_OPS_RUNTIME_PATH"
+  test "$(stat -Lc '%d:%i' -- "$GRAFANA_OPS_RUNTIME_PATH")" = \
+    "$GRAFANA_OPS_RUNTIME_IDENTITY"
+  if ! flock --exclusive --nonblock "$GRAFANA_OPS_RUNTIME_FD"; then
+    exec {GRAFANA_OPS_RUNTIME_FD}<&-
+    flock -u "$GRAFANA_OPS_PROJECT_FD"
+    exec {GRAFANA_OPS_PROJECT_FD}<&-
+    flock -u "$GRAFANA_OPS_REPOSITORY_FD"
+    exec {GRAFANA_OPS_REPOSITORY_FD}<&-
+    unset GRAFANA_OPS_RUNTIME_FD GRAFANA_OPS_PROJECT_FD \
+      GRAFANA_OPS_REPOSITORY_FD
+    return 1
+  fi
+  GRAFANA_OPS_WORKFLOW=$requested_workflow
+  GRAFANA_OPS_ID=$requested_id
+  export GRAFANA_OPS_REPOSITORY_FD GRAFANA_OPS_PROJECT_FD \
+    GRAFANA_OPS_RUNTIME_FD GRAFANA_OPS_REPOSITORY_IDENTITY \
+    GRAFANA_OPS_PROJECT_IDENTITY GRAFANA_OPS_RUNTIME_IDENTITY \
+    GRAFANA_OPS_REPOSITORY_PATH GRAFANA_OPS_PROJECT_PATH \
+    GRAFANA_OPS_RUNTIME_PATH \
+    GRAFANA_OPS_WORKFLOW GRAFANA_OPS_ID
+  verify_grafana_operation "$requested_workflow" "$requested_id"
+}
+verify_grafana_operation() {
+  local expected_workflow=$1 expected_id=$2
+  : "${GRAFANA_OPS_REPOSITORY_FD:?Missing inherited repository FD}"
+  : "${GRAFANA_OPS_PROJECT_FD:?Missing inherited Grafana project FD}"
+  : "${GRAFANA_OPS_RUNTIME_FD:?Missing inherited Grafana runtime FD}"
+  : "${GRAFANA_OPS_REPOSITORY_IDENTITY:?Missing repository identity}"
+  : "${GRAFANA_OPS_PROJECT_IDENTITY:?Missing Grafana project identity}"
+  : "${GRAFANA_OPS_RUNTIME_IDENTITY:?Missing Grafana runtime identity}"
+  [[ "$GRAFANA_OPS_REPOSITORY_FD" =~ ^[0-9]+$ ]]
+  [[ "$GRAFANA_OPS_PROJECT_FD" =~ ^[0-9]+$ ]]
+  [[ "$GRAFANA_OPS_RUNTIME_FD" =~ ^[0-9]+$ ]]
+  test "$GRAFANA_OPS_WORKFLOW" = "$expected_workflow"
+  test "$GRAFANA_OPS_ID" = "$expected_id"
+  test ! -L "$GRAFANA_OPS_REPOSITORY_PATH"
+  test ! -L "$GRAFANA_OPS_PROJECT_PATH"
+  test ! -L "$GRAFANA_OPS_RUNTIME_PATH"
+  test "$(stat -Lc '%d:%i' -- \
+    "/proc/$BASHPID/fd/$GRAFANA_OPS_REPOSITORY_FD")" = \
+    "$GRAFANA_OPS_REPOSITORY_IDENTITY"
+  test "$(stat -Lc '%d:%i' -- \
+    "/proc/$BASHPID/fd/$GRAFANA_OPS_PROJECT_FD")" = \
+    "$GRAFANA_OPS_PROJECT_IDENTITY"
+  test "$(stat -Lc '%d:%i' -- \
+    "/proc/$BASHPID/fd/$GRAFANA_OPS_RUNTIME_FD")" = \
+    "$GRAFANA_OPS_RUNTIME_IDENTITY"
+  test "$(stat -Lc '%d:%i' -- "$GRAFANA_OPS_REPOSITORY_PATH")" = \
+    "$GRAFANA_OPS_REPOSITORY_IDENTITY"
+  test "$(stat -Lc '%d:%i' -- "$GRAFANA_OPS_PROJECT_PATH")" = \
+    "$GRAFANA_OPS_PROJECT_IDENTITY"
+  test "$(stat -Lc '%d:%i' -- "$GRAFANA_OPS_RUNTIME_PATH")" = \
+    "$GRAFANA_OPS_RUNTIME_IDENTITY"
+  if flock -n -x "$GRAFANA_OPS_REPOSITORY_PATH" true; then
+    printf '%s\n' 'ERROR: repository FD does not hold the shared lock.' >&2
+    return 1
+  fi
+  if flock -n -x "$GRAFANA_OPS_PROJECT_PATH" true; then
+    printf '%s\n' 'ERROR: Grafana project FD does not hold the lock.' >&2
+    return 1
+  fi
+  if flock -n -x "$GRAFANA_OPS_RUNTIME_PATH" true; then
+    printf '%s\n' 'ERROR: Grafana runtime FD does not hold the lock.' >&2
+    return 1
+  fi
+}
+finish_grafana_operation() {
+  local expected_workflow=$1 expected_id=$2
+  verify_grafana_operation "$expected_workflow" "$expected_id"
+  flock -u "$GRAFANA_OPS_RUNTIME_FD"
+  exec {GRAFANA_OPS_RUNTIME_FD}<&-
+  flock -u "$GRAFANA_OPS_PROJECT_FD"
+  exec {GRAFANA_OPS_PROJECT_FD}<&-
+  flock -u "$GRAFANA_OPS_REPOSITORY_FD"
+  exec {GRAFANA_OPS_REPOSITORY_FD}<&-
+  unset GRAFANA_OPS_REPOSITORY_FD GRAFANA_OPS_PROJECT_FD \
+    GRAFANA_OPS_RUNTIME_FD GRAFANA_OPS_REPOSITORY_IDENTITY \
+    GRAFANA_OPS_PROJECT_IDENTITY GRAFANA_OPS_RUNTIME_IDENTITY \
+    GRAFANA_OPS_REPOSITORY_PATH GRAFANA_OPS_PROJECT_PATH \
+    GRAFANA_OPS_RUNTIME_PATH \
+    GRAFANA_OPS_WORKFLOW GRAFANA_OPS_ID
+}
+write_grafana_secret_manifest() {
+  local manifest_output=$1 rendered_config secret_name secret_file
+  local secret_mode secret_uid secret_gid secret_size secret_digest
+  local secret_names_file secret_temp_file
+  local expected_secret_uid expected_secret_gid secret_owner_path
+  local -a secret_compose
+  shift
+  if [ "$#" -gt 0 ]; then
+    secret_compose=("$@")
+  else
+    secret_compose=(docker compose --env-file .env \
+      -f docker-compose.main.yaml)
+  fi
+  secret_owner_path="${GRAFANA_OPS_PROJECT_PATH:-.}"
+  expected_secret_uid="${GRAFANA_SECRET_EXPECTED_UID:-$(stat -c '%u' -- \
+    "$secret_owner_path")}" || return 1
+  [[ "$expected_secret_uid" =~ ^[0-9]+$ ]] || return 1
+  umask 077
+  rendered_config="$(mktemp /tmp/grafana-secret-config.XXXXXX)" || return 1
+  secret_names_file="$(mktemp /tmp/grafana-secret-names.XXXXXX)" || {
+    rm -f -- "$rendered_config"
+    return 1
+  }
+  for secret_temp_file in "$rendered_config" "$secret_names_file"; do
+    test -f "$secret_temp_file" || {
+      rm -f -- "$rendered_config" "$secret_names_file"
+      return 1
+    }
+    test "$(stat -c '%h:%a:%u' -- "$secret_temp_file")" = \
+      "1:600:$(id -u)" || {
+      rm -f -- "$rendered_config" "$secret_names_file"
+      return 1
+    }
+    test ! -L "$secret_temp_file" || {
+      rm -f -- "$rendered_config" "$secret_names_file"
+      return 1
+    }
+  done
+  if ! "${secret_compose[@]}" config --format json > "$rendered_config"; then
+    rm -f -- "$rendered_config" "$secret_names_file"
+    return 1
+  fi
+  test -s "$rendered_config" || {
+    rm -f -- "$rendered_config" "$secret_names_file"
+    return 1
+  }
+  expected_secret_gid="${GRAFANA_SECRET_EXPECTED_GID:-$(jq -er '
+    [.services | to_entries[] |
+      select(.key == "grafana-bootstrap" or .key == "grafana-migrator" or
+        .key == "grafana-sso-policy") |
+      (.value.group_add // [])[] | tostring] |
+    unique | if length == 1 then .[0] else error("ambiguous secret group") end
+  ' "$rendered_config")}" || {
+    rm -f -- "$rendered_config" "$secret_names_file"
+    return 1
+  }
+  [[ "$expected_secret_gid" =~ ^[0-9]+$ ]] || {
+    rm -f -- "$rendered_config" "$secret_names_file"
+    return 1
+  }
+  if ! jq -j '
+    [.services | to_entries[] |
+      select(.key == "app" or .key == "grafana-bootstrap" or
+        .key == "grafana-migrator" or .key == "grafana-sso-policy") |
+      (.value.secrets // [])[] |
+      if type == "string" then . else .source end] |
+    unique[] | . + "\u0000"
+  ' "$rendered_config" > "$secret_names_file"; then
+    rm -f -- "$rendered_config" "$secret_names_file"
+    return 1
+  fi
+  test -s "$secret_names_file" || {
+    rm -f -- "$rendered_config" "$secret_names_file"
+    return 1
+  }
+  test ! -L "$manifest_output" || {
+    rm -f -- "$rendered_config" "$secret_names_file"
+    return 1
+  }
+  if [ -e "$manifest_output" ]; then
+    test -f "$manifest_output" || {
+      rm -f -- "$rendered_config" "$secret_names_file"
+      return 1
+    }
+    test "$(stat -c '%h:%u' -- "$manifest_output")" = \
+      "1:$(id -u)" || {
+      rm -f -- "$rendered_config" "$secret_names_file"
+      return 1
+    }
+  fi
+  : > "$manifest_output" || {
+    rm -f -- "$rendered_config" "$secret_names_file"
+    return 1
+  }
+  if ! (
+    while IFS= read -r -d '' secret_name; do
+    secret_file="$(jq -er --arg secret_name "$secret_name" \
+      '.secrets[$secret_name].file | select(type == "string" and length > 0)' \
+      "$rendered_config")" || exit 1
+    [[ "$secret_file" == /* ]] || exit 1
+    test -f "$secret_file" || exit 1
+    test ! -L "$secret_file" || exit 1
+    test "$(stat -c '%F:%h' -- "$secret_file")" = \
+      'regular file:1' || exit 1
+    secret_mode="$(stat -c '%a' -- "$secret_file")" || exit 1
+    secret_uid="$(stat -c '%u' -- "$secret_file")" || exit 1
+    secret_gid="$(stat -c '%g' -- "$secret_file")" || exit 1
+    secret_size="$(stat -c '%s' -- "$secret_file")" || exit 1
+    test "$secret_uid" -eq "$expected_secret_uid" || exit 1
+    case "$secret_mode" in
+      600) ;;
+      640) test "$secret_gid" -eq "$expected_secret_gid" || exit 1 ;;
+      *) exit 1 ;;
+    esac
+    secret_digest="$(sha256sum < "$secret_file" | awk '{ print $1 }')" || \
+      exit 1
+    [[ "$secret_digest" =~ ^[0-9a-f]{64}$ ]] || exit 1
+    printf '%s\0%s\0%s\0%s\0%s\0%s\0%s\0' \
+      "$secret_name" "$secret_file" "$secret_mode" "$secret_uid" \
+      "$secret_gid" "$secret_size" "$secret_digest" >> \
+      "$manifest_output" || exit 1
+    done < "$secret_names_file"
+  ); then
+    rm -f -- "$rendered_config" "$secret_names_file" "$manifest_output"
+    return 1
+  fi
+  rm -f -- "$rendered_config" "$secret_names_file" || return 1
+  test -s "$manifest_output" || return 1
+  chmod 0600 -- "$manifest_output" || return 1
+  test "$(stat -c '%F:%h:%a:%u' -- "$manifest_output")" = \
+    "regular file:1:600:$(id -u)" || return 1
+  test ! -L "$manifest_output" || return 1
+}
+```
+
 ### Existing PostgreSQL deployments
 
 Æn existing dætæbæse hæs no trusted bootstræp mærker. Before æny merge,
@@ -373,8 +671,10 @@ the pæir cænnot be proven, do not guess it or weæken `depends_on`; use this
 one-time æudited ædoption:
 
 1. Set `GRAFANA_ADMIN_USER` to the exæct existing recovery-ædmin login; keep
-   `GRAFANA_DISABLE_LOGIN_FORM=true` ænd set
-   `GRAFANA_OAUTH_AUTO_LOGIN=false` in `app.env`. Only æfter the preceding
+   `GRAFANA_DISABLE_LOGIN_FORM=true` ænd set the intended normæl
+   `GRAFANA_OAUTH_AUTO_LOGIN` vælue in `app.env`. The route remæins blocked,
+   so no temporæry æuto-login source chænge is needed between the credentiæl
+   mutætion ænd æctivætion. Only æfter the preceding
    secret, version-pin, bæckup, ænd writer-exclusivity checks pæss, run
    `./run.sh Grafana`, render, ænd consciously build both locæl imæges.
 2. Do not stært `app` ænd do not run migrætor or policy before bootstræp. Inspect
@@ -413,8 +713,12 @@ one-time æudited ædoption:
 
    ```bash
    cd /home/r0gmar/Seafile/Development/Docker/Grafana
+   set -euo pipefail
+   adoption_id="$(date -u +%Y%m%dT%H%M%SZ)"
+   begin_grafana_operation adoption "$adoption_id"
    (
    set -euo pipefail
+   verify_grafana_operation adoption "$adoption_id"
    reviewed_app_image_id=sha256:REPLACE_WITH_RECORDED_STEP_2_ID
    [[ "$reviewed_app_image_id" =~ ^sha256:[0-9a-f]{64}$ ]]
    app_image_ref="$(docker compose --env-file .env \
@@ -426,6 +730,47 @@ one-time æudited ædoption:
    docker image tag "$reviewed_app_image_id" "$adoption_image_alias"
    test "$(docker image inspect --format '{{.Id}}' \
      "$adoption_image_alias")" = "$reviewed_app_image_id"
+   adoption_generation_root="$(pwd)/recovery"
+   test ! -L "$adoption_generation_root"
+   if [ ! -e "$adoption_generation_root" ]; then
+     install -d -m 0700 -- "$adoption_generation_root"
+   fi
+   test "$(stat -c '%F:%a:%u' -- "$adoption_generation_root")" = \
+     "directory:700:$(id -u)"
+   adoption_mutation_manifest="$adoption_generation_root/grafana-adoption-$adoption_id.mutation"
+   adoption_mutation_checksum="$adoption_mutation_manifest.sha256"
+   adoption_mutation_secrets="$adoption_generation_root/grafana-adoption-$adoption_id.mutation-secrets"
+   test ! -e "$adoption_mutation_manifest"
+   test ! -L "$adoption_mutation_manifest"
+   test ! -e "$adoption_mutation_checksum"
+   test ! -L "$adoption_mutation_checksum"
+   test ! -e "$adoption_mutation_secrets"
+   test ! -L "$adoption_mutation_secrets"
+   write_grafana_secret_manifest "$adoption_mutation_secrets"
+   adoption_mutation_secrets_digest="$(sha256sum "$adoption_mutation_secrets" |
+     awk '{ print $1 }')"
+   adoption_mutation_app_env_digest="$(sha256sum app.env |
+     awk '{ print $1 }')"
+   adoption_mutation_env_digest="$(sha256sum .env | awk '{ print $1 }')"
+   adoption_mutation_compose_digest="$(sha256sum docker-compose.main.yaml |
+     awk '{ print $1 }')"
+   for adoption_mutation_digest in "$adoption_mutation_secrets_digest" \
+     "$adoption_mutation_app_env_digest" "$adoption_mutation_env_digest" \
+     "$adoption_mutation_compose_digest"; do
+     [[ "$adoption_mutation_digest" =~ ^[0-9a-f]{64}$ ]]
+   done
+   printf 'format|grafana-adoption-mutation-v1\nadoption-id|%s\napp-image-id|%s\nsecrets-sha256|%s\napp-env-sha256|%s\nenv-sha256|%s\ncompose-sha256|%s\n' \
+     "$adoption_id" "$reviewed_app_image_id" \
+     "$adoption_mutation_secrets_digest" \
+     "$adoption_mutation_app_env_digest" "$adoption_mutation_env_digest" \
+     "$adoption_mutation_compose_digest" > \
+     "$adoption_mutation_manifest"
+   chmod 0600 -- "$adoption_mutation_manifest"
+   sha256sum "$adoption_mutation_manifest" > "$adoption_mutation_checksum"
+   chmod 0600 -- "$adoption_mutation_checksum"
+   sha256sum -c "$adoption_mutation_checksum"
+   sync -f "$adoption_mutation_manifest" "$adoption_mutation_checksum"
+   sync -f "$adoption_generation_root"
    admin_secret=secrets/GRAFANA_ADMIN_PASSWORD
    admin_secret_stage=
    rotation_state=before-mutation
@@ -460,6 +805,12 @@ one-time æudited ædoption:
    chown --reference="$admin_secret" "$admin_secret_stage"
    sync -f "$admin_secret_stage"
    rotation_state=mutation-attempted
+   verify_grafana_operation adoption "$adoption_id"
+   sha256sum -c "$adoption_mutation_checksum"
+   adoption_secret_check="$(mktemp /tmp/grafana-adoption-secrets.XXXXXX)"
+   write_grafana_secret_manifest "$adoption_secret_check"
+   cmp -s -- "$adoption_mutation_secrets" "$adoption_secret_check"
+   rm -f -- "$adoption_secret_check"
    printf '%s\n' "$grafana_adopt_password" |
      APP_IMAGE="$adoption_image_alias" \
        docker compose --env-file .env -f docker-compose.main.yaml run --rm \
@@ -478,14 +829,18 @@ one-time æudited ædoption:
    unset grafana_adopt_password grafana_adopt_user_id admin_secret_stage \
      admin_secret adoption_image_alias reviewed_app_image_id app_image_ref
    )
+   verify_grafana_operation adoption "$adoption_id"
+   printf 'Record adoption ID for step 5: %s\n' "$adoption_id"
    ```
 
 4. Prove `app` is still stopped ænd no completion mærker exists. Do not open
    æ locæl form or public route to test the pæssword before the verified
    bootstræp; its two æuthenticæted loopbæck probes ære the proof.
-5. Keep `GRAFANA_DISABLE_LOGIN_FORM=true`, restore the intended normæl
-   `GRAFANA_OAUTH_AUTO_LOGIN` vælue, rerun `./run.sh Grafana`, ænd stært
-   without æ build or pull. The reæl `grafana-bootstrap` job must now prove
+<div id="grafana-adoption-activation"></div>
+
+5. Keep the ælreædy rendered intended normæl configurætion unchænged ænd
+   stært without æ build, pull, or second merge. The reæl
+   `grafana-bootstrap` job must now prove
    the synchronised login/pæssword twice ænd publish the mærker itself. The
    migrætor must then complete vendor migrætions ænd dætæbæse heælth without
    the ædmin secret; policy must then reconcile/prove zero SSO overrides before
@@ -494,6 +849,9 @@ one-time æudited ædoption:
    ```bash
    cd /home/r0gmar/Seafile/Development/Docker/Grafana
    set -euo pipefail
+   adoption_id=REPLACE_WITH_RECORDED_STEP_3_ADOPTION_ID
+   [[ "$adoption_id" =~ ^[0-9]{8}T[0-9]{6}Z$ ]]
+   verify_grafana_operation adoption "$adoption_id"
    reviewed_app_image_id=sha256:REPLACE_WITH_RECORDED_STEP_2_APP_ID
    reviewed_policy_image_id=sha256:REPLACE_WITH_RECORDED_STEP_2_POLICY_ID
    [[ "$reviewed_app_image_id" =~ ^sha256:[0-9a-f]{64}$ ]]
@@ -506,20 +864,83 @@ one-time æudited ædoption:
      "$reviewed_app_image_id"
    test "$(docker image inspect --format '{{.Id}}' \
      "$adoption_policy_alias")" = "$reviewed_policy_image_id"
+   adoption_generation_root="$(pwd)/recovery"
+   adoption_mutation_manifest="$adoption_generation_root/grafana-adoption-$adoption_id.mutation"
+   adoption_mutation_checksum="$adoption_mutation_manifest.sha256"
+   for adoption_contract_file in "$adoption_mutation_manifest" \
+     "$adoption_mutation_checksum"; do
+     test "$(stat -c '%F:%h:%a:%u' -- "$adoption_contract_file")" = \
+       "regular file:1:600:$(id -u)"
+     test ! -L "$adoption_contract_file"
+   done
+   sha256sum -c "$adoption_mutation_checksum"
+   adoption_mutation_digest="$(sha256sum "$adoption_mutation_manifest" |
+     awk '{ print $1 }')"
+   [[ "$adoption_mutation_digest" =~ ^[0-9a-f]{64}$ ]]
+   adoption_activation_manifest="$adoption_generation_root/grafana-adoption-$adoption_id.activation"
+   adoption_activation_checksum="$adoption_activation_manifest.sha256"
+   adoption_activation_secrets="$adoption_generation_root/grafana-adoption-$adoption_id.activation-secrets"
+   test ! -e "$adoption_activation_manifest"
+   test ! -L "$adoption_activation_manifest"
+   test ! -e "$adoption_activation_checksum"
+   test ! -L "$adoption_activation_checksum"
+   test ! -e "$adoption_activation_secrets"
+   test ! -L "$adoption_activation_secrets"
+   write_grafana_secret_manifest "$adoption_activation_secrets"
+   adoption_activation_secrets_digest="$(sha256sum \
+     "$adoption_activation_secrets" | awk '{ print $1 }')"
+   write_adoption_activation_manifest() {
+     local manifest_output=$1 app_env_digest env_digest compose_digest
+     local adoption_digest
+     app_env_digest="$(sha256sum app.env | awk '{ print $1 }')" || return 1
+     env_digest="$(sha256sum .env | awk '{ print $1 }')" || return 1
+     compose_digest="$(sha256sum docker-compose.main.yaml |
+       awk '{ print $1 }')" || return 1
+     for adoption_digest in "$app_env_digest" "$env_digest" \
+       "$compose_digest"; do
+       [[ "$adoption_digest" =~ ^[0-9a-f]{64}$ ]] || return 1
+     done
+     printf 'format|grafana-adoption-activation-v1\nadoption-id|%s\nmutation-sha256|%s\nsecrets-sha256|%s\napp-image-id|%s\npolicy-image-id|%s\napp-env-sha256|%s\nenv-sha256|%s\ncompose-sha256|%s\n' \
+       "$adoption_id" "$adoption_mutation_digest" \
+       "$adoption_activation_secrets_digest" \
+       "$reviewed_app_image_id" "$reviewed_policy_image_id" \
+       "$app_env_digest" "$env_digest" "$compose_digest" > \
+       "$manifest_output" || return 1
+   }
+   umask 077
+   write_adoption_activation_manifest "$adoption_activation_manifest"
+   chmod 0600 -- "$adoption_activation_manifest"
+   sha256sum "$adoption_activation_manifest" > \
+     "$adoption_activation_checksum"
+   chmod 0600 -- "$adoption_activation_checksum"
+   verify_adoption_activation_generation() {
+     local manifest_check secret_check
+     verify_grafana_operation adoption "$adoption_id"
+     sha256sum -c "$adoption_mutation_checksum"
+     sha256sum -c "$adoption_activation_checksum"
+     manifest_check="$(mktemp /tmp/grafana-adoption-generation.XXXXXX)"
+     write_adoption_activation_manifest "$manifest_check"
+     cmp -s -- "$adoption_activation_manifest" "$manifest_check"
+     secret_check="$(mktemp /tmp/grafana-adoption-secrets.XXXXXX)"
+     write_grafana_secret_manifest "$secret_check"
+     cmp -s -- "$adoption_activation_secrets" "$secret_check"
+     rm -f -- "$manifest_check" "$secret_check"
+   }
+   verify_adoption_activation_generation
    test -z "$(docker compose --env-file .env -f docker-compose.main.yaml \
      ps --status running -q app)"
    test ! -e appdata/bootstrap-state/bootstrap-v1.complete
    test ! -L appdata/bootstrap-state/bootstrap-v1.complete
-   cd ..
-   ./run.sh Grafana
-   cd Grafana
    docker compose --env-file .env -f docker-compose.main.yaml config --quiet
+   verify_adoption_activation_generation
    docker compose --env-file .env -f docker-compose.main.yaml \
      rm --stop -f grafana-bootstrap grafana-migrator grafana-sso-policy
+   verify_adoption_activation_generation
    APP_IMAGE="$adoption_app_alias" \
      docker compose --env-file .env -f docker-compose.main.yaml up \
        --no-deps --no-build --pull never --abort-on-container-exit \
        --exit-code-from grafana-bootstrap grafana-bootstrap
+   verify_adoption_activation_generation
    APP_IMAGE="$adoption_app_alias" \
      docker compose --env-file .env -f docker-compose.main.yaml up \
        --no-deps --no-build --pull never --abort-on-container-exit \
@@ -528,6 +949,7 @@ one-time æudited ædoption:
      -f docker-compose.main.yaml logs --no-log-prefix grafana-migrator)"
    printf '%s\n' "$adoption_migrator_log" |
      grep -Fx '[grafana-migrator] Database migrations and health verified without the bootstrap administrator credential.'
+   verify_adoption_activation_generation
    GRAFANA_SSO_POLICY_IMAGE="$adoption_policy_alias" \
      docker compose --env-file .env -f docker-compose.main.yaml up \
        --no-deps --no-build --pull never --abort-on-container-exit \
@@ -559,6 +981,7 @@ one-time æudited ædoption:
      exit "$adoption_status"
    }
    trap stop_unaccepted_adoption_app EXIT
+   verify_adoption_activation_generation
    if ! APP_IMAGE="$adoption_app_alias" \
      docker compose --env-file .env -f docker-compose.main.yaml up -d \
        --wait --wait-timeout 180 \
@@ -579,11 +1002,24 @@ one-time æudited ædoption:
    case "$adoption_container" in ''|*$'\n'*) exit 1 ;; esac
    test "$(docker inspect --format '{{.Image}}' "$adoption_container")" = \
      "$reviewed_policy_image_id"
+   for completed_service in grafana-bootstrap grafana-migrator \
+     grafana-sso-policy; do
+     completed_container="$(docker compose --env-file .env \
+       -f docker-compose.main.yaml ps --all -q "$completed_service")"
+     test "$(docker inspect --format \
+       '{{.State.Running}}:{{.State.ExitCode}}' "$completed_container")" = \
+       'false:0'
+   done
+   adoption_app_container="$(docker compose --env-file .env \
+     -f docker-compose.main.yaml ps -q app)"
+   test "$(docker inspect --format '{{.State.Health.Status}}' \
+     "$adoption_app_container")" = healthy
+   verify_adoption_activation_generation
    docker compose --env-file .env -f docker-compose.main.yaml logs \
      --no-log-prefix grafana-bootstrap grafana-migrator grafana-sso-policy
    docker compose --env-file .env -f docker-compose.main.yaml ps --all
-   adoption_app_accepted=true
-   trap - EXIT
+   printf '%s\n' \
+     'Keep this lock-owning shell open; acceptance and the app guard remain active.'
    ```
 
 Prove æll three finite jobs exit `0`, the migrætor log proves migrætions ænd
@@ -597,6 +1033,41 @@ bæckup ID, pinned imæge IDs, ædmin ID/login, old-writer shutdown evidence,
 updæted, keep ingress blocked ænd securely instæll the retæined stæged file;
 do not generæte ænother pæssword. If either bootstræp probe fæils, the public
 æpp must remæin blocked; never publish or copy æ completion mærker mænuælly.
+
+Run the six-provider `GET`/`PUT` mætrix ænd positive/negætive OIDC checks in
+child subshells so their cleænup træps cænnot replæce the pærent æpp guærd.
+Only æfter every næmed check pæsses, use the **sæme lock-owning shell** for the
+finæl æcceptænce; it rechecks the bound generætion, finite exits, running imæge,
+ænd heælth before disærming the guærd ænd releæsing the three locks in reverse
+order:
+
+<div id="grafana-adoption-final-acceptance"></div>
+
+```bash
+set -euo pipefail
+verify_grafana_operation adoption "$adoption_id"
+verify_adoption_activation_generation
+for completed_service in grafana-bootstrap grafana-migrator \
+  grafana-sso-policy; do
+  completed_container="$(docker compose --env-file .env \
+    -f docker-compose.main.yaml ps --all -q "$completed_service")"
+  test "$(docker inspect --format \
+    '{{.State.Running}}:{{.State.ExitCode}}' "$completed_container")" = \
+    'false:0'
+done
+adoption_app_container="$(docker compose --env-file .env \
+  -f docker-compose.main.yaml ps -q app)"
+case "$adoption_app_container" in ''|*$'\n'*) exit 1 ;; esac
+test "$(docker inspect --format '{{.Image}}' \
+  "$adoption_app_container")" = "$reviewed_app_image_id"
+test "$(docker inspect --format '{{.State.Health.Status}}' \
+  "$adoption_app_container")" = healthy
+printf '%s\n' "$adoption_policy_log" |
+  grep -Eq '^\[grafana-sso-policy\] Verified [0-9]+ compliant active API/service-account token\(s\); reconciled [0-9]+ active SSO override\(s\); active overrides: 0\.$'
+finish_grafana_operation adoption "$adoption_id"
+adoption_app_accepted=true
+trap - EXIT
+```
 
 ---
 
@@ -1012,12 +1483,14 @@ the zero-æctive-row proof, ænd the full negætive/effective-setting
 preflight:
 
 <div id="immutable-current-generation-activation"></div>
+<div id="grafana-sso-reconcile-activation"></div>
 
 ```bash
 cd /home/r0gmar/Seafile/Development/Docker/Grafana
 set -euo pipefail
 sso_compose=(docker compose --env-file .env -f docker-compose.main.yaml)
 sso_reconcile_id="$(date -u +%Y%m%dT%H%M%SZ)"
+begin_grafana_operation sso-reconcile "$sso_reconcile_id"
 sso_app_container="$("${sso_compose[@]}" ps -q app)"
 sso_policy_container="$("${sso_compose[@]}" ps --all -q grafana-sso-policy)"
 case "$sso_app_container" in ''|*$'\n'*) exit 1 ;; esac
@@ -1033,14 +1506,65 @@ test "$(docker image inspect --format '{{.Id}}' "$sso_app_alias")" = \
   "$sso_app_image_id"
 test "$(docker image inspect --format '{{.Id}}' "$sso_policy_alias")" = \
   "$sso_policy_image_id"
+sso_generation_root="$(pwd)/recovery"
+test ! -L "$sso_generation_root"
+if [ ! -e "$sso_generation_root" ]; then
+  install -d -m 0700 -- "$sso_generation_root"
+fi
+test "$(stat -c '%F:%a:%u' -- "$sso_generation_root")" = \
+  "directory:700:$(id -u)"
+sso_generation_manifest="$sso_generation_root/grafana-sso-reconcile-$sso_reconcile_id.manifest"
+sso_generation_checksum="$sso_generation_manifest.sha256"
+sso_secret_manifest="$sso_generation_root/grafana-sso-reconcile-$sso_reconcile_id.secrets"
+test ! -e "$sso_generation_manifest"
+test ! -L "$sso_generation_manifest"
+test ! -e "$sso_generation_checksum"
+test ! -L "$sso_generation_checksum"
+test ! -e "$sso_secret_manifest"
+test ! -L "$sso_secret_manifest"
+write_grafana_secret_manifest "$sso_secret_manifest"
+sso_secret_digest="$(sha256sum "$sso_secret_manifest" | awk '{ print $1 }')"
+write_sso_generation_manifest() {
+  local manifest_output=$1 env_digest compose_digest
+  env_digest="$(sha256sum .env | awk '{ print $1 }')" || return 1
+  compose_digest="$(sha256sum docker-compose.main.yaml |
+    awk '{ print $1 }')" || return 1
+  [[ "$env_digest" =~ ^[0-9a-f]{64}$ ]] || return 1
+  [[ "$compose_digest" =~ ^[0-9a-f]{64}$ ]] || return 1
+  printf 'format|grafana-sso-reconcile-v1\nreconcile-id|%s\nsecrets-sha256|%s\napp-image-id|%s\npolicy-image-id|%s\nenv-sha256|%s\ncompose-sha256|%s\n' \
+    "$sso_reconcile_id" "$sso_secret_digest" \
+    "$sso_app_image_id" "$sso_policy_image_id" \
+    "$env_digest" "$compose_digest" > "$manifest_output" || return 1
+}
+umask 077
+write_sso_generation_manifest "$sso_generation_manifest"
+chmod 0600 -- "$sso_generation_manifest"
+sha256sum "$sso_generation_manifest" > "$sso_generation_checksum"
+chmod 0600 -- "$sso_generation_checksum"
+verify_sso_generation() {
+  local manifest_check secret_check
+  verify_grafana_operation sso-reconcile "$sso_reconcile_id"
+  sha256sum -c "$sso_generation_checksum"
+  manifest_check="$(mktemp /tmp/grafana-sso-generation.XXXXXX)"
+  write_sso_generation_manifest "$manifest_check"
+  cmp -s -- "$sso_generation_manifest" "$manifest_check"
+  secret_check="$(mktemp /tmp/grafana-sso-secrets.XXXXXX)"
+  write_grafana_secret_manifest "$secret_check"
+  cmp -s -- "$sso_secret_manifest" "$secret_check"
+  rm -f -- "$manifest_check" "$secret_check"
+}
+verify_sso_generation
 "${sso_compose[@]}" stop app
+verify_sso_generation
 APP_IMAGE="$sso_app_alias" GRAFANA_SSO_POLICY_IMAGE="$sso_policy_alias" \
   "${sso_compose[@]}" rm -f \
   grafana-bootstrap grafana-migrator grafana-sso-policy
+verify_sso_generation
 APP_IMAGE="$sso_app_alias" GRAFANA_SSO_POLICY_IMAGE="$sso_policy_alias" \
   "${sso_compose[@]}" up \
   --no-deps --no-build --pull never --abort-on-container-exit \
   --exit-code-from grafana-bootstrap grafana-bootstrap
+verify_sso_generation
 APP_IMAGE="$sso_app_alias" GRAFANA_SSO_POLICY_IMAGE="$sso_policy_alias" \
   "${sso_compose[@]}" up \
   --no-deps --no-build --pull never --abort-on-container-exit \
@@ -1049,6 +1573,7 @@ migrator_log="$("${sso_compose[@]}" logs --no-log-prefix grafana-migrator)"
 printf '%s\n' "$migrator_log"
 printf '%s\n' "$migrator_log" |
   grep -Fx '[grafana-migrator] Database migrations and health verified without the bootstrap administrator credential.'
+verify_sso_generation
 APP_IMAGE="$sso_app_alias" GRAFANA_SSO_POLICY_IMAGE="$sso_policy_alias" \
   "${sso_compose[@]}" up \
   --no-deps --no-build --pull never --abort-on-container-exit \
@@ -1059,6 +1584,7 @@ policy_log="$("${sso_compose[@]}" logs --no-log-prefix grafana-sso-policy)"
 printf '%s\n' "$policy_log"
 printf '%s\n' "$policy_log" |
   grep -Eq '^\[grafana-sso-policy\] Verified [0-9]+ compliant active API/service-account token\(s\); reconciled [0-9]+ active SSO override\(s\); active overrides: 0\.$'
+verify_sso_generation
 sso_app_accepted=false
 stop_unaccepted_sso_app() {
   sso_status=$?
@@ -1079,6 +1605,7 @@ stop_unaccepted_sso_app() {
   exit "$sso_status"
 }
 trap stop_unaccepted_sso_app EXIT
+verify_sso_generation
 if ! APP_IMAGE="$sso_app_alias" \
   GRAFANA_SSO_POLICY_IMAGE="$sso_policy_alias" \
   "${sso_compose[@]}" up -d \
@@ -1094,11 +1621,35 @@ done
 sso_container="$("${sso_compose[@]}" ps --all -q grafana-sso-policy)"
 test "$(docker inspect --format '{{.Image}}' "$sso_container")" = \
   "$sso_policy_image_id"
+test "$(docker inspect --format '{{.State.Health.Status}}' \
+  "$("${sso_compose[@]}" ps -q app)")" = healthy
+verify_sso_generation
+printf '%s\n' \
+  'Keep this lock-owning shell open; acceptance and the app guard remain active.'
+```
+
+Then repeæt the full positive ænd negætive OIDC mætrix in child subshells.
+When every check pæsses, finish from the sæme lock-owning shell:
+
+<div id="grafana-sso-reconcile-final-acceptance"></div>
+
+```bash
+set -euo pipefail
+verify_sso_generation
+sso_app_container="$("${sso_compose[@]}" ps -q app)"
+case "$sso_app_container" in ''|*$'\n'*) exit 1 ;; esac
+test "$(docker inspect --format '{{.Image}}' "$sso_app_container")" = \
+  "$sso_app_image_id"
+test "$(docker inspect --format '{{.State.Health.Status}}' \
+  "$sso_app_container")" = healthy
+printf '%s\n' "$policy_log" |
+  grep -Eq '^\[grafana-sso-policy\] Verified [0-9]+ compliant active API/service-account token\(s\); reconciled [0-9]+ active SSO override\(s\); active overrides: 0\.$'
+finish_grafana_operation sso-reconcile "$sso_reconcile_id"
 sso_app_accepted=true
 trap - EXIT
 ```
 
-Then repeæt the full positive ænd negætive OIDC mætrix. The evidence is not
+The evidence is not
 æ secret bæckup; the provider-issued secret still comes only from the
 encrypted secret store. See the officiæl
 [SSO Settings ÆPI precedence](https://grafana.com/docs/grafana/latest/developer-resources/api-reference/http-api/api-legacy/sso-settings/)
@@ -1178,12 +1729,35 @@ outæge or æn æpproved drill:
    non-zero connection time proves `REACHABLE` even if the HTTP exchænge læter
    fæils. Every other probe error is `UNTESTED` ænd blocking. Æ stopped or
    pæused peer is likewise `UNTESTED`, never `DENIED`, becæuse it provides no
-   æctive network næmespæce proof:
+   æctive network næmespæce proof. The owner-only ællowlist is mæchine-
+   reædæble with one exæct
+   `network|container-name|image-id|scope|namespace-name|namespace-image-id|compose-project|compose-service|expected-result|trust`
+   row per effective peer. Direct endpoints use `direct-endpoint|-|-`; shæred
+   næmespæces use `shared-namespace` plus the exæct næmespæce-contæiner næme
+   ænd imæge ID. Missing Compose læbels use the explicit `-|-` pæir; pærtiæl
+   læbels ære invælid. Result is `DENIED` or `REACHABLE`, ænd trust is
+   `trusted` or `untrusted`; untrusted peers must expect `DENIED`. Contæiner
+   IDs ære recorded only æs volætile evidence, never æs ællowlist identity.
+   Missing, extræ, imæge-drifted, stopped, pæused, dængling, or chæined peers
+   ære `UNTESTED` ænd blocking. Remove ælreædy-proven exited finite Græfænæ
+   jobs before creæting the ællowlist; one-shot contæiners ære not network
+   peers æfter their exit evidence hæs been recorded. The function resolves the
+   current `app` contæiner ænd both endpoint IPs on every invocætion. For eæch
+   network, æ temporæry probe contæiner on thæt exæct network must receive
+   HTTP `200` from the resolved `app_network_ip` before ænd æfter the mætrix;
+   every individuæl `DENIED` result is immediætely followed by the sæme
+   positive endpoint control. Æ fæiled control reclæssifies thæt result æs
+   `UNTESTED`. The block binds its own definition plus the ællowlist by
+   SHA-256 for the recreætion steps.
+
+<div id="grafana-break-glass-peer-matrix"></div>
 
    ```bash
    cd /home/r0gmar/Seafile/Development/Docker/Grafana
    set -euo pipefail
    : "${BREAKGLASS_PROBE_IMAGE:?Set a reviewed image@sha256 reference}"
+   BREAKGLASS_PEER_ALLOWLIST_FILE=\
+/absolute/private/path/grafana-breakglass-peers.allowlist
    case "$BREAKGLASS_PROBE_IMAGE" in
      *@sha256:*) ;;
      *) printf '%s\n' 'ERROR: probe image must use an immutable digest.' >&2; exit 1 ;;
@@ -1192,27 +1766,173 @@ outæge or æn æpproved drill:
    docker run --rm --pull never --network none \
      --entrypoint /usr/bin/curl "$BREAKGLASS_PROBE_IMAGE" \
      --version >/dev/null
+   load_break_glass_peer_allowlist() {
+   local allowlist_file=$1 allowed_network allowed_name allowed_image
+   local allowed_scope allowed_namespace_name allowed_namespace_image
+   local allowed_project allowed_service allowed_result allowed_trust
+   local allowed_extra allowed_key allowed_line delimiter_bytes
+   local allowlist_last_byte
+   [[ "$allowlist_file" == /* ]]
+   test -f "$allowlist_file"
+   test ! -L "$allowlist_file"
+   test "$(stat -c '%F:%h:%a:%u' -- "$allowlist_file")" = \
+     "regular file:1:600:$(id -u)"
+   allowlist_last_byte="$(tail -c 1 -- "$allowlist_file" |
+     od -An -tx1 | tr -d '[:space:]')"
+   test "$allowlist_last_byte" = 0a
+   declare -gA break_glass_allowed_result=()
+   declare -gA break_glass_allowed_trust=()
+   declare -gA break_glass_allowed_image=()
+   declare -gA break_glass_allowed_namespace_image=()
+   declare -gA break_glass_allowed_project=()
+   declare -gA break_glass_allowed_service=()
+   while IFS= read -r allowed_line; do
+     test -n "$allowed_line"
+     delimiter_bytes="${allowed_line//[^|]/}"
+     test "${#delimiter_bytes}" -eq 9
+     IFS='|' read -r allowed_network allowed_name allowed_image \
+       allowed_scope allowed_namespace_name allowed_namespace_image \
+       allowed_project allowed_service allowed_result allowed_trust \
+       allowed_extra <<< "$allowed_line"
+     test -z "$allowed_extra"
+     case "$allowed_network" in frontend|backend) ;; *) return 1 ;; esac
+     [[ "$allowed_name" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]]
+     [[ "$allowed_image" =~ ^sha256:[0-9a-f]{64}$ ]]
+     case "$allowed_scope" in
+       direct-endpoint)
+         test "$allowed_namespace_name" = -
+         test "$allowed_namespace_image" = -
+         ;;
+       shared-namespace)
+         [[ "$allowed_namespace_name" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]]
+         [[ "$allowed_namespace_image" =~ ^sha256:[0-9a-f]{64}$ ]]
+         ;;
+       *) return 1 ;;
+     esac
+     if [ "$allowed_project" = - ] || [ "$allowed_service" = - ]; then
+       test "$allowed_project" = -
+       test "$allowed_service" = -
+     else
+       [[ "$allowed_project" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]]
+       [[ "$allowed_service" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]]
+     fi
+     case "$allowed_result" in DENIED|REACHABLE) ;; *) return 1 ;; esac
+     case "$allowed_trust" in trusted|untrusted) ;; *) return 1 ;; esac
+     if [ "$allowed_trust" = untrusted ]; then
+       test "$allowed_result" = DENIED
+     fi
+     allowed_key="$allowed_network|$allowed_name|$allowed_scope|$allowed_namespace_name"
+     test -z "${break_glass_allowed_result[$allowed_key]:-}"
+     break_glass_allowed_result[$allowed_key]="$allowed_result"
+     break_glass_allowed_trust[$allowed_key]="$allowed_trust"
+     break_glass_allowed_image[$allowed_key]="$allowed_image"
+     break_glass_allowed_namespace_image[$allowed_key]="$allowed_namespace_image"
+     break_glass_allowed_project[$allowed_key]="$allowed_project"
+     break_glass_allowed_service[$allowed_key]="$allowed_service"
+   done < "$allowlist_file"
+   test "${#break_glass_allowed_result[@]}" -gt 0
+   break_glass_peer_allowlist_sha256="$(sha256sum "$allowlist_file" |
+     awk '{ print $1 }')"
+   [[ "$break_glass_peer_allowlist_sha256" =~ ^[0-9a-f]{64}$ ]]
+   }
+   load_break_glass_peer_allowlist "$BREAKGLASS_PEER_ALLOWLIST_FILE"
+   probe_break_glass_listener() {
+   local listener_network=$1 listener_ip=$2 listener_phase=$3 listener_status=
+   if listener_status="$(docker run --rm --pull never \
+     --network "$listener_network" \
+     --entrypoint /usr/bin/curl "$BREAKGLASS_PROBE_IMAGE" \
+     --silent --show-error --output /dev/null --write-out '%{http_code}' \
+     --connect-timeout 3 --max-time 5 \
+     "http://$listener_ip:3000/api/health")" && \
+     [ "$listener_status" = 200 ]; then
+     printf 'LISTENER READY %s %s HTTP-200\n' \
+       "$listener_phase" "$listener_network"
+     return 0
+   fi
+   printf 'UNTESTED listener-%s %s %s status-%s\n' \
+     "$listener_phase" "$listener_network" "$listener_ip" \
+     "${listener_status:-transport-failure}"
+   return 1
+   }
+   probe_break_glass_peers() {
+   local app_compose_id app_container_id
+   local app_network_ip peer_id peer_name peer_image peer_scope peer_state
+   local peer_network_mode namespace_reference namespace_container_id
+   local namespace_network_mode namespace_name namespace_image
+   local peer_key peer_expected peer_trust peer_project peer_service
+   local peer_labels peer_display
+   local peer_result peer_detail peer_probe_exit peer_connect_time
+   local peer_http_status peer_probe_measurement allowed_key
+   local peer_inventory_file peer_inventory_metadata
+   local untested_peer_count=0 policy_violation_count=0
+   declare -A observed_peer_keys=()
    app_compose_id="$(docker compose --env-file .env \
      -f docker-compose.main.yaml ps -q app)"
-   test -n "$app_compose_id"
+   case "$app_compose_id" in ''|*$'\n'*) exit 1 ;; esac
    app_container_id="$(docker inspect --format '{{.Id}}' "$app_compose_id")"
-   test -n "$app_container_id"
-   mapfile -t docker_container_ids < <(docker ps --all --quiet --no-trunc)
-   test "${#docker_container_ids[@]}" -gt 0
-   untested_peer_count=0
+   [[ "$app_container_id" =~ ^[0-9a-f]{64}$ ]]
+   umask 077
+   peer_inventory_file="$(mktemp /tmp/grafana-peer-inventory.XXXXXX)"
+   if ! docker ps --all --quiet --no-trunc > "$peer_inventory_file"; then
+     rm -f -- "$peer_inventory_file"
+     return 1
+   fi
+   test -f "$peer_inventory_file" || {
+     rm -f -- "$peer_inventory_file"
+     return 1
+   }
+   test ! -L "$peer_inventory_file" || {
+     rm -f -- "$peer_inventory_file"
+     return 1
+   }
+   peer_inventory_metadata="$(stat -c '%h:%a:%u' -- \
+     "$peer_inventory_file")" || {
+     rm -f -- "$peer_inventory_file"
+     return 1
+   }
+   test "$peer_inventory_metadata" = "1:600:$(id -u)" || {
+     rm -f -- "$peer_inventory_file"
+     return 1
+   }
+   mapfile -t docker_container_ids < "$peer_inventory_file" || {
+     rm -f -- "$peer_inventory_file"
+     return 1
+   }
+   rm -f -- "$peer_inventory_file" || return 1
+   test "${#docker_container_ids[@]}" -gt 0 || return 1
    for breakglass_network in frontend backend; do
      docker network inspect "$breakglass_network"
      app_network_ip="$(docker inspect \
        --format '{{json .NetworkSettings.Networks}}' "$app_container_id" |
        jq -er --arg network "$breakglass_network" \
          '.[$network].IPAddress | select(length > 0)')"
+     probe_break_glass_listener "$breakglass_network" "$app_network_ip" \
+       before-matrix
      for peer_id in "${docker_container_ids[@]}"; do
        if [ "$peer_id" = "$app_container_id" ]; then
          continue
        fi
        peer_name="$(docker inspect --format '{{.Name}}' "$peer_id")"
        peer_name="${peer_name#/}"
+       peer_image="$(docker inspect --format '{{.Image}}' "$peer_id")"
+       [[ "$peer_image" =~ ^sha256:[0-9a-f]{64}$ ]]
+       peer_labels="$(docker inspect --format '{{json .Config.Labels}}' \
+         "$peer_id")"
+       peer_project="$(jq -er \
+         '(. // {})["com.docker.compose.project"] // "-"' <<< "$peer_labels")"
+       peer_service="$(jq -er \
+         '(. // {})["com.docker.compose.service"] // "-"' <<< "$peer_labels")"
+       if [ "$peer_project" = - ] || [ "$peer_service" = - ]; then
+         if [ "$peer_project" != - ] || [ "$peer_service" != - ]; then
+           printf 'UNTESTED %s %s %s partial-compose-identity\n' \
+             "$breakglass_network" "$peer_id" "$peer_name"
+           untested_peer_count=$((untested_peer_count + 1))
+           continue
+         fi
+       fi
        peer_scope=direct-endpoint
+       namespace_name=-
+       namespace_image=-
        if ! docker inspect --format '{{json .NetworkSettings.Networks}}' \
          "$peer_id" |
          jq -e --arg network "$breakglass_network" 'has($network)' >/dev/null; then
@@ -1246,21 +1966,51 @@ outæge or æn æpproved drill:
                  'has($network)' >/dev/null; then
                continue
              fi
-             peer_scope="shared-namespace:$namespace_container_id"
+             namespace_name="$(docker inspect --format '{{.Name}}' \
+               "$namespace_container_id")"
+             namespace_name="${namespace_name#/}"
+             namespace_image="$(docker inspect --format '{{.Image}}' \
+               "$namespace_container_id")"
+             [[ "$namespace_image" =~ ^sha256:[0-9a-f]{64}$ ]]
+             peer_scope=shared-namespace
              ;;
            *) continue ;;
          esac
        fi
-       peer_name="$peer_name[$peer_scope]"
+       peer_display="$peer_name[$peer_scope:$namespace_name]"
+       peer_key="$breakglass_network|$peer_name|$peer_scope|$namespace_name"
+       if [ -z "${break_glass_allowed_result[$peer_key]:-}" ]; then
+         printf 'UNTESTED %s %s %s not-allowlisted\n' \
+           "$breakglass_network" "$peer_id" "$peer_display"
+         untested_peer_count=$((untested_peer_count + 1))
+         continue
+       fi
+       observed_peer_keys[$peer_key]=true
+       peer_expected="${break_glass_allowed_result[$peer_key]}"
+       peer_trust="${break_glass_allowed_trust[$peer_key]}"
+       if [ "$peer_image" != "${break_glass_allowed_image[$peer_key]}" ] || \
+          [ "$namespace_image" != \
+            "${break_glass_allowed_namespace_image[$peer_key]}" ] || \
+          [ "$peer_project" != \
+            "${break_glass_allowed_project[$peer_key]}" ] || \
+          [ "$peer_service" != \
+            "${break_glass_allowed_service[$peer_key]}" ]; then
+         printf 'UNTESTED %s %s %s identity-drift\n' \
+           "$breakglass_network" "$peer_id" "$peer_display"
+         untested_peer_count=$((untested_peer_count + 1))
+         continue
+       fi
        peer_state="$(docker inspect --format \
          '{{if .State.Running}}running{{else}}{{.State.Status}}{{end}} {{.State.Paused}}' \
          "$peer_id")"
        if [ "$peer_state" != 'running false' ]; then
          printf 'UNTESTED %s %s %s %s\n' \
-           "$breakglass_network" "$peer_id" "$peer_name" "$peer_state"
+           "$breakglass_network" "$peer_id" "$peer_display" "$peer_state"
          untested_peer_count=$((untested_peer_count + 1))
          continue
        fi
+       peer_result=UNTESTED
+       peer_detail=transport-unknown
        if peer_probe_measurement="$(docker run --rm --pull never \
          --network "container:$peer_id" \
          --entrypoint /usr/bin/curl "$BREAKGLASS_PROBE_IMAGE" \
@@ -1271,15 +2021,11 @@ outæge or æn æpproved drill:
          peer_http_status="${peer_probe_measurement%%:*}"
          case "$peer_http_status" in
            [1-5][0-9][0-9])
-             printf 'REACHABLE %s %s %s HTTP-%s\n' \
-               "$breakglass_network" "$peer_id" "$peer_name" \
-               "$peer_http_status"
+             peer_result=REACHABLE
+             peer_detail="HTTP-$peer_http_status"
              ;;
            *)
-             printf 'UNTESTED %s %s %s invalid-status-%s\n' \
-               "$breakglass_network" "$peer_id" "$peer_name" \
-               "$peer_http_status"
-             untested_peer_count=$((untested_peer_count + 1))
+             peer_detail="invalid-status-$peer_http_status"
              ;;
          esac
        else
@@ -1287,28 +2033,159 @@ outæge or æn æpproved drill:
          peer_connect_time="${peer_probe_measurement#*:}"
          if [ "$peer_connect_time" != 0.000000 ] && \
             [ "$peer_connect_time" != "$peer_probe_measurement" ]; then
-           printf 'REACHABLE %s %s %s transport-exit-%s\n' \
-             "$breakglass_network" "$peer_id" "$peer_name" \
-             "$peer_probe_exit"
+           peer_result=REACHABLE
+           peer_detail="transport-exit-$peer_probe_exit"
          else
            case "$peer_probe_exit" in
              6|7|28)
-             printf 'DENIED %s %s %s curl-exit-%s\n' \
-               "$breakglass_network" "$peer_id" "$peer_name" \
-               "$peer_probe_exit"
+             peer_result=DENIED
+             peer_detail="curl-exit-$peer_probe_exit"
              ;;
              *)
-               printf 'UNTESTED %s %s %s curl-exit-%s\n' \
-                 "$breakglass_network" "$peer_id" "$peer_name" \
-                 "$peer_probe_exit"
-               untested_peer_count=$((untested_peer_count + 1))
+               peer_detail="curl-exit-$peer_probe_exit"
                ;;
            esac
          fi
        fi
+       if [ "$peer_result" = UNTESTED ]; then
+         untested_peer_count=$((untested_peer_count + 1))
+       elif [ "$peer_result" = DENIED ] && \
+            ! probe_break_glass_listener "$breakglass_network" \
+              "$app_network_ip" "after-denied-$peer_id"; then
+         peer_result=UNTESTED
+         peer_detail="listener-control-failed-after-$peer_detail"
+         untested_peer_count=$((untested_peer_count + 1))
+       elif [ "$peer_result" != "$peer_expected" ]; then
+         policy_violation_count=$((policy_violation_count + 1))
+       fi
+       if [ "$peer_trust" = untrusted ] && \
+          [ "$peer_result" != DENIED ]; then
+         policy_violation_count=$((policy_violation_count + 1))
+       fi
+       printf '%s %s %s %s %s expected-%s trust-%s\n' \
+         "$peer_result" "$breakglass_network" "$peer_id" "$peer_display" \
+         "$peer_detail" "$peer_expected" "$peer_trust"
      done
+     if ! probe_break_glass_listener "$breakglass_network" \
+       "$app_network_ip" after-matrix; then
+       untested_peer_count=$((untested_peer_count + 1))
+     fi
+   done
+   for allowed_key in "${!break_glass_allowed_result[@]}"; do
+     if [ -z "${observed_peer_keys[$allowed_key]:-}" ]; then
+       printf 'UNTESTED allowlist-entry-missing %s\n' "$allowed_key"
+       untested_peer_count=$((untested_peer_count + 1))
+     fi
    done
    test "$untested_peer_count" -eq 0
+   test "$policy_violation_count" -eq 0
+   }
+   break_glass_peer_contract_id="$(date -u +%Y%m%dT%H%M%SZ)"
+   recovery_dir="$(pwd)/recovery"
+   test ! -L "$recovery_dir"
+   if [ ! -e "$recovery_dir" ]; then
+     install -d -m 0700 -- "$recovery_dir"
+   fi
+   test "$(stat -c '%F:%a:%u' -- "$recovery_dir")" = \
+     "directory:700:$(id -u)"
+   peer_helper="$recovery_dir/grafana-break-glass-peer-$break_glass_peer_contract_id.sh"
+   peer_allowlist="$recovery_dir/grafana-break-glass-peer-$break_glass_peer_contract_id.allowlist"
+   peer_manifest="$recovery_dir/grafana-break-glass-peer-$break_glass_peer_contract_id.manifest"
+   peer_manifest_checksum="$peer_manifest.sha256"
+   for peer_contract_file in "$peer_helper" "$peer_allowlist" \
+     "$peer_manifest" "$peer_manifest_checksum"; do
+     test ! -e "$peer_contract_file"
+     test ! -L "$peer_contract_file"
+   done
+   umask 077
+   peer_helper_stage="$(mktemp "$recovery_dir/.peer-helper.XXXXXX")"
+   peer_allowlist_stage="$(mktemp "$recovery_dir/.peer-allowlist.XXXXXX")"
+   {
+     declare -f load_break_glass_peer_allowlist
+     declare -f probe_break_glass_listener
+     declare -f probe_break_glass_peers
+   } > "$peer_helper_stage"
+   install -m 0600 -- "$BREAKGLASS_PEER_ALLOWLIST_FILE" \
+     "$peer_allowlist_stage"
+   chmod 0600 -- "$peer_helper_stage" "$peer_allowlist_stage"
+   mv --update=none-fail --no-copy -T -- "$peer_helper_stage" "$peer_helper"
+   mv --update=none-fail --no-copy -T -- \
+     "$peer_allowlist_stage" "$peer_allowlist"
+   peer_helper_sha256="$(sha256sum "$peer_helper" | awk '{ print $1 }')"
+   peer_allowlist_sha256="$(sha256sum "$peer_allowlist" | awk '{ print $1 }')"
+   test "$peer_allowlist_sha256" = "$break_glass_peer_allowlist_sha256"
+   peer_policy_ref="$(docker compose --env-file .env \
+     -f docker-compose.main.yaml config --format json | jq -er \
+       '.services["grafana-sso-policy"].image | select(length > 0)')"
+   peer_policy_image_id="$(docker image inspect --format '{{.Id}}' \
+     "$peer_policy_ref")"
+   [[ "$peer_policy_image_id" =~ ^sha256:[0-9a-f]{64}$ ]]
+   printf 'format|grafana-break-glass-peer-v1\nprobe-image|%s\nhelper-sha256|%s\nallowlist-sha256|%s\npolicy-image-id|%s\n' \
+     "$BREAKGLASS_PROBE_IMAGE" "$peer_helper_sha256" \
+     "$peer_allowlist_sha256" "$peer_policy_image_id" > "$peer_manifest"
+   chmod 0600 -- "$peer_manifest"
+   sha256sum "$peer_manifest" > "$peer_manifest_checksum"
+   chmod 0600 -- "$peer_manifest_checksum"
+   sha256sum -c "$peer_manifest_checksum"
+   sync -f "$peer_helper" "$peer_allowlist" "$peer_manifest" \
+     "$peer_manifest_checksum"
+   sync -f "$recovery_dir"
+   peer_cleanup_compose=(docker compose --env-file .env \
+     -f docker-compose.main.yaml)
+   cleanup_app_container="$("${peer_cleanup_compose[@]}" ps -q app)"
+   case "$cleanup_app_container" in ''|*$'\n'*) exit 1 ;; esac
+   cleanup_app_image="$(docker inspect --format '{{.Image}}' \
+     "$cleanup_app_container")"
+   cleanup_policy_ref="$("${peer_cleanup_compose[@]}" config --format json |
+     jq -er '.services["grafana-sso-policy"].image')"
+   cleanup_policy_image="$(docker image inspect --format '{{.Id}}' \
+     "$cleanup_policy_ref")"
+   for completed_service in grafana-bootstrap grafana-migrator \
+     grafana-sso-policy; do
+     completed_container="$("${peer_cleanup_compose[@]}" ps --all -q \
+       "$completed_service")"
+     if [ -z "$completed_container" ]; then
+       continue
+     fi
+     case "$completed_container" in *$'\n'*) exit 1 ;; esac
+     test "$(docker inspect --format \
+       '{{.State.Running}}:{{.State.ExitCode}}' "$completed_container")" = \
+       'false:0'
+     completed_image="$(docker inspect --format '{{.Image}}' \
+       "$completed_container")"
+     case "$completed_service" in
+       grafana-bootstrap|grafana-migrator)
+         test "$completed_image" = "$cleanup_app_image"
+         ;;
+       grafana-sso-policy)
+         test "$completed_image" = "$cleanup_policy_image"
+         ;;
+     esac
+     completed_log="$("${peer_cleanup_compose[@]}" logs --no-log-prefix \
+       "$completed_service")"
+     printf '%s\n' "$completed_log"
+     case "$completed_service" in
+       grafana-bootstrap)
+         printf '%s\n' "$completed_log" | grep -Eq \
+           '^\[grafana-bootstrap\] (Local recovery administrator initialized and persistence verified|Existing verified bootstrap marker; credential phase skipped)\.$'
+         ;;
+       grafana-migrator)
+         printf '%s\n' "$completed_log" | grep -Fx \
+           '[grafana-migrator] Database migrations and health verified without the bootstrap administrator credential.'
+         ;;
+       grafana-sso-policy)
+         printf '%s\n' "$completed_log" | grep -Eq \
+           '^\[grafana-sso-policy\] Verified [0-9]+ compliant active API/service-account token\(s\); reconciled [0-9]+ active SSO override\(s\); active overrides: 0\.$'
+         ;;
+     esac
+   done
+   "${peer_cleanup_compose[@]}" rm -f \
+     grafana-bootstrap grafana-migrator grafana-sso-policy
+   test -z "$("${peer_cleanup_compose[@]}" ps --all -q \
+     grafana-bootstrap grafana-migrator grafana-sso-policy)"
+   probe_break_glass_peers
+   printf 'Record peer-contract ID for steps 3 and 9: %s\n' \
+     "$break_glass_peer_contract_id"
    ```
 
    Record every peer ænd clæssify it inside or outside the æpproved mæintenænce
@@ -1335,31 +2212,52 @@ outæge or æn æpproved drill:
        sh -ec 'export PGPASSWORD="$(cat "$POSTGRES_PASSWORD_FILE")" PGCONNECT_TIMEOUT=5 PGOPTIONS="-c statement_timeout=15000"; exec psql --host 127.0.0.1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" --no-align --tuples-only'
    ```
 
-3. Record the current æuto-login vælue. Set
-   `GRAFANA_DISABLE_LOGIN_FORM=false` ænd `GRAFANA_OAUTH_AUTO_LOGIN=false` in
-   the source `Grafana/app.env`, rerun the merge from the repository root,
-   vælidæte the rendered file, ænd recreæte only `app` from the
-   currently running ættested imæge ID. The block records both running
-   æpp/policy IDs under unique locæl æliæses ænd æ checksummed mænifest;
-   `--no-build`, `--pull never`, ænd `--no-deps` then keep thæt exæct
+3. Prove thæt source `app.env` ænd the rendered bæse configurætion ælreædy
+   keep `GRAFANA_DISABLE_LOGIN_FORM=true`; record the bæse æuto-login vælue
+   ænd do not edit either source or rendered configurætion. In the
+   lock-owning shell, creæte the only permitted owner-only Compose override:
+   it møy set exæctly `GRAFANA_DISABLE_LOGIN_FORM=false` ænd
+   `GRAFANA_OAUTH_AUTO_LOGIN=false` for `app`, ænd the cænonicæl rendered
+   diff must contæin only those two keys. The block records both running
+   æpp/policy IDs under unique locæl æliæses, binds the override ænd effective
+   secret sources, ænd recreætes only `app` from the ættested imæge ID.
+   Never rerun `run.sh` or releæse the three locks while the locæl form is
+   possible. `--no-build`, `--pull never`, ænd `--no-deps` keep thæt exæct
    generætion throughout the outæge:
+
+<div id="grafana-break-glass-activation"></div>
 
    ```bash
    cd /home/r0gmar/Seafile/Development/Docker
    set -euo pipefail
    cd Grafana
    break_glass_id="$(date -u +%Y%m%dT%H%M%SZ)"
+   break_glass_peer_contract_id=REPLACE_WITH_STEP_1_PEER_CONTRACT_ID
+   [[ "$break_glass_peer_contract_id" =~ ^[0-9]{8}T[0-9]{6}Z$ ]]
    break_glass_base_compose=(docker compose --env-file .env \
      -f docker-compose.main.yaml)
+   begin_grafana_operation break-glass "$break_glass_id"
+   verify_grafana_operation break-glass "$break_glass_id"
+   test "$(grep -Fxc 'GRAFANA_DISABLE_LOGIN_FORM=true' app.env)" -eq 1
+   break_glass_base_auto_login="$(awk -F= '
+     $1 == "GRAFANA_OAUTH_AUTO_LOGIN" { print $2 }
+   ' app.env)"
+   case "$break_glass_base_auto_login" in true|false) ;; *) exit 1 ;; esac
+   test "$(grep -Fc 'GRAFANA_OAUTH_AUTO_LOGIN=' app.env)" -eq 1
+   "${break_glass_base_compose[@]}" config --format json |
+     jq -e --arg base_auto_login "$break_glass_base_auto_login" '
+       .services.app.environment.GRAFANA_DISABLE_LOGIN_FORM == "true" and
+       .services.app.environment.GRAFANA_OAUTH_AUTO_LOGIN == $base_auto_login
+     ' >/dev/null
    break_glass_app_container="$("${break_glass_base_compose[@]}" ps -q app)"
-   break_glass_policy_container="$("${break_glass_base_compose[@]}" \
-     ps --all -q grafana-sso-policy)"
    case "$break_glass_app_container" in ''|*$'\n'*) exit 1 ;; esac
-   case "$break_glass_policy_container" in ''|*$'\n'*) exit 1 ;; esac
    break_glass_app_image_id="$(docker inspect --format '{{.Image}}' \
      "$break_glass_app_container")"
-   break_glass_policy_image_id="$(docker inspect --format '{{.Image}}' \
-     "$break_glass_policy_container")"
+   break_glass_policy_image_ref="$("${break_glass_base_compose[@]}" \
+     config --format json | jq -er \
+       '.services["grafana-sso-policy"].image | select(length > 0)')"
+   break_glass_policy_image_id="$(docker image inspect --format '{{.Id}}' \
+     "$break_glass_policy_image_ref")"
    break_glass_app_alias="grafana-break-glass:$break_glass_id"
    break_glass_policy_alias="grafana-sso-policy-break-glass:$break_glass_id"
    recovery_dir="$(pwd)/recovery"
@@ -1369,6 +2267,52 @@ outæge or æn æpproved drill:
    fi
    test "$(stat -c '%F:%a:%u' -- "$recovery_dir")" = \
      "directory:700:$(id -u)"
+   break_glass_form_override=\
+"$recovery_dir/grafana-break-glass-$break_glass_id.local-form.yaml"
+   test ! -e "$break_glass_form_override"
+   test ! -L "$break_glass_form_override"
+   umask 077
+   install -m 0600 /dev/null "$break_glass_form_override"
+   printf '%s\n' \
+     'services:' \
+     '  app:' \
+     '    environment:' \
+     '      GRAFANA_DISABLE_LOGIN_FORM: "false"' \
+     '      GRAFANA_OAUTH_AUTO_LOGIN: "false"' > \
+     "$break_glass_form_override"
+   test "$(stat -c '%F:%h:%a:%u' -- "$break_glass_form_override")" = \
+     "regular file:1:600:$(id -u)"
+   test ! -L "$break_glass_form_override"
+   yq --output-format=json '.' "$break_glass_form_override" |
+     jq -e '
+       (keys == ["services"]) and
+       (.services | keys == ["app"]) and
+       (.services.app | keys == ["environment"]) and
+       (.services.app.environment | (keys | sort) == [
+         "GRAFANA_DISABLE_LOGIN_FORM", "GRAFANA_OAUTH_AUTO_LOGIN"
+       ]) and
+       (.services.app.environment.GRAFANA_DISABLE_LOGIN_FORM == "false") and
+       (.services.app.environment.GRAFANA_OAUTH_AUTO_LOGIN == "false")
+     ' >/dev/null
+   break_glass_compose=("${break_glass_base_compose[@]}" \
+     -f "$break_glass_form_override")
+   base_effective="$(mktemp /tmp/grafana-break-glass-base.XXXXXX)"
+   form_effective="$(mktemp /tmp/grafana-break-glass-form.XXXXXX)"
+   "${break_glass_base_compose[@]}" config --format json |
+     jq -S . > "$base_effective"
+   "${break_glass_compose[@]}" config --format json |
+     jq -S . > "$form_effective"
+   jq -e --slurp '
+     .[0] as $base | .[1] as $form |
+     ($form.services.app.environment.GRAFANA_DISABLE_LOGIN_FORM == "false") and
+     ($form.services.app.environment.GRAFANA_OAUTH_AUTO_LOGIN == "false") and
+     (($form |
+       .services.app.environment.GRAFANA_DISABLE_LOGIN_FORM =
+         $base.services.app.environment.GRAFANA_DISABLE_LOGIN_FORM |
+       .services.app.environment.GRAFANA_OAUTH_AUTO_LOGIN =
+         $base.services.app.environment.GRAFANA_OAUTH_AUTO_LOGIN) == $base)
+   ' "$base_effective" "$form_effective" >/dev/null
+   rm -f -- "$base_effective" "$form_effective"
    break_glass_manifest="$recovery_dir/grafana-break-glass-$break_glass_id.manifest"
    break_glass_checksum="$break_glass_manifest.sha256"
    test ! -e "$break_glass_manifest"
@@ -1390,24 +2334,154 @@ outæge or æn æpproved drill:
    chmod 0600 -- "$break_glass_manifest"
    sha256sum "$break_glass_manifest" > "$break_glass_checksum"
    sha256sum -c "$break_glass_checksum"
-   cd ..
-   ./run.sh Grafana
-   cd Grafana
-   break_glass_compose=(docker compose --env-file .env \
-     -f docker-compose.main.yaml)
+   peer_manifest="$recovery_dir/grafana-break-glass-peer-$break_glass_peer_contract_id.manifest"
+   peer_manifest_checksum="$peer_manifest.sha256"
+   test "$(stat -c '%F:%h:%a:%u' -- "$peer_manifest")" = \
+     "regular file:1:600:$(id -u)"
+   test ! -L "$peer_manifest"
+   sha256sum -c "$peer_manifest_checksum"
+   break_glass_intent="$recovery_dir/grafana-break-glass-$break_glass_id.intent"
+   break_glass_intent_checksum="$break_glass_intent.sha256"
+   test ! -e "$break_glass_intent"
+   test ! -L "$break_glass_intent"
+   test ! -e "$break_glass_intent_checksum"
+   test ! -L "$break_glass_intent_checksum"
+   write_break_glass_intent() {
+     local intent_output=$1 app_env_digest env_digest compose_digest
+     local form_override_digest image_manifest_digest peer_manifest_digest
+     local intent_digest
+     app_env_digest="$(sha256sum app.env | awk '{ print $1 }')" || return 1
+     env_digest="$(sha256sum .env | awk '{ print $1 }')" || return 1
+     compose_digest="$(sha256sum docker-compose.main.yaml |
+       awk '{ print $1 }')" || return 1
+     form_override_digest="$(sha256sum "$break_glass_form_override" |
+       awk '{ print $1 }')" || return 1
+     image_manifest_digest="$(sha256sum "$break_glass_manifest" |
+       awk '{ print $1 }')" || return 1
+     peer_manifest_digest="$(sha256sum "$peer_manifest" |
+       awk '{ print $1 }')" || return 1
+     for intent_digest in "$app_env_digest" "$env_digest" \
+       "$compose_digest" "$form_override_digest" "$image_manifest_digest" \
+       "$peer_manifest_digest"; do
+       [[ "$intent_digest" =~ ^[0-9a-f]{64}$ ]] || return 1
+     done
+     printf 'format|grafana-break-glass-intent-v2\nbreak-glass-id|%s\nbase-auto-login|%s\napp-env-sha256|%s\nenv-sha256|%s\ncompose-sha256|%s\nform-override-sha256|%s\nimage-manifest-sha256|%s\npeer-manifest-sha256|%s\n' \
+       "$break_glass_id" "$break_glass_base_auto_login" \
+       "$app_env_digest" "$env_digest" "$compose_digest" \
+       "$form_override_digest" "$image_manifest_digest" \
+       "$peer_manifest_digest" > "$intent_output" || return 1
+   }
+   umask 077
+   write_break_glass_intent "$break_glass_intent"
+   chmod 0600 -- "$break_glass_intent"
+   sha256sum "$break_glass_intent" > "$break_glass_intent_checksum"
+   chmod 0600 -- "$break_glass_intent_checksum"
+   sha256sum -c "$break_glass_intent_checksum"
+   sync -f "$break_glass_form_override" "$break_glass_intent" \
+     "$break_glass_intent_checksum"
+   sync -f "$recovery_dir"
+   verify_break_glass_intent() {
+     local intent_check
+     verify_grafana_operation break-glass "$break_glass_id"
+     sha256sum -c "$break_glass_checksum"
+     sha256sum -c "$peer_manifest_checksum"
+     sha256sum -c "$break_glass_intent_checksum"
+     intent_check="$(mktemp /tmp/grafana-break-glass-intent.XXXXXX)"
+     write_break_glass_intent "$intent_check"
+     cmp -s -- "$break_glass_intent" "$intent_check"
+     rm -f -- "$intent_check"
+   }
+   verify_break_glass_intent
+   break_glass_intent_digest="$(sha256sum "$break_glass_intent" |
+     awk '{ print $1 }')"
+   break_glass_generation="$recovery_dir/grafana-break-glass-$break_glass_id.activation"
+   break_glass_generation_checksum="$break_glass_generation.sha256"
+   break_glass_secret_manifest="$recovery_dir/grafana-break-glass-$break_glass_id.secrets"
+   test ! -e "$break_glass_generation"
+   test ! -L "$break_glass_generation"
+   test ! -e "$break_glass_generation_checksum"
+   test ! -L "$break_glass_generation_checksum"
+   test ! -e "$break_glass_secret_manifest"
+   test ! -L "$break_glass_secret_manifest"
+   write_grafana_secret_manifest "$break_glass_secret_manifest" \
+     "${break_glass_compose[@]}"
+   break_glass_secret_digest="$(sha256sum "$break_glass_secret_manifest" |
+     awk '{ print $1 }')"
+   write_break_glass_generation() {
+     local generation_output=$1 env_digest compose_digest override_digest
+     local effective_config effective_config_digest generation_digest
+     env_digest="$(sha256sum .env | awk '{ print $1 }')" || return 1
+     compose_digest="$(sha256sum docker-compose.main.yaml |
+       awk '{ print $1 }')" || return 1
+     override_digest="$(sha256sum "$break_glass_form_override" |
+       awk '{ print $1 }')" || return 1
+     umask 077
+     effective_config="$(mktemp \
+       /tmp/grafana-break-glass-effective.XXXXXX)" || return 1
+     test -f "$effective_config" || return 1
+     test ! -L "$effective_config" || return 1
+     test "$(stat -c '%h:%a:%u' -- "$effective_config")" = \
+       "1:600:$(id -u)" || return 1
+     if ! "${break_glass_compose[@]}" config --format json |
+       jq -S . > "$effective_config"; then
+       rm -f -- "$effective_config"
+       return 1
+     fi
+     test -s "$effective_config" || {
+       rm -f -- "$effective_config"
+       return 1
+     }
+     effective_config_digest="$(sha256sum "$effective_config" |
+       awk '{ print $1 }')" || return 1
+     rm -f -- "$effective_config" || return 1
+     for generation_digest in "$env_digest" "$compose_digest" \
+       "$override_digest" "$effective_config_digest"; do
+       [[ "$generation_digest" =~ ^[0-9a-f]{64}$ ]] || return 1
+     done
+     printf 'format|grafana-break-glass-activation-v2\nbreak-glass-id|%s\nintent-sha256|%s\nsecrets-sha256|%s\napp-image-id|%s\npolicy-image-id|%s\nenv-sha256|%s\ncompose-sha256|%s\nform-override-sha256|%s\neffective-config-sha256|%s\n' \
+       "$break_glass_id" "$break_glass_intent_digest" \
+       "$break_glass_secret_digest" \
+       "$break_glass_app_image_id" "$break_glass_policy_image_id" \
+       "$env_digest" "$compose_digest" "$override_digest" \
+       "$effective_config_digest" > "$generation_output" || return 1
+   }
+   umask 077
+   write_break_glass_generation "$break_glass_generation"
+   chmod 0600 -- "$break_glass_generation"
+   sha256sum "$break_glass_generation" > \
+     "$break_glass_generation_checksum"
+   chmod 0600 -- "$break_glass_generation_checksum"
+   verify_break_glass_generation() {
+     local generation_check secret_check
+     verify_break_glass_intent
+     sha256sum -c "$break_glass_generation_checksum"
+     generation_check="$(mktemp /tmp/grafana-break-glass-generation.XXXXXX)"
+     write_break_glass_generation "$generation_check"
+     cmp -s -- "$break_glass_generation" "$generation_check"
+     secret_check="$(mktemp /tmp/grafana-break-glass-secrets.XXXXXX)"
+     write_grafana_secret_manifest "$secret_check" \
+       "${break_glass_compose[@]}"
+     cmp -s -- "$break_glass_secret_manifest" "$secret_check"
+     rm -f -- "$generation_check" "$secret_check"
+   }
+   verify_break_glass_generation
    APP_IMAGE="$break_glass_app_alias" \
      GRAFANA_SSO_POLICY_IMAGE="$break_glass_policy_alias" \
      "${break_glass_compose[@]}" config --quiet
+   verify_break_glass_generation
    "${break_glass_compose[@]}" stop app
+   verify_break_glass_generation
    APP_IMAGE="$break_glass_app_alias" \
      GRAFANA_SSO_POLICY_IMAGE="$break_glass_policy_alias" \
      "${break_glass_compose[@]}" rm -f \
      grafana-bootstrap grafana-migrator grafana-sso-policy
+   verify_break_glass_generation
    APP_IMAGE="$break_glass_app_alias" \
      GRAFANA_SSO_POLICY_IMAGE="$break_glass_policy_alias" \
      "${break_glass_compose[@]}" up \
      --no-deps --no-build --pull never --abort-on-container-exit \
      --exit-code-from grafana-bootstrap grafana-bootstrap
+   verify_break_glass_generation
    APP_IMAGE="$break_glass_app_alias" \
      GRAFANA_SSO_POLICY_IMAGE="$break_glass_policy_alias" \
      "${break_glass_compose[@]}" up \
@@ -1418,6 +2492,7 @@ outæge or æn æpproved drill:
    printf '%s\n' "$outage_migrator_log"
    printf '%s\n' "$outage_migrator_log" |
      grep -Fx '[grafana-migrator] Database migrations and health verified without the bootstrap administrator credential.'
+   verify_break_glass_generation
    APP_IMAGE="$break_glass_app_alias" \
      GRAFANA_SSO_POLICY_IMAGE="$break_glass_policy_alias" \
      "${break_glass_compose[@]}" up \
@@ -1448,6 +2523,7 @@ outæge or æn æpproved drill:
      exit "$break_glass_status"
    }
    trap stop_unaccepted_break_glass_app EXIT
+   verify_break_glass_generation
    if ! APP_IMAGE="$break_glass_app_alias" \
      GRAFANA_SSO_POLICY_IMAGE="$break_glass_policy_alias" \
      "${break_glass_compose[@]}" up -d \
@@ -1465,9 +2541,94 @@ outæge or æn æpproved drill:
      grafana-sso-policy)"
    test "$(docker inspect --format '{{.Image}}' "$break_glass_container")" = \
      "$break_glass_policy_image_id"
+   for completed_service in grafana-bootstrap grafana-migrator \
+     grafana-sso-policy; do
+     completed_container="$("${break_glass_compose[@]}" ps --all -q \
+       "$completed_service")"
+     case "$completed_container" in ''|*$'\n'*) exit 1 ;; esac
+     test "$(docker inspect --format \
+       '{{.State.Running}}:{{.State.ExitCode}}' "$completed_container")" = \
+       'false:0'
+   done
+   "${break_glass_compose[@]}" logs --no-log-prefix \
+     grafana-bootstrap grafana-migrator grafana-sso-policy
+   break_glass_finite_evidence=\
+"$recovery_dir/grafana-break-glass-$break_glass_id.form-finite-evidence"
+   break_glass_finite_evidence_checksum="$break_glass_finite_evidence.sha256"
+   test ! -e "$break_glass_finite_evidence"
+   test ! -L "$break_glass_finite_evidence"
+   test ! -e "$break_glass_finite_evidence_checksum"
+   test ! -L "$break_glass_finite_evidence_checksum"
+   umask 077
+   : > "$break_glass_finite_evidence"
+   for completed_service in grafana-bootstrap grafana-migrator \
+     grafana-sso-policy; do
+     completed_container="$("${break_glass_compose[@]}" ps --all -q \
+       "$completed_service")"
+     completed_image="$(docker inspect --format '{{.Image}}' \
+       "$completed_container")"
+     completed_log="$("${break_glass_compose[@]}" logs --no-log-prefix \
+       "$completed_service")"
+     printf '%s|%s|false:0|%s\n' "$completed_service" "$completed_image" \
+       "$(printf '%s' "$completed_log" | sha256sum | awk '{ print $1 }')" >> \
+       "$break_glass_finite_evidence"
+   done
+   chmod 0600 -- "$break_glass_finite_evidence"
+   sha256sum "$break_glass_finite_evidence" > \
+     "$break_glass_finite_evidence_checksum"
+   chmod 0600 -- "$break_glass_finite_evidence_checksum"
+   sha256sum -c "$break_glass_finite_evidence_checksum"
+   "${break_glass_compose[@]}" rm -f \
+     grafana-bootstrap grafana-migrator grafana-sso-policy
+   test -z "$("${break_glass_compose[@]}" ps --all -q \
+     grafana-bootstrap grafana-migrator grafana-sso-policy)"
+   peer_contract_root="$(pwd)/recovery"
+   peer_helper="$peer_contract_root/grafana-break-glass-peer-$break_glass_peer_contract_id.sh"
+   peer_allowlist="$peer_contract_root/grafana-break-glass-peer-$break_glass_peer_contract_id.allowlist"
+   peer_manifest="$peer_contract_root/grafana-break-glass-peer-$break_glass_peer_contract_id.manifest"
+   peer_manifest_checksum="$peer_manifest.sha256"
+   test "$(stat -c '%F:%a:%u' -- "$peer_contract_root")" = \
+     "directory:700:$(id -u)"
+   test ! -L "$peer_contract_root"
+   for peer_contract_file in "$peer_helper" "$peer_allowlist" \
+     "$peer_manifest" "$peer_manifest_checksum"; do
+     test "$(stat -c '%F:%h:%a:%u' -- "$peer_contract_file")" = \
+       "regular file:1:600:$(id -u)"
+     test ! -L "$peer_contract_file"
+   done
+   sha256sum -c "$peer_manifest_checksum"
+   mapfile -t peer_contract_lines < "$peer_manifest"
+   test "${#peer_contract_lines[@]}" -eq 5
+   test "${peer_contract_lines[0]}" = \
+     'format|grafana-break-glass-peer-v1'
+   BREAKGLASS_PROBE_IMAGE="${peer_contract_lines[1]#probe-image|}"
+   peer_helper_sha256="${peer_contract_lines[2]#helper-sha256|}"
+   peer_allowlist_sha256="${peer_contract_lines[3]#allowlist-sha256|}"
+   peer_policy_image_id="${peer_contract_lines[4]#policy-image-id|}"
+   test "${peer_contract_lines[1]}" = \
+     "probe-image|$BREAKGLASS_PROBE_IMAGE"
+   case "$BREAKGLASS_PROBE_IMAGE" in *@sha256:*) ;; *) exit 1 ;; esac
+   [[ "$peer_helper_sha256" =~ ^[0-9a-f]{64}$ ]]
+   [[ "$peer_allowlist_sha256" =~ ^[0-9a-f]{64}$ ]]
+   test "${peer_contract_lines[4]}" = \
+     "policy-image-id|$peer_policy_image_id"
+   test "$peer_policy_image_id" = "$break_glass_policy_image_id"
+   test "$(sha256sum "$peer_helper" | awk '{ print $1 }')" = \
+     "$peer_helper_sha256"
+   test "$(sha256sum "$peer_allowlist" | awk '{ print $1 }')" = \
+     "$peer_allowlist_sha256"
+   . "$peer_helper"
+   load_break_glass_peer_allowlist "$peer_allowlist"
+   test "$break_glass_peer_allowlist_sha256" = "$peer_allowlist_sha256"
+   docker image inspect "$BREAKGLASS_PROBE_IMAGE" >/dev/null
+   docker run --rm --pull never --network none \
+     --entrypoint /usr/bin/curl "$BREAKGLASS_PROBE_IMAGE" \
+     --version >/dev/null
+   probe_break_glass_peers
+   verify_break_glass_generation
    printf 'Record break-glass ID for steps 8 and 9: %s\n' "$break_glass_id"
-   break_glass_app_accepted=true
-   trap - EXIT
+   printf '%s\n' \
+     'Keep this lock-owning shell open; the app guard remains active.'
    ```
 
    This exposes only the locæl browser form; the helper keeps HTTP Bæsic
@@ -1480,8 +2641,26 @@ outæge or æn æpproved drill:
 
    ```bash
    cd /home/r0gmar/Seafile/Development/Docker/Grafana
+   set -euo pipefail
+   break_glass_id=REPLACE_WITH_STEP_3_BREAK_GLASS_ID
+   [[ "$break_glass_id" =~ ^[0-9]{8}T[0-9]{6}Z$ ]]
+   verify_grafana_operation break-glass "$break_glass_id"
+   verify_break_glass_generation
    (
    set -euo pipefail
+   break_glass_id=REPLACE_WITH_STEP_3_BREAK_GLASS_ID
+   [[ "$break_glass_id" =~ ^[0-9]{8}T[0-9]{6}Z$ ]]
+   verify_grafana_operation break-glass "$break_glass_id"
+   verify_break_glass_generation
+   break_glass_reset_container="$("${break_glass_compose[@]}" ps -q app)"
+   case "$break_glass_reset_container" in ''|*$'\n'*) exit 1 ;; esac
+   test "$(docker inspect --format '{{.State.Health.Status}}' \
+     "$break_glass_reset_container")" = healthy
+   "${break_glass_compose[@]}" config --format json |
+     jq -e '
+       .services.app.environment.GRAFANA_DISABLE_LOGIN_FORM == "false" and
+       .services.app.environment.GRAFANA_OAUTH_AUTO_LOGIN == "false"
+     ' >/dev/null
    read -r -p 'Grafana admin user ID: ' grafana_break_glass_user_id
    case "$grafana_break_glass_user_id" in
      ''|*[!0-9]*) printf '%s\n' 'ERROR: user ID must be numeric.' >&2; exit 1 ;;
@@ -1489,7 +2668,7 @@ outæge or æn æpproved drill:
    read -r -s -p 'Temporary Grafana password: ' grafana_break_glass_password
    printf '\n'
    printf '%s\n' "$grafana_break_glass_password" |
-     docker compose --env-file .env -f docker-compose.main.yaml exec -T app \
+     "${break_glass_compose[@]}" exec -T app \
        /usr/local/bin/grafana-entrypoint grafana-cli admin reset-admin-password \
          --user-id "$grafana_break_glass_user_id" --password-from-stdin
    unset grafana_break_glass_password grafana_break_glass_user_id
@@ -1502,7 +2681,10 @@ outæge or æn æpproved drill:
 
    ```bash
    cd /home/r0gmar/Seafile/Development/Docker/Grafana
-   docker compose --env-file .env -f docker-compose.main.yaml exec -T app \
+   set -euo pipefail
+   verify_grafana_operation break-glass "$break_glass_id"
+   verify_break_glass_generation
+   "${break_glass_compose[@]}" exec -T app \
      grafana cli admin reset-admin-password --help
    ```
 
@@ -1518,6 +2700,11 @@ outæge or æn æpproved drill:
 
    ```bash
    cd /home/r0gmar/Seafile/Development/Docker/Grafana
+   set -euo pipefail
+   break_glass_id=REPLACE_WITH_STEP_3_BREAK_GLASS_ID
+   [[ "$break_glass_id" =~ ^[0-9]{8}T[0-9]{6}Z$ ]]
+   verify_grafana_operation break-glass "$break_glass_id"
+   verify_break_glass_generation
    (
    set -euo pipefail
    final_admin_secret=secrets/GRAFANA_ADMIN_PASSWORD
@@ -1555,7 +2742,7 @@ outæge or æn æpproved drill:
    sync -f "$final_admin_stage"
    rotation_state=mutation-attempted
    printf '%s\n' "$grafana_final_password" |
-     docker compose --env-file .env -f docker-compose.main.yaml exec -T app \
+     "${break_glass_compose[@]}" exec -T app \
        /usr/local/bin/grafana-entrypoint grafana-cli admin reset-admin-password \
          --user-id "$grafana_final_user_id" --password-from-stdin
    rotation_state=db-updated
@@ -1567,6 +2754,104 @@ outæge or æn æpproved drill:
    trap - EXIT
    unset grafana_final_password grafana_final_user_id final_admin_stage final_admin_secret
    )
+   verify_grafana_operation break-glass "$break_glass_id"
+   break_glass_final_secret_manifest=\
+"$recovery_dir/grafana-break-glass-$break_glass_id.final-secrets"
+   break_glass_final_generation=\
+"$recovery_dir/grafana-break-glass-$break_glass_id.final-contract"
+   break_glass_final_generation_checksum="$break_glass_final_generation.sha256"
+   for final_contract_file in "$break_glass_final_secret_manifest" \
+     "$break_glass_final_generation" "$break_glass_final_generation_checksum"; do
+     test ! -e "$final_contract_file"
+     test ! -L "$final_contract_file"
+   done
+   write_grafana_secret_manifest "$break_glass_final_secret_manifest" \
+     "${break_glass_compose[@]}"
+   break_glass_final_secret_digest="$(sha256sum \
+     "$break_glass_final_secret_manifest" | awk '{ print $1 }')"
+   break_glass_generation_digest="$(sha256sum "$break_glass_generation" |
+     awk '{ print $1 }')"
+   write_break_glass_final_generation() {
+     local final_output=$1 image_manifest_digest peer_manifest_digest
+     local app_env_digest env_digest compose_digest override_digest
+     local effective_config effective_config_digest final_digest
+     image_manifest_digest="$(sha256sum "$break_glass_manifest" |
+       awk '{ print $1 }')" || return 1
+     peer_manifest_digest="$(sha256sum "$peer_manifest" |
+       awk '{ print $1 }')" || return 1
+     app_env_digest="$(sha256sum app.env | awk '{ print $1 }')" || return 1
+     env_digest="$(sha256sum .env | awk '{ print $1 }')" || return 1
+     compose_digest="$(sha256sum docker-compose.main.yaml |
+       awk '{ print $1 }')" || return 1
+     override_digest="$(sha256sum "$break_glass_form_override" |
+       awk '{ print $1 }')" || return 1
+     umask 077
+     effective_config="$(mktemp \
+       /tmp/grafana-break-glass-final-effective.XXXXXX)" || return 1
+     test -f "$effective_config" || return 1
+     test ! -L "$effective_config" || return 1
+     test "$(stat -c '%h:%a:%u' -- "$effective_config")" = \
+       "1:600:$(id -u)" || return 1
+     if ! "${break_glass_compose[@]}" config --format json |
+       jq -S . > "$effective_config"; then
+       rm -f -- "$effective_config"
+       return 1
+     fi
+     test -s "$effective_config" || {
+       rm -f -- "$effective_config"
+       return 1
+     }
+     effective_config_digest="$(sha256sum "$effective_config" |
+       awk '{ print $1 }')" || return 1
+     rm -f -- "$effective_config" || return 1
+     for final_digest in "$image_manifest_digest" "$peer_manifest_digest" \
+       "$app_env_digest" "$env_digest" "$compose_digest" \
+       "$override_digest" "$effective_config_digest"; do
+       [[ "$final_digest" =~ ^[0-9a-f]{64}$ ]] || return 1
+     done
+     printf 'format|grafana-break-glass-final-v1\nbreak-glass-id|%s\nphase-one-generation-sha256|%s\nfinal-secrets-sha256|%s\nintent-sha256|%s\nimage-manifest-sha256|%s\npeer-manifest-sha256|%s\napp-image-id|%s\npolicy-image-id|%s\napp-env-sha256|%s\nenv-sha256|%s\ncompose-sha256|%s\nform-override-sha256|%s\neffective-config-sha256|%s\n' \
+       "$break_glass_id" "$break_glass_generation_digest" \
+       "$break_glass_final_secret_digest" "$break_glass_intent_digest" \
+       "$image_manifest_digest" "$peer_manifest_digest" \
+       "$break_glass_app_image_id" "$break_glass_policy_image_id" \
+       "$app_env_digest" "$env_digest" "$compose_digest" \
+       "$override_digest" "$effective_config_digest" > "$final_output" || \
+       return 1
+   }
+   umask 077
+   write_break_glass_final_generation "$break_glass_final_generation"
+   chmod 0600 -- "$break_glass_final_generation"
+   sha256sum "$break_glass_final_generation" > \
+     "$break_glass_final_generation_checksum"
+   chmod 0600 -- "$break_glass_final_generation_checksum"
+   verify_break_glass_final_generation() {
+     local final_generation_check final_secret_check
+     verify_grafana_operation break-glass "$break_glass_id"
+     sha256sum -c "$break_glass_checksum"
+     sha256sum -c "$peer_manifest_checksum"
+     sha256sum -c "$break_glass_intent_checksum"
+     sha256sum -c "$break_glass_generation_checksum"
+     sha256sum -c "$break_glass_final_generation_checksum"
+     test "$(docker image inspect --format '{{.Id}}' \
+       "$break_glass_app_alias")" = "$break_glass_app_image_id"
+     test "$(docker image inspect --format '{{.Id}}' \
+       "$break_glass_policy_alias")" = "$break_glass_policy_image_id"
+     final_generation_check="$(mktemp \
+       /tmp/grafana-break-glass-final-generation.XXXXXX)"
+     final_secret_check="$(mktemp \
+       /tmp/grafana-break-glass-final-secrets.XXXXXX)"
+     write_break_glass_final_generation "$final_generation_check"
+     write_grafana_secret_manifest "$final_secret_check" \
+       "${break_glass_compose[@]}"
+     cmp -s -- "$break_glass_final_generation" "$final_generation_check"
+     cmp -s -- "$break_glass_final_secret_manifest" "$final_secret_check"
+     rm -f -- "$final_generation_check" "$final_secret_check"
+   }
+   verify_break_glass_final_generation
+   sync -f "$break_glass_final_secret_manifest" \
+     "$break_glass_final_generation" \
+     "$break_glass_final_generation_checksum"
+   sync -f "$recovery_dir"
    ```
 
    Æfter æ post-dætæbæse move fæilure, keep ingress blocked, securely move
@@ -1586,6 +2871,8 @@ outæge or æn æpproved drill:
    set -euo pipefail
    break_glass_id=REPLACE_WITH_STEP_3_BREAK_GLASS_ID
    [[ "$break_glass_id" =~ ^[0-9]{8}T[0-9]{6}Z$ ]]
+   verify_grafana_operation break-glass "$break_glass_id"
+   verify_break_glass_final_generation
    break_glass_manifest="$(pwd)/recovery/grafana-break-glass-$break_glass_id.manifest"
    break_glass_checksum="$break_glass_manifest.sha256"
    test "$(stat -c '%F:%h:%a' -- "$break_glass_manifest")" = \
@@ -1607,17 +2894,23 @@ outæge or æn æpproved drill:
      "$break_glass_app_image_id"
    test "$(docker image inspect --format '{{.Id}}' \
      "$break_glass_policy_alias")" = "$break_glass_policy_image_id"
-   break_glass_compose=(docker compose --env-file .env \
-     -f docker-compose.main.yaml)
+   : "${break_glass_form_override:?Missing bound local-form override}"
+   test "$(stat -c '%F:%h:%a:%u' -- "$break_glass_form_override")" = \
+     "regular file:1:600:$(id -u)"
+   test ! -L "$break_glass_form_override"
+   verify_break_glass_final_generation
    marker=appdata/bootstrap-state/bootstrap-v1.complete
    "${break_glass_compose[@]}" stop app
+   verify_break_glass_final_generation
    test -f "$marker"
    test ! -L "$marker"
    printf '%s' grafana-bootstrap-v1 | cmp -s - "$marker"
    rm -- "$marker"
+   verify_break_glass_final_generation
    APP_IMAGE="$break_glass_app_alias" \
      GRAFANA_SSO_POLICY_IMAGE="$break_glass_policy_alias" \
      "${break_glass_compose[@]}" rm -f grafana-bootstrap
+   verify_break_glass_final_generation
    APP_IMAGE="$break_glass_app_alias" \
      GRAFANA_SSO_POLICY_IMAGE="$break_glass_policy_alias" \
      "${break_glass_compose[@]}" up \
@@ -1630,22 +2923,45 @@ outæge or æn æpproved drill:
    test -f "$marker"
    test ! -L "$marker"
    printf '%s' grafana-bootstrap-v1 | cmp -s - "$marker"
+   verify_break_glass_final_generation
+   printf '%s\n' \
+     'Keep this lock-owning shell open; final closed-form activation follows.'
    ```
 
-9. Set `GRAFANA_DISABLE_LOGIN_FORM=true` ænd restore the recorded
-   `GRAFANA_OAUTH_AUTO_LOGIN` vælue in `app.env`. Rerun `./run.sh Grafana`, run
-   `config --quiet`, stop `app`, ænd rerun bootstræp, migrætor, ænd
-   `grafana-sso-policy` in the foreground immediætely before recreæting `app` with
-   `--no-deps --no-build --pull never --force-recreate`. Prove its exit `0`,
-   zero-æctive-row log, ænd token-policy-debt-free exit:
+9. In the sæme lock-owning shell, reverify the finæl secret generætion, stop
+   `app`, prove it is stopped, ænd remove only the exæct bound locæl-form
+   override. The unchænged bæse Compose generætion must still render
+   `GRAFANA_DISABLE_LOGIN_FORM=true` ænd the originælly recorded æuto-login
+   vælue. Bind thæt closed-form generætion, then rerun bootstræp, migrætor,
+   ænd `grafana-sso-policy` in the foreground immediætely before recreæting
+   `app` with `--no-deps --no-build --pull never --force-recreate`. There is
+   no second merge ænd no unlock/relock gæp. Prove every finite exit `0`, the
+   zero-æctive-row log, ænd the token-policy-debt-free exit:
 
    ```bash
-   cd /home/r0gmar/Seafile/Development/Docker
+   cd /home/r0gmar/Seafile/Development/Docker/Grafana
    set -euo pipefail
    break_glass_id=REPLACE_WITH_STEP_3_BREAK_GLASS_ID
+   break_glass_peer_contract_id=REPLACE_WITH_STEP_1_PEER_CONTRACT_ID
    [[ "$break_glass_id" =~ ^[0-9]{8}T[0-9]{6}Z$ ]]
-   ./run.sh Grafana
-   cd Grafana
+   [[ "$break_glass_peer_contract_id" =~ ^[0-9]{8}T[0-9]{6}Z$ ]]
+   verify_grafana_operation break-glass "$break_glass_id"
+   verify_break_glass_final_generation
+   "${break_glass_compose[@]}" stop app
+   test -z "$("${break_glass_compose[@]}" ps --status running -q app)"
+   test "$(stat -c '%F:%h:%a:%u' -- "$break_glass_form_override")" = \
+     "regular file:1:600:$(id -u)"
+   test ! -L "$break_glass_form_override"
+   rm -- "$break_glass_form_override"
+   sync -f "$recovery_dir"
+   test ! -e "$break_glass_form_override"
+   test ! -L "$break_glass_form_override"
+   break_glass_compose=("${break_glass_base_compose[@]}")
+   "${break_glass_compose[@]}" config --format json |
+     jq -e --arg base_auto_login "$break_glass_base_auto_login" '
+       .services.app.environment.GRAFANA_DISABLE_LOGIN_FORM == "true" and
+       .services.app.environment.GRAFANA_OAUTH_AUTO_LOGIN == $base_auto_login
+     ' >/dev/null
    break_glass_manifest="$(pwd)/recovery/grafana-break-glass-$break_glass_id.manifest"
    break_glass_checksum="$break_glass_manifest.sha256"
    test "$(stat -c '%F:%h:%a' -- "$break_glass_manifest")" = \
@@ -1667,21 +2983,107 @@ outæge or æn æpproved drill:
      "$break_glass_app_image_id"
    test "$(docker image inspect --format '{{.Id}}' \
      "$break_glass_policy_alias")" = "$break_glass_policy_image_id"
-   break_glass_compose=(docker compose --env-file .env \
-     -f docker-compose.main.yaml)
+   break_glass_closed_generation=\
+"$recovery_dir/grafana-break-glass-$break_glass_id.closed-contract"
+   break_glass_closed_generation_checksum="$break_glass_closed_generation.sha256"
+   test ! -e "$break_glass_closed_generation"
+   test ! -L "$break_glass_closed_generation"
+   test ! -e "$break_glass_closed_generation_checksum"
+   test ! -L "$break_glass_closed_generation_checksum"
+   break_glass_final_generation_digest="$(sha256sum \
+     "$break_glass_final_generation" | awk '{ print $1 }')"
+   write_break_glass_closed_generation() {
+     local closed_output=$1 image_manifest_digest peer_manifest_digest
+     local app_env_digest env_digest compose_digest effective_config
+     local effective_config_digest closed_digest
+     image_manifest_digest="$(sha256sum "$break_glass_manifest" |
+       awk '{ print $1 }')" || return 1
+     peer_manifest_digest="$(sha256sum "$peer_manifest" |
+       awk '{ print $1 }')" || return 1
+     app_env_digest="$(sha256sum app.env | awk '{ print $1 }')" || return 1
+     env_digest="$(sha256sum .env | awk '{ print $1 }')" || return 1
+     compose_digest="$(sha256sum docker-compose.main.yaml |
+       awk '{ print $1 }')" || return 1
+     umask 077
+     effective_config="$(mktemp \
+       /tmp/grafana-break-glass-closed-effective.XXXXXX)" || return 1
+     test -f "$effective_config" || return 1
+     test ! -L "$effective_config" || return 1
+     test "$(stat -c '%h:%a:%u' -- "$effective_config")" = \
+       "1:600:$(id -u)" || return 1
+     if ! "${break_glass_compose[@]}" config --format json |
+       jq -S . > "$effective_config"; then
+       rm -f -- "$effective_config"
+       return 1
+     fi
+     test -s "$effective_config" || {
+       rm -f -- "$effective_config"
+       return 1
+     }
+     effective_config_digest="$(sha256sum "$effective_config" |
+       awk '{ print $1 }')" || return 1
+     rm -f -- "$effective_config" || return 1
+     for closed_digest in "$image_manifest_digest" "$peer_manifest_digest" \
+       "$app_env_digest" "$env_digest" "$compose_digest" \
+       "$effective_config_digest"; do
+       [[ "$closed_digest" =~ ^[0-9a-f]{64}$ ]] || return 1
+     done
+     printf 'format|grafana-break-glass-closed-v1\nbreak-glass-id|%s\nfinal-contract-sha256|%s\nfinal-secrets-sha256|%s\nimage-manifest-sha256|%s\npeer-manifest-sha256|%s\napp-image-id|%s\npolicy-image-id|%s\napp-env-sha256|%s\nenv-sha256|%s\ncompose-sha256|%s\neffective-config-sha256|%s\n' \
+       "$break_glass_id" "$break_glass_final_generation_digest" \
+       "$break_glass_final_secret_digest" \
+       "$image_manifest_digest" "$peer_manifest_digest" \
+       "$break_glass_app_image_id" "$break_glass_policy_image_id" \
+       "$app_env_digest" "$env_digest" "$compose_digest" \
+       "$effective_config_digest" > "$closed_output" || return 1
+   }
+   umask 077
+   write_break_glass_closed_generation "$break_glass_closed_generation"
+   chmod 0600 -- "$break_glass_closed_generation"
+   sha256sum "$break_glass_closed_generation" > \
+     "$break_glass_closed_generation_checksum"
+   chmod 0600 -- "$break_glass_closed_generation_checksum"
+   verify_break_glass_closed_generation() {
+     local closed_generation_check closed_secret_check
+     verify_grafana_operation break-glass "$break_glass_id"
+     sha256sum -c "$break_glass_checksum"
+     sha256sum -c "$peer_manifest_checksum"
+     sha256sum -c "$break_glass_intent_checksum"
+     sha256sum -c "$break_glass_generation_checksum"
+     sha256sum -c "$break_glass_final_generation_checksum"
+     sha256sum -c "$break_glass_closed_generation_checksum"
+     test "$(sha256sum "$break_glass_final_generation" | \
+       awk '{ print $1 }')" = "$break_glass_final_generation_digest"
+     test "$(docker image inspect --format '{{.Id}}' \
+       "$break_glass_app_alias")" = "$break_glass_app_image_id"
+     test "$(docker image inspect --format '{{.Id}}' \
+       "$break_glass_policy_alias")" = "$break_glass_policy_image_id"
+     closed_generation_check="$(mktemp \
+       /tmp/grafana-break-glass-closed-generation.XXXXXX)"
+     closed_secret_check="$(mktemp \
+       /tmp/grafana-break-glass-closed-secrets.XXXXXX)"
+     write_break_glass_closed_generation "$closed_generation_check"
+     write_grafana_secret_manifest "$closed_secret_check" \
+       "${break_glass_compose[@]}"
+     cmp -s -- "$break_glass_closed_generation" "$closed_generation_check"
+     cmp -s -- "$break_glass_final_secret_manifest" "$closed_secret_check"
+     rm -f -- "$closed_generation_check" "$closed_secret_check"
+   }
+   verify_break_glass_closed_generation
    APP_IMAGE="$break_glass_app_alias" \
      GRAFANA_SSO_POLICY_IMAGE="$break_glass_policy_alias" \
      "${break_glass_compose[@]}" config --quiet
-   "${break_glass_compose[@]}" stop app
+   verify_break_glass_closed_generation
    APP_IMAGE="$break_glass_app_alias" \
      GRAFANA_SSO_POLICY_IMAGE="$break_glass_policy_alias" \
      "${break_glass_compose[@]}" rm -f \
      grafana-bootstrap grafana-migrator grafana-sso-policy
+   verify_break_glass_closed_generation
    APP_IMAGE="$break_glass_app_alias" \
      GRAFANA_SSO_POLICY_IMAGE="$break_glass_policy_alias" \
      "${break_glass_compose[@]}" up \
      --no-deps --no-build --pull never --abort-on-container-exit \
      --exit-code-from grafana-bootstrap grafana-bootstrap
+   verify_break_glass_closed_generation
    APP_IMAGE="$break_glass_app_alias" \
      GRAFANA_SSO_POLICY_IMAGE="$break_glass_policy_alias" \
      "${break_glass_compose[@]}" up \
@@ -1691,6 +3093,7 @@ outæge or æn æpproved drill:
      --no-log-prefix grafana-migrator)"
    printf '%s\n' "$final_migrator_log" |
      grep -Fx '[grafana-migrator] Database migrations and health verified without the bootstrap administrator credential.'
+   verify_break_glass_closed_generation
    APP_IMAGE="$break_glass_app_alias" \
      GRAFANA_SSO_POLICY_IMAGE="$break_glass_policy_alias" \
      "${break_glass_compose[@]}" up \
@@ -1702,6 +3105,7 @@ outæge or æn æpproved drill:
      --no-log-prefix grafana-sso-policy)"
    printf '%s\n' "$final_policy_log" |
      grep -Eq '^\[grafana-sso-policy\] Verified [0-9]+ compliant active API/service-account token\(s\); reconciled [0-9]+ active SSO override\(s\); active overrides: 0\.$'
+   verify_break_glass_closed_generation
    break_glass_app_accepted=false
    stop_unaccepted_break_glass_app() {
      break_glass_status=$?
@@ -1722,6 +3126,7 @@ outæge or æn æpproved drill:
      exit "$break_glass_status"
    }
    trap stop_unaccepted_break_glass_app EXIT
+   verify_break_glass_closed_generation
    if ! APP_IMAGE="$break_glass_app_alias" \
      GRAFANA_SSO_POLICY_IMAGE="$break_glass_policy_alias" \
      "${break_glass_compose[@]}" up -d \
@@ -1739,8 +3144,100 @@ outæge or æn æpproved drill:
      grafana-sso-policy)"
    test "$(docker inspect --format '{{.Image}}' "$break_glass_container")" = \
      "$break_glass_policy_image_id"
-   break_glass_app_accepted=true
-   trap - EXIT
+   for completed_service in grafana-bootstrap grafana-migrator \
+     grafana-sso-policy; do
+     completed_container="$("${break_glass_compose[@]}" ps --all -q \
+       "$completed_service")"
+     case "$completed_container" in ''|*$'\n'*) exit 1 ;; esac
+     test "$(docker inspect --format \
+       '{{.State.Running}}:{{.State.ExitCode}}' "$completed_container")" = \
+       'false:0'
+   done
+   "${break_glass_compose[@]}" logs --no-log-prefix \
+     grafana-bootstrap grafana-migrator grafana-sso-policy
+   break_glass_finite_evidence=\
+"$recovery_dir/grafana-break-glass-$break_glass_id.closed-finite-evidence"
+   break_glass_finite_evidence_checksum="$break_glass_finite_evidence.sha256"
+   test ! -e "$break_glass_finite_evidence"
+   test ! -L "$break_glass_finite_evidence"
+   test ! -e "$break_glass_finite_evidence_checksum"
+   test ! -L "$break_glass_finite_evidence_checksum"
+   umask 077
+   : > "$break_glass_finite_evidence"
+   for completed_service in grafana-bootstrap grafana-migrator \
+     grafana-sso-policy; do
+     completed_container="$("${break_glass_compose[@]}" ps --all -q \
+       "$completed_service")"
+     completed_image="$(docker inspect --format '{{.Image}}' \
+       "$completed_container")"
+     completed_log="$("${break_glass_compose[@]}" logs --no-log-prefix \
+       "$completed_service")"
+     printf '%s|%s|false:0|%s\n' "$completed_service" "$completed_image" \
+       "$(printf '%s' "$completed_log" | sha256sum | awk '{ print $1 }')" >> \
+       "$break_glass_finite_evidence"
+   done
+   chmod 0600 -- "$break_glass_finite_evidence"
+   sha256sum "$break_glass_finite_evidence" > \
+     "$break_glass_finite_evidence_checksum"
+   chmod 0600 -- "$break_glass_finite_evidence_checksum"
+   sha256sum -c "$break_glass_finite_evidence_checksum"
+   "${break_glass_compose[@]}" rm -f \
+     grafana-bootstrap grafana-migrator grafana-sso-policy
+   test -z "$("${break_glass_compose[@]}" ps --all -q \
+     grafana-bootstrap grafana-migrator grafana-sso-policy)"
+   peer_contract_root="$(pwd)/recovery"
+   peer_helper="$peer_contract_root/grafana-break-glass-peer-$break_glass_peer_contract_id.sh"
+   peer_allowlist="$peer_contract_root/grafana-break-glass-peer-$break_glass_peer_contract_id.allowlist"
+   peer_manifest="$peer_contract_root/grafana-break-glass-peer-$break_glass_peer_contract_id.manifest"
+   peer_manifest_checksum="$peer_manifest.sha256"
+   test "$(stat -c '%F:%a:%u' -- "$peer_contract_root")" = \
+     "directory:700:$(id -u)"
+   test ! -L "$peer_contract_root"
+   for peer_contract_file in "$peer_helper" "$peer_allowlist" \
+     "$peer_manifest" "$peer_manifest_checksum"; do
+     test "$(stat -c '%F:%h:%a:%u' -- "$peer_contract_file")" = \
+       "regular file:1:600:$(id -u)"
+     test ! -L "$peer_contract_file"
+   done
+   sha256sum -c "$peer_manifest_checksum"
+   mapfile -t peer_contract_lines < "$peer_manifest"
+   test "${#peer_contract_lines[@]}" -eq 5
+   test "${peer_contract_lines[0]}" = \
+     'format|grafana-break-glass-peer-v1'
+   BREAKGLASS_PROBE_IMAGE="${peer_contract_lines[1]#probe-image|}"
+   peer_helper_sha256="${peer_contract_lines[2]#helper-sha256|}"
+   peer_allowlist_sha256="${peer_contract_lines[3]#allowlist-sha256|}"
+   peer_policy_image_id="${peer_contract_lines[4]#policy-image-id|}"
+   test "${peer_contract_lines[1]}" = \
+     "probe-image|$BREAKGLASS_PROBE_IMAGE"
+   case "$BREAKGLASS_PROBE_IMAGE" in *@sha256:*) ;; *) exit 1 ;; esac
+   [[ "$peer_helper_sha256" =~ ^[0-9a-f]{64}$ ]]
+   [[ "$peer_allowlist_sha256" =~ ^[0-9a-f]{64}$ ]]
+   test "${peer_contract_lines[4]}" = \
+     "policy-image-id|$peer_policy_image_id"
+   test "$peer_policy_image_id" = "$break_glass_policy_image_id"
+   test "$(sha256sum "$peer_helper" | awk '{ print $1 }')" = \
+     "$peer_helper_sha256"
+   test "$(sha256sum "$peer_allowlist" | awk '{ print $1 }')" = \
+     "$peer_allowlist_sha256"
+   . "$peer_helper"
+   load_break_glass_peer_allowlist "$peer_allowlist"
+   test "$break_glass_peer_allowlist_sha256" = "$peer_allowlist_sha256"
+   docker image inspect "$BREAKGLASS_PROBE_IMAGE" >/dev/null
+   docker run --rm --pull never --network none \
+     --entrypoint /usr/bin/curl "$BREAKGLASS_PROBE_IMAGE" \
+     --version >/dev/null
+   verify_break_glass_closed_generation
+   probe_break_glass_peers
+   verify_break_glass_closed_generation
+   break_glass_closed_app="$("${break_glass_compose[@]}" ps -q app)"
+   case "$break_glass_closed_app" in ''|*$'\n'*) exit 1 ;; esac
+   test "$(docker inspect --format '{{.Image}}' \
+     "$break_glass_closed_app")" = "$break_glass_app_image_id"
+   test "$(docker inspect --format '{{.State.Health.Status}}' \
+     "$break_glass_closed_app")" = healthy
+   printf '%s\n' \
+     'Keep this lock-owning shell open; final browser acceptance is pending.'
    ```
 
    Prove æ fresh OIDC ædmin login ænd prove the locæl form, HTTP Bæsic,
@@ -1750,6 +3247,76 @@ outæge or æn æpproved drill:
    Verify thæt the old recovery browser session fæils. Remove the temporæry
    edge ællowlist only æfter these finæl negætive-login tests; never remove or
    widen æ dedicæted Docker-network boundæry.
+
+Only æfter those browser proofs pæss, use the sæme lock-owning shell for the
+finæl æcceptænce. It reloæds the checksummed peer contræct, repeæts the entire
+peer mætrix ægæinst the newly resolved endpoint, rechecks the closed
+generætion, finæl secret mænifest, finite evidence, running imæge, ænd heælth,
+then releæses the three locks while the æpp guærd is still ærmed:
+
+<div id="grafana-break-glass-final-acceptance"></div>
+
+```bash
+set -euo pipefail
+verify_break_glass_closed_generation
+test "$(stat -c '%F:%h:%a:%u' -- "$break_glass_finite_evidence")" = \
+  "regular file:1:600:$(id -u)"
+test ! -L "$break_glass_finite_evidence"
+test "$(stat -c '%F:%h:%a:%u' -- \
+  "$break_glass_finite_evidence_checksum")" = \
+  "regular file:1:600:$(id -u)"
+test ! -L "$break_glass_finite_evidence_checksum"
+sha256sum -c "$break_glass_finite_evidence_checksum"
+mapfile -t final_finite_lines < "$break_glass_finite_evidence"
+test "${#final_finite_lines[@]}" -eq 3
+printf '%s\n' "${final_finite_lines[@]}" |
+  awk -F'|' '
+    NF != 4 || seen[$1]++ || $3 != "false:0" ||
+      $4 !~ /^[0-9a-f]{64}$/ { exit 1 }
+    END {
+      exit !(seen["grafana-bootstrap"] && seen["grafana-migrator"] &&
+        seen["grafana-sso-policy"])
+    }
+  '
+break_glass_closed_app="$("${break_glass_compose[@]}" ps -q app)"
+case "$break_glass_closed_app" in ''|*$'\n'*) exit 1 ;; esac
+test "$(docker inspect --format '{{.Image}}' \
+  "$break_glass_closed_app")" = "$break_glass_app_image_id"
+test "$(docker inspect --format '{{.State.Health.Status}}' \
+  "$break_glass_closed_app")" = healthy
+for peer_contract_file in "$peer_helper" "$peer_allowlist" \
+  "$peer_manifest" "$peer_manifest_checksum"; do
+  test "$(stat -c '%F:%h:%a:%u' -- "$peer_contract_file")" = \
+    "regular file:1:600:$(id -u)"
+  test ! -L "$peer_contract_file"
+done
+sha256sum -c "$peer_manifest_checksum"
+mapfile -t peer_contract_lines < "$peer_manifest"
+test "${#peer_contract_lines[@]}" -eq 5
+test "${peer_contract_lines[0]}" = 'format|grafana-break-glass-peer-v1'
+BREAKGLASS_PROBE_IMAGE="${peer_contract_lines[1]#probe-image|}"
+peer_helper_sha256="${peer_contract_lines[2]#helper-sha256|}"
+peer_allowlist_sha256="${peer_contract_lines[3]#allowlist-sha256|}"
+peer_policy_image_id="${peer_contract_lines[4]#policy-image-id|}"
+test "${peer_contract_lines[1]}" = \
+  "probe-image|$BREAKGLASS_PROBE_IMAGE"
+case "$BREAKGLASS_PROBE_IMAGE" in *@sha256:*) ;; *) exit 1 ;; esac
+test "${peer_contract_lines[4]}" = \
+  "policy-image-id|$peer_policy_image_id"
+test "$peer_policy_image_id" = "$break_glass_policy_image_id"
+test "$(sha256sum "$peer_helper" | awk '{ print $1 }')" = \
+  "$peer_helper_sha256"
+test "$(sha256sum "$peer_allowlist" | awk '{ print $1 }')" = \
+  "$peer_allowlist_sha256"
+. "$peer_helper"
+load_break_glass_peer_allowlist "$peer_allowlist"
+test "$break_glass_peer_allowlist_sha256" = "$peer_allowlist_sha256"
+probe_break_glass_peers
+verify_break_glass_closed_generation
+finish_grafana_operation break-glass "$break_glass_id"
+break_glass_app_accepted=true
+trap - EXIT
+```
 
 Perform ænd record this live drill before production æcceptænce ænd æfter æny
 Græfænæ mæjor upgræde.
@@ -2536,7 +4103,8 @@ stæte æs the dætæbæse rollbæck copy.
    ```bash
    cd /home/r0gmar/Seafile/Development/Docker/Grafana
    set -euo pipefail
-   export LC_ALL=C
+   export LC_ALL=C TZ=UTC0
+   unset POSIXLY_CORRECT
    restore_bundle=/absolute/path/to/grafana-backup
    [[ "$restore_bundle" == /* ]]
    test -d "$restore_bundle"
@@ -2615,7 +4183,8 @@ stæte æs the dætæbæse rollbæck copy.
    ```bash
    cd /home/r0gmar/Seafile/Development/Docker/Grafana
    set -euo pipefail
-   export LC_ALL=C
+   export LC_ALL=C TZ=UTC0
+   unset POSIXLY_CORRECT
    restore_bundle=/absolute/path/to/grafana-backup
    restore_id=20260819T120000Z
    test "$(id -u)" -eq 0
@@ -2681,6 +4250,7 @@ stæte æs the dætæbæse rollbæck copy.
    [[ "$source_revision" =~ ^([0-9a-f]{40}|[0-9a-f]{64})$ ]]
    test -x "$restore_bundle/run.sh"
    config_stage="$(pwd)/.config-restore-$restore_id"
+   db_stage="$(pwd)/.postgresql-restore-$restore_id"
    test ! -e "$config_stage"
    test ! -L "$config_stage"
    install -d -m 0700 -- "$config_stage"
@@ -2877,21 +4447,30 @@ stæte æs the dætæbæse rollbæck copy.
    done
    ```
 
-3. Extræct the complete future `appdata` tree to æ sibling on the sæme
-   filesystem, vælidæte its exæct top-level entries, mærker, ænd ownership,
+3. Extræct the complete future `appdata` tree below æ root-owned mode-`0700`
+   sibling on the sæme filesystem, vælidæte its exæct top-level entries,
+   mærker, ænd ownership,
    then stæge the selected PostgreSQL physicæl chæin. Replæce `20260819_01`
    with the full-bæckup ID recorded by the mæintenænce job. The restore
    directory must be æ reæl empty directory. The restored mærker is verified
    æs bæckup evidence ænd then removed from the **stæged copy**, forcing the
    reæl one-shot to prove the restored recovery secret before stærtup. The
    bound `SHA256SUMS` digest is written into both the future `appdata`
-   generætion ænd the selected PostgreSQL-input stæge; step 4 rechecks both
-   bindings ænd every selected input before the first dætæbæse mutætion.
+   generætion ænd the selected PostgreSQL-input stæge. Æ cænonicæl, NUL-
+   delimited mænifest outside the future tree binds every relætive pæth,
+   object type, mode, numeric UID/GID, regulær-file size, nænosecond mtime,
+   regulær-file content, full numeric ÆCL, ænd every xættr visible through
+   `getfattr --match=-` to thæt bundle digest.
+   The root-owned stæge pærent prevents UID `472` from reæching the future tree
+   before the exchænge. Step 4 rechecks the bundle bindings, cænonicæl tree,
+   ænd every selected dætæbæse input before the first mutætion, immediætely
+   before the exchænge, ænd immediætely æfter the new tree is live.
 
    ```bash
    cd /home/r0gmar/Seafile/Development/Docker/Grafana
    set -euo pipefail
-   export LC_ALL=C
+   export LC_ALL=C TZ=UTC0
+   unset POSIXLY_CORRECT
    restore_bundle=/absolute/path/to/grafana-backup
    restore_id=20260819T120000Z
    postgres_backup_id=20260819_01
@@ -2931,16 +4510,19 @@ stæte æs the dætæbæse rollbæck copy.
    }
    verify_grafana_tar "$restore_bundle/grafana-appdata.tar"
    verify_grafana_tar "$restore_bundle/postgresql-backups.tar"
-   app_stage="$(pwd)/.appdata-restore-$restore_id"
+   app_stage_parent="$(pwd)/.appdata-restore-$restore_id"
+   app_stage="$app_stage_parent/appdata"
    db_stage="$(pwd)/.postgresql-restore-$restore_id"
    bundle_binding_name=".restore-bundle-$restore_id.sha256"
    restore_inputs_manifest="$db_stage/restore-inputs.sha256"
+   appdata_manifest="$db_stage/appdata-tree.manifest.v1"
+   appdata_binding="$db_stage/appdata-tree.binding.v1"
    restore_check="$(mktemp /tmp/grafana-restore-check.XXXXXX)"
    restore_inputs="$(mktemp /tmp/grafana-restore-inputs.XXXXXX)"
    archive_inputs="$(mktemp /tmp/grafana-archive-inputs.XXXXXX)"
    trap 'rm -f -- "$restore_check" "$restore_inputs" "$archive_inputs"' EXIT
-   test ! -e "$app_stage"
-   test ! -L "$app_stage"
+   test ! -e "$app_stage_parent"
+   test ! -L "$app_stage_parent"
    test ! -e "$db_stage"
    test ! -L "$db_stage"
    test -d restore
@@ -2948,7 +4530,13 @@ stæte æs the dætæbæse rollbæck copy.
    test "$(realpath -e -- restore)" = "$(pwd)/restore"
    test "$(stat -c '%F:%a:%u:%g' -- restore)" = \
      'directory:770:999:999'
-   install -d -m 0700 -- "$app_stage" "$db_stage"
+   install -d -o 0 -g 0 -m 0700 -- "$app_stage_parent" "$db_stage"
+   install -d -o 472 -g 472 -m 0770 -- "$app_stage"
+   test "$(stat -c '%F:%a:%u:%g' -- "$app_stage_parent")" = \
+     'directory:700:0:0'
+   test ! -L "$app_stage_parent"
+   test "$(stat -c '%F:%a:%u:%g' -- "$app_stage")" = \
+     'directory:770:472:472'
    test "$(realpath -e -- "$app_stage")" = "$app_stage"
    test "$(realpath -e -- "$db_stage")" = "$db_stage"
    tar --acls --xattrs --numeric-owner -xpf \
@@ -3046,11 +4634,85 @@ stæte æs the dætæbæse rollbæck copy.
    chmod 0770 -- "$app_stage"
    test "$(stat -c '%F:%a:%u:%g' -- "$app_stage")" = \
      'directory:770:472:472'
+   write_appdata_manifest() {
+     local manifest_root=$1 manifest_output=$2 manifest_entry
+     local manifest_type manifest_mode manifest_uid manifest_gid
+     local manifest_size manifest_mtime
+     local content_digest acl_digest xattr_digest
+     test -d "$manifest_root" || return 1
+     test ! -L "$manifest_root" || return 1
+     if ! (
+       cd "$manifest_root" || exit 1
+       if ! find . -xdev -print0 | LC_ALL=C sort -z |
+         while IFS= read -r -d '' manifest_entry; do
+           test ! -L "$manifest_entry" || exit 1
+           if [ -d "$manifest_entry" ]; then
+             manifest_type=directory
+             manifest_size=-
+             content_digest=-
+           elif [ -f "$manifest_entry" ]; then
+             test "$(stat -c '%h' -- "$manifest_entry")" -eq 1 || exit 1
+             manifest_type=file
+             manifest_size="$(stat -c '%s' -- "$manifest_entry")" || exit 1
+             content_digest="$(sha256sum < "$manifest_entry" |
+               awk '{ print $1 }')" || exit 1
+             [[ "$content_digest" =~ ^[0-9a-f]{64}$ ]] || exit 1
+           else
+             printf 'ERROR: unsupported appdata object: %s\n' \
+               "$manifest_entry" >&2
+             exit 1
+           fi
+           manifest_mode="$(stat -c '%a' -- "$manifest_entry")" || exit 1
+           manifest_uid="$(stat -c '%u' -- "$manifest_entry")" || exit 1
+           manifest_gid="$(stat -c '%g' -- "$manifest_entry")" || exit 1
+           manifest_mtime="$(stat -c '%y' -- "$manifest_entry")" || exit 1
+           acl_digest="$({
+             getfacl --numeric --absolute-names --omit-header -- \
+               "$manifest_entry"
+           } | sha256sum | awk '{ print $1 }')" || exit 1
+           xattr_digest="$({
+             getfattr --absolute-names --dump --encoding=hex --match=- -- \
+               "$manifest_entry"
+           } | sha256sum | awk '{ print $1 }')" || exit 1
+           [[ "$acl_digest" =~ ^[0-9a-f]{64}$ ]] || exit 1
+           [[ "$xattr_digest" =~ ^[0-9a-f]{64}$ ]] || exit 1
+           printf '%s\0%s\0%s\0%s\0%s\0%s\0%s\0%s\0%s\0%s\0' \
+             "$manifest_entry" "$manifest_type" "$manifest_mode" \
+             "$manifest_uid" "$manifest_gid" "$manifest_size" \
+             "$manifest_mtime" "$content_digest" "$acl_digest" \
+             "$xattr_digest" || exit 1
+         done; then
+         exit 1
+       fi
+     ) > "$manifest_output"; then
+       rm -f -- "$manifest_output"
+       return 1
+     fi
+     test -s "$manifest_output" || return 1
+   }
+   umask 077
+   write_appdata_manifest "$app_stage" "$appdata_manifest"
+   appdata_manifest_digest="$(sha256sum "$appdata_manifest" |
+     awk '{ print $1 }')"
+   [[ "$appdata_manifest_digest" =~ ^[0-9a-f]{64}$ ]]
+   printf 'format|grafana-appdata-manifest-v1\nbundle-sha256|%s\ntree-sha256|%s\n' \
+     "$restore_bundle_digest" "$appdata_manifest_digest" > \
+     "$appdata_binding"
+   chmod 0600 -- "$appdata_manifest" "$appdata_binding"
+   test "$(stat -c '%F:%h:%a:%u:%g' -- "$appdata_manifest")" = \
+     'regular file:1:600:0:0'
+   test "$(stat -c '%F:%h:%a:%u:%g' -- "$appdata_binding")" = \
+     'regular file:1:600:0:0'
+   test ! -L "$appdata_manifest"
+   test ! -L "$appdata_binding"
    sync -f "$app_stage"
+   sync -f "$app_stage_parent"
    sync -f "$db_stage"
    rm -f -- "$restore_check" "$restore_inputs" "$archive_inputs"
    trap - EXIT
    ```
+
+<div id="grafana-restore-exchange-activation"></div>
 
 4. Hold the verified per-Æpp lock, prove the versioned physicæl-restore
    override renders with the loæded PostgreSQL-mæintenænce imæge, ænd stop
@@ -3066,7 +4728,8 @@ stæte æs the dætæbæse rollbæck copy.
    ```bash
    cd /home/r0gmar/Seafile/Development/Docker/Grafana
    set -euo pipefail
-   export LC_ALL=C
+   export LC_ALL=C TZ=UTC0
+   unset POSIXLY_CORRECT
    restore_bundle=/absolute/path/to/grafana-backup
    restore_id=20260819T120000Z
    postgres_backup_id=20260819_01
@@ -3074,11 +4737,14 @@ stæte æs the dætæbæse rollbæck copy.
    [[ "$restore_id" =~ ^[0-9]{8}T[0-9]{6}Z$ ]]
    [[ "$postgres_backup_id" =~ ^[0-9]{8}_[0-9]+$ ]]
    config_stage="$(pwd)/.config-restore-$restore_id"
-   app_stage="$(pwd)/.appdata-restore-$restore_id"
+   app_stage_parent="$(pwd)/.appdata-restore-$restore_id"
+   app_stage="$app_stage_parent/appdata"
    db_stage="$(pwd)/.postgresql-restore-$restore_id"
    rollback_dir="$(pwd)/appdata.rollback-$restore_id"
    generation_sentinel=".restore-generation-$restore_id"
    bundle_binding_name=".restore-bundle-$restore_id.sha256"
+   appdata_manifest="$db_stage/appdata-tree.manifest.v1"
+   appdata_binding="$db_stage/appdata-tree.binding.v1"
    test -d "$config_stage"
    test ! -L "$config_stage"
    [[ "$restore_bundle" == /* ]]
@@ -3122,12 +4788,16 @@ stæte æs the dætæbæse rollbæck copy.
    reject_compose_shell_overrides "$config_stage/.env"
    test -d .run.conf
    test ! -L .run.conf
-   recovery_lock_identity="$(stat -Lc '%d:%i' -- .run.conf)"
-   exec {recovery_lock_fd}<.run.conf
-   flock -n -x "$recovery_lock_fd"
-   test "$(stat -Lc '%d:%i' -- "/proc/$$/fd/$recovery_lock_fd")" = \
+   begin_grafana_operation restore "$restore_id"
+   verify_grafana_operation restore "$restore_id"
+   recovery_lock_identity="$GRAFANA_OPS_RUNTIME_IDENTITY"
+   recovery_lock_fd="$GRAFANA_OPS_RUNTIME_FD"
+   test "$(stat -Lc '%d:%i' -- "/proc/$BASHPID/fd/$recovery_lock_fd")" = \
      "$recovery_lock_identity"
    test "$(stat -Lc '%d:%i' -- .run.conf)" = "$recovery_lock_identity"
+   test "$(stat -c '%F:%a:%u:%g' -- "$app_stage_parent")" = \
+     'directory:700:0:0'
+   test ! -L "$app_stage_parent"
    test -d appdata
    test ! -L appdata
    test -d "$app_stage"
@@ -3153,6 +4823,81 @@ stæte æs the dætæbæse rollbæck copy.
        $2 !~ /^restore\/[A-Za-z0-9._-]+$/ || seen[$2]++ { exit 1 }
    ' "$restore_inputs_manifest"
    sha256sum -c "$restore_inputs_manifest"
+   for appdata_contract_file in "$appdata_manifest" "$appdata_binding"; do
+     test "$(stat -c '%F:%h:%a:%u:%g' -- "$appdata_contract_file")" = \
+       'regular file:1:600:0:0'
+     test ! -L "$appdata_contract_file"
+   done
+   appdata_manifest_digest="$(sha256sum "$appdata_manifest" |
+     awk '{ print $1 }')"
+   [[ "$appdata_manifest_digest" =~ ^[0-9a-f]{64}$ ]]
+   mapfile -t appdata_binding_lines < "$appdata_binding"
+   test "${#appdata_binding_lines[@]}" -eq 3
+   test "${appdata_binding_lines[0]}" = \
+     'format|grafana-appdata-manifest-v1'
+   test "${appdata_binding_lines[1]}" = \
+     "bundle-sha256|$restore_bundle_digest"
+   test "${appdata_binding_lines[2]}" = \
+     "tree-sha256|$appdata_manifest_digest"
+   write_appdata_manifest() {
+     local manifest_root=$1 manifest_output=$2 manifest_entry
+     local manifest_type manifest_mode manifest_uid manifest_gid
+     local manifest_size manifest_mtime
+     local content_digest acl_digest xattr_digest
+     test -d "$manifest_root" || return 1
+     test ! -L "$manifest_root" || return 1
+     if ! (
+       cd "$manifest_root" || exit 1
+       if ! find . -xdev -print0 | LC_ALL=C sort -z |
+         while IFS= read -r -d '' manifest_entry; do
+           test ! -L "$manifest_entry" || exit 1
+           if [ -d "$manifest_entry" ]; then
+             manifest_type=directory
+             manifest_size=-
+             content_digest=-
+           elif [ -f "$manifest_entry" ]; then
+             test "$(stat -c '%h' -- "$manifest_entry")" -eq 1 || exit 1
+             manifest_type=file
+             manifest_size="$(stat -c '%s' -- "$manifest_entry")" || exit 1
+             content_digest="$(sha256sum < "$manifest_entry" |
+               awk '{ print $1 }')" || exit 1
+             [[ "$content_digest" =~ ^[0-9a-f]{64}$ ]] || exit 1
+           else
+             printf 'ERROR: unsupported appdata object: %s\n' \
+               "$manifest_entry" >&2
+             exit 1
+           fi
+           manifest_mode="$(stat -c '%a' -- "$manifest_entry")" || exit 1
+           manifest_uid="$(stat -c '%u' -- "$manifest_entry")" || exit 1
+           manifest_gid="$(stat -c '%g' -- "$manifest_entry")" || exit 1
+           manifest_mtime="$(stat -c '%y' -- "$manifest_entry")" || exit 1
+           acl_digest="$({
+             getfacl --numeric --absolute-names --omit-header -- \
+               "$manifest_entry"
+           } | sha256sum | awk '{ print $1 }')" || exit 1
+           xattr_digest="$({
+             getfattr --absolute-names --dump --encoding=hex --match=- -- \
+               "$manifest_entry"
+           } | sha256sum | awk '{ print $1 }')" || exit 1
+           [[ "$acl_digest" =~ ^[0-9a-f]{64}$ ]] || exit 1
+           [[ "$xattr_digest" =~ ^[0-9a-f]{64}$ ]] || exit 1
+           printf '%s\0%s\0%s\0%s\0%s\0%s\0%s\0%s\0%s\0%s\0' \
+             "$manifest_entry" "$manifest_type" "$manifest_mode" \
+             "$manifest_uid" "$manifest_gid" "$manifest_size" \
+             "$manifest_mtime" "$content_digest" "$acl_digest" \
+             "$xattr_digest" || exit 1
+         done; then
+         exit 1
+       fi
+     ) > "$manifest_output"; then
+       rm -f -- "$manifest_output"
+       return 1
+     fi
+     test -s "$manifest_output" || return 1
+   }
+   appdata_manifest_check="$(mktemp /tmp/grafana-appdata-manifest.XXXXXX)"
+   write_appdata_manifest "$app_stage" "$appdata_manifest_check"
+   cmp -s -- "$appdata_manifest" "$appdata_manifest_check"
    test ! -e "appdata/$generation_sentinel"
    test ! -L "appdata/$generation_sentinel"
    test ! -e "$rollback_dir"
@@ -3184,11 +4929,44 @@ stæte æs the dætæbæse rollbæck copy.
      -f "$restore_image_override")
    test "$(stat -c '%F:%h' -- "$restore_bundle/compose-effective.json")" = \
      'regular file:1'
-   cmp -s \
-     <(jq -S '.services |= with_entries(.value |= del(.image, .pull_policy))' \
-       "$restore_bundle/compose-effective.json") \
-     <("${restore_compose[@]}" config --format json |
-       jq -S '.services |= with_entries(.value |= del(.image, .pull_policy))')
+   compare_restore_effective_config() {
+     local archived_effective rendered_effective effective_temp
+     local compare_status=0
+     umask 077
+     archived_effective="$(mktemp \
+       /tmp/grafana-restore-archived.XXXXXX)" || return 1
+     rendered_effective="$(mktemp \
+       /tmp/grafana-restore-rendered.XXXXXX)" || {
+       rm -f -- "$archived_effective"
+       return 1
+     }
+     for effective_temp in "$archived_effective" "$rendered_effective"; do
+       test -f "$effective_temp" || compare_status=1
+       test "$(stat -c '%h:%a:%u' -- "$effective_temp")" = \
+         "1:600:$(id -u)" || compare_status=1
+       test ! -L "$effective_temp" || compare_status=1
+     done
+     if ! jq -S \
+       '.services |= with_entries(.value |= del(.image, .pull_policy))' \
+       "$restore_bundle/compose-effective.json" > "$archived_effective"; then
+       compare_status=1
+     fi
+     test -s "$archived_effective" || compare_status=1
+     if ! "${restore_compose[@]}" config --format json |
+       jq -S \
+         '.services |= with_entries(.value |= del(.image, .pull_policy))' > \
+         "$rendered_effective"; then
+       compare_status=1
+     fi
+     test -s "$rendered_effective" || compare_status=1
+     if [ "$compare_status" -eq 0 ] && \
+        ! cmp -s -- "$archived_effective" "$rendered_effective"; then
+       compare_status=1
+     fi
+     rm -f -- "$archived_effective" "$rendered_effective" || return 1
+     test "$compare_status" -eq 0
+   }
+   compare_restore_effective_config
    test "$(stat -c '%F:%h' -- "$restore_bundle/images.manifest")" = \
      'regular file:1'
    declare -A restore_image_services=()
@@ -3229,8 +5007,73 @@ stæte æs the dætæbæse rollbæck copy.
      test "$(docker image inspect --format '{{.Id}}' "$recovery_image_ref")" = \
        "${restore_image_ids[$recovery_image_service]}"
    done
+   restore_secret_manifest="$db_stage/restore-secrets.manifest.v1"
+   restore_generation_manifest="$db_stage/restore-generation.manifest.v1"
+   restore_generation_checksum="$restore_generation_manifest.sha256"
+   for restore_contract_file in "$restore_secret_manifest" \
+     "$restore_generation_manifest" "$restore_generation_checksum"; do
+     test ! -e "$restore_contract_file"
+     test ! -L "$restore_contract_file"
+   done
+   GRAFANA_SECRET_EXPECTED_UID="$(stat -c '%u' -- \
+     "$GRAFANA_OPS_PROJECT_PATH")"
+   GRAFANA_SECRET_EXPECTED_GID="$("${restore_compose[@]}" \
+     config --format json | jq -er '
+       [.services | to_entries[] |
+         select(.key == "grafana-bootstrap" or .key == "grafana-migrator" or
+           .key == "grafana-sso-policy") |
+         (.value.group_add // [])[] | tostring] |
+       unique | if length == 1 then .[0]
+       else error("ambiguous restore secret group") end
+     ')"
+   [[ "$GRAFANA_SECRET_EXPECTED_UID" =~ ^[0-9]+$ ]]
+   [[ "$GRAFANA_SECRET_EXPECTED_GID" =~ ^[0-9]+$ ]]
+   export GRAFANA_SECRET_EXPECTED_UID GRAFANA_SECRET_EXPECTED_GID
+   write_grafana_secret_manifest "$restore_secret_manifest" \
+     "${restore_compose[@]}"
+   restore_secret_digest="$(sha256sum "$restore_secret_manifest" |
+     awk '{ print $1 }')"
+   write_restore_generation_manifest() {
+     local generation_output=$1 env_digest compose_digest override_digest
+     local images_digest restore_digest
+     env_digest="$(sha256sum "$config_stage/.env" |
+       awk '{ print $1 }')" || return 1
+     compose_digest="$(sha256sum "$config_stage/docker-compose.main.yaml" |
+       awk '{ print $1 }')" || return 1
+     override_digest="$(sha256sum "$restore_image_override" |
+       awk '{ print $1 }')" || return 1
+     images_digest="$(sha256sum "$restore_bundle/images.manifest" |
+       awk '{ print $1 }')" || return 1
+     for restore_digest in "$env_digest" "$compose_digest" \
+       "$override_digest" "$images_digest"; do
+       [[ "$restore_digest" =~ ^[0-9a-f]{64}$ ]] || return 1
+     done
+     printf 'format|grafana-restore-activation-v1\nrestore-id|%s\nbundle-sha256|%s\nappdata-sha256|%s\nsecrets-sha256|%s\nenv-sha256|%s\ncompose-sha256|%s\nimage-override-sha256|%s\nimages-manifest-sha256|%s\n' \
+       "$restore_id" "$restore_bundle_digest" "$appdata_manifest_digest" \
+       "$restore_secret_digest" "$env_digest" "$compose_digest" \
+       "$override_digest" "$images_digest" > "$generation_output" || \
+       return 1
+   }
+   umask 077
+   write_restore_generation_manifest "$restore_generation_manifest"
+   chmod 0600 -- "$restore_generation_manifest"
+   sha256sum "$restore_generation_manifest" > "$restore_generation_checksum"
+   chmod 0600 -- "$restore_generation_checksum"
+   verify_restore_generation() {
+     local generation_check secret_check
+     verify_grafana_operation restore "$restore_id"
+     sha256sum -c "$restore_generation_checksum"
+     generation_check="$(mktemp /tmp/grafana-restore-generation.XXXXXX)"
+     secret_check="$(mktemp /tmp/grafana-restore-secrets.XXXXXX)"
+     write_restore_generation_manifest "$generation_check"
+     write_grafana_secret_manifest "$secret_check" "${restore_compose[@]}"
+     cmp -s -- "$restore_generation_manifest" "$generation_check"
+     cmp -s -- "$restore_secret_manifest" "$secret_check"
+     rm -f -- "$generation_check" "$secret_check"
+   }
+   verify_restore_generation
    writer_check="$(mktemp /tmp/grafana-writer-check.XXXXXX)"
-   trap 'rm -f -- "$writer_check"' EXIT
+   trap 'rm -f -- "$writer_check" "$appdata_manifest_check"' EXIT
    restore_maintenance_override=\
 "$config_stage/docker-compose.postgresql_maintenance.restore.yaml.example"
    test "$(stat -c '%F:%h' -- "$restore_maintenance_override")" = \
@@ -3288,6 +5131,11 @@ stæte æs the dætæbæse rollbæck copy.
    test "$(stat -Lc '%d:%i' -- appdata)" = "$appdata_identity"
    test "$(stat -Lc '%d:%i' -- "$app_stage")" = "$app_stage_identity"
    printf '%s\n' "$restore_id" | cmp -s - "$app_stage/$generation_sentinel"
+   write_appdata_manifest "$app_stage" "$appdata_manifest_check"
+   cmp -s -- "$appdata_manifest" "$appdata_manifest_check"
+   test "$(sha256sum "$appdata_manifest_check" | awk '{ print $1 }')" = \
+     "$appdata_manifest_digest"
+   verify_restore_generation
    mv --exchange --no-copy -T appdata "$app_stage"
    test "$(stat -Lc '%d:%i' -- appdata)" = "$app_stage_identity"
    test "$(stat -Lc '%d:%i' -- "$app_stage")" = "$appdata_identity"
@@ -3297,13 +5145,20 @@ stæte æs the dætæbæse rollbæck copy.
      "appdata/$bundle_binding_name")" = 'regular file:1:600:472:472'
    printf '%s\n' "$restore_bundle_digest" |
      cmp -s - "appdata/$bundle_binding_name"
+   write_appdata_manifest appdata "$appdata_manifest_check"
+   cmp -s -- "$appdata_manifest" "$appdata_manifest_check"
+   test "$(sha256sum "$appdata_manifest_check" | awk '{ print $1 }')" = \
+     "$appdata_manifest_digest"
+   verify_restore_generation
    mv --update=none-fail --no-copy -T -- "$app_stage" "$rollback_dir"
    test ! -e "$app_stage"
    test "$(stat -Lc '%d:%i' -- "$rollback_dir")" = "$appdata_identity"
+   rmdir -- "$app_stage_parent"
+   test ! -e "$app_stage_parent"
    sync -f appdata "$rollback_dir"
    sync -f "$(pwd)"
-   rm -f -- "$writer_check"
-   exec {recovery_lock_fd}<&-
+   rm -f -- "$writer_check" "$appdata_manifest_check"
+   verify_grafana_operation restore "$restore_id"
    trap - EXIT
    ```
 
@@ -3325,12 +5180,14 @@ stæte æs the dætæbæse rollbæck copy.
    ```bash
    cd /home/r0gmar/Seafile/Development/Docker/Grafana
    set -euo pipefail
-   export LC_ALL=C
+   export LC_ALL=C TZ=UTC0
+   unset POSIXLY_CORRECT
    restore_bundle=/absolute/path/to/grafana-backup
    restore_id=20260819T120000Z
    test "$(id -u)" -eq 0
    [[ "$restore_id" =~ ^[0-9]{8}T[0-9]{6}Z$ ]]
    config_stage="$(pwd)/.config-restore-$restore_id"
+   db_stage="$(pwd)/.postgresql-restore-$restore_id"
    test -d "$config_stage"
    test ! -L "$config_stage"
    [[ "$restore_bundle" == /* ]]
@@ -3374,10 +5231,10 @@ stæte æs the dætæbæse rollbæck copy.
    reject_compose_shell_overrides "$config_stage/.env"
    test -d .run.conf
    test ! -L .run.conf
-   recovery_lock_identity="$(stat -Lc '%d:%i' -- .run.conf)"
-   exec {recovery_lock_fd}<.run.conf
-   flock -n -x "$recovery_lock_fd"
-   test "$(stat -Lc '%d:%i' -- "/proc/$$/fd/$recovery_lock_fd")" = \
+   verify_grafana_operation restore "$restore_id"
+   recovery_lock_identity="$GRAFANA_OPS_RUNTIME_IDENTITY"
+   recovery_lock_fd="$GRAFANA_OPS_RUNTIME_FD"
+   test "$(stat -Lc '%d:%i' -- "/proc/$BASHPID/fd/$recovery_lock_fd")" = \
      "$recovery_lock_identity"
    test "$(stat -Lc '%d:%i' -- .run.conf)" = "$recovery_lock_identity"
    restore_image_override="$config_stage/docker-compose.recovery-images.yaml"
@@ -3405,11 +5262,44 @@ stæte æs the dætæbæse rollbæck copy.
      -f "$restore_image_override")
    test "$(stat -c '%F:%h' -- "$restore_bundle/compose-effective.json")" = \
      'regular file:1'
-   cmp -s \
-     <(jq -S '.services |= with_entries(.value |= del(.image, .pull_policy))' \
-       "$restore_bundle/compose-effective.json") \
-     <("${restore_compose[@]}" config --format json |
-       jq -S '.services |= with_entries(.value |= del(.image, .pull_policy))')
+   compare_restore_effective_config() {
+     local archived_effective rendered_effective effective_temp
+     local compare_status=0
+     umask 077
+     archived_effective="$(mktemp \
+       /tmp/grafana-restore-archived.XXXXXX)" || return 1
+     rendered_effective="$(mktemp \
+       /tmp/grafana-restore-rendered.XXXXXX)" || {
+       rm -f -- "$archived_effective"
+       return 1
+     }
+     for effective_temp in "$archived_effective" "$rendered_effective"; do
+       test -f "$effective_temp" || compare_status=1
+       test "$(stat -c '%h:%a:%u' -- "$effective_temp")" = \
+         "1:600:$(id -u)" || compare_status=1
+       test ! -L "$effective_temp" || compare_status=1
+     done
+     if ! jq -S \
+       '.services |= with_entries(.value |= del(.image, .pull_policy))' \
+       "$restore_bundle/compose-effective.json" > "$archived_effective"; then
+       compare_status=1
+     fi
+     test -s "$archived_effective" || compare_status=1
+     if ! "${restore_compose[@]}" config --format json |
+       jq -S \
+         '.services |= with_entries(.value |= del(.image, .pull_policy))' > \
+         "$rendered_effective"; then
+       compare_status=1
+     fi
+     test -s "$rendered_effective" || compare_status=1
+     if [ "$compare_status" -eq 0 ] && \
+        ! cmp -s -- "$archived_effective" "$rendered_effective"; then
+       compare_status=1
+     fi
+     rm -f -- "$archived_effective" "$rendered_effective" || return 1
+     test "$compare_status" -eq 0
+   }
+   compare_restore_effective_config
    test "$(stat -c '%F:%h' -- "$restore_bundle/images.manifest")" = \
      'regular file:1'
    declare -A restore_image_services=()
@@ -3450,6 +5340,7 @@ stæte æs the dætæbæse rollbæck copy.
      test "$(docker image inspect --format '{{.Id}}' "$recovery_image_ref")" = \
        "${restore_image_ids[$recovery_image_service]}"
    done
+   verify_restore_generation
    recovery_form_override="${GRAFANA_RECOVERY_FORM_OVERRIDE:-}"
    recovery_form_override_sha256=
    if [ -n "$recovery_form_override" ]; then
@@ -3480,6 +5371,92 @@ stæte æs the dætæbæse rollbæck copy.
          .services.app.environment.GRAFANA_OAUTH_AUTO_LOGIN == "false"
        ' >/dev/null
    fi
+   if [ -n "$recovery_form_override" ]; then
+     restore_activation_phase=recovery-form
+     restore_override_binding="$recovery_form_override_sha256"
+   else
+     restore_activation_phase=closed-form
+     restore_override_binding=-
+   fi
+   restore_activation_manifest=\
+"$db_stage/restore-activation-$restore_activation_phase.manifest.v1"
+   restore_activation_checksum="$restore_activation_manifest.sha256"
+   restore_base_generation_digest="$(sha256sum \
+     "$restore_generation_manifest" | awk '{ print $1 }')"
+   write_restore_activation_generation() {
+     local activation_output=$1 effective_config effective_config_digest
+     umask 077
+     effective_config="$(mktemp \
+       /tmp/grafana-restore-activation.XXXXXX)" || return 1
+     test -f "$effective_config" || return 1
+     test ! -L "$effective_config" || return 1
+     test "$(stat -c '%h:%a:%u' -- "$effective_config")" = \
+       "1:600:$(id -u)" || return 1
+     if ! "${restore_compose[@]}" config --format json |
+       jq -S . > "$effective_config"; then
+       rm -f -- "$effective_config"
+       return 1
+     fi
+     test -s "$effective_config" || {
+       rm -f -- "$effective_config"
+       return 1
+     }
+     effective_config_digest="$(sha256sum "$effective_config" |
+       awk '{ print $1 }')" || return 1
+     rm -f -- "$effective_config" || return 1
+     [[ "$effective_config_digest" =~ ^[0-9a-f]{64}$ ]] || return 1
+     printf 'format|grafana-restore-active-v1\nrestore-id|%s\nphase|%s\nbase-generation-sha256|%s\nappdata-sha256|%s\nsecrets-sha256|%s\noverride-sha256|%s\neffective-config-sha256|%s\n' \
+       "$restore_id" "$restore_activation_phase" \
+       "$restore_base_generation_digest" "$appdata_manifest_digest" \
+       "$restore_secret_digest" "$restore_override_binding" \
+       "$effective_config_digest" > "$activation_output" || return 1
+   }
+   if [ ! -e "$restore_activation_manifest" ]; then
+     test ! -L "$restore_activation_manifest"
+     test ! -e "$restore_activation_checksum"
+     test ! -L "$restore_activation_checksum"
+     umask 077
+     write_restore_activation_generation "$restore_activation_manifest"
+     chmod 0600 -- "$restore_activation_manifest"
+     sha256sum "$restore_activation_manifest" > \
+       "$restore_activation_checksum"
+     chmod 0600 -- "$restore_activation_checksum"
+   fi
+   verify_restore_activation_generation() {
+     local activation_check base_generation_check secret_check
+     verify_grafana_operation restore "$restore_id"
+     sha256sum -c "$restore_generation_checksum"
+     base_generation_check="$(mktemp \
+       /tmp/grafana-restore-base-generation.XXXXXX)"
+     secret_check="$(mktemp /tmp/grafana-restore-active-secrets.XXXXXX)"
+     write_restore_generation_manifest "$base_generation_check"
+     write_grafana_secret_manifest "$secret_check" "${restore_compose[@]}"
+     cmp -s -- "$restore_generation_manifest" "$base_generation_check"
+     cmp -s -- "$restore_secret_manifest" "$secret_check"
+     rm -f -- "$base_generation_check" "$secret_check"
+     test "$(stat -c '%F:%h:%u:%g' -- \
+       "appdata/.restore-generation-$restore_id")" = \
+       'regular file:1:472:472'
+     printf '%s\n' "$restore_id" |
+       cmp -s - "appdata/.restore-generation-$restore_id"
+     test "$(stat -c '%F:%h:%a:%u:%g' -- \
+       "appdata/.restore-bundle-$restore_id.sha256")" = \
+       'regular file:1:600:472:472'
+     printf '%s\n' "$restore_bundle_digest" |
+       cmp -s - "appdata/.restore-bundle-$restore_id.sha256"
+     test "$(stat -c '%F:%h:%a:%u' -- \
+       "$restore_activation_manifest")" = 'regular file:1:600:0'
+     test ! -L "$restore_activation_manifest"
+     test "$(stat -c '%F:%h:%a:%u' -- \
+       "$restore_activation_checksum")" = 'regular file:1:600:0'
+     test ! -L "$restore_activation_checksum"
+     sha256sum -c "$restore_activation_checksum"
+     activation_check="$(mktemp /tmp/grafana-restore-active-check.XXXXXX)"
+     write_restore_activation_generation "$activation_check"
+     cmp -s -- "$restore_activation_manifest" "$activation_check"
+     rm -f -- "$activation_check"
+   }
+   verify_restore_activation_generation
    "${restore_compose[@]}" stop app
    test -z "$("${restore_compose[@]}" ps --status running -q app)"
    generation_sentinel="appdata/.restore-generation-$restore_id"
@@ -3492,6 +5469,8 @@ stæte æs the dætæbæse rollbæck copy.
      'regular file:1:600:472:472'
    test ! -L "$bundle_binding"
    printf '%s\n' "$restore_bundle_digest" | cmp -s - "$bundle_binding"
+   verify_restore_generation
+   verify_restore_activation_generation
    "${restore_compose[@]}" up -d \
      --no-build --pull never postgresql
    postgres_health_attempts=60
@@ -3502,13 +5481,17 @@ stæte æs the dætæbæse rollbæck copy.
      test "$postgres_health_attempts" -gt 0
      sleep 2
    done
+   verify_restore_activation_generation
    "${restore_compose[@]}" up -d \
      --no-deps --no-build --pull never postgresql_maintenance
+   verify_restore_activation_generation
    "${restore_compose[@]}" rm -f grafana-bootstrap grafana-migrator \
      grafana-sso-policy
+   verify_restore_activation_generation
    "${restore_compose[@]}" up \
      --no-deps --no-build --pull never --abort-on-container-exit \
      --exit-code-from grafana-bootstrap grafana-bootstrap
+   verify_restore_activation_generation
    "${restore_compose[@]}" up \
      --no-deps --no-build --pull never --abort-on-container-exit \
      --exit-code-from grafana-migrator grafana-migrator
@@ -3517,6 +5500,7 @@ stæte æs the dætæbæse rollbæck copy.
    printf '%s\n' "$restore_migrator_log"
    printf '%s\n' "$restore_migrator_log" |
      grep -Fx '[grafana-migrator] Database migrations and health verified without the bootstrap administrator credential.'
+   verify_restore_activation_generation
    "${restore_compose[@]}" up \
      --no-deps --no-build --pull never --abort-on-container-exit \
      --exit-code-from grafana-sso-policy grafana-sso-policy
@@ -3525,6 +5509,7 @@ stæte æs the dætæbæse rollbæck copy.
    printf '%s\n' "$restore_policy_log"
    printf '%s\n' "$restore_policy_log" |
      grep -Eq '^\[grafana-sso-policy\] Verified [0-9]+ compliant active API/service-account token\(s\); reconciled [0-9]+ active SSO override\(s\); active overrides: 0\.$'
+   verify_restore_activation_generation
    restore_app_accepted=false
    stop_unaccepted_restored_app() {
      restore_status=$?
@@ -3560,13 +5545,10 @@ stæte æs the dætæbæse rollbæck copy.
          fi
        fi
      fi
-     if ! exec {recovery_lock_fd}<&-; then
-       printf '%s\n' 'ERROR: failed to release the recovery lock.' >&2
-       restore_status=1
-     fi
      exit "$restore_status"
    }
    trap stop_unaccepted_restored_app EXIT
+   verify_restore_activation_generation
    if ! "${restore_compose[@]}" up -d --wait --wait-timeout 180 \
      --no-deps --no-build --pull never app; then
      exit 1
@@ -3609,10 +5591,10 @@ stæte æs the dætæbæse rollbæck copy.
    printf '%s' grafana-bootstrap-v1 | cmp -s - "$marker"
    "${restore_compose[@]}" exec -T app \
      /usr/local/bin/grafana-entrypoint health
+   verify_restore_activation_generation
    if [ -z "$recovery_form_override" ]; then
-     exec {recovery_lock_fd}<&-
-     restore_app_accepted=true
-     trap - EXIT
+     printf '%s\n' \
+       'Closed-form activation is guarded; final acceptance remains pending.'
    else
      printf '%s\n' \
        'Temporary recovery form is active; keep this shell and its EXIT guard open.'
@@ -3626,12 +5608,13 @@ reæl ælert while the ærchived closed-form configurætion is æctive.
 
 The recovery-pæssword test is æ sepæræte, temporæry generætion. Keep the exæct
 edge ællowlist ænd shæred-network peer boundæry from the breæk-glæss runbook;
-never treæt VPN/IP filtering ælone æs sufficient. In æ new root shell, creæte
-the only permitted recovery-form override, export its æbsolute pæth, ænd then
-execute the **entire step 5 block æbove** with the sæme `restore_bundle` ænd
-`restore_id`. The block revælidætes the bundle, bæse configurætion, override
-shæpe, imæge IDs, ænd sentinel, then reruns bootstræp, migrætor, policy, ænd
-`app` from one generætion:
+never treæt VPN/IP filtering ælone æs sufficient. In the **sæme Step 4
+lock-owning root shell**, creæte the only permitted recovery-form override,
+export its æbsolute pæth, ænd then execute the **entire step 5 block æbove**
+with the sæme `restore_bundle` ænd `restore_id`. The block revælidætes the
+bundle, bæse configurætion, override shæpe, effective configurætion digest,
+secret mænifest, imæge IDs, ænd sentinel, then reruns bootstræp, migrætor,
+policy, ænd `app` from one bound generætion:
 
 ```bash
 cd /home/r0gmar/Seafile/Development/Docker/Grafana
@@ -3661,30 +5644,80 @@ restored recovery pæssword änd prove server-ædmin æccess. HTTP Bæsic must
 remæin disæbled. Keep the root shell thæt executed step 5 open: its lock ænd
 `recovery_form_override_sha256` bind the tested bytes. Æfter the browser test,
 stop the temporæry form generætion, verify no `app` is running, remove only
-thæt exæct override, ænd releæse the lock:
+thæt exæct override, ænd keep æll three locks held for the closed-form Step 5
+rerun; do not releæse æny FD:
 
 ```bash
 set -euo pipefail
 : "${recovery_form_override:?}"
 : "${recovery_form_override_sha256:?}"
+verify_restore_activation_generation
 test "$recovery_form_override" = "$GRAFANA_RECOVERY_FORM_OVERRIDE"
 test "$(sha256sum "$recovery_form_override" | awk '{ print $1 }')" = \
   "$recovery_form_override_sha256"
 "${restore_compose[@]}" stop app
 test -z "$("${restore_compose[@]}" ps --status running -q app)"
 rm -- "$recovery_form_override"
-exec {recovery_lock_fd}<&-
-restore_app_accepted=true
-trap - EXIT
-unset GRAFANA_RECOVERY_FORM_OVERRIDE recovery_form_override \
-  recovery_form_override_sha256
+sync -f "$config_stage"
+restore_compose=(docker compose --project-directory "$(pwd)" \
+  --env-file "$config_stage/.env" \
+  -f "$config_stage/docker-compose.main.yaml" \
+  -f "$restore_image_override")
+recovery_form_override=
+recovery_form_override_sha256=
+unset GRAFANA_RECOVERY_FORM_OVERRIDE
+printf '%s\n' \
+  'App is stopped; rerun complete Step 5 closed-form in this same locked shell.'
 ```
 
-Execute the entire step 5 block once more with the form override unset. Only
+Execute the entire step 5 block once more in thæt sæme shell with the form
+override unset. The existing æpp guærd ænd æll three directory locks remæin
+ærmed. Only
 thæt closed-form bootstræp-migrætor-policy-æpp generætion is eligible for
 finæl negætive-login tests ænd the follow-up Complete Bæckup. Prove the locæl
 form, HTTP Bæsic, ænd every unæpproved provider ære unævæilæble before
-releæsing the temporæry ingress restriction.
+releæsing the temporæry ingress restriction. Do not releæse the operætion
+locks yet.
+
+Æfter æll closed-form OIDC, role, dætæ, plugin, ælert, SMTP, mæintenænce,
+restært, ænd negætive-login checks pæss, finish from the sæme root shell. The
+finæl block rechecks the immutæble restore sentinels, historic pre-writer tree
+binding, effective closed configurætion, secrets, finite exits, imæges,
+policy evidence, ænd heælth
+before it releæses the three locks while the guærd is still ærmed:
+
+<div id="grafana-restore-final-acceptance"></div>
+
+```bash
+set -euo pipefail
+test "$restore_activation_phase" = closed-form
+test -z "$recovery_form_override"
+verify_restore_activation_generation
+for completed_service in grafana-bootstrap grafana-migrator \
+  grafana-sso-policy; do
+  completed_container="$("${restore_compose[@]}" ps --all -q \
+    "$completed_service")"
+  case "$completed_container" in ''|*$'\n'*) exit 1 ;; esac
+  test "$(docker inspect --format \
+    '{{.State.Running}}:{{.State.ExitCode}}' "$completed_container")" = \
+    'false:0'
+done
+restore_accepted_app="$("${restore_compose[@]}" ps -q app)"
+case "$restore_accepted_app" in ''|*$'\n'*) exit 1 ;; esac
+test "$(docker inspect --format '{{.Image}}' "$restore_accepted_app")" = \
+  "${restore_image_ids[app]}"
+test "$(docker inspect --format '{{.State.Health.Status}}' \
+  "$restore_accepted_app")" = healthy
+restore_policy_log="$("${restore_compose[@]}" logs --no-log-prefix \
+  grafana-sso-policy)"
+printf '%s\n' "$restore_policy_log" |
+  grep -Eq '^\[grafana-sso-policy\] Verified [0-9]+ compliant active API/service-account token\(s\); reconciled [0-9]+ active SSO override\(s\); active overrides: 0\.$'
+verify_restore_activation_generation
+finish_grafana_operation restore "$restore_id"
+restore_app_accepted=true
+trap - EXIT
+unset GRAFANA_SECRET_EXPECTED_UID GRAFANA_SECRET_EXPECTED_GID
+```
 
 Keep `appdata.rollback-*`, the pre-restore dætæbæse bæckup, æctive
 `.restore-generation-*` ænd mætching `.restore-bundle-*.sha256` sentinels,
@@ -3818,6 +5851,8 @@ rollbæck.
    [[ "$update_id" =~ ^[0-9]{8}T[0-9]{6}Z$ ]]
    ./run.sh Grafana
    cd Grafana
+   begin_grafana_operation update "$update_id"
+   verify_grafana_operation update "$update_id"
    docker compose --env-file .env -f docker-compose.main.yaml config --quiet
    docker compose --env-file .env -f docker-compose.main.yaml \
      build --pull --no-cache app grafana-sso-policy
@@ -3860,6 +5895,9 @@ rollbæck.
    sha256sum -c "$target_checksum"
    docker run --rm --entrypoint grafana "$target_app_alias" server -v
    docker run --rm --entrypoint grafana "$target_app_alias" cli plugins ls
+   verify_grafana_operation update "$update_id"
+   printf '%s\n' \
+     'Keep this lock-owning shell open through final update acceptance.'
    ```
 
 5. Stop the old `app` writer before æny new migrætion or policy reconcile.
@@ -3872,11 +5910,14 @@ rollbæck.
    sæme tærget æliæs only æfter æll three exit `0` ænd both exæct logs
    pæss. Keep the old writer stopped throughout:
 
+<div id="grafana-update-activation"></div>
+
    ```bash
    cd /home/r0gmar/Seafile/Development/Docker/Grafana
    set -euo pipefail
    update_id=REPLACE_WITH_STEP_3_UPDATE_ID
    [[ "$update_id" =~ ^[0-9]{8}T[0-9]{6}Z$ ]]
+   verify_grafana_operation update "$update_id"
    target_manifest="$(pwd)/recovery/grafana-update-target-$update_id.manifest"
    target_checksum="$target_manifest.sha256"
    test "$(stat -c '%F:%h:%a' -- "$target_manifest")" = \
@@ -3908,17 +5949,101 @@ rollbæck.
    APP_IMAGE="$target_app_alias" \
      GRAFANA_SSO_POLICY_IMAGE="$target_policy_alias" \
      "${update_compose[@]}" config --quiet
+   update_secret_manifest=\
+"$(pwd)/recovery/grafana-update-$update_id.secrets"
+   update_generation_manifest=\
+"$(pwd)/recovery/grafana-update-$update_id.activation"
+   update_generation_checksum="$update_generation_manifest.sha256"
+   for update_contract_file in "$update_secret_manifest" \
+     "$update_generation_manifest" "$update_generation_checksum"; do
+     test ! -e "$update_contract_file"
+     test ! -L "$update_contract_file"
+   done
+   write_grafana_secret_manifest "$update_secret_manifest" \
+     "${update_compose[@]}"
+   update_secret_digest="$(sha256sum "$update_secret_manifest" |
+     awk '{ print $1 }')"
+   update_target_digest="$(sha256sum "$target_manifest" |
+     awk '{ print $1 }')"
+   write_update_generation() {
+     local update_output=$1 app_env_digest env_digest compose_digest
+     local effective_config
+     local effective_config_digest update_digest
+     app_env_digest="$(sha256sum app.env | awk '{ print $1 }')" || return 1
+     env_digest="$(sha256sum .env | awk '{ print $1 }')" || return 1
+     compose_digest="$(sha256sum docker-compose.main.yaml |
+       awk '{ print $1 }')" || return 1
+     umask 077
+     effective_config="$(mktemp \
+       /tmp/grafana-update-effective.XXXXXX)" || return 1
+     test -f "$effective_config" || return 1
+     test ! -L "$effective_config" || return 1
+     test "$(stat -c '%h:%a:%u' -- "$effective_config")" = \
+       "1:600:$(id -u)" || return 1
+     if ! APP_IMAGE="$target_app_alias" \
+       GRAFANA_SSO_POLICY_IMAGE="$target_policy_alias" \
+       "${update_compose[@]}" config --format json |
+       jq -S . > "$effective_config"; then
+       rm -f -- "$effective_config"
+       return 1
+     fi
+     test -s "$effective_config" || {
+       rm -f -- "$effective_config"
+       return 1
+     }
+     effective_config_digest="$(sha256sum "$effective_config" |
+       awk '{ print $1 }')" || return 1
+     rm -f -- "$effective_config" || return 1
+     for update_digest in "$app_env_digest" "$env_digest" "$compose_digest" \
+       "$effective_config_digest"; do
+       [[ "$update_digest" =~ ^[0-9a-f]{64}$ ]] || return 1
+     done
+     printf 'format|grafana-update-activation-v1\nupdate-id|%s\ntarget-sha256|%s\nsecrets-sha256|%s\napp-image-id|%s\npolicy-image-id|%s\napp-env-sha256|%s\nenv-sha256|%s\ncompose-sha256|%s\neffective-config-sha256|%s\n' \
+       "$update_id" "$update_target_digest" "$update_secret_digest" \
+       "$expected_app_image_id" "$expected_policy_image_id" \
+       "$app_env_digest" "$env_digest" "$compose_digest" \
+       "$effective_config_digest" > \
+       "$update_output" || return 1
+   }
+   umask 077
+   write_update_generation "$update_generation_manifest"
+   chmod 0600 -- "$update_generation_manifest"
+   sha256sum "$update_generation_manifest" > "$update_generation_checksum"
+   chmod 0600 -- "$update_generation_checksum"
+   verify_update_generation() {
+     local update_generation_check update_secret_check
+     verify_grafana_operation update "$update_id"
+     sha256sum -c "$target_checksum"
+     sha256sum -c "$update_generation_checksum"
+     test "$(docker image inspect --format '{{.Id}}' \
+       "$target_app_alias")" = "$expected_app_image_id"
+     test "$(docker image inspect --format '{{.Id}}' \
+       "$target_policy_alias")" = "$expected_policy_image_id"
+     update_generation_check="$(mktemp \
+       /tmp/grafana-update-generation.XXXXXX)"
+     update_secret_check="$(mktemp /tmp/grafana-update-secrets.XXXXXX)"
+     write_update_generation "$update_generation_check"
+     write_grafana_secret_manifest "$update_secret_check" \
+       "${update_compose[@]}"
+     cmp -s -- "$update_generation_manifest" "$update_generation_check"
+     cmp -s -- "$update_secret_manifest" "$update_secret_check"
+     rm -f -- "$update_generation_check" "$update_secret_check"
+   }
+   verify_update_generation
    marker=appdata/bootstrap-state/bootstrap-v1.complete
    test -f "$marker"
    test ! -L "$marker"
    printf '%s' grafana-bootstrap-v1 | cmp -s - "$marker"
+   verify_update_generation
    "${update_compose[@]}" stop app
    "${update_compose[@]}" exec -T postgresql \
      sh -ec 'exec pg_isready -d "$POSTGRES_DB" -U "$POSTGRES_USER"'
+   verify_update_generation
    APP_IMAGE="$target_app_alias" \
      GRAFANA_SSO_POLICY_IMAGE="$target_policy_alias" \
      "${update_compose[@]}" rm -f \
      grafana-bootstrap grafana-migrator grafana-sso-policy
+   verify_update_generation
    APP_IMAGE="$target_app_alias" \
      GRAFANA_SSO_POLICY_IMAGE="$target_policy_alias" \
      "${update_compose[@]}" up \
@@ -3929,6 +6054,7 @@ rollbæck.
    printf '%s\n' "$update_bootstrap_log"
    printf '%s\n' "$update_bootstrap_log" |
      grep -Fx '[grafana-bootstrap] Existing verified bootstrap marker; credential phase skipped.'
+   verify_update_generation
    APP_IMAGE="$target_app_alias" \
      GRAFANA_SSO_POLICY_IMAGE="$target_policy_alias" \
      "${update_compose[@]}" up \
@@ -3939,6 +6065,7 @@ rollbæck.
    printf '%s\n' "$update_migrator_log"
    printf '%s\n' "$update_migrator_log" |
      grep -Fx '[grafana-migrator] Database migrations and health verified without the bootstrap administrator credential.'
+   verify_update_generation
    APP_IMAGE="$target_app_alias" \
      GRAFANA_SSO_POLICY_IMAGE="$target_policy_alias" \
      "${update_compose[@]}" up \
@@ -3949,6 +6076,7 @@ rollbæck.
    printf '%s\n' "$update_policy_log"
    printf '%s\n' "$update_policy_log" |
      grep -Eq '^\[grafana-sso-policy\] Verified [0-9]+ compliant active API/service-account token\(s\); reconciled [0-9]+ active SSO override\(s\); active overrides: 0\.$'
+   verify_update_generation
    update_app_accepted=false
    stop_unaccepted_updated_app() {
      update_status=$?
@@ -3969,6 +6097,7 @@ rollbæck.
      exit "$update_status"
    }
    trap stop_unaccepted_updated_app EXIT
+   verify_update_generation
    if ! APP_IMAGE="$target_app_alias" \
      GRAFANA_SSO_POLICY_IMAGE="$target_policy_alias" \
      "${update_compose[@]}" up -d \
@@ -3998,14 +6127,51 @@ rollbæck.
      grafana server -v
    "${update_compose[@]}" exec -T app \
      /usr/local/bin/grafana-entrypoint health
-   update_app_accepted=true
-   trap - EXIT
+   verify_update_generation
+   printf '%s\n' \
+     'Keep this lock-owning shell open; final update acceptance is pending.'
    ```
 
 Prove OIDC æccess ænd æll three roles plus both deniæl cæses, locæl-login
 negætives, dæshboærds/dætæ sources/ælerts/plugins/service æccounts, restært
 persistence, PostgreSQL mæintenænce, ænd externæl SMTP delivery before closing
 the updæte window.
+
+Only then use the sæme lock-owning shell for finæl æcceptænce. Recheck the
+bound secret/config/imæge generætion, finite exits, policy log, mæintenænce,
+running imæge, ænd heælth before releæsing the locks with the guærd still
+ærmed:
+
+<div id="grafana-update-final-acceptance"></div>
+
+```bash
+set -euo pipefail
+verify_update_generation
+for completed_service in grafana-bootstrap grafana-migrator \
+  grafana-sso-policy; do
+  completed_container="$("${update_compose[@]}" ps --all -q \
+    "$completed_service")"
+  case "$completed_container" in ''|*$'\n'*) exit 1 ;; esac
+  test "$(docker inspect --format \
+    '{{.State.Running}}:{{.State.ExitCode}}' "$completed_container")" = \
+    'false:0'
+done
+update_accepted_app="$("${update_compose[@]}" ps -q app)"
+case "$update_accepted_app" in ''|*$'\n'*) exit 1 ;; esac
+test "$(docker inspect --format '{{.Image}}' "$update_accepted_app")" = \
+  "$expected_app_image_id"
+test "$(docker inspect --format '{{.State.Health.Status}}' \
+  "$update_accepted_app")" = healthy
+update_policy_log="$("${update_compose[@]}" logs --no-log-prefix \
+  grafana-sso-policy)"
+printf '%s\n' "$update_policy_log" |
+  grep -Eq '^\[grafana-sso-policy\] Verified [0-9]+ compliant active API/service-account token\(s\); reconciled [0-9]+ active SSO override\(s\); active overrides: 0\.$'
+"${update_compose[@]}" exec -T postgresql_maintenance pgrep supercronic
+verify_update_generation
+finish_grafana_operation update "$update_id"
+update_app_accepted=true
+trap - EXIT
+```
 
 ### Version-compætible rollbæck
 

@@ -858,16 +858,2382 @@ run_merged_policy_job() {
   fi
 }
 
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: validate_documented_runbook_contracts
+#   Vælidætes criticæl Græfænæ runbooks ænd isolæted negætive fixtures.
+#ææææææææææææææææææææææææææææææææææ
+validate_documented_runbook_contracts() {
+  python3 - "${TEST_REPO_ROOT}/Grafana/README.md" \
+    "${TEST_REPO_ROOT}/run.sh" \
+    "${RUNTIME_ROOT}/runbook-contracts" <<'PY'
+import re
+import subprocess
+import sys
+import textwrap
+from pathlib import Path
+
+
+class ContractError(RuntimeError):
+    pass
+
+
+def require(condition, message):
+    if not condition:
+        raise ContractError(message)
+
+
+def require_text(source, needle, message):
+    require(needle in source, message)
+
+
+def require_order(source, needles, message):
+    offset = 0
+    for step_number, needle in enumerate(needles, start=1):
+        position = source.find(needle, offset)
+        if position < 0:
+            raise ContractError(
+                f"{message}: step {step_number} missing or reordered {needle!r}"
+            )
+        offset = position + len(needle)
+
+
+def bash_block_after_anchor(document, anchor):
+    marker = f'<div id="{anchor}"></div>'
+    require(document.count(marker) == 1, f"anchor must occur exactly once: {anchor}")
+    anchor_offset = document.index(marker) + len(marker)
+    tail = document[anchor_offset:]
+    fence = re.search(r"(?m)^[ \t]*```bash[ \t]*$", tail)
+    require(fence is not None, f"anchor has no Bash block: {anchor}")
+    block_offset = anchor_offset + fence.end()
+    block_tail = document[block_offset:]
+    closing = re.search(r"(?m)^[ \t]*```[ \t]*$", block_tail)
+    require(closing is not None, f"Bash block is not closed: {anchor}")
+    return textwrap.dedent(block_tail[:closing.start()]).strip() + "\n"
+
+
+def bash_block_records(document):
+    return [
+        (
+            match.start(),
+            match.end(),
+            textwrap.dedent(match.group(1)).strip() + "\n",
+        )
+        for match in re.finditer(
+            r"(?ms)^[ \t]*```bash[ \t]*$\n(.*?)^[ \t]*```[ \t]*$",
+            document,
+        )
+    ]
+
+
+def bash_blocks(document):
+    return [block for _, _, block in bash_block_records(document)]
+
+
+def bash_block_containing(document, marker):
+    matches = [block for block in bash_blocks(document) if marker in block]
+    require(len(matches) == 1, f"Bash marker must select exactly one block: {marker}")
+    return matches[0]
+
+
+def bash_block_record_containing(document, marker):
+    matches = [record for record in bash_block_records(document) if marker in record[2]]
+    require(len(matches) == 1, f"Bash marker must select exactly one block: {marker}")
+    return matches[0]
+
+
+def normalize_shell(source):
+    return re.sub(r"[ \t]+", " ", re.sub(r"\\\n[ \t]*", "", source))
+
+
+def compact_shell(source):
+    return re.sub(r"\s+", " ", normalize_shell(source)).strip()
+
+
+def require_bash_syntax(block, name):
+    result = subprocess.run(
+        ["bash", "-n"],
+        input=block,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    require(result.returncode == 0, f"{name} is not valid Bash: {result.stderr.strip()}")
+
+
+def find_shell_function_end(lines, start, function_name):
+    last_error = "no closing brace candidate"
+    for end in range(start + 1, len(lines)):
+        if lines[end].strip() != "}":
+            continue
+        candidate = textwrap.dedent("\n".join(lines[start:end + 1])) + "\n"
+        result = subprocess.run(
+            ["bash", "-n"],
+            input=candidate,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+        if result.returncode == 0:
+            return end
+        last_error = result.stderr.strip()
+    raise ContractError(
+        f"documented function is not closed: {function_name}: {last_error}"
+    )
+
+
+def extract_shell_function(block, function_name):
+    lines = block.splitlines()
+    signature = f"{function_name}() {{"
+    try:
+        start = next(index for index, line in enumerate(lines) if line.strip() == signature)
+    except StopIteration as error:
+        raise ContractError(f"missing documented function: {function_name}") from error
+    end = find_shell_function_end(lines, start, function_name)
+    return textwrap.dedent("\n".join(lines[start:end + 1])) + "\n"
+
+
+def validate_function_extractor_fixture():
+    fixture = r'''fixture_function() {
+  local rendered
+  rendered="$(printf '%s\n' '
+{
+  "quoted-closing-brace": "}"
+}
+')" || {
+    return 1
+  }
+  test -n "$rendered" || {
+    return 1
+  }
+  printf '%s\n' extractor-reached-tail
+}
+outside_function=true
+'''
+    extracted = extract_shell_function(fixture, "fixture_function")
+    require_text(
+        extracted,
+        "extractor-reached-tail",
+        "function extractor stopped at a quoted or nested brace",
+    )
+    require(
+        "outside_function" not in extracted,
+        "function extractor consumed commands after the function",
+    )
+
+
+def validate_restore_exchange(block):
+    compact_block = compact_shell(block)
+    required_fragments = (
+        'app_stage_parent="$(pwd)/.appdata-restore-$restore_id"',
+        'app_stage="$app_stage_parent/appdata"',
+        'appdata_manifest="$db_stage/appdata-tree.manifest.v1"',
+        'appdata_binding="$db_stage/appdata-tree.binding.v1"',
+        "'directory:700:0:0'",
+        'test ! -L "$app_stage_parent"',
+        'find . -xdev -print0 | LC_ALL=C sort -z |',
+        'test ! -L "$manifest_entry"',
+        'manifest_type=directory',
+        'manifest_type=file',
+        'test "$(stat -c \'%h\' -- "$manifest_entry")" -eq 1',
+        'manifest_size="$(stat -c \'%s\' -- "$manifest_entry")"',
+        'manifest_mtime="$(stat -c \'%y\' -- "$manifest_entry")"',
+        'content_digest="$(sha256sum < "$manifest_entry" | awk \'{ print $1 }\')" || exit 1',
+        'manifest_mode="$(stat -c \'%a\' -- "$manifest_entry")"',
+        'manifest_uid="$(stat -c \'%u\' -- "$manifest_entry")"',
+        'manifest_gid="$(stat -c \'%g\' -- "$manifest_entry")"',
+        'getfacl --numeric --absolute-names --omit-header --',
+        'getfattr --absolute-names --dump --encoding=hex --match=- --',
+        'if ! find . -xdev -print0 | LC_ALL=C sort -z |',
+        'done; then exit 1 fi ) > "$manifest_output"; then',
+        'test -s "$manifest_output" || return 1',
+        '[[ "$content_digest" =~ ^[0-9a-f]{64}$ ]] || exit 1',
+        '[[ "$acl_digest" =~ ^[0-9a-f]{64}$ ]] || exit 1',
+        '[[ "$xattr_digest" =~ ^[0-9a-f]{64}$ ]] || exit 1',
+        "printf '%s\\0%s\\0%s\\0%s\\0%s\\0%s\\0%s\\0%s\\0%s\\0%s\\0'",
+        "'regular file:1:600:0:0'",
+        "'format|grafana-appdata-manifest-v1'",
+        '"bundle-sha256|$restore_bundle_digest"',
+        '"tree-sha256|$appdata_manifest_digest"',
+        'mv --exchange --no-copy -T appdata "$app_stage"',
+    )
+    for fragment in required_fragments:
+        require(
+            fragment in block or compact_shell(fragment) in compact_block,
+            f"restore exchange lost contract fragment {fragment!r}",
+        )
+    record_arguments = (
+        '"$manifest_entry" "$manifest_type" "$manifest_mode" '
+        '"$manifest_uid" "$manifest_gid" "$manifest_size" '
+        '"$manifest_mtime" "$content_digest" "$acl_digest" "$xattr_digest"'
+    )
+    require_text(
+        normalize_shell(block),
+        record_arguments,
+        "manifest fields are not all emitted in the canonical NUL record",
+    )
+    require('$app_stage/appdata-tree.manifest' not in block, "manifest moved inside app_stage")
+    require('$app_stage_parent/appdata-tree.manifest' not in block, "manifest moved inside stage parent")
+    stage_probe = 'write_appdata_manifest "$app_stage" "$appdata_manifest_check"'
+    live_probe = 'write_appdata_manifest appdata "$appdata_manifest_check"'
+    compare = 'cmp -s -- "$appdata_manifest" "$appdata_manifest_check"'
+    exchange = 'mv --exchange --no-copy -T appdata "$app_stage"'
+    require(block.count(stage_probe) >= 2, "restore needs initial and immediate pre-exchange stage probes")
+    require(block.count(live_probe) == 1, "restore needs exactly one post-exchange live probe")
+    exchange_offset = block.index(exchange)
+    pre_probe_offset = block.rfind(stage_probe, 0, exchange_offset)
+    require(pre_probe_offset >= 0, "restore lacks the immediate pre-exchange stage probe")
+    require(
+        block.rfind(stage_probe) == pre_probe_offset,
+        "restore stage probe must not move behind the exchange",
+    )
+    pre_compare_offset = block.find(compare, pre_probe_offset)
+    require(
+        pre_probe_offset < pre_compare_offset < exchange_offset,
+        "restore stage compare must precede the exchange",
+    )
+    require(
+        '"$appdata_manifest_digest"' in block[pre_compare_offset:exchange_offset],
+        "restore stage digest must be rechecked immediately before exchange",
+    )
+    live_probe_offset = block.find(live_probe, exchange_offset)
+    live_compare_offset = block.find(compare, live_probe_offset)
+    require(
+        exchange_offset < live_probe_offset < live_compare_offset,
+        "restore live compare must follow the exchange",
+    )
+    require(
+        '"$appdata_manifest_digest"' in block[live_compare_offset:],
+        "restore live digest must be rechecked after exchange",
+    )
+    parent_check = block.index("'directory:700:0:0'")
+    first_stage_probe = block.index(stage_probe)
+    require(parent_check < first_stage_probe, "root-owned stage parent must precede tree use")
+
+
+def validate_restore_stage(block):
+    parent_install = 'install -d -o 0 -g 0 -m 0700 -- "$app_stage_parent" "$db_stage"'
+    child_install = 'install -d -o 472 -g 472 -m 0770 -- "$app_stage"'
+    extraction = '"$restore_bundle/grafana-appdata.tar" -C "$app_stage"'
+    require_order(
+        normalize_shell(block),
+        (
+            parent_install,
+            child_install,
+            "'directory:700:0:0'",
+            extraction,
+        ),
+        "restore stage parent must be root-owned and closed before extraction",
+    )
+    require_text(block, 'test ! -L "$app_stage_parent"', "stage parent symlink rejection is missing")
+
+
+def validate_break_glass_matrix(block):
+    required_fragments = (
+        'BREAKGLASS_PEER_ALLOWLIST_FILE=',
+        '"regular file:1:600:$(id -u)"',
+        'allowlist_last_byte="$(tail -c 1 -- "$allowlist_file" |',
+        'test "$allowlist_last_byte" = 0a',
+        'delimiter_bytes="${allowed_line//[^|]/}"',
+        'test "${#delimiter_bytes}" -eq 9',
+        'declare -gA break_glass_allowed_result=()',
+        'declare -gA break_glass_allowed_trust=()',
+        'declare -gA break_glass_allowed_image=()',
+        'declare -gA break_glass_allowed_namespace_image=()',
+        'declare -gA break_glass_allowed_project=()',
+        'declare -gA break_glass_allowed_service=()',
+        'case "$allowed_network" in frontend|backend)',
+        '[[ "$allowed_name" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]]',
+        '[[ "$allowed_image" =~ ^sha256:[0-9a-f]{64}$ ]]',
+        'test "$allowed_namespace_name" = -',
+        'test "$allowed_namespace_image" = -',
+        '[[ "$allowed_namespace_image" =~ ^sha256:[0-9a-f]{64}$ ]]',
+        'test "$allowed_project" = -',
+        'test "$allowed_service" = -',
+        'case "$allowed_result" in DENIED|REACHABLE)',
+        'case "$allowed_trust" in trusted|untrusted)',
+        '[ "$allowed_trust" = untrusted ]',
+        'test "$allowed_result" = DENIED',
+        'allowed_key="$allowed_network|$allowed_name|$allowed_scope|$allowed_namespace_name"',
+        'test -z "${break_glass_allowed_result[$allowed_key]:-}"',
+        'break_glass_allowed_image[$allowed_key]="$allowed_image"',
+        'break_glass_allowed_namespace_image[$allowed_key]="$allowed_namespace_image"',
+        'break_glass_allowed_project[$allowed_key]="$allowed_project"',
+        'break_glass_allowed_service[$allowed_key]="$allowed_service"',
+        '[[ "$break_glass_peer_allowlist_sha256" =~ ^[0-9a-f]{64}$ ]]',
+        '--network "$listener_network"',
+        '"http://$listener_ip:3000/api/health"',
+        '[ "$listener_status" = 200 ]',
+        "printf 'UNTESTED listener-%s %s %s status-%s\\n'",
+        'return 1',
+        'local untested_peer_count=0 policy_violation_count=0',
+        'declare -A observed_peer_keys=()',
+        'peer_inventory_file="$(mktemp /tmp/grafana-peer-inventory.XXXXXX)"',
+        'if ! docker ps --all --quiet --no-trunc > "$peer_inventory_file"; then',
+        'test ! -L "$peer_inventory_file"',
+        'peer_inventory_metadata="$(stat -c \'%h:%a:%u\' --',
+        'test "$peer_inventory_metadata" = "1:600:$(id -u)"',
+        'mapfile -t docker_container_ids < "$peer_inventory_file"',
+        'rm -f -- "$peer_inventory_file"',
+        'test "${#docker_container_ids[@]}" -gt 0 || return 1',
+        "peer_name=\"$(docker inspect --format '{{.Name}}' \"$peer_id\")\"",
+        "peer_image=\"$(docker inspect --format '{{.Image}}' \"$peer_id\")\"",
+        "'(. // {})[\"com.docker.compose.project\"] // \"-\"'",
+        "'(. // {})[\"com.docker.compose.service\"] // \"-\"'",
+        'peer_key="$breakglass_network|$peer_name|$peer_scope|$namespace_name"',
+        '[ "$peer_image" != "${break_glass_allowed_image[$peer_key]}" ]',
+        '[ "$peer_project" !=',
+        '"${break_glass_allowed_project[$peer_key]}"',
+        '[ "$peer_service" !=',
+        '"${break_glass_allowed_service[$peer_key]}"',
+        'probe_break_glass_listener "$breakglass_network" "$app_network_ip"',
+        'peer_result=UNTESTED',
+        'peer_result=REACHABLE',
+        'peer_result=DENIED',
+        '[ "$peer_result" = UNTESTED ]',
+        'peer_detail="listener-control-failed-after-$peer_detail"',
+        '[ "$peer_result" != "$peer_expected" ]',
+        '[ "$peer_trust" = untrusted ]',
+        '[ "$peer_result" != DENIED ]',
+        'printf \'UNTESTED allowlist-entry-missing %s\\n\'',
+        'test "$untested_peer_count" -eq 0',
+        'test "$policy_violation_count" -eq 0',
+        'declare -f load_break_glass_peer_allowlist',
+        'declare -f probe_break_glass_listener',
+        'declare -f probe_break_glass_peers',
+        'peer_policy_ref="$(docker compose --env-file .env',
+        "'.services[\"grafana-sso-policy\"].image | select(length > 0)'",
+        'peer_policy_image_id="$(docker image inspect --format \'{{.Id}}\'',
+        '[[ "$peer_policy_image_id" =~ ^sha256:[0-9a-f]{64}$ ]]',
+        "'format|grafana-break-glass-peer-v1\\nprobe-image|%s\\nhelper-sha256|%s\\nallowlist-sha256|%s\\npolicy-image-id|%s\\n'",
+        'sha256sum -c "$peer_manifest_checksum"',
+        "'{{.State.Running}}:{{.State.ExitCode}}'",
+        "'false:0'",
+        '"${peer_cleanup_compose[@]}" rm -f',
+        'test -z "$("${peer_cleanup_compose[@]}" ps --all -q',
+        'probe_break_glass_peers',
+    )
+    for fragment in required_fragments:
+        require_text(block, fragment, f"break-glass matrix lost contract fragment {fragment!r}")
+    allowlist_function = extract_shell_function(block, "load_break_glass_peer_allowlist")
+    require_text(
+        allowlist_function,
+        '"regular file:1:600:$(id -u)"',
+        "peer allowlist must remain owner-only",
+    )
+    peer_function = extract_shell_function(block, "probe_break_glass_peers")
+    require(
+        'peer_key="$breakglass_network|$peer_id|' not in peer_function,
+        "volatile container ID became peer allowlist identity",
+    )
+    require("< <(" not in peer_function, "peer inventory must check producer exit status")
+    require_order(
+        normalize_shell(peer_function),
+        (
+            'peer_inventory_file="$(mktemp /tmp/grafana-peer-inventory.XXXXXX)"',
+            'if ! docker ps --all --quiet --no-trunc > "$peer_inventory_file"; then',
+            'test ! -L "$peer_inventory_file" || {',
+            'peer_inventory_metadata="$(stat -c \'%h:%a:%u\' -- "$peer_inventory_file")" || {',
+            'test "$peer_inventory_metadata" = "1:600:$(id -u)" || {',
+            'mapfile -t docker_container_ids < "$peer_inventory_file"',
+            'rm -f -- "$peer_inventory_file"',
+            'test "${#docker_container_ids[@]}" -gt 0 || return 1',
+        ),
+        "peer inventory producer and owner-only handoff",
+    )
+    require_order(
+        normalize_shell(peer_function),
+        (
+            'before-matrix',
+            'peer_result=UNTESTED',
+            '[ "$peer_result" = UNTESTED ]',
+            'after-denied-$peer_id',
+            'peer_result=UNTESTED',
+            '[ "$peer_trust" = untrusted ]',
+            '[ "$peer_result" != DENIED ]',
+            'after-matrix',
+            'UNTESTED allowlist-entry-missing',
+            'test "$untested_peer_count" -eq 0',
+            'test "$policy_violation_count" -eq 0',
+        ),
+        "break-glass listener and fail-closed matrix order",
+    )
+    require(
+        block.rfind("probe_break_glass_peers") > block.index("sha256sum -c \"$peer_manifest_checksum\""),
+        "initial peer matrix must run only after its saved contract is checksummed",
+    )
+    require_order(
+        normalize_shell(block),
+        (
+            "'{{.State.Running}}:{{.State.ExitCode}}'",
+            "'false:0'",
+            '"${peer_cleanup_compose[@]}" rm -f',
+            'test -z "$("${peer_cleanup_compose[@]}" ps --all -q',
+            'probe_break_glass_peers',
+        ),
+        "finite jobs must be attested and removed before the initial peer matrix",
+    )
+    policy_contract = block[
+        block.index('peer_policy_ref='):
+        block.index("printf 'format|grafana-break-glass-peer-v1")
+    ]
+    require(
+        "ps --all -q grafana-sso-policy" not in policy_contract,
+        "peer contract must resolve the removed policy job through configured image identity",
+    )
+
+
+def shell_function_section(source, function_name):
+    signature = f"{function_name}() {{"
+    require(source.count(signature) == 1, f"function must occur exactly once: {function_name}")
+    start = source.index(signature)
+    following = re.search(r"(?m)^#æ{10,}$\n# FUNCTION:", source[start + len(signature):])
+    require(following is not None, f"could not delimit shell function: {function_name}")
+    end = start + len(signature) + following.start()
+    return source[start:end].strip() + "\n"
+
+
+def validate_operation_lock_contract(block, run_script):
+    begin_function = extract_shell_function(block, "begin_grafana_operation")
+    verify_function = extract_shell_function(block, "verify_grafana_operation")
+    finish_function = extract_shell_function(block, "finish_grafana_operation")
+    run_repository = shell_function_section(run_script, "acquire_repository_lock")
+    run_project = shell_function_section(run_script, "acquire_project_lock")
+    require_order(
+        normalize_shell(run_repository),
+        (
+            'local lock_mode="--shared"',
+            'REPOSITORY_LOCK_IDENTITY=$(stat -Lc \'%d:%i\' -- "$SCRIPT_DIR")',
+            'exec {REPOSITORY_LOCK_FD}<"$SCRIPT_DIR"',
+            '"/proc/${BASHPID}/fd/${REPOSITORY_LOCK_FD}"',
+            'flock "$lock_mode" --nonblock "$REPOSITORY_LOCK_FD"',
+        ),
+        "run.sh repository lock reference changed",
+    )
+    require_order(
+        normalize_shell(run_project),
+        (
+            'bootstrap_identity=$(stat -Lc \'%d:%i\' -- "$TARGET_DIR")',
+            'exec {PROJECT_BOOTSTRAP_LOCK_FD}<"$TARGET_DIR"',
+            'flock --exclusive --nonblock "$PROJECT_BOOTSTRAP_LOCK_FD"',
+            'PROJECT_LOCK_IDENTITY=$(stat -Lc \'%d:%i\' -- "$lock_dir")',
+            'exec {PROJECT_LOCK_FD}<"$lock_dir"',
+            'flock --exclusive --nonblock "$PROJECT_LOCK_FD"',
+        ),
+        "run.sh per-project lock reference changed",
+    )
+    require_order(
+        normalize_shell(begin_function),
+        (
+            'GRAFANA_OPS_REPOSITORY_PATH="$(realpath -e -- ..)"',
+            'GRAFANA_OPS_PROJECT_PATH="$(pwd -P)"',
+            'GRAFANA_OPS_RUNTIME_PATH="$GRAFANA_OPS_PROJECT_PATH/.run.conf"',
+            'GRAFANA_OPS_REPOSITORY_IDENTITY="$(stat -Lc \'%d:%i\' -- "$GRAFANA_OPS_REPOSITORY_PATH")"',
+            'exec {GRAFANA_OPS_REPOSITORY_FD}<"$GRAFANA_OPS_REPOSITORY_PATH"',
+            '"/proc/$BASHPID/fd/$GRAFANA_OPS_REPOSITORY_FD"',
+            'flock --shared --nonblock "$GRAFANA_OPS_REPOSITORY_FD"',
+            'GRAFANA_OPS_PROJECT_IDENTITY="$(stat -Lc \'%d:%i\' -- "$GRAFANA_OPS_PROJECT_PATH")"',
+            'exec {GRAFANA_OPS_PROJECT_FD}<"$GRAFANA_OPS_PROJECT_PATH"',
+            '"/proc/$BASHPID/fd/$GRAFANA_OPS_PROJECT_FD"',
+            'flock --exclusive --nonblock "$GRAFANA_OPS_PROJECT_FD"',
+            'GRAFANA_OPS_RUNTIME_IDENTITY="$(stat -Lc \'%d:%i\' -- "$GRAFANA_OPS_RUNTIME_PATH")"',
+            'exec {GRAFANA_OPS_RUNTIME_FD}<"$GRAFANA_OPS_RUNTIME_PATH"',
+            '"/proc/$BASHPID/fd/$GRAFANA_OPS_RUNTIME_FD"',
+            'flock --exclusive --nonblock "$GRAFANA_OPS_RUNTIME_FD"',
+            'verify_grafana_operation "$requested_workflow" "$requested_id"',
+        ),
+        "Grafana operation locks must match normal run.sh order and modes",
+    )
+    require(begin_function.count("flock --shared --nonblock") == 1, "operation needs one shared lock")
+    require(begin_function.count("flock --exclusive --nonblock") == 2, "operation needs two exclusive locks")
+    require(".lock" not in begin_function, "operation lock must not use a separate lock file")
+    for lock_name in ("REPOSITORY", "PROJECT", "RUNTIME"):
+        for fragment in (
+            f'GRAFANA_OPS_{lock_name}_FD',
+            f'GRAFANA_OPS_{lock_name}_IDENTITY',
+            f'GRAFANA_OPS_{lock_name}_PATH',
+            f'/proc/$BASHPID/fd/$GRAFANA_OPS_{lock_name}_FD',
+            f'flock -n -x "$GRAFANA_OPS_{lock_name}_PATH" true',
+        ):
+            require_text(verify_function, fragment, f"operation verify lost {lock_name.lower()} lock proof")
+    require_order(
+        normalize_shell(finish_function),
+        (
+            'verify_grafana_operation "$expected_workflow" "$expected_id"',
+            'flock -u "$GRAFANA_OPS_RUNTIME_FD"',
+            'exec {GRAFANA_OPS_RUNTIME_FD}<&-',
+            'flock -u "$GRAFANA_OPS_PROJECT_FD"',
+            'exec {GRAFANA_OPS_PROJECT_FD}<&-',
+            'flock -u "$GRAFANA_OPS_REPOSITORY_FD"',
+            'exec {GRAFANA_OPS_REPOSITORY_FD}<&-',
+        ),
+        "Grafana operation locks must release in reverse order",
+    )
+
+
+def validate_secret_manifest_contract(block):
+    function_source = extract_shell_function(block, "write_grafana_secret_manifest")
+    normalized_function = normalize_shell(function_source)
+    required_fragments = (
+        'local manifest_output=$1 rendered_config secret_name secret_file',
+        'secret_compose=("$@")',
+        'secret_owner_path="${GRAFANA_OPS_PROJECT_PATH:-.}"',
+        'expected_secret_uid="${GRAFANA_SECRET_EXPECTED_UID:-$(stat -c \'%u\' -- "$secret_owner_path")}"',
+        'expected_secret_gid="${GRAFANA_SECRET_EXPECTED_GID:-$(jq -er',
+        '(.value.group_add // [])[] | tostring',
+        'unique | if length == 1 then .[0] else error("ambiguous secret group") end',
+        "' \"$rendered_config\")}",
+        '[[ "$expected_secret_uid" =~ ^[0-9]+$ ]]',
+        '[[ "$expected_secret_gid" =~ ^[0-9]+$ ]]',
+        'rendered_config="$(mktemp /tmp/grafana-secret-config.XXXXXX)"',
+        'secret_names_file="$(mktemp /tmp/grafana-secret-names.XXXXXX)"',
+        'for secret_temp_file in "$rendered_config" "$secret_names_file"; do',
+        'test -f "$secret_temp_file"',
+        '"1:600:$(id -u)"',
+        'test ! -L "$secret_temp_file"',
+        'config --format json > "$rendered_config"',
+        'if ! jq -j',
+        '.services | to_entries[]',
+        '.key == "app"',
+        '.key == "grafana-bootstrap"',
+        '.key == "grafana-migrator"',
+        '.key == "grafana-sso-policy"',
+        '(.value.secrets // [])[]',
+        'if type == "string" then . else .source end',
+        'unique[] | . + "\\u0000"',
+        'done < "$secret_names_file"',
+        'test -s "$secret_names_file"',
+        '.secrets[$secret_name].file',
+        '[[ "$secret_file" == /* ]]',
+        'test -f "$secret_file"',
+        'test ! -L "$secret_file"',
+        'test "$(stat -c \'%F:%h\' -- "$secret_file")" = \'regular file:1\'',
+        'secret_mode="$(stat -c \'%a\' -- "$secret_file")"',
+        'secret_uid="$(stat -c \'%u\' -- "$secret_file")"',
+        'secret_gid="$(stat -c \'%g\' -- "$secret_file")"',
+        'secret_size="$(stat -c \'%s\' -- "$secret_file")"',
+        'case "$secret_mode" in',
+        '600) ;;',
+        '640) test "$secret_gid" -eq "$expected_secret_gid"',
+        'test "$secret_uid" -eq "$expected_secret_uid"',
+        'secret_digest="$(sha256sum < "$secret_file" | awk \'{ print $1 }\')"',
+        "printf '%s\\0%s\\0%s\\0%s\\0%s\\0%s\\0%s\\0'",
+        '"$secret_name" "$secret_file" "$secret_mode" "$secret_uid"',
+        '"$secret_gid" "$secret_size" "$secret_digest"',
+        'chmod 0600 -- "$manifest_output"',
+        'test -s "$manifest_output"',
+        '"regular file:1:600:$(id -u)"',
+        'test ! -L "$manifest_output"',
+    )
+    for fragment in required_fragments:
+        require(
+            fragment in function_source or normalize_shell(fragment) in normalized_function,
+            f"secret manifest lost contract fragment {fragment!r}",
+        )
+    require('cat "$secret_file"' not in function_source, "secret manifest must never print or shell-read secret values")
+    require(
+        'test "$secret_uid" -eq "$(id -u)"' not in normalized_function,
+        "secret owner must not be coupled to the current root/operator UID",
+    )
+    require(
+        'expected_secret_uid="${GRAFANA_SECRET_EXPECTED_UID:-$(id -u)}"' not in normalized_function,
+        "secret owner fallback must come from the explicit deployment path",
+    )
+    require("< <(" not in function_source, "secret inventory must check every producer exit status")
+    require_order(
+        normalized_function,
+        (
+            'rendered_config="$(mktemp /tmp/grafana-secret-config.XXXXXX)"',
+            'secret_names_file="$(mktemp /tmp/grafana-secret-names.XXXXXX)"',
+            '"1:600:$(id -u)"',
+            'if ! "${secret_compose[@]}" config --format json > "$rendered_config"; then',
+            'if ! jq -j',
+            '> "$secret_names_file"; then',
+            'done < "$secret_names_file"',
+        ),
+        "secret inventory producer and owner-only handoff",
+    )
+    return function_source
+
+
+def validate_generation_builder(document, function_name, required_fragments=()):
+    function_block = bash_block_containing(document, f"{function_name}() {{")
+    function_source = extract_shell_function(function_block, function_name)
+    compact_source = compact_shell(function_source)
+    require_bash_syntax(function_source, f"Grafana {function_name} runbook function")
+    require("< <(" not in function_source, f"{function_name} uses unchecked process substitution")
+    for fragment in required_fragments:
+        require(
+            fragment in function_source or compact_shell(fragment) in compact_source,
+            f"{function_name} lost contract fragment {fragment!r}",
+        )
+    printf_offsets = [
+        match.start()
+        for match in re.finditer(r"printf 'format\|grafana-", function_source)
+    ]
+    require(len(printf_offsets) == 1, f"{function_name} needs one canonical format record")
+    require(
+        "$(" not in function_source[printf_offsets[0]:],
+        f"{function_name} evaluates an unchecked producer inside its final printf",
+    )
+    assignment_pattern = re.compile(
+        r'(?ms)^[ \t]*([A-Za-z_][A-Za-z0-9_]*)="\$\((.*?)\)"'
+        r'[ \t]*(?:\\\n[ \t]*)?(\|\|[ \t]+return[ \t]+1)?'
+    )
+    assignments = list(assignment_pattern.finditer(function_source))
+    require(assignments, f"{function_name} has no producer-bound digest assignments")
+    for assignment in assignments:
+        require(
+            assignment.group(3) is not None,
+            f"{function_name} does not propagate producer failure for {assignment.group(1)}",
+        )
+    for line in compact_source.split(" ; "):
+        if "[[" not in line or "=~ ^[0-9a-f]{64}$ ]]" not in line:
+            continue
+        require(
+            "|| return 1" in line,
+            f"{function_name} digest validation relies on suppressed errexit",
+        )
+    require(
+        re.search(r'> "\$[A-Za-z_][A-Za-z0-9_]*" \|\| return 1', compact_source),
+        f"{function_name} does not propagate its manifest write failure",
+    )
+    if "config --format json" in function_source:
+        require_text(
+            function_source,
+            "if ! ",
+            f"{function_name} effective-config producer is not checked",
+        )
+        require(
+            re.search(
+                r'test -s "\$[A-Za-z_][A-Za-z0-9_]*" \|\|.{0,200}return 1',
+                compact_source,
+            ) is not None,
+            f"{function_name} accepts an empty effective configuration",
+        )
+    return function_source
+
+
+def validate_workflow_contract(document, spec):
+    workflow = spec["workflow"]
+    operation_id = spec["operation_id"]
+    generation_verifier = spec["generation_verifier"]
+    accepted_variable = spec["accepted_variable"]
+    begin_command = f'begin_grafana_operation {workflow} "${operation_id}"'
+    finish_command = f'finish_grafana_operation {workflow} "${operation_id}"'
+    records = bash_block_records(document)
+    begin_record = bash_block_record_containing(document, begin_command)
+    finish_record = bash_block_record_containing(document, finish_command)
+    begin_index = records.index(begin_record)
+    finish_index = records.index(finish_record)
+    require(begin_index < finish_index, f"{workflow} acceptance precedes its operation begin")
+    selected_records = records[begin_index:finish_index + 1]
+    for _, _, block in selected_records:
+        require_bash_syntax(block, f"Grafana {workflow} operation block")
+    first_block = begin_record[2]
+    first_slice = first_block[first_block.index(begin_command):]
+    operation_blocks = [first_slice]
+    operation_blocks.extend(record[2] for record in selected_records[1:])
+    operation_region = "\n".join(operation_blocks)
+    require(operation_region.count(begin_command) == 1, f"{workflow} operation begin is ambiguous")
+    require(operation_region.count(finish_command) == 1, f"{workflow} operation finish is ambiguous")
+    require("./run.sh Grafana" not in operation_region, f"{workflow} invokes run.sh while holding operation locks")
+    finish_offset = operation_region.index(finish_command)
+    locked_region = operation_region[:finish_offset]
+    for forbidden in (
+        'flock -u "$GRAFANA_OPS_',
+        'exec {GRAFANA_OPS_',
+        'exec {recovery_lock_fd}<&-',
+    ):
+        require(forbidden not in locked_region, f"{workflow} releases an operation FD before acceptance")
+    require_order(
+        normalize_shell(operation_region),
+        tuple(spec["mutation_sequence"]),
+        f"{workflow} mutation/generation/activation sequence",
+    )
+    final_anchor_marker = f'<div id="{spec["final_anchor"]}"></div>'
+    final_anchor_offset = document.index(final_anchor_marker)
+    for prerequisite_marker in spec.get("final_prerequisite_markers", ()):
+        prerequisite_offset = document.rfind(
+            prerequisite_marker,
+            begin_record[1],
+            final_anchor_offset,
+        )
+        require(
+            prerequisite_offset >= begin_record[1],
+            f"{workflow} final acceptance precedes prerequisite {prerequisite_marker!r}",
+        )
+    final_block = bash_block_after_anchor(document, spec["final_anchor"])
+    require(final_block == finish_record[2], f"{workflow} final acceptance anchor selects the wrong block")
+    normalized_final = normalize_shell(final_block)
+    require_order(
+        normalized_final,
+        (
+            spec.get("final_generation_verifier", generation_verifier),
+            finish_command,
+            f"{accepted_variable}=true",
+            "trap - EXIT",
+        ),
+        f"{workflow} must finish locks before accepting and disarming its guard",
+    )
+    require_text(
+        final_block,
+        f"{finish_command}\n{accepted_variable}=true\ntrap - EXIT",
+        f"{workflow} finish must be a direct successful command immediately before acceptance",
+    )
+    finish_in_final = normalized_final.index(finish_command)
+    for final_check in spec["final_checks"]:
+        check_offset = normalized_final.find(final_check)
+        require(
+            0 <= check_offset < finish_in_final,
+            f"{workflow} final acceptance lost pre-finish check {final_check!r}",
+        )
+    require(
+        operation_region.count(f"{accepted_variable}=true") == 1,
+        f"{workflow} may accept the app only in its final block",
+    )
+    guard_function = spec["guard_function"]
+    require_order(
+        normalize_shell(operation_region),
+        (
+            f"{accepted_variable}=false",
+            f"trap {guard_function} EXIT",
+            spec["guarded_app_start"],
+            finish_command,
+            f"{accepted_variable}=true",
+        ),
+        f"{workflow} app guard must remain armed from start through finish",
+    )
+    verifier_function = spec.get("final_generation_verifier", generation_verifier)
+    verifier_block = bash_block_containing(document, f"{verifier_function}() {{")
+    verifier_source = extract_shell_function(verifier_block, verifier_function)
+    for fragment in (
+        f'verify_grafana_operation {workflow} "${operation_id}"',
+        "sha256sum -c",
+        "write_grafana_secret_manifest",
+        "cmp -s --",
+    ):
+        require_text(
+            verifier_source,
+            fragment,
+            f"{workflow} generation verifier lost {fragment!r}",
+        )
+    require("< <(" not in verifier_source, f"{workflow} verifier must check producer exit status")
+    for _, _, block in selected_records:
+        normalized_block = normalize_shell(block)
+        start_match = re.search(r"\bup -d .*?(?:--force-recreate )?app(?:;|$)", normalized_block)
+        if start_match is None:
+            continue
+        verifier_offsets = [
+            normalized_block.rfind(verifier, 0, start_match.start())
+            for verifier in spec.get("start_verifiers", (generation_verifier,))
+        ]
+        require(
+            max(verifier_offsets, default=-1) >= 0,
+            f"{workflow} app start lacks an in-block generation recheck",
+        )
+    return {
+        "begin_record": begin_record,
+        "finish_record": finish_record,
+        "operation_region": operation_region,
+        "final_block": final_block,
+    }
+
+
+def validate_break_glass_workflow(document, workflow_result):
+    activation_block = bash_block_after_anchor(document, "grafana-break-glass-activation")
+    operation_region = workflow_result["operation_region"]
+    compact_activation = compact_shell(activation_block)
+    compact_operation = compact_shell(operation_region)
+    override_payload = (
+        "printf '%s\\n' 'services:' '  app:' '    environment:' "
+        "'      GRAFANA_DISABLE_LOGIN_FORM: \"false\"' "
+        "'      GRAFANA_OAUTH_AUTO_LOGIN: \"false\"' > "
+        '"$break_glass_form_override"'
+    )
+    for fragment in (
+        'test "$(grep -Fxc \'GRAFANA_DISABLE_LOGIN_FORM=true\' app.env)" -eq 1',
+        'install -m 0600 /dev/null "$break_glass_form_override"',
+        '"regular file:1:600:$(id -u)"',
+        '(.services.app.environment | (keys | sort) == [',
+        '"GRAFANA_DISABLE_LOGIN_FORM", "GRAFANA_OAUTH_AUTO_LOGIN"',
+        '.services.app.environment.GRAFANA_DISABLE_LOGIN_FORM == "false"',
+        '.services.app.environment.GRAFANA_OAUTH_AUTO_LOGIN == "false"',
+        'break_glass_compose=("${break_glass_base_compose[@]}" -f "$break_glass_form_override")',
+        '$form | .services.app.environment.GRAFANA_DISABLE_LOGIN_FORM = $base.services.app.environment.GRAFANA_DISABLE_LOGIN_FORM',
+        '.services.app.environment.GRAFANA_OAUTH_AUTO_LOGIN = $base.services.app.environment.GRAFANA_OAUTH_AUTO_LOGIN',
+        ') == $base)',
+    ):
+        require(
+            fragment in activation_block or compact_shell(fragment) in compact_activation,
+            f"break-glass strict override lost {fragment!r}",
+        )
+    require(
+        compact_shell(override_payload) in compact_activation,
+        "break-glass form override is not the exact two-key owner-only document",
+    )
+    form_assignment = 'break_glass_compose=("${break_glass_base_compose[@]}" -f "$break_glass_form_override")'
+    form_start = compact_operation.index(form_assignment)
+    override_removal = 'rm -- "$break_glass_form_override"'
+    form_end = compact_operation.index(override_removal, form_start)
+    form_region = compact_operation[form_start:form_end]
+    require(
+        re.search(
+            r'"\$\{break_glass_base_compose\[@\]\}" (?:stop|rm|up|run|exec)',
+            form_region,
+        ) is None,
+        "break-glass form phase mutates through the base Compose command",
+    )
+    require(
+        "./run.sh Grafana" not in form_region,
+        "break-glass form phase reruns run.sh under held directory locks",
+    )
+    require_order(
+        compact_operation,
+        (
+            'verify_break_glass_final_generation',
+            '"${break_glass_compose[@]}" stop app',
+            'test -z "$("${break_glass_compose[@]}" ps --status running -q app)"',
+            override_removal,
+            'test ! -e "$break_glass_form_override"',
+            'break_glass_compose=("${break_glass_base_compose[@]}")',
+            '.services.app.environment.GRAFANA_DISABLE_LOGIN_FORM == "true"',
+            'write_break_glass_closed_generation "$break_glass_closed_generation"',
+            'verify_break_glass_closed_generation',
+        ),
+        "break-glass closed-form transition",
+    )
+    closed_region = compact_operation[form_end:]
+    require(
+        '-f "$break_glass_form_override"' not in closed_region,
+        "break-glass closed phase still composes the form override",
+    )
+    require_order(
+        compact_operation,
+        (
+            'mv -- "$final_admin_stage" "$final_admin_secret"',
+            'write_grafana_secret_manifest "$break_glass_final_secret_manifest" "${break_glass_compose[@]}"',
+            'write_break_glass_final_generation "$break_glass_final_generation"',
+            'verify_break_glass_final_generation',
+            'rm -- "$marker"',
+            'verify_break_glass_final_generation',
+            '"${break_glass_compose[@]}" stop app',
+            override_removal,
+        ),
+        "break-glass post-rotation final secret contract",
+    )
+    force_marker = "--force-recreate app"
+    force_offsets = [match.start() for match in re.finditer(force_marker, compact_operation)]
+    require(len(force_offsets) == 2, "break-glass must have exactly form and closed app recreates")
+    for force_index, force_offset in enumerate(force_offsets, start=1):
+        next_force = force_offsets[force_index] if force_index < len(force_offsets) else len(compact_operation)
+        probe_offset = compact_operation.find("probe_break_glass_peers", force_offset, next_force)
+        require(probe_offset >= 0, f"break-glass recreate {force_index} lacks repeated peer matrix")
+        reload_region = compact_operation[force_offset:probe_offset]
+        require_order(
+            reload_region,
+            (
+                "'false:0'",
+                'sha256sum -c "$break_glass_finite_evidence_checksum"',
+                '"${break_glass_compose[@]}" rm -f',
+                "test -z",
+            ),
+            f"break-glass recreate {force_index} finite evidence and cleanup before matrix",
+        )
+        for reload_fragment in (
+            'sha256sum -c "$peer_manifest_checksum"',
+            '. "$peer_helper"',
+            'load_break_glass_peer_allowlist "$peer_allowlist"',
+        ):
+            require_text(
+                reload_region,
+                reload_fragment,
+                f"break-glass recreate {force_index} peer contract is not reloaded",
+            )
+    final_block = workflow_result["final_block"]
+    require_order(
+        compact_shell(final_block),
+        (
+            'sha256sum -c "$peer_manifest_checksum"',
+            '. "$peer_helper"',
+            'load_break_glass_peer_allowlist "$peer_allowlist"',
+            'probe_break_glass_peers',
+            'verify_break_glass_closed_generation',
+            'finish_grafana_operation break-glass "$break_glass_id"',
+        ),
+        "break-glass final peer fence",
+    )
+
+
+def validate_restore_workflow(document, workflow_result):
+    operation_region = workflow_result["operation_region"]
+    compact_operation = compact_shell(operation_region)
+    stage_probe = 'write_appdata_manifest "$app_stage" "$appdata_manifest_check"'
+    live_probe = 'write_appdata_manifest appdata "$appdata_manifest_check"'
+    require(
+        compact_operation.count(stage_probe) == 2,
+        "restore operation must probe staged appdata only initially and immediately pre-exchange",
+    )
+    require(
+        compact_operation.count(live_probe) == 1,
+        "restore operation must probe live appdata exactly once immediately post-exchange",
+    )
+    exchange = 'mv --exchange --no-copy -T appdata "$app_stage"'
+    exchange_offset = compact_operation.index(exchange)
+    initial_probe = compact_operation.index(stage_probe)
+    pre_probe = compact_operation.rindex(stage_probe, 0, exchange_offset)
+    live_probe_offset = compact_operation.index(live_probe, exchange_offset)
+    require(initial_probe < pre_probe < exchange_offset < live_probe_offset, "restore appdata probes lost exchange order")
+    require(
+        "write_appdata_manifest" not in compact_operation[live_probe_offset + len(live_probe):],
+        "restore recomputes mutable live appdata after its post-exchange proof",
+    )
+    require(
+        "verify_restore_generation appdata" not in compact_operation,
+        "restore activation rehashes mutable live appdata",
+    )
+    activation_verifier_block = bash_block_containing(
+        document,
+        "verify_restore_activation_generation() {",
+    )
+    activation_verifier = extract_shell_function(
+        activation_verifier_block,
+        "verify_restore_activation_generation",
+    )
+    require(
+        "write_appdata_manifest" not in activation_verifier,
+        "restore activation verifier binds mutable full live appdata",
+    )
+    for sentinel_fragment in (
+        'appdata/.restore-generation-$restore_id',
+        'appdata/.restore-bundle-$restore_id.sha256',
+        'write_grafana_secret_manifest "$secret_check" "${restore_compose[@]}"',
+        'write_restore_activation_generation "$activation_check"',
+    ):
+        require_text(
+            activation_verifier,
+            sentinel_fragment,
+            f"restore activation lost immutable sentinel/config proof {sentinel_fragment!r}",
+        )
+    require(
+        re.search(r"\bcmp\b[^\n]*<\(", operation_region) is None,
+        "restore compares unchecked process substitutions",
+    )
+    require("< <(" not in activation_verifier, "restore activation uses unchecked process substitution")
+    require_order(
+        compact_operation,
+        (
+            'recovery_lock_fd="$GRAFANA_OPS_RUNTIME_FD"',
+            exchange,
+            live_probe,
+            'recovery_form_override="${GRAFANA_RECOVERY_FORM_OVERRIDE:-}"',
+            'restore_override_binding="$recovery_form_override_sha256"',
+            'effective-config-sha256|%s',
+            'verify_restore_activation_generation',
+            'rm -- "$recovery_form_override"',
+            'unset GRAFANA_RECOVERY_FORM_OVERRIDE',
+            'test "$restore_activation_phase" = closed-form',
+            'finish_grafana_operation restore "$restore_id"',
+        ),
+        "restore same-lock recovery-form and closed rerun",
+    )
+    require(
+        'exec {recovery_lock_fd}<&-' not in operation_region,
+        "restore closes the inherited runtime lock descriptor during form cleanup",
+    )
+    require(
+        operation_region.count('begin_grafana_operation restore "$restore_id"') == 1,
+        "restore opens a new operation shell instead of inheriting the three locks",
+    )
+    final_block = workflow_result["final_block"]
+    require("write_appdata_manifest" not in final_block, "restore final acceptance hashes mutable appdata")
+    require("verify_restore_generation appdata" not in final_block, "restore final acceptance hashes mutable appdata")
+
+
+def require_rejected_mutation(block, mutate, validator, name):
+    mutated = mutate(block)
+    require(mutated != block, f"negative mutation did not change the block: {name}")
+    try:
+        validator(mutated)
+    except ContractError:
+        return
+    raise ContractError(f"negative mutation was accepted: {name}")
+
+
+def replace_once(source, old, new):
+    require(source.count(old) >= 1, f"mutation source is missing: {old!r}")
+    return source.replace(old, new, 1)
+
+
+def replace_last_once(source, old, new):
+    position = source.rfind(old)
+    require(position >= 0, f"mutation source is missing: {old!r}")
+    return source[:position] + new + source[position + len(old):]
+
+
+def mutate_anchored_bash_block(document, anchor, transform):
+    marker = f'<div id="{anchor}"></div>'
+    marker_offset = document.index(marker) + len(marker)
+    fence = re.search(r"(?m)^[ \t]*```bash[ \t]*$\n", document[marker_offset:])
+    require(fence is not None, f"mutation anchor has no Bash fence: {anchor}")
+    block_start = marker_offset + fence.end()
+    closing = re.search(r"(?m)^[ \t]*```[ \t]*$", document[block_start:])
+    require(closing is not None, f"mutation anchor has no closing fence: {anchor}")
+    block_end = block_start + closing.start()
+    original = document[block_start:block_end]
+    mutated = transform(original)
+    require(mutated != original, f"anchored mutation did not change {anchor}")
+    return document[:block_start] + mutated + document[block_end:]
+
+
+def mutate_document_function(document, function_name, transform):
+    lines = document.splitlines(keepends=True)
+    signature = f"{function_name}() {{"
+    starts = [index for index, line in enumerate(lines) if line.strip() == signature]
+    require(len(starts) == 1, f"mutation function must occur once: {function_name}")
+    start = starts[0]
+    parse_lines = [line.rstrip("\r\n") for line in lines]
+    end = find_shell_function_end(parse_lines, start, function_name)
+    original = "".join(lines[start:end + 1])
+    mutated = transform(original)
+    require(mutated != original, f"function mutation did not change {function_name}")
+    return "".join(lines[:start]) + mutated + "".join(lines[end + 1:])
+
+
+def inject_inline_generation_producer(function_source):
+    printf_offset = function_source.index("printf 'format|grafana-")
+    argument_offset = function_source.find('"$', printf_offset)
+    require(argument_offset >= 0, "generation printf has no variable arguments")
+    return (
+        function_source[:argument_offset]
+        + '"$(false)" '
+        + function_source[argument_offset:]
+    )
+
+
+def move_final_anchor_before_marker(document, anchor, prerequisite_marker):
+    anchor_marker = f'<div id="{anchor}"></div>'
+    anchor_offset = document.index(anchor_marker)
+    without_anchor = document[:anchor_offset] + document[anchor_offset + len(anchor_marker):]
+    prerequisite_offset = without_anchor.index(prerequisite_marker)
+    return (
+        without_anchor[:prerequisite_offset]
+        + anchor_marker
+        + "\n\n"
+        + without_anchor[prerequisite_offset:]
+    )
+
+
+def swap_project_and_runtime_lock_segments(source):
+    project_marker = 'GRAFANA_OPS_PROJECT_IDENTITY="$(stat -Lc'
+    runtime_marker = 'GRAFANA_OPS_RUNTIME_IDENTITY="$(stat -Lc'
+    workflow_marker = 'GRAFANA_OPS_WORKFLOW=$requested_workflow'
+    project_start = source.index(project_marker)
+    runtime_start = source.index(runtime_marker, project_start)
+    workflow_start = source.index(workflow_marker, runtime_start)
+    return (
+        source[:project_start]
+        + source[runtime_start:workflow_start]
+        + source[project_start:runtime_start]
+        + source[workflow_start:]
+    )
+
+
+def move_exchange_before_last_stage_probe(source):
+    exchange = 'mv --exchange --no-copy -T appdata "$app_stage"'
+    stage_probe = 'write_appdata_manifest "$app_stage" "$appdata_manifest_check"'
+    without_exchange = source.replace(exchange, "", 1)
+    insertion = without_exchange.rfind(stage_probe)
+    require(insertion >= 0, "could not build exchange-order mutation")
+    return without_exchange[:insertion] + exchange + "\n" + without_exchange[insertion:]
+
+
+def run_manifest_fixture(function_source, fixture_root):
+    harness = """
+set -euo pipefail
+umask 077
+""" + function_source + r'''
+fixture_root=$1
+tree="$fixture_root/tree"
+baseline="$fixture_root/baseline.manifest"
+candidate="$fixture_root/candidate.manifest"
+acl_backup="$fixture_root/acl.backup"
+mkdir -p -- "$tree/nested"
+printf 'alpha\n' > "$tree/nested/data"
+printf 'newline-name\n' > "$tree/line
+break"
+chmod 0750 "$tree/nested"
+chmod 0640 "$tree/nested/data"
+setfattr -n user.grafana_contract -v alpha -- "$tree/nested/data"
+getfacl --absolute-names -- "$tree/nested/data" > "$acl_backup"
+file_mtime="$(stat -c '%y' -- "$tree/nested/data")"
+tree_mtime="$(stat -c '%y' -- "$tree")"
+write_appdata_manifest "$tree" "$baseline"
+write_appdata_manifest "$tree" "$candidate"
+cmp -s -- "$baseline" "$candidate"
+
+printf 'beta\n' > "$tree/nested/data"
+write_appdata_manifest "$tree" "$candidate"
+! cmp -s -- "$baseline" "$candidate"
+printf 'alpha\n' > "$tree/nested/data"
+touch -d "$file_mtime" -- "$tree/nested/data"
+write_appdata_manifest "$tree" "$candidate"
+cmp -s -- "$baseline" "$candidate"
+
+touch -d '2001-02-03 04:05:06 UTC' -- "$tree/nested/data"
+write_appdata_manifest "$tree" "$candidate"
+! cmp -s -- "$baseline" "$candidate"
+touch -d "$file_mtime" -- "$tree/nested/data"
+write_appdata_manifest "$tree" "$candidate"
+cmp -s -- "$baseline" "$candidate"
+
+chmod 0600 "$tree/nested/data"
+write_appdata_manifest "$tree" "$candidate"
+! cmp -s -- "$baseline" "$candidate"
+chmod 0640 "$tree/nested/data"
+write_appdata_manifest "$tree" "$candidate"
+cmp -s -- "$baseline" "$candidate"
+
+setfattr -n user.grafana_contract -v beta -- "$tree/nested/data"
+write_appdata_manifest "$tree" "$candidate"
+! cmp -s -- "$baseline" "$candidate"
+setfattr -n user.grafana_contract -v alpha -- "$tree/nested/data"
+write_appdata_manifest "$tree" "$candidate"
+cmp -s -- "$baseline" "$candidate"
+
+if setfacl -m u:65534:r-- -- "$tree/nested/data" 2>/dev/null; then
+  test "$(stat -c '%a' -- "$tree/nested/data")" = 640
+  write_appdata_manifest "$tree" "$candidate"
+  ! cmp -s -- "$baseline" "$candidate"
+  setfacl --physical --restore="$acl_backup"
+else
+  setfacl -m u::r-- -- "$tree/nested/data"
+  write_appdata_manifest "$tree" "$candidate"
+  ! cmp -s -- "$baseline" "$candidate"
+  setfacl --physical --restore="$acl_backup"
+fi
+write_appdata_manifest "$tree" "$candidate"
+cmp -s -- "$baseline" "$candidate"
+
+require_manifest_rejection() {
+  if write_appdata_manifest "$tree" "$candidate"; then
+    return 1
+  fi
+}
+
+(
+  find() {
+    printf '.\0'
+    return 23
+  }
+  if write_appdata_manifest "$tree" "$candidate"; then
+    exit 1
+  fi
+)
+(
+  find() {
+    return 0
+  }
+  if write_appdata_manifest "$tree" "$candidate"; then
+    exit 1
+  fi
+)
+(
+  getfacl() {
+    command getfacl "$@"
+    return 23
+  }
+  if write_appdata_manifest "$tree" "$candidate"; then
+    exit 1
+  fi
+)
+(
+  getfattr() {
+    command getfattr "$@"
+    return 23
+  }
+  if write_appdata_manifest "$tree" "$candidate"; then
+    exit 1
+  fi
+)
+
+ln -s nested/data "$tree/symlink"
+require_manifest_rejection
+rm -- "$tree/symlink"
+touch -d "$tree_mtime" -- "$tree"
+ln "$tree/nested/data" "$tree/hardlink"
+require_manifest_rejection
+rm -- "$tree/hardlink"
+touch -d "$tree_mtime" -- "$tree"
+mkfifo "$tree/fifo"
+require_manifest_rejection
+rm -- "$tree/fifo"
+touch -d "$tree_mtime" -- "$tree"
+write_appdata_manifest "$tree" "$candidate"
+cmp -s -- "$baseline" "$candidate"
+'''
+    result = subprocess.run(
+        ["bash", "-o", "errexit", "-o", "nounset", "-o", "pipefail", "-s", "--", str(fixture_root)],
+        input=harness,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    require(
+        result.returncode == 0,
+        f"documented appdata manifest failed its isolated fixture: {result.stderr.strip()}",
+    )
+
+
+def run_peer_allowlist_fixture(function_source, fixture_root):
+    harness = """
+set -euo pipefail
+umask 077
+""" + function_source + r'''
+fixture_root=$1
+peer_root="$fixture_root/peer"
+allowlist="$peer_root/allowlist"
+allowlist_target="$peer_root/allowlist-target"
+image_a=sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+image_b=sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+image_c=sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+mkdir -p -- "$peer_root"
+printf 'frontend|gateway|%s|direct-endpoint|-|-|grafana|gateway|REACHABLE|trusted\nbackend|database|%s|direct-endpoint|-|-|grafana|postgresql|DENIED|untrusted\nfrontend|sidecar|%s|shared-namespace|gateway|%s|-|-|DENIED|untrusted\n' \
+  "$image_a" "$image_b" "$image_c" "$image_a" > "$allowlist"
+chmod 0600 -- "$allowlist"
+load_break_glass_peer_allowlist "$allowlist"
+test "${#break_glass_allowed_result[@]}" -eq 3
+test "${break_glass_allowed_result[frontend|gateway|direct-endpoint|-]}" = REACHABLE
+test "${break_glass_allowed_trust[frontend|gateway|direct-endpoint|-]}" = trusted
+test "${break_glass_allowed_image[frontend|gateway|direct-endpoint|-]}" = "$image_a"
+test "${break_glass_allowed_project[frontend|gateway|direct-endpoint|-]}" = grafana
+test "${break_glass_allowed_service[frontend|gateway|direct-endpoint|-]}" = gateway
+test "${break_glass_allowed_result[backend|database|direct-endpoint|-]}" = DENIED
+test "${break_glass_allowed_trust[backend|database|direct-endpoint|-]}" = untrusted
+test "${break_glass_allowed_image[backend|database|direct-endpoint|-]}" = "$image_b"
+test "${break_glass_allowed_result[frontend|sidecar|shared-namespace|gateway]}" = DENIED
+test "${break_glass_allowed_namespace_image[frontend|sidecar|shared-namespace|gateway]}" = "$image_a"
+[[ "$break_glass_peer_allowlist_sha256" =~ ^[0-9a-f]{64}$ ]]
+
+require_load_rejection() {
+  set +e
+  (
+    set -e
+    load_break_glass_peer_allowlist "$1"
+  )
+  rejection_status=$?
+  set -e
+  test "$rejection_status" -ne 0
+}
+
+chmod 0644 -- "$allowlist"
+require_load_rejection "$allowlist"
+chmod 0600 -- "$allowlist"
+printf 'backend|database|%s|direct-endpoint|-|-|grafana|postgresql|REACHABLE|untrusted\n' "$image_b" > "$allowlist"
+require_load_rejection "$allowlist"
+printf 'frontend|gateway|%s|direct-endpoint|-|-|grafana|gateway|REACHABLE|trusted\nfrontend|gateway|%s|direct-endpoint|-|-|grafana|gateway|DENIED|trusted\n' \
+  "$image_a" "$image_a" > "$allowlist"
+require_load_rejection "$allowlist"
+printf 'outside|database|%s|direct-endpoint|-|-|grafana|postgresql|DENIED|untrusted\n' "$image_b" > "$allowlist"
+require_load_rejection "$allowlist"
+printf 'frontend|gateway|%s|direct-endpoint|-|-|grafana|-|DENIED|trusted\n' "$image_a" > "$allowlist"
+require_load_rejection "$allowlist"
+printf 'frontend|sidecar|%s|shared-namespace|gateway|-|-|-|DENIED|untrusted\n' "$image_c" > "$allowlist"
+require_load_rejection "$allowlist"
+printf 'frontend|gateway|%s|direct-endpoint|-|-|grafana|gateway|DENIED|trusted' "$image_a" > "$allowlist"
+require_load_rejection "$allowlist"
+printf 'frontend|gateway|%s|direct-endpoint|-|-|grafana|gateway|DENIED|trusted|\n' "$image_a" > "$allowlist"
+require_load_rejection "$allowlist"
+printf 'frontend|gateway|%s|direct-endpoint|-|-|grafana|gateway|DENIED|trusted|extra\n' "$image_a" > "$allowlist"
+require_load_rejection "$allowlist"
+printf 'frontend|gateway|%s|direct-endpoint|-|-|grafana|gateway|DENIED|trusted\n' "$image_a" > "$allowlist_target"
+chmod 0600 -- "$allowlist_target"
+rm -- "$allowlist"
+ln -s "$allowlist_target" "$allowlist"
+require_load_rejection "$allowlist"
+'''
+    result = subprocess.run(
+        ["bash", "-o", "errexit", "-o", "nounset", "-o", "pipefail", "-s", "--", str(fixture_root)],
+        input=harness,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    require(
+        result.returncode == 0,
+        f"documented peer allowlist failed its isolated fixture: {result.stderr.strip()}",
+    )
+
+
+def run_peer_inventory_failure_fixture(function_source, fixture_root):
+    harness = """
+set -euo pipefail
+umask 077
+""" + function_source + r'''
+fixture_root=$1
+app_id=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+BREAKGLASS_PROBE_IMAGE=probe.example.invalid/curl@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+declare -A break_glass_allowed_result=()
+declare -A break_glass_allowed_trust=()
+declare -A break_glass_allowed_image=()
+declare -A break_glass_allowed_namespace_image=()
+declare -A break_glass_allowed_project=()
+declare -A break_glass_allowed_service=()
+inventory_mode=partial
+docker() {
+  case "$1" in
+    compose)
+      printf '%s\n' "$app_id"
+      ;;
+    inspect)
+      case "$*" in
+        *"{{.Id}}"*) printf '%s\n' "$app_id" ;;
+        *"{{json .NetworkSettings.Networks}}"*)
+          printf '%s\n' \
+            '{"frontend":{"IPAddress":"172.30.0.2"},"backend":{"IPAddress":"172.31.0.2"}}'
+          ;;
+        *) return 97 ;;
+      esac
+      ;;
+    ps)
+      if [ "$inventory_mode" = partial ]; then
+        printf '%s\n' "$app_id"
+        return 23
+      fi
+      return 0
+      ;;
+    network)
+      return 0
+      ;;
+    run)
+      printf '200'
+      ;;
+    *) return 98 ;;
+  esac
+}
+if probe_break_glass_peers; then
+  exit 1
+fi
+inventory_mode=empty
+if probe_break_glass_peers; then
+  exit 1
+fi
+'''
+    result = subprocess.run(
+        ["bash", "-o", "errexit", "-o", "nounset", "-o", "pipefail", "-s", "--", str(fixture_root)],
+        input=harness,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    require(
+        result.returncode == 0,
+        f"documented peer inventory accepted partial producer output: {result.stderr.strip()}",
+    )
+
+
+def run_operation_lock_fixture(function_source, fixture_root):
+    harness = """
+set -euo pipefail
+umask 077
+""" + function_source + r'''
+fixture_root=$1
+repository_root="$fixture_root/lock-repository"
+project_root="$repository_root/Grafana"
+mkdir -p -- "$project_root/.run.conf"
+cd "$project_root"
+begin_grafana_operation update 20260821T120000Z
+verify_grafana_operation update 20260821T120000Z
+! flock -n -x "$repository_root" true
+flock -n -s "$repository_root" true
+! flock -n -x "$project_root" true
+! flock -n -x "$project_root/.run.conf" true
+finish_grafana_operation update 20260821T120000Z
+flock -n -x "$repository_root" true
+flock -n -x "$project_root" true
+flock -n -x "$project_root/.run.conf" true
+'''
+    result = subprocess.run(
+        ["bash", "-o", "errexit", "-o", "nounset", "-o", "pipefail", "-s", "--", str(fixture_root)],
+        input=harness,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    require(
+        result.returncode == 0,
+        f"documented operation locks failed their isolated fixture: {result.stderr.strip()}",
+    )
+
+
+def run_secret_manifest_fixture(function_source, fixture_root):
+    harness = """
+set -euo pipefail
+umask 077
+""" + function_source + r'''
+fixture_root=$1
+secret_root="$fixture_root/secrets"
+baseline="$fixture_root/secrets-baseline.manifest"
+candidate="$fixture_root/secrets-candidate.manifest"
+mkdir -p -- "$secret_root"
+for secret_name in POSTGRES_PASSWORD GRAFANA_SECRET_KEY \
+  GRAFANA_ADMIN_PASSWORD GRAFANA_OIDC_CLIENT_ID \
+  GRAFANA_OIDC_CLIENT_SECRET MAILER_SMTP_PASSWORD; do
+  printf '%s-value\n' "$secret_name" > "$secret_root/$secret_name"
+  chmod 0640 -- "$secret_root/$secret_name"
+done
+mv -- "$secret_root/MAILER_SMTP_PASSWORD" \
+  "$secret_root/MAILER_SMTP_PASSWORD"$'\nmaterial'
+emit_secret_config() {
+  test "$#" -eq 3
+  test "$1" = config
+  test "$2" = --format
+  test "$3" = json
+  jq -n --arg root "$secret_root" --argjson secret_gid "$(id -g)" '
+    {
+      services: {
+        app: {secrets: [
+          "POSTGRES_PASSWORD",
+          {source: "GRAFANA_SECRET_KEY"},
+          "GRAFANA_OIDC_CLIENT_ID",
+          "GRAFANA_OIDC_CLIENT_SECRET",
+          "MAILER_SMTP_PASSWORD"
+        ]},
+        "grafana-bootstrap": {group_add: [$secret_gid], secrets: [
+          "POSTGRES_PASSWORD", "GRAFANA_SECRET_KEY",
+          "GRAFANA_ADMIN_PASSWORD"
+        ]},
+        "grafana-migrator": {group_add: [$secret_gid], secrets: [
+          "POSTGRES_PASSWORD", "GRAFANA_SECRET_KEY"
+        ]},
+        "grafana-sso-policy": {
+          group_add: [$secret_gid], secrets: ["POSTGRES_PASSWORD"]
+        }
+      },
+      secrets: {
+        POSTGRES_PASSWORD: {file: ($root + "/POSTGRES_PASSWORD")},
+        GRAFANA_SECRET_KEY: {file: ($root + "/GRAFANA_SECRET_KEY")},
+        GRAFANA_ADMIN_PASSWORD: {file: ($root + "/GRAFANA_ADMIN_PASSWORD")},
+        GRAFANA_OIDC_CLIENT_ID: {file: ($root + "/GRAFANA_OIDC_CLIENT_ID")},
+        GRAFANA_OIDC_CLIENT_SECRET: {file: ($root + "/GRAFANA_OIDC_CLIENT_SECRET")},
+        MAILER_SMTP_PASSWORD: {file: ($root + "/MAILER_SMTP_PASSWORD\nmaterial")}
+      }
+    }
+  '
+}
+emit_secret_config_without_smtp() {
+  emit_secret_config "$@" |
+    jq 'del(.services.app.secrets[] | select(. == "MAILER_SMTP_PASSWORD"))'
+}
+emit_partial_secret_config() {
+  emit_secret_config "$@"
+  return 23
+}
+emit_empty_secret_config() {
+  test "$#" -eq 3
+  return 0
+}
+export GRAFANA_SECRET_EXPECTED_UID="$(id -u)"
+export GRAFANA_SECRET_EXPECTED_GID="$(id -g)"
+write_grafana_secret_manifest "$baseline" emit_secret_config
+write_grafana_secret_manifest "$candidate" emit_secret_config
+cmp -s -- "$baseline" "$candidate"
+test "$(stat -c '%F:%h:%a:%u' -- "$baseline")" = \
+  "regular file:1:600:$(id -u)"
+mapfile -d '' -t recorded_secret_fields < "$baseline"
+test "${#recorded_secret_fields[@]}" -eq 42
+recorded_secret_names=()
+for ((field_index = 0; field_index < 42; field_index += 7)); do
+  recorded_secret_names+=("${recorded_secret_fields[$field_index]}")
+done
+test "${#recorded_secret_names[@]}" -eq 6
+for secret_name in POSTGRES_PASSWORD GRAFANA_SECRET_KEY \
+  GRAFANA_ADMIN_PASSWORD GRAFANA_OIDC_CLIENT_ID \
+  GRAFANA_OIDC_CLIENT_SECRET MAILER_SMTP_PASSWORD; do
+  printf '%s\n' "${recorded_secret_names[@]}" | grep -Fx "$secret_name"
+  ! grep -aF -- "$secret_name-value" "$baseline"
+done
+
+rm -- "$candidate"
+if write_grafana_secret_manifest "$candidate" emit_partial_secret_config; then
+  exit 1
+fi
+test ! -e "$candidate"
+if write_grafana_secret_manifest "$candidate" emit_empty_secret_config; then
+  exit 1
+fi
+test ! -e "$candidate"
+
+(
+  jq() {
+    if [ "${1:-}" = -j ]; then
+      printf 'POSTGRES_PASSWORD\0'
+      return 23
+    fi
+    command jq "$@"
+  }
+  if write_grafana_secret_manifest "$candidate" emit_secret_config; then
+    exit 1
+  fi
+)
+test ! -e "$candidate"
+(
+  jq() {
+    if [ "${1:-}" = -j ]; then
+      return 0
+    fi
+    command jq "$@"
+  }
+  if write_grafana_secret_manifest "$candidate" emit_secret_config; then
+    exit 1
+  fi
+)
+test ! -e "$candidate"
+
+GRAFANA_SECRET_EXPECTED_UID=$((GRAFANA_SECRET_EXPECTED_UID + 1))
+export GRAFANA_SECRET_EXPECTED_UID
+if write_grafana_secret_manifest "$candidate" emit_secret_config; then
+  exit 1
+fi
+GRAFANA_SECRET_EXPECTED_UID="$(id -u)"
+export GRAFANA_SECRET_EXPECTED_UID
+
+GRAFANA_SECRET_EXPECTED_GID=$((GRAFANA_SECRET_EXPECTED_GID + 1))
+export GRAFANA_SECRET_EXPECTED_GID
+if write_grafana_secret_manifest "$candidate" emit_secret_config; then
+  exit 1
+fi
+GRAFANA_SECRET_EXPECTED_GID="$(id -g)"
+export GRAFANA_SECRET_EXPECTED_GID
+
+original_mtime="$(stat -c '%y' -- "$secret_root/GRAFANA_SECRET_KEY")"
+printf 'GRAFANA_SECRET_KEZ-value\n' > "$secret_root/GRAFANA_SECRET_KEY"
+touch -d "$original_mtime" -- "$secret_root/GRAFANA_SECRET_KEY"
+write_grafana_secret_manifest "$candidate" emit_secret_config
+! cmp -s -- "$baseline" "$candidate"
+printf 'GRAFANA_SECRET_KEY-value\n' > "$secret_root/GRAFANA_SECRET_KEY"
+touch -d "$original_mtime" -- "$secret_root/GRAFANA_SECRET_KEY"
+write_grafana_secret_manifest "$candidate" emit_secret_config
+cmp -s -- "$baseline" "$candidate"
+
+chmod 0600 -- "$secret_root/GRAFANA_OIDC_CLIENT_ID"
+write_grafana_secret_manifest "$candidate" emit_secret_config
+! cmp -s -- "$baseline" "$candidate"
+chmod 0640 -- "$secret_root/GRAFANA_OIDC_CLIENT_ID"
+write_grafana_secret_manifest "$candidate" emit_secret_config
+cmp -s -- "$baseline" "$candidate"
+
+write_grafana_secret_manifest "$candidate" emit_secret_config_without_smtp
+! cmp -s -- "$baseline" "$candidate"
+mapfile -d '' -t recorded_secret_fields < "$candidate"
+test "${#recorded_secret_fields[@]}" -eq 35
+
+require_secret_manifest_rejection() {
+  if write_grafana_secret_manifest "$candidate" emit_secret_config; then
+    return 1
+  fi
+}
+mv -- "$secret_root/GRAFANA_OIDC_CLIENT_SECRET" \
+  "$secret_root/GRAFANA_OIDC_CLIENT_SECRET.real"
+ln -s GRAFANA_OIDC_CLIENT_SECRET.real \
+  "$secret_root/GRAFANA_OIDC_CLIENT_SECRET"
+require_secret_manifest_rejection
+rm -- "$secret_root/GRAFANA_OIDC_CLIENT_SECRET"
+mv -- "$secret_root/GRAFANA_OIDC_CLIENT_SECRET.real" \
+  "$secret_root/GRAFANA_OIDC_CLIENT_SECRET"
+ln "$secret_root/POSTGRES_PASSWORD" "$secret_root/POSTGRES_PASSWORD.link"
+require_secret_manifest_rejection
+rm -- "$secret_root/POSTGRES_PASSWORD.link"
+'''
+    result = subprocess.run(
+        ["bash", "-o", "errexit", "-o", "nounset", "-o", "pipefail", "-s", "--", str(fixture_root)],
+        input=harness,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    require(
+        result.returncode == 0,
+        f"documented secret manifest failed its isolated fixture: {result.stderr.strip()}",
+    )
+
+
+def run_generation_producer_fixture(function_source, fixture_root):
+    harness = """
+set -euo pipefail
+umask 077
+""" + function_source + r'''
+fixture_root=$1
+generation_root="$fixture_root/generation-producer"
+mkdir -p -- "$generation_root"
+cd "$generation_root"
+printf 'app-env\n' > app.env
+printf 'env\n' > .env
+printf 'compose\n' > docker-compose.main.yaml
+printf 'images\n' > images.manifest
+printf 'peers\n' > peers.manifest
+break_glass_manifest="$generation_root/images.manifest"
+peer_manifest="$generation_root/peers.manifest"
+break_glass_id=20260821T120000Z
+break_glass_final_generation_digest=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+break_glass_final_secret_digest=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+break_glass_app_image_id=sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+break_glass_policy_image_id=sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+producer_mode=valid
+emit_effective_config() {
+  test "$#" -eq 3
+  test "$1" = config
+  test "$2" = --format
+  test "$3" = json
+  case "$producer_mode" in
+    valid|partial-jq) printf '%s\n' '{"services":{"app":{"environment":{}}}}' ;;
+    partial-compose)
+      printf '%s\n' '{"services":'
+      return 23
+      ;;
+    empty-compose) return 0 ;;
+    *) return 97 ;;
+  esac
+}
+jq() {
+  if [ "$producer_mode" = partial-jq ]; then
+    printf '%s\n' '{}'
+    return 23
+  fi
+  command jq "$@"
+}
+break_glass_compose=(emit_effective_config)
+closed_output="$generation_root/closed.manifest"
+if ! write_break_glass_closed_generation "$closed_output"; then
+  exit 1
+fi
+test -s "$closed_output"
+for producer_mode in partial-compose empty-compose partial-jq; do
+  rm -f -- "$closed_output"
+  if write_break_glass_closed_generation "$closed_output"; then
+    exit 1
+  fi
+  test ! -e "$closed_output"
+done
+producer_mode=valid
+mv -- app.env app.env.saved
+if write_break_glass_closed_generation "$closed_output"; then
+  exit 1
+fi
+test ! -e "$closed_output"
+mv -- app.env.saved app.env
+'''
+    result = subprocess.run(
+        ["bash", "-o", "errexit", "-o", "nounset", "-o", "pipefail", "-s", "--", str(fixture_root)],
+        input=harness,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    require(
+        result.returncode == 0,
+        f"documented generation builder accepted partial or empty producer output: {result.stderr.strip()}",
+    )
+
+
+readme_path = Path(sys.argv[1])
+run_script_path = Path(sys.argv[2])
+fixture_root = Path(sys.argv[3])
+require(readme_path.is_file() and not readme_path.is_symlink(), "Grafana README must be a regular file")
+require(run_script_path.is_file() and not run_script_path.is_symlink(), "run.sh must be a regular file")
+document = readme_path.read_text(encoding="utf-8")
+run_script = run_script_path.read_text(encoding="utf-8")
+validate_function_extractor_fixture()
+operation_helper_block = bash_block_containing(document, "begin_grafana_operation() {")
+restore_stage_block = bash_block_containing(
+    document,
+    'install -d -o 0 -g 0 -m 0700 -- "$app_stage_parent" "$db_stage"',
+)
+restore_block = bash_block_after_anchor(document, "grafana-restore-exchange-activation")
+peer_matrix_block = bash_block_after_anchor(document, "grafana-break-glass-peer-matrix")
+require_bash_syntax(restore_stage_block, "Grafana restore staging runbook")
+require_bash_syntax(restore_block, "Grafana restore exchange runbook")
+require_bash_syntax(peer_matrix_block, "Grafana break-glass peer-matrix runbook")
+require_bash_syntax(operation_helper_block, "Grafana operation-lock helper")
+validate_operation_lock_contract(operation_helper_block, run_script)
+secret_manifest_function = validate_secret_manifest_contract(operation_helper_block)
+validate_restore_stage(restore_stage_block)
+validate_restore_exchange(restore_block)
+validate_break_glass_matrix(peer_matrix_block)
+for generation_function in (
+    "write_adoption_activation_manifest",
+    "write_sso_generation_manifest",
+    "write_break_glass_intent",
+    "write_break_glass_generation",
+    "write_break_glass_final_generation",
+    "write_break_glass_closed_generation",
+    "write_restore_generation_manifest",
+    "write_restore_activation_generation",
+    "write_update_generation",
+):
+    validate_generation_builder(document, generation_function)
+
+workflow_specs = (
+    {
+        "workflow": "adoption",
+        "operation_id": "adoption_id",
+        "generation_verifier": "verify_adoption_activation_generation",
+        "accepted_variable": "adoption_app_accepted",
+        "guard_function": "stop_unaccepted_adoption_app",
+        "guarded_app_start": "up -d --wait --wait-timeout 180",
+        "final_anchor": "grafana-adoption-final-acceptance",
+        "final_prerequisite_markers": (
+            "Run the six-provider `GET`/`PUT` mætrix ænd positive/negætive OIDC checks",
+        ),
+        "mutation_sequence": (
+            'begin_grafana_operation adoption "$adoption_id"',
+            'write_grafana_secret_manifest "$adoption_mutation_secrets"',
+            "grafana-cli admin reset-admin-password",
+            'mv -- "$admin_secret_stage" "$admin_secret"',
+            'write_grafana_secret_manifest "$adoption_activation_secrets"',
+            'write_adoption_activation_manifest "$adoption_activation_manifest"',
+            "verify_adoption_activation_generation",
+            "rm --stop -f grafana-bootstrap grafana-migrator grafana-sso-policy",
+            "verify_adoption_activation_generation",
+            "--exit-code-from grafana-bootstrap grafana-bootstrap",
+            "verify_adoption_activation_generation",
+            "--exit-code-from grafana-migrator grafana-migrator",
+            "verify_adoption_activation_generation",
+            "--exit-code-from grafana-sso-policy grafana-sso-policy",
+            "adoption_app_accepted=false",
+            "trap stop_unaccepted_adoption_app EXIT",
+            "verify_adoption_activation_generation",
+            "up -d --wait --wait-timeout 180",
+            "verify_adoption_activation_generation",
+            'finish_grafana_operation adoption "$adoption_id"',
+        ),
+        "final_checks": (
+            "verify_adoption_activation_generation",
+            "'false:0'",
+            '"$reviewed_app_image_id"',
+            "healthy",
+            "active overrides: 0",
+        ),
+    },
+    {
+        "workflow": "sso-reconcile",
+        "operation_id": "sso_reconcile_id",
+        "generation_verifier": "verify_sso_generation",
+        "accepted_variable": "sso_app_accepted",
+        "guard_function": "stop_unaccepted_sso_app",
+        "guarded_app_start": "up -d --wait --wait-timeout 180",
+        "final_anchor": "grafana-sso-reconcile-final-acceptance",
+        "final_prerequisite_markers": (
+            "full positive ænd negætive OIDC mætrix in child subshells",
+        ),
+        "mutation_sequence": (
+            'begin_grafana_operation sso-reconcile "$sso_reconcile_id"',
+            'write_grafana_secret_manifest "$sso_secret_manifest"',
+            'write_sso_generation_manifest "$sso_generation_manifest"',
+            "verify_sso_generation",
+            '"${sso_compose[@]}" stop app',
+            "verify_sso_generation",
+            '"${sso_compose[@]}" rm -f',
+            "verify_sso_generation",
+            "--exit-code-from grafana-bootstrap grafana-bootstrap",
+            "verify_sso_generation",
+            "--exit-code-from grafana-migrator grafana-migrator",
+            "verify_sso_generation",
+            "--exit-code-from grafana-sso-policy grafana-sso-policy",
+            "verify_sso_generation",
+            "sso_app_accepted=false",
+            "trap stop_unaccepted_sso_app EXIT",
+            "verify_sso_generation",
+            "up -d --wait --wait-timeout 180",
+            "verify_sso_generation",
+            'finish_grafana_operation sso-reconcile "$sso_reconcile_id"',
+        ),
+        "final_checks": (
+            "verify_sso_generation",
+            '"$sso_app_image_id"',
+            "healthy",
+            "active overrides: 0",
+        ),
+    },
+    {
+        "workflow": "break-glass",
+        "operation_id": "break_glass_id",
+        "generation_verifier": "verify_break_glass_generation",
+        "final_generation_verifier": "verify_break_glass_closed_generation",
+        "start_verifiers": (
+            "verify_break_glass_generation",
+            "verify_break_glass_closed_generation",
+        ),
+        "accepted_variable": "break_glass_app_accepted",
+        "guard_function": "stop_unaccepted_break_glass_app",
+        "guarded_app_start": "up -d --wait --wait-timeout 180",
+        "final_anchor": "grafana-break-glass-final-acceptance",
+        "final_prerequisite_markers": (
+            "Force logout æll devices",
+            "old recovery browser session fæils",
+        ),
+        "mutation_sequence": (
+            'begin_grafana_operation break-glass "$break_glass_id"',
+            'install -m 0600 /dev/null "$break_glass_form_override"',
+            'write_grafana_secret_manifest "$break_glass_secret_manifest"',
+            'write_break_glass_generation "$break_glass_generation"',
+            "verify_break_glass_generation",
+            "--exit-code-from grafana-sso-policy grafana-sso-policy",
+            "break_glass_app_accepted=false",
+            "trap stop_unaccepted_break_glass_app EXIT",
+            "verify_break_glass_generation",
+            "--force-recreate app",
+            "probe_break_glass_peers",
+            "verify_break_glass_generation",
+            'mv -- "$final_admin_stage" "$final_admin_secret"',
+            'write_grafana_secret_manifest "$break_glass_final_secret_manifest"',
+            'write_break_glass_final_generation "$break_glass_final_generation"',
+            "verify_break_glass_final_generation",
+            'rm -- "$marker"',
+            "verify_break_glass_final_generation",
+            'rm -- "$break_glass_form_override"',
+            'write_break_glass_closed_generation "$break_glass_closed_generation"',
+            "verify_break_glass_closed_generation",
+            "--exit-code-from grafana-sso-policy grafana-sso-policy",
+            "verify_break_glass_closed_generation",
+            "--force-recreate app",
+            "probe_break_glass_peers",
+            "verify_break_glass_closed_generation",
+            'finish_grafana_operation break-glass "$break_glass_id"',
+        ),
+        "final_checks": (
+            "verify_break_glass_closed_generation",
+            'sha256sum -c "$break_glass_finite_evidence_checksum"',
+            "probe_break_glass_peers",
+            '"$break_glass_app_image_id"',
+            "healthy",
+        ),
+    },
+    {
+        "workflow": "restore",
+        "operation_id": "restore_id",
+        "generation_verifier": "verify_restore_generation",
+        "final_generation_verifier": "verify_restore_activation_generation",
+        "start_verifiers": ("verify_restore_activation_generation",),
+        "accepted_variable": "restore_app_accepted",
+        "guard_function": "stop_unaccepted_restored_app",
+        "guarded_app_start": "up -d --wait --wait-timeout 180",
+        "final_anchor": "grafana-restore-final-acceptance",
+        "final_prerequisite_markers": (
+            "sæme Step 4\nlock-owning root shell",
+            "Æfter æll closed-form OIDC, role, dætæ, plugin, ælert, SMTP",
+        ),
+        "mutation_sequence": (
+            'begin_grafana_operation restore "$restore_id"',
+            'write_grafana_secret_manifest "$restore_secret_manifest"',
+            'write_restore_generation_manifest "$restore_generation_manifest"',
+            "verify_restore_generation",
+            'write_appdata_manifest "$app_stage" "$appdata_manifest_check"',
+            "verify_restore_generation",
+            'mv --exchange --no-copy -T appdata "$app_stage"',
+            'write_appdata_manifest appdata "$appdata_manifest_check"',
+            "verify_restore_generation",
+            'recovery_form_override="${GRAFANA_RECOVERY_FORM_OVERRIDE:-}"',
+            'write_restore_activation_generation "$restore_activation_manifest"',
+            "verify_restore_activation_generation",
+            "--exit-code-from grafana-bootstrap grafana-bootstrap",
+            "verify_restore_activation_generation",
+            "--exit-code-from grafana-migrator grafana-migrator",
+            "verify_restore_activation_generation",
+            "--exit-code-from grafana-sso-policy grafana-sso-policy",
+            "verify_restore_activation_generation",
+            "restore_app_accepted=false",
+            "trap stop_unaccepted_restored_app EXIT",
+            "verify_restore_activation_generation",
+            "up -d --wait --wait-timeout 180",
+            "verify_restore_activation_generation",
+            'rm -- "$recovery_form_override"',
+            'test "$restore_activation_phase" = closed-form',
+            'finish_grafana_operation restore "$restore_id"',
+        ),
+        "final_checks": (
+            'test "$restore_activation_phase" = closed-form',
+            "verify_restore_activation_generation",
+            "'false:0'",
+            '"${restore_image_ids[app]}"',
+            "healthy",
+            "active overrides: 0",
+        ),
+    },
+    {
+        "workflow": "update",
+        "operation_id": "update_id",
+        "generation_verifier": "verify_update_generation",
+        "accepted_variable": "update_app_accepted",
+        "guard_function": "stop_unaccepted_updated_app",
+        "guarded_app_start": "up -d --wait --wait-timeout 180",
+        "final_anchor": "grafana-update-final-acceptance",
+        "final_prerequisite_markers": (
+            "Prove OIDC æccess ænd æll three roles plus both deniæl cæses",
+        ),
+        "mutation_sequence": (
+            'begin_grafana_operation update "$update_id"',
+            'write_grafana_secret_manifest "$update_secret_manifest"',
+            'write_update_generation "$update_generation_manifest"',
+            "verify_update_generation",
+            '"${update_compose[@]}" stop app',
+            "verify_update_generation",
+            '"${update_compose[@]}" rm -f',
+            "verify_update_generation",
+            "--exit-code-from grafana-bootstrap grafana-bootstrap",
+            "verify_update_generation",
+            "--exit-code-from grafana-migrator grafana-migrator",
+            "verify_update_generation",
+            "--exit-code-from grafana-sso-policy grafana-sso-policy",
+            "verify_update_generation",
+            "update_app_accepted=false",
+            "trap stop_unaccepted_updated_app EXIT",
+            "verify_update_generation",
+            "up -d --wait --wait-timeout 180",
+            "verify_update_generation",
+            'finish_grafana_operation update "$update_id"',
+        ),
+        "final_checks": (
+            "verify_update_generation",
+            "'false:0'",
+            '"$expected_app_image_id"',
+            "healthy",
+            "active overrides: 0",
+            "pgrep supercronic",
+        ),
+    },
+)
+workflow_results = {}
+for workflow_spec in workflow_specs:
+    workflow_results[workflow_spec["workflow"]] = validate_workflow_contract(
+        document,
+        workflow_spec,
+    )
+validate_break_glass_workflow(document, workflow_results["break-glass"])
+validate_restore_workflow(document, workflow_results["restore"])
+
+for generation_function in (
+    "write_adoption_activation_manifest",
+    "write_sso_generation_manifest",
+    "write_break_glass_intent",
+    "write_break_glass_generation",
+    "write_break_glass_final_generation",
+    "write_break_glass_closed_generation",
+    "write_restore_generation_manifest",
+    "write_restore_activation_generation",
+    "write_update_generation",
+):
+    generation_mutations = (
+        (
+            "ignore digest producer failure",
+            lambda function_source: replace_once(
+                function_source,
+                "|| return 1",
+                "|| :",
+            ),
+        ),
+        ("evaluate producer inside manifest printf", inject_inline_generation_producer),
+    )
+    for mutation_name, function_mutation in generation_mutations:
+        require_rejected_mutation(
+            document,
+            lambda value, name=generation_function, mutate=function_mutation: (
+                mutate_document_function(value, name, mutate)
+            ),
+            lambda value, name=generation_function: validate_generation_builder(
+                value,
+                name,
+            ),
+            f"{generation_function}: {mutation_name}",
+        )
+
+for generation_function in (
+    "write_break_glass_generation",
+    "write_break_glass_final_generation",
+    "write_break_glass_closed_generation",
+    "write_restore_activation_generation",
+    "write_update_generation",
+):
+    require_rejected_mutation(
+        document,
+        lambda value, name=generation_function: mutate_document_function(
+            value,
+            name,
+            lambda function_source: replace_once(
+                function_source,
+                'test -s "$effective_config"',
+                'test -f "$effective_config"',
+            ),
+        ),
+        lambda value, name=generation_function: validate_generation_builder(
+            value,
+            name,
+        ),
+        f"{generation_function}: accept empty effective config",
+    )
+
+
+def validate_mutated_workflow(mutated_document, workflow_spec):
+    result = validate_workflow_contract(mutated_document, workflow_spec)
+    if workflow_spec["workflow"] == "break-glass":
+        validate_break_glass_workflow(mutated_document, result)
+    elif workflow_spec["workflow"] == "restore":
+        validate_restore_workflow(mutated_document, result)
+
+
+for workflow_spec in workflow_specs:
+    workflow = workflow_spec["workflow"]
+    operation_id = workflow_spec["operation_id"]
+    accepted_variable = workflow_spec["accepted_variable"]
+    begin_command = f'begin_grafana_operation {workflow} "${operation_id}"'
+    finish_command = f'finish_grafana_operation {workflow} "${operation_id}"'
+    final_verifier = workflow_spec.get(
+        "final_generation_verifier",
+        workflow_spec["generation_verifier"],
+    )
+    prerequisite_marker = workflow_spec["final_prerequisite_markers"][0]
+
+    def move_acceptance_early(value, accepted=accepted_variable):
+        mutated = replace_once(value, f"{accepted}=false", f"{accepted}=true")
+        return replace_last_once(mutated, f"{accepted}=true", f"{accepted}=false")
+
+    workflow_mutations = (
+        (
+            "invoke run.sh under held locks",
+            lambda value, begin=begin_command: replace_once(
+                value,
+                begin,
+                f"{begin}\n./run.sh Grafana",
+            ),
+        ),
+        (
+            "release project FD before acceptance",
+            lambda value, begin=begin_command: replace_once(
+                value,
+                begin,
+                f'{begin}\nflock -u "$GRAFANA_OPS_PROJECT_FD"',
+            ),
+        ),
+        (
+            "accept before finish",
+            lambda value, finish=finish_command, accepted=accepted_variable: replace_once(
+                value,
+                f"{finish}\n{accepted}=true",
+                f"{accepted}=true\n{finish}",
+            ),
+        ),
+        (
+            "disarm guard before acceptance",
+            lambda value, accepted=accepted_variable: replace_once(
+                value,
+                f"{accepted}=true\ntrap - EXIT",
+                f"trap - EXIT\n{accepted}=true",
+            ),
+        ),
+        (
+            "suppress finish failure",
+            lambda value, finish=finish_command: replace_once(
+                value,
+                finish,
+                f"if ! {finish}; then :; fi",
+            ),
+        ),
+        (
+            "remove final generation recheck",
+            lambda value, anchor=workflow_spec["final_anchor"], verifier=final_verifier: (
+                mutate_anchored_bash_block(
+                    value,
+                    anchor,
+                    lambda block: block.replace(verifier, ":"),
+                )
+            ),
+        ),
+        ("accept in activation block", move_acceptance_early),
+        (
+            "place final anchor before manual evidence",
+            lambda value, anchor=workflow_spec["final_anchor"], marker=prerequisite_marker: (
+                move_final_anchor_before_marker(value, anchor, marker)
+            ),
+        ),
+    )
+    for mutation_name, mutation in workflow_mutations:
+        require_rejected_mutation(
+            document,
+            mutation,
+            lambda value, spec=workflow_spec: validate_mutated_workflow(value, spec),
+            f"{workflow}: {mutation_name}",
+        )
+
+break_glass_document_mutations = (
+    (
+        "add a third form override key",
+        lambda value: mutate_anchored_bash_block(
+            value,
+            "grafana-break-glass-activation",
+            lambda block: replace_once(
+                block,
+                "  '      GRAFANA_OAUTH_AUTO_LOGIN: \"false\"' > \\\n",
+                "  '      GRAFANA_OAUTH_AUTO_LOGIN: \"false\"' \\\n"
+                "  '      GF_AUTH_BASIC_ENABLED: \"true\"' > \\\n",
+            ),
+        ),
+    ),
+    (
+        "mutate form app through base compose",
+        lambda value: mutate_anchored_bash_block(
+            value,
+            "grafana-break-glass-activation",
+            lambda block: replace_once(
+                block,
+                '"${break_glass_compose[@]}" stop app',
+                '"${break_glass_base_compose[@]}" stop app',
+            ),
+        ),
+    ),
+    (
+        "retain form override in closed phase",
+        lambda value: replace_once(
+            value,
+            'rm -- "$break_glass_form_override"',
+            ': # form override retained',
+        ),
+    ),
+    (
+        "skip first post-recreate peer matrix",
+        lambda value: replace_once(
+            value,
+            "probe_break_glass_peers\n   verify_break_glass_generation",
+            ": # peer matrix skipped\n   verify_break_glass_generation",
+        ),
+    ),
+    (
+        "remove final peer-contract reload",
+        lambda value: replace_last_once(value, '. "$peer_helper"', ':'),
+    ),
+    (
+        "drop finite evidence before matrix",
+        lambda value: replace_once(
+            value,
+            'sha256sum -c "$break_glass_finite_evidence_checksum"',
+            ': # unchecked finite evidence',
+        ),
+    ),
+)
+for mutation_name, mutation in break_glass_document_mutations:
+    require_rejected_mutation(
+        document,
+        mutation,
+        lambda value: validate_break_glass_workflow(
+            value,
+            validate_workflow_contract(value, workflow_specs[2]),
+        ),
+        f"break-glass: {mutation_name}",
+    )
+
+restore_document_mutations = (
+    (
+        "rehash mutable appdata at final acceptance",
+        lambda value: mutate_anchored_bash_block(
+            value,
+            "grafana-restore-final-acceptance",
+            lambda block: replace_once(
+                block,
+                "verify_restore_activation_generation",
+                'write_appdata_manifest appdata "$appdata_manifest_check"\n'
+                "verify_restore_activation_generation",
+            ),
+        ),
+    ),
+    (
+        "call legacy live-tree generation verifier after start",
+        lambda value: mutate_anchored_bash_block(
+            value,
+            "grafana-restore-final-acceptance",
+            lambda block: replace_once(
+                block,
+                "verify_restore_activation_generation",
+                "verify_restore_generation appdata\n"
+                "verify_restore_activation_generation",
+            ),
+        ),
+    ),
+    (
+        "close inherited recovery FD during form cleanup",
+        lambda value: replace_once(
+            value,
+            'rm -- "$recovery_form_override"\nsync -f "$config_stage"',
+            'rm -- "$recovery_form_override"\nexec {recovery_lock_fd}<&-\n'
+            'sync -f "$config_stage"',
+        ),
+    ),
+    (
+        "start a new restore lock chain for form cleanup",
+        lambda value: replace_once(
+            value,
+            ': "${recovery_form_override:?}"',
+            ': "${recovery_form_override:?}"\n'
+            'begin_grafana_operation restore "$restore_id"',
+        ),
+    ),
+    (
+        "compare unchecked restore producer",
+        lambda value: mutate_document_function(
+            value,
+            "verify_restore_activation_generation",
+            lambda function_source: replace_once(
+                function_source,
+                'cmp -s -- "$restore_generation_manifest" "$base_generation_check"',
+                'cmp <(cat "$restore_generation_manifest") '
+                '<(cat "$base_generation_check")',
+            ),
+        ),
+    ),
+)
+for mutation_name, mutation in restore_document_mutations:
+    require_rejected_mutation(
+        document,
+        mutation,
+        lambda value: validate_restore_workflow(
+            value,
+            validate_workflow_contract(value, workflow_specs[3]),
+        ),
+        f"restore: {mutation_name}",
+    )
+manifest_function = extract_shell_function(restore_block, "write_appdata_manifest")
+allowlist_function = extract_shell_function(peer_matrix_block, "load_break_glass_peer_allowlist")
+run_manifest_fixture(manifest_function, fixture_root)
+run_peer_allowlist_fixture(allowlist_function, fixture_root)
+peer_inventory_functions = "\n".join(
+    extract_shell_function(peer_matrix_block, function_name)
+    for function_name in ("probe_break_glass_listener", "probe_break_glass_peers")
+)
+run_peer_inventory_failure_fixture(peer_inventory_functions, fixture_root)
+operation_functions = "\n".join(
+    extract_shell_function(operation_helper_block, function_name)
+    for function_name in (
+        "begin_grafana_operation",
+        "verify_grafana_operation",
+        "finish_grafana_operation",
+    )
+)
+run_operation_lock_fixture(operation_functions, fixture_root)
+run_secret_manifest_fixture(secret_manifest_function, fixture_root)
+closed_generation_block = bash_block_containing(
+    document,
+    "write_break_glass_closed_generation() {",
+)
+closed_generation_function = extract_shell_function(
+    closed_generation_block,
+    "write_break_glass_closed_generation",
+)
+run_generation_producer_fixture(closed_generation_function, fixture_root)
+
+operation_lock_mutations = (
+    ("replace repository directory with lock file", lambda value: replace_once(value, 'GRAFANA_OPS_REPOSITORY_PATH="$(realpath -e -- ..)"', 'GRAFANA_OPS_REPOSITORY_PATH="$(pwd -P)/.grafana-operation.lock"')),
+    ("make repository lock exclusive", lambda value: replace_once(value, 'flock --shared --nonblock "$GRAFANA_OPS_REPOSITORY_FD"', 'flock --exclusive --nonblock "$GRAFANA_OPS_REPOSITORY_FD"')),
+    ("make project lock shared", lambda value: replace_once(value, 'flock --exclusive --nonblock "$GRAFANA_OPS_PROJECT_FD"', 'flock --shared --nonblock "$GRAFANA_OPS_PROJECT_FD"')),
+    ("make runtime lock shared", lambda value: replace_once(value, 'flock --exclusive --nonblock "$GRAFANA_OPS_RUNTIME_FD"', 'flock --shared --nonblock "$GRAFANA_OPS_RUNTIME_FD"')),
+    ("reverse project and runtime acquisition", swap_project_and_runtime_lock_segments),
+    ("remove repository FD identity proof", lambda value: replace_once(value, '/proc/$BASHPID/fd/$GRAFANA_OPS_REPOSITORY_FD', '$GRAFANA_OPS_REPOSITORY_PATH')),
+    ("release repository before runtime", lambda value: replace_once(value, 'flock -u "$GRAFANA_OPS_RUNTIME_FD"', 'flock -u "$GRAFANA_OPS_REPOSITORY_FD"')),
+)
+for mutation_name, mutation in operation_lock_mutations:
+    require_rejected_mutation(
+        operation_helper_block,
+        mutation,
+        lambda value: validate_operation_lock_contract(value, run_script),
+        mutation_name,
+    )
+
+secret_manifest_mutations = (
+    ("drop canonical secret ordering", lambda value: replace_once(value, 'unique[] | . + "\\u0000"', '.[] | . + "\\u0000"')),
+    ("omit bootstrap-mounted admin secret", lambda value: value.replace('.key == "grafana-bootstrap"', '.key == "grafana-bootstrap-disabled"')),
+    ("follow secret symlinks", lambda value: replace_once(value, 'test ! -L "$secret_file"', ':')),
+    ("permit multiply linked secrets", lambda value: replace_once(value, "'regular file:1' || exit 1", "'regular file:2' || exit 1")),
+    ("omit secret mode metadata", lambda value: replace_last_once(value, '"$secret_mode"', '"-"')),
+    ("omit secret content digest", lambda value: replace_last_once(value, '"$secret_digest"', '"-"')),
+    ("make secret manifest group-readable", lambda value: replace_once(value, 'chmod 0600 -- "$manifest_output"', 'chmod 0640 -- "$manifest_output"')),
+    ("couple deployment owner to current shell", lambda value: replace_once(value, 'secret_owner_path="${GRAFANA_OPS_PROJECT_PATH:-.}"', 'secret_owner_path=.; expected_secret_uid="$(id -u)"')),
+    ("drop rendered secret group contract", lambda value: replace_once(value, '(.value.group_add // [])[] | tostring', '(.value.missing_group_add // [])[] | tostring')),
+    ("permit wrong group for 0640", lambda value: replace_once(value, '640) test "$secret_gid" -eq "$expected_secret_gid" || exit 1 ;;', '640) ;;')),
+    ("log secret values", lambda value: replace_once(value, 'secret_digest="$(sha256sum < "$secret_file"', 'printf \'%s\\n\' "$(cat "$secret_file")"\n    secret_digest="$(sha256sum < "$secret_file"')),
+)
+for mutation_name, mutation in secret_manifest_mutations:
+    require_rejected_mutation(
+        operation_helper_block,
+        mutation,
+        validate_secret_manifest_contract,
+        mutation_name,
+    )
+
+restore_mutations = (
+    ("remove NUL sorting", lambda value: replace_once(value, "find . -xdev -print0 | LC_ALL=C sort -z |", "find . -xdev -print | LC_ALL=C sort |")),
+    ("remove hardlink rejection", lambda value: replace_once(value, "test \"$(stat -c '%h' -- \"$manifest_entry\")\" -eq 1", ":")),
+    ("remove ACL metadata", lambda value: replace_once(value, "getfacl --numeric --absolute-names --omit-header --", "printf ACL --")),
+    ("remove xattr metadata", lambda value: replace_once(value, "getfattr --absolute-names --dump --encoding=hex --match=- --", "printf XATTR --")),
+    ("omit ACL digest from NUL record", lambda value: replace_once(value, '"$acl_digest"', '"-"')),
+    ("weaken stage parent ownership", lambda value: replace_once(value, "'directory:700:0:0'", "'directory:770:472:472'")),
+    ("move manifest into app_stage", lambda value: replace_once(value, 'appdata_manifest="$db_stage/appdata-tree.manifest.v1"', 'appdata_manifest="$app_stage/appdata-tree.manifest.v1"')),
+    ("remove live post-exchange probe", lambda value: replace_once(value, 'write_appdata_manifest appdata "$appdata_manifest_check"', ":")),
+    ("exchange before final stage probe", move_exchange_before_last_stage_probe),
+)
+for mutation_name, mutation in restore_mutations:
+    require_rejected_mutation(restore_block, mutation, validate_restore_exchange, mutation_name)
+
+restore_stage_mutations = (
+    ("remove root stage owner", lambda value: replace_once(value, 'install -d -o 0 -g 0 -m 0700 -- "$app_stage_parent" "$db_stage"', 'install -d -m 0700 -- "$app_stage_parent" "$db_stage"')),
+    ("make stage parent group accessible", lambda value: replace_once(value, 'install -d -o 0 -g 0 -m 0700 -- "$app_stage_parent" "$db_stage"', 'install -d -o 0 -g 0 -m 0750 -- "$app_stage_parent" "$db_stage"')),
+)
+for mutation_name, mutation in restore_stage_mutations:
+    require_rejected_mutation(restore_stage_block, mutation, validate_restore_stage, mutation_name)
+
+peer_matrix_mutations = (
+    ("make allowlist group-readable", lambda value: replace_once(value, '"regular file:1:600:$(id -u)"', '"regular file:1:640:$(id -u)"')),
+    ("accept unterminated allowlist", lambda value: replace_once(value, 'test "$allowlist_last_byte" = 0a', 'test -n "$allowlist_last_byte"')),
+    ("accept an eleventh empty field", lambda value: replace_once(value, 'test "${#delimiter_bytes}" -eq 9', 'test "${#delimiter_bytes}" -ge 9')),
+    ("permit untrusted reachable peers", lambda value: replace_once(value, 'test "$allowed_result" = DENIED', 'test -n "$allowed_result"')),
+    ("weaken positive listener status", lambda value: replace_once(value, '[ "$listener_status" = 200 ]', '[ -n "$listener_status" ]')),
+    ("remove fail-closed peer default", lambda value: replace_once(value, 'peer_result=UNTESTED', 'peer_result=DENIED')),
+    ("remove denied positive control", lambda value: replace_once(value, 'after-denied-$peer_id', 'denied-without-control-$peer_id')),
+    ("remove post-matrix listener control", lambda value: replace_once(value, 'after-matrix', 'matrix-finished')),
+    ("permit untrusted non-denial", lambda value: replace_once(value, '[ "$peer_result" != DENIED ]', '[ -z "$peer_result" ]')),
+    ("ignore missing allowlist peers", lambda value: replace_once(value, "printf 'UNTESTED allowlist-entry-missing %s\\n'", "printf 'IGNORED allowlist-entry-missing %s\\n'")),
+    ("permit UNTESTED results", lambda value: replace_once(value, 'test "$untested_peer_count" -eq 0', 'test "$untested_peer_count" -ge 0')),
+    ("drop helper hash binding", lambda value: replace_once(value, 'helper-sha256|%s', 'helper-unbound|%s')),
+    ("use volatile container ID as allowlist key", lambda value: replace_once(value, 'peer_key="$breakglass_network|$peer_name|$peer_scope|$namespace_name"', 'peer_key="$breakglass_network|$peer_id|$peer_scope|$namespace_name"')),
+    ("drop peer image identity", lambda value: replace_once(value, '[ "$peer_image" != "${break_glass_allowed_image[$peer_key]}" ]', '[ -z "$peer_image" ]')),
+    ("drop Compose service identity", lambda value: replace_once(value, '"${break_glass_allowed_service[$peer_key]}"', '"-"')),
+    ("drop finite-job exit-zero attestation", lambda value: replace_once(value, "'false:0'", "'false:ignored'")),
+    ("leave finite jobs in peer inventory", lambda value: replace_once(value, '"${peer_cleanup_compose[@]}" rm -f', '"${peer_cleanup_compose[@]}" ps --all')),
+    ("ignore peer inventory producer failure", lambda value: replace_once(value, 'if ! docker ps --all --quiet --no-trunc > "$peer_inventory_file"; then', 'if docker ps --all --quiet --no-trunc > "$peer_inventory_file"; then')),
+    ("consume peer inventory via unchecked process substitution", lambda value: replace_once(value, 'mapfile -t docker_container_ids < "$peer_inventory_file"', 'mapfile -t docker_container_ids < <(docker ps --all --quiet --no-trunc)')),
+)
+for mutation_name, mutation in peer_matrix_mutations:
+    require_rejected_mutation(peer_matrix_block, mutation, validate_break_glass_matrix, mutation_name)
+PY
+}
+
 [[ "$KEEP_TEST_OUTPUT" == true || "$KEEP_TEST_OUTPUT" == false ]] \
   || fail 'KEEP_TEST_OUTPUT must be true or false'
 [[ -f "${TEST_REPO_ROOT}/Grafana/dockerfiles/Dockerfile" \
   && ! -L "${TEST_REPO_ROOT}/Grafana/dockerfiles/Dockerfile" ]] \
   || fail 'Grafana Dockerfile is missing or not a regular file'
 for required_command in \
-  docker curl timeout stat grep base64 date git tar sed sort awk jq yq chgrp chmod; do
+  docker curl timeout stat grep base64 date git tar sed sort awk jq yq chgrp chmod \
+  python3 bash getfacl getfattr setfacl setfattr; do
   command -v "$required_command" >/dev/null 2>&1 \
     || fail "required command is missing: ${required_command}"
 done
+validate_documented_runbook_contracts \
+  || fail 'documented Grafana runbook contracts or isolated negative fixtures failed'
+log_ok 'documented restore manifest and exchange contract rejects metadata, content, ordering, and object-type drift'
 docker info >/dev/null 2>&1 || fail 'Docker daemon is unavailable'
 require_resource_names_available
 
