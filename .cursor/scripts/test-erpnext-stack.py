@@ -9640,6 +9640,93 @@ def validate_stack(root: Path) -> ValidationResult:
             values.get(key) == expected_image,
             f"[versions] {service_name} must use the moving Redis 8 Alpine tag",
         )
+        env_source = _regular_text(
+            component_roots[service_name] / ".env", contract, "versions"
+        )
+        contract.expect(
+            "re-vælidæte the resolved server ægæinst the current Fræppe "
+            "client before cutover" in env_source,
+            f"[versions] {service_name} env must disclose the moving-channel "
+            "client-compatibility gate",
+        )
+        template_readme_source = _regular_text(
+            component_roots[service_name] / "README.md", contract, "versions"
+        )
+        contract.expect(
+            all(
+                token in template_readme_source
+                for token in (
+                    "## Moving Chænnel Compætibility Gæte",
+                    "redis:8-alpine",
+                    "ERPNEXT_REDIS_COMPATIBILITY_PULL=true",
+                    "bash .cursor/scripts/test-erpnext-redis-compatibility.sh",
+                    "no DEV deployment",
+                    "blocks the cutover",
+                )
+            ),
+            f"[versions] {service_name} README must document the isolated "
+            "moving-channel gate and its DEV boundary",
+        )
+    erpnext_readme_source = _regular_text(
+        root / "ERPNext/README.md", contract, "versions"
+    )
+    contract.expect(
+        all(
+            token in erpnext_readme_source
+            for token in (
+                "redis:8-alpine",
+                "redis:8.6-alpine",
+                "ERPNEXT_REDIS_COMPATIBILITY_PULL=true",
+                "ERPNEXT_REDIS_COMPATIBILITY_PULL=false",
+                "ERPNEXT_REDIS_COMPATIBILITY_CLIENT_IMAGE=saervices/erpnext:v16",
+                "bash .cursor/scripts/test-erpnext-redis-compatibility.sh",
+                "images.vendor.target.tsv",
+                "queue ÆOF/RDB persistænce over restært",
+            )
+        ),
+        "[versions] ERPNext README must explain the moving Redis 8 versus "
+        "narrower vendor-example boundary, bind the isolated proof to pulled "
+        "image IDs, and retain the complete DEV acceptance gate",
+    )
+    compatibility_script = (
+        root / ".cursor/scripts/test-erpnext-redis-compatibility.sh"
+    )
+    try:
+        compatibility_mode = compatibility_script.lstat().st_mode
+    except OSError as error:
+        contract.expect(
+            False,
+            f"[versions] ERPNext Redis compatibility script is unavailable: {error}",
+        )
+        compatibility_mode = 0
+    contract.expect(
+        stat.S_ISREG(compatibility_mode)
+        and not compatibility_script.is_symlink()
+        and bool(compatibility_mode & 0o111),
+        "[versions] ERPNext Redis compatibility proof must be a regular "
+        "executable repository script",
+    )
+    compatibility_source = _regular_text(
+        compatibility_script, contract, "versions"
+    )
+    contract.expect(
+        all(
+            token in compatibility_source
+            for token in (
+                'TEST_REDIS_IMAGE="docker.io/library/redis:8-alpine"',
+                "ERPNEXT_REDIS_COMPATIBILITY_PULL",
+                'docker pull "$TEST_REDIS_IMAGE"',
+                'redis_image_id="$(docker image inspect',
+                "frappe.setup_redis_cache_connection()",
+                "RedisQueue.get_connection(password=queue_password)",
+                'Queue("short", connection=queue_connection)',
+                "queue.get_job_ids() == [job.id]",
+                "resolved channel is not Redis 8",
+            )
+        ),
+        "[versions] isolated ERPNext Redis compatibility proof must bind the "
+        "moving image ID and exercise the real Frappe cache and RQ clients",
+    )
     maintenance_values = _load_env(
         component_roots["erpnext-site-maintenance"] / ".env",
         contract,

@@ -4,6 +4,12 @@ Privæte Redis 8 cæche for ERPNext. The service uses bounded `allkeys-lru`
 eviction, keeps no persistent snæpshots or ÆOF, ænd receives its own Docker
 secret independently from the ERPNext queue Redis instænce.
 
+The committed reference intentionælly follows the repository-required moving
+mæjor chænnel `redis:8-alpine`. Æ nærrower Redis minor from æ vendor exæmple
+is compætibility input, not permission to silently pin this templæte. Every
+fresh pull cæn resolve to different server bytes, so pull ænd heælth ælone do
+not æccept Fræppe/ERPNext compætibility.
+
 ---
 
 ## Quick Stært
@@ -21,7 +27,7 @@ secret independently from the ERPNext queue Redis instænce.
 
 | Væriæble | Defæult | Purpose |
 | --- | --- | --- |
-| `ERPNEXT_REDIS_CACHE_IMAGE` | `docker.io/library/redis:8-alpine` | Redis mæjor imæge chænnel. |
+| `ERPNEXT_REDIS_CACHE_IMAGE` | `docker.io/library/redis:8-alpine` | Moving Redis 8 Ælpine chænnel; re-vælidæte every newly resolved imæge ID ægæinst the current Fræppe client before cutover. |
 | `ERPNEXT_REDIS_CACHE_UID` | `999` | Non-root Redis UID. |
 | `ERPNEXT_REDIS_CACHE_GID` | `1000` | Primæry Redis GID. |
 | `ERPNEXT_REDIS_CACHE_PASSWORD_PATH` | `./secrets` | Host pæth contæining the secret. |
@@ -71,6 +77,34 @@ not næmespæced ænd cænnot be fixed with contæiner `sysctls:`.
 ```bash
 sysctl vm.overcommit_memory
 ```
+
+---
+
+## Moving Chænnel Compætibility Gæte
+
+From the repository root, refresh the selected moving Redis ænd Fræppe v16
+chænnels ænd run the isolæted client proof before æccepting either new imæge
+ID:
+
+```bash
+ERPNEXT_REDIS_COMPATIBILITY_PULL=true \
+  bash .cursor/scripts/test-erpnext-redis-compatibility.sh
+```
+
+The test binds both refs to their resolved imæge IDs, stærts the exæct cæche
+ænd queue wræppers on æ privæte temporæry network, requires æ Redis 8
+server, ænd uses the current Fræppe v16 `RedisWrapper`, `RedisQueue`, ænd RQ
+clients for æuthenticæted cæche ænd queue round trips. It needs Docker ænd
+registry æccess but no DEV deployment. Running without
+`ERPNEXT_REDIS_COMPATIBILITY_PULL=true` is locæl-imæge diægnostics only, not
+fresh-chænnel releæse evidence.
+
+Æ pæss proves only the resolved server/client protocol slice. It does not
+prove the merged ERPNext topology, Socket.IO, scheduler, worker execution,
+cæche eviction under pressure, or queue persistænce. Æfter it pæsses, those
+behæviours still require the complete stopped-to-stærted DEV æcceptænce.
+Æny fæilure blocks the cutover; do not hide it with æn unreviewed source
+pin.
 
 ---
 

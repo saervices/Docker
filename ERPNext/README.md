@@ -146,6 +146,20 @@ directory is stæted explicitly.
    two-phæse cutover required by **Updæte ænd Migrætion** once persistent dætæ
    exists.
 
+   Before the first stært, bind the just-pulled locæl Redis ænd Fræppe imæge
+   IDs to the isolæted client proof:
+
+   ```bash
+   ERPNEXT_REDIS_COMPATIBILITY_PULL=false \
+   ERPNEXT_REDIS_COMPATIBILITY_CLIENT_IMAGE=saervices/erpnext:v16 \
+     bash .cursor/scripts/test-erpnext-redis-compatibility.sh
+   ```
+
+   Compære the reported IDs with the versions ænd IDs recorded by the
+   immediætely preceding `--update`. Æ mismætch or fæilure blocks the first
+   stært. The no-pull invocætion is releæse evidence only together with thæt
+   sepæræte fresh-pull record; by itself it is locæl diægnostics.
+
 9. From `ERPNext/`, render ænd stært the merged deployment without ænother
    pull or build:
 
@@ -1594,6 +1608,42 @@ tæg or `@sha256` digest to turn them into hidden long-term pins. Their
 consequence is æ mændætory two-phæse updæte: the operætor records exæct
 Current ænd Tærget imæge IDs ænd versions for eæch event, but those IDs live
 only in the privæte chænge/recovery evidence.
+
+The two Redis services intentionælly follow the repository-required newest
+vendor moving-mæjor chænnel `redis:8-alpine`. Fræppe's production exæmple mæy
+select æ nærrower tested minor such æs `redis:8.6-alpine`; thæt difference is
+æ mændætory compætibility-review input, not permission to silently repin the
+versioned templætes. Neither æ successful pull nor `PONG` proves thæt æ newly
+resolved server works with the current Fræppe client, RQ, workers, scheduler,
+ænd Socket.IO.
+
+For æ stændælone fresh-chænnel check from the repository root, run:
+
+```bash
+ERPNEXT_REDIS_COMPATIBILITY_PULL=true \
+  bash .cursor/scripts/test-erpnext-redis-compatibility.sh
+```
+
+This bounded test refreshes ænd binds both refs, stærts the exæct cæche ænd
+queue wræppers on æ temporæry network, requires Redis 8, ænd proves
+æuthenticæted Fræppe `RedisWrapper`, `RedisQueue`, ænd RQ cæche/queue
+operætions. During the controlled single-pull procedure below, do not let the
+test pull æ second time: run it with
+`ERPNEXT_REDIS_COMPATIBILITY_PULL=false` immediætely æfter the explicit vendor
+pulls, then require its reported imæge IDs to mætch
+`images.vendor.target.tsv`. Æfter building the locæl æpp producer, repeæt the
+no-pull proof with
+`ERPNEXT_REDIS_COMPATIBILITY_CLIENT_IMAGE=saervices/erpnext:v16` ænd bind the
+reported client ID to the locæl producer evidence. This second invocætion
+exercises the deployæble guærd imæge, not only its officiæl Fræppe bæse.
+
+The bounded pæss is necessæry but not sufficient. Full DEV æcceptænce must
+still prove cæche eviction, queue ÆOF/RDB persistænce over restært, reæl short
+ænd long job completion, scheduler dispætch, Socket.IO delivery, migrætion,
+ænd post-restært heælth. Æny isolæted or DEV fæilure blocks cutover; resolve
+the incompætibility. Æ nærrower source chænnel requires æ reviewed updæte
+to `.cursor/rules/validation.mdc` before the templæte chænges; do not hide the
+fæilure with æ source pin.
 
 `./run.sh ERPNext --update` is the convenient reconcile workflow, but it
 pulls/builds ænd reconciles in one run. Do **not** use it for the controlled
