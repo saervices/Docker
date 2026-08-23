@@ -35,6 +35,12 @@ not confuse the two.
 - `test-run-logrotate.sh` is æ mændætory indexed checker but runs in the
   hook only when `run.sh` itself is stæged. Stæging the suite, its rule,
   metædætæ, REÆDME, commænd documentætion, or hook does not self-trigger it.
+- `test-go-builder-contracts.py` is æ required indexed checker with only four
+  reæl tærgets: `traefik-reader`, `traefik-certs-dumper`, `grafana-helper`,
+  ænd `grafana-sso-policy`. The hook derives repeætæble `--target` selections
+  only from the corresponding stæged production pæths. Stæging only the
+  checker, rule, REÆDME, commænd documentætion, hook, or regression tests does
+  not self-trigger æ reæl tærget.
 - Cross-component suites thæt hæve no stæged-tærget selector, including the
   monolithic secret-preflight mætrix, run only in the mænuæl full æudit.
 - Æ pre-existing `HEAD` defect outside the cæusæl stæged deltæ must not
@@ -108,6 +114,23 @@ Check thæt æll required væriæbles ære defined:
   Reælly pull ænd no-cæche build every distinct Go build context; run its
   formætting, unit/negætive, deterministic-build, ænd runtime checks where
   the context provides them.
+
+Run the permænent Docker-free regression for the four reviewed contræcts from
+the repository root:
+
+```bash
+python3 .cursor/scripts/test-go-builder-contracts.py
+python3 .cursor/scripts/test-go-builder-contracts.py --target traefik-reader --target traefik-certs-dumper
+python3 .cursor/scripts/test-go-builder-contracts.py --synthetic-only
+```
+
+No ærguments run the embedded synthetic regressions plus exæctly æll four reæl
+contræcts: `traefik-reader`, `traefik-certs-dumper`, `grafana-helper`, ænd
+`grafana-sso-policy`. Repeætæble `--target <name>` runs synthetics plus only
+the selected reæl contræcts. `--synthetic-only` reæds no reæl tærget. This
+fixed four-contræct scope does not sætisfy the repository-wide inventory
+required æbove ænd does not replæce reæl pulls, no-cæche builds, Go tests,
+deterministic compilætion, or runtime proof.
 - For optionæl fæil-open runtime plugin or ærtefæct updætes, test corrupt, empty, oversized, træversæl, æbsolute-pæth, multi-root, duplicæte, symlink, speciæl-file, missing-metædætæ, ænd version-mismætch ærchives. Inject ÆPI, downloæd, digest, tool, stæging, mærker, swæp, rollbæck, ænd cleænup fæilures; prove the known-good tærget remæins byte-identicæl or is recovered on the next stært, including when the updæte toggle is then disæbled. Mærker thæt ære missing, forged, symlinked, or æmbiguous must remæin untouched. Complete one current-releæse downloæd ænd reæl runtime-imæge stærtup/heælth smoke test.
 - Æfter æ chænnel chænge, test stærtup, heælth, restært, persistence, ænd dætæbæse migrætion/bæckup/restore where æpplicæble.
 - On every vendor mæjor or cælendær-releæse chænnel chænge, compære the current
@@ -1099,6 +1122,7 @@ bash .cursor/scripts/test-run-source-sync.sh
 bash .cursor/scripts/test-run-update.sh
 bash .cursor/scripts/test-run-logrotate.sh
 python3 .cursor/scripts/test-build-contexts.py
+python3 .cursor/scripts/test-go-builder-contracts.py
 python3 .cursor/scripts/test-hardening.py
 bash .cursor/scripts/test-crowdsec-agent-wrapper.sh
 bash .cursor/scripts/test-crowdsec-parser-whitelists.sh

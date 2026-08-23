@@ -17,6 +17,7 @@ readonly TEST_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/staged-secret-placeholders.XXXX
 readonly -a REQUIRED_PYTHON_STUBS=(
   ".cursor/scripts/check-hardening.py"
   ".cursor/scripts/test-build-contexts.py"
+  ".cursor/scripts/test-go-builder-contracts.py"
   ".cursor/scripts/test-erpnext-stack.py"
   ".cursor/scripts/test-volume-deletion.py"
   ".cursor/scripts/test-hardening.py"
@@ -120,6 +121,40 @@ write_build_context_trace_stub() {
     '' \
     'if __name__ == "__main__":' \
     '    main()' >"$target"
+  chmod 0755 -- "$target"
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: write_go_builder_contract_trace_stub
+#   Writes æ Go-builder stub thæt records exæct tærgets ænd snæpshot bytes.
+#   Ærguments:
+#     $1 - fixture repository root
+#     $2 - checker exit stætus
+#ææææææææææææææææææææææææææææææææææ
+write_go_builder_contract_trace_stub() {
+  local root="$1"
+  local exit_status="$2"
+  local target="${root}/.cursor/scripts/test-go-builder-contracts.py"
+
+  printf '%s\n' \
+    '#!/usr/bin/env python3' \
+    'import argparse' \
+    'import os' \
+    'from pathlib import Path' \
+    '' \
+    'parser = argparse.ArgumentParser()' \
+    'parser.add_argument("--target", action="append", default=None)' \
+    'parser.add_argument("--synthetic-only", action="store_true")' \
+    'args = parser.parse_args()' \
+    'trace = os.environ.get("GO_BUILDER_CONTRACT_TRACE")' \
+    'if trace:' \
+    '    payload = "synthetic-only" if args.synthetic_only else ",".join(args.target or [])' \
+    '    Path(trace).write_text(payload, encoding="utf-8")' \
+    'expected_path = os.environ.get("GO_BUILDER_EXPECTED_PATH")' \
+    'expected_text = os.environ.get("GO_BUILDER_EXPECTED_TEXT")' \
+    'if expected_path and Path(expected_path).read_text(encoding="utf-8") != f"{expected_text}\n":' \
+    '    raise SystemExit(86)' \
+    "raise SystemExit(${exit_status})" >"$target"
   chmod 0755 -- "$target"
 }
 
@@ -353,6 +388,58 @@ prepare_erpnext_hook_repo() {
   write_erpnext_trace_stub "$root" "$exit_status"
   git -C "$root" add -- .cursor/scripts/test-erpnext-stack.py
   commit_fixture_baseline "$root"
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: prepare_go_builder_contract_hook_repo
+#   Creætes æ committed hook fixture with æ traceæble Go-builder checker.
+#   Ærguments:
+#     $1 - fixture repository root
+#     $2 - checker exit stætus
+#ææææææææææææææææææææææææææææææææææ
+prepare_go_builder_contract_hook_repo() {
+  local root="$1"
+  local exit_status="$2"
+
+  install_pre_commit_tools "$root"
+  write_go_builder_contract_trace_stub "$root" "$exit_status"
+  git -C "$root" add -- .cursor/scripts/test-go-builder-contracts.py
+  commit_fixture_baseline "$root"
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: write_go_builder_production_fixture
+#   Writes one minimæl branded production-pæth fixture for hook selection.
+#   Ærguments:
+#     $1 - fixture repository root
+#     $2 - repository-relætive production pæth
+#ææææææææææææææææææææææææææææææææææ
+write_go_builder_production_fixture() {
+  local root="$1"
+  local relative_path="$2"
+
+  mkdir -p -- "$(dirname -- "${root}/${relative_path}")"
+  case "$relative_path" in
+    *.env)
+      printf 'FIXTURE_VALUE=reviewed\n' >"${root}/${relative_path}"
+      ;;
+    *.yaml|*.yml)
+      printf 'services: {}\n' >"${root}/${relative_path}"
+      ;;
+    *.go)
+      printf '%s\n' \
+        '// SPDX-License-Identifier: MIT' \
+        'package main' >"${root}/${relative_path}"
+      ;;
+    */Dockerfile|*/dockerfile.*)
+      printf '%s\n' \
+        '# SPDX-License-Identifier: MIT' \
+        'FROM scratch' >"${root}/${relative_path}"
+      ;;
+    *)
+      return 1
+      ;;
+  esac
 }
 
 #ææææææææææææææææææææææææææææææææææ
@@ -651,6 +738,162 @@ case_pre_commit_erpnext_metadata_does_not_self_trigger() {
   trace="$root/erpnext.trace"
   (cd -- "$root" && ERPNEXT_REGRESSION_TRACE="$trace" bash .githooks/pre-commit)
   [[ ! -e "$trace" ]]
+}
+
+case_pre_commit_rejects_missing_go_builder_contract_checker() {
+  local checker_path=".cursor/scripts/test-go-builder-contracts.py"
+  local root=""
+  root="$(create_case_repo pre-commit-rejects-missing-go-builder-contract-checker)"
+  prepare_pre_commit_repo "$root" "$checker_path"
+  printf '# Æctuæl Go-builder documentætion fixture\n' >"$root/README.md"
+  git -C "$root" add -- README.md
+  (cd -- "$root" && bash .githooks/pre-commit)
+}
+
+case_pre_commit_go_builder_production_paths_trigger_exact_targets() {
+  local index=0
+  local path=""
+  local root=""
+  local trace=""
+  local -a paths=(
+    "Traefik/.env"
+    "Traefik/docker-compose.app.yaml"
+    "Traefik/dockerfiles/Dockerfile"
+    "templates/traefik_certs-dumper/.env"
+    "templates/traefik_certs-dumper/docker-compose.traefik_certs-dumper.yaml"
+    "templates/traefik_certs-dumper/dockerfiles/dockerfile.traefik-certs-dumper.scp"
+    "Grafana/.env"
+    "Grafana/docker-compose.app.yaml"
+    "Grafana/dockerfiles/Dockerfile"
+    "Grafana/dockerfiles/grafana-entrypoint.go"
+    "Grafana/dockerfiles/grafana-entrypoint_test.go"
+    "templates/grafana-sso-policy/.env"
+    "templates/grafana-sso-policy/docker-compose.grafana-sso-policy.yaml"
+    "templates/grafana-sso-policy/dockerfiles/dockerfile.grafana-sso-policy"
+    "templates/grafana-sso-policy/dockerfiles/grafana-entrypoint.grafana-sso-policy.go"
+    "templates/grafana-sso-policy/dockerfiles/grafana-entrypoint.grafana-sso-policy_test.go"
+  )
+  local -a targets=(
+    "traefik-reader"
+    "traefik-reader"
+    "traefik-reader"
+    "traefik-certs-dumper"
+    "traefik-certs-dumper"
+    "traefik-certs-dumper"
+    "grafana-helper"
+    "grafana-helper"
+    "grafana-helper"
+    "grafana-helper"
+    "grafana-helper"
+    "grafana-sso-policy"
+    "grafana-sso-policy"
+    "grafana-sso-policy"
+    "grafana-sso-policy"
+    "grafana-sso-policy"
+  )
+
+  for index in "${!paths[@]}"; do
+    path="${paths[index]}"
+    root="$(create_case_repo "pre-commit-go-builder-path-${index}")"
+    prepare_go_builder_contract_hook_repo "$root" 0
+    write_go_builder_production_fixture "$root" "$path"
+    git -C "$root" add -- "$path"
+    trace="$root/go-builder-contract.trace"
+    (cd -- "$root" && GO_BUILDER_CONTRACT_TRACE="$trace" bash .githooks/pre-commit)
+    [[ "$(<"$trace")" == "${targets[index]}" ]]
+  done
+}
+
+case_pre_commit_go_builder_combines_sorted_unique_targets() {
+  local root=""
+  local trace=""
+  local path=""
+  local -a paths=(
+    "Traefik/.env"
+    "Traefik/dockerfiles/Dockerfile"
+    "templates/traefik_certs-dumper/.env"
+    "Grafana/.env"
+    "Grafana/dockerfiles/grafana-entrypoint.go"
+    "templates/grafana-sso-policy/.env"
+  )
+  root="$(create_case_repo pre-commit-go-builder-combines-sorted-unique-targets)"
+  prepare_go_builder_contract_hook_repo "$root" 0
+  for path in "${paths[@]}"; do
+    write_go_builder_production_fixture "$root" "$path"
+  done
+  git -C "$root" add -- "${paths[@]}"
+  trace="$root/go-builder-contract.trace"
+  (cd -- "$root" && GO_BUILDER_CONTRACT_TRACE="$trace" bash .githooks/pre-commit)
+  [[ "$(<"$trace")" == 'grafana-helper,grafana-sso-policy,traefik-certs-dumper,traefik-reader' ]]
+}
+
+case_pre_commit_go_builder_checker_self_stage_runs_synthetics_only() {
+  local checker_path=".cursor/scripts/test-go-builder-contracts.py"
+  local root=""
+  local trace=""
+  root="$(create_case_repo pre-commit-go-builder-checker-self-stage-runs-synthetics-only)"
+  prepare_pre_commit_repo "$root"
+  write_go_builder_contract_trace_stub "$root" 0
+  git -C "$root" add -- "$checker_path"
+  write_python_stub "$root" "$checker_path" 71
+  trace="$root/go-builder-contract.trace"
+  (cd -- "$root" && GO_BUILDER_CONTRACT_TRACE="$trace" bash .githooks/pre-commit)
+  [[ "$(<"$trace")" == synthetic-only ]]
+}
+
+case_pre_commit_go_builder_foreign_and_metadata_paths_do_not_trigger() {
+  local root=""
+  local trace=""
+  local path=""
+  local -a paths=(
+    "templates/collabora/.env"
+    "RustDesk/.env"
+    "templates/matrix-livekit-jwt/.env"
+  )
+  root="$(create_case_repo pre-commit-go-builder-foreign-and-metadata-paths-do-not-trigger)"
+  prepare_go_builder_contract_hook_repo "$root" 71
+  for path in "${paths[@]}"; do
+    write_go_builder_production_fixture "$root" "$path"
+  done
+  mkdir -p -- "$root/.cursor/rules"
+  printf '# Æctuæl Go-builder rule fixture\n' >"$root/.cursor/rules/validation.mdc"
+  printf '# Æctuæl Go-builder documentætion fixture\n' >"$root/.cursor/README.md"
+  git -C "$root" add -- "${paths[@]}" .cursor/rules/validation.mdc .cursor/README.md
+  trace="$root/go-builder-contract.trace"
+  (cd -- "$root" && GO_BUILDER_CONTRACT_TRACE="$trace" bash .githooks/pre-commit)
+  [[ ! -e "$trace" ]]
+}
+
+case_pre_commit_go_builder_failure_propagates() {
+  local root=""
+  local trace=""
+  root="$(create_case_repo pre-commit-go-builder-failure-propagates)"
+  prepare_go_builder_contract_hook_repo "$root" 29
+  write_go_builder_production_fixture "$root" "Traefik/.env"
+  git -C "$root" add -- Traefik/.env
+  trace="$root/go-builder-contract.trace"
+  (cd -- "$root" && GO_BUILDER_CONTRACT_TRACE="$trace" bash .githooks/pre-commit)
+}
+
+case_pre_commit_go_builder_reads_staged_product_bytes() {
+  local root=""
+  local trace=""
+  root="$(create_case_repo pre-commit-go-builder-reads-staged-product-bytes)"
+  prepare_go_builder_contract_hook_repo "$root" 0
+  mkdir -p -- "$root/Traefik"
+  printf 'TRAEFIK_GO_IMAGE=golang:alpine\n' >"$root/Traefik/.env"
+  git -C "$root" add -- Traefik/.env
+  printf 'TRAEFIK_GO_IMAGE=golang:1-alpine\n' >"$root/Traefik/.env"
+  trace="$root/go-builder-contract.trace"
+  (
+    cd -- "$root"
+    GO_BUILDER_CONTRACT_TRACE="$trace" \
+      GO_BUILDER_EXPECTED_PATH="Traefik/.env" \
+      GO_BUILDER_EXPECTED_TEXT="TRAEFIK_GO_IMAGE=golang:alpine" \
+      bash .githooks/pre-commit
+  )
+  [[ "$(<"$trace")" == traefik-reader ]]
+  [[ "$(<"$root/Traefik/.env")" == 'TRAEFIK_GO_IMAGE=golang:1-alpine' ]]
 }
 
 case_pre_commit_cleans_success_snapshot() {
@@ -987,6 +1230,13 @@ expect_success pre-commit-uses-staged-new-erpnext-checker case_pre_commit_uses_s
 expect_failure pre-commit-uses-staged-changed-erpnext-checker case_pre_commit_uses_staged_changed_erpnext_checker
 expect_success pre-commit-erpnext-production-paths-trigger case_pre_commit_erpnext_production_paths_trigger
 expect_success pre-commit-erpnext-metadata-does-not-self-trigger case_pre_commit_erpnext_metadata_does_not_self_trigger
+expect_failure pre-commit-rejects-missing-go-builder-contract-checker case_pre_commit_rejects_missing_go_builder_contract_checker
+expect_success pre-commit-go-builder-production-paths-trigger-exact-targets case_pre_commit_go_builder_production_paths_trigger_exact_targets
+expect_success pre-commit-go-builder-combines-sorted-unique-targets case_pre_commit_go_builder_combines_sorted_unique_targets
+expect_success pre-commit-go-builder-checker-self-stage-runs-synthetics-only case_pre_commit_go_builder_checker_self_stage_runs_synthetics_only
+expect_success pre-commit-go-builder-foreign-and-metadata-paths-do-not-trigger case_pre_commit_go_builder_foreign_and_metadata_paths_do_not_trigger
+expect_failure pre-commit-go-builder-failure-propagates case_pre_commit_go_builder_failure_propagates
+expect_success pre-commit-go-builder-reads-staged-product-bytes case_pre_commit_go_builder_reads_staged_product_bytes
 expect_success pre-commit-cleans-success-snapshot case_pre_commit_cleans_success_snapshot
 expect_success pre-commit-cleans-failed-snapshot case_pre_commit_cleans_failed_snapshot
 expect_failure pre-commit-rejects-staged-alternate-hook case_pre_commit_rejects_staged_alternate_hook

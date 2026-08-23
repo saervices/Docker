@@ -76,6 +76,7 @@ readonly -a REQUIRED_REPOSITORY_CHECKERS=(
   ".cursor/scripts/enforce-branding.py"
   ".cursor/scripts/check-hardening.py"
   ".cursor/scripts/test-build-contexts.py"
+  ".cursor/scripts/test-go-builder-contracts.py"
   ".cursor/scripts/test-erpnext-stack.py"
   ".cursor/scripts/test-crowdsec-agent-wrapper.sh"
   ".cursor/scripts/test-crowdsec-parser-whitelists.sh"
@@ -131,10 +132,12 @@ declare -a branding_files=()
 declare -a shellcheck_files=()
 declare -A app_dirs=()
 declare -A build_context_apps=()
+declare -A go_builder_contract_targets=()
 declare -A compliance_targets=()
 declare -A hardening_paths=()
 build_context_synthetics_required=false
 build_context_topology_changed=false
+go_builder_contract_synthetics_required=false
 get_folder_regressions_required=false
 run_transaction_regressions_required=false
 run_source_sync_regressions_required=false
@@ -214,8 +217,25 @@ for file in "${staged_files[@]}"; do
       ;;
   esac
   case "$file" in
-    .githooks/pre-commit|.cursor/scripts/check-staged-secret-placeholders.sh|.cursor/scripts/test-staged-secret-placeholders.sh|.cursor/scripts/test-erpnext-stack.py|.cursor/rules/git.mdc|.cursor/rules/validation.mdc|.cursor/rules/project-audit.mdc|.cursor/rules/application-maintenance.mdc|.cursor/rules/database-maintenance.mdc|.cursor/rules/host-logrotate.mdc|.cursor/README.md|.cursor/commands/audit.md)
+    .githooks/pre-commit|.cursor/scripts/check-staged-secret-placeholders.sh|.cursor/scripts/test-staged-secret-placeholders.sh|.cursor/scripts/test-go-builder-contracts.py|.cursor/scripts/test-erpnext-stack.py|.cursor/rules/git.mdc|.cursor/rules/validation.mdc|.cursor/rules/project-audit.mdc|.cursor/rules/application-maintenance.mdc|.cursor/rules/database-maintenance.mdc|.cursor/rules/host-logrotate.mdc|.cursor/README.md|.cursor/commands/audit.md)
       staged_secret_regressions_required=true
+      ;;
+  esac
+  case "$file" in
+    .cursor/scripts/test-go-builder-contracts.py)
+      go_builder_contract_synthetics_required=true
+      ;;
+    Traefik/.env|Traefik/docker-compose.app.yaml|Traefik/dockerfiles/Dockerfile)
+      go_builder_contract_targets["traefik-reader"]=1
+      ;;
+    templates/traefik_certs-dumper/.env|templates/traefik_certs-dumper/docker-compose.traefik_certs-dumper.yaml|templates/traefik_certs-dumper/dockerfiles/dockerfile.traefik-certs-dumper.scp)
+      go_builder_contract_targets["traefik-certs-dumper"]=1
+      ;;
+    Grafana/.env|Grafana/docker-compose.app.yaml|Grafana/dockerfiles/Dockerfile|Grafana/dockerfiles/grafana-entrypoint.go|Grafana/dockerfiles/grafana-entrypoint_test.go)
+      go_builder_contract_targets["grafana-helper"]=1
+      ;;
+    templates/grafana-sso-policy/.env|templates/grafana-sso-policy/docker-compose.grafana-sso-policy.yaml|templates/grafana-sso-policy/dockerfiles/dockerfile.grafana-sso-policy|templates/grafana-sso-policy/dockerfiles/grafana-entrypoint.grafana-sso-policy.go|templates/grafana-sso-policy/dockerfiles/grafana-entrypoint.grafana-sso-policy_test.go)
+      go_builder_contract_targets["grafana-sso-policy"]=1
       ;;
   esac
   case "$file" in
@@ -340,6 +360,25 @@ if (( ${#build_context_apps[@]} > 0 )); then
 elif [[ "$build_context_synthetics_required" == true || "$build_context_topology_changed" == true ]]; then
   if ! PYTHONDONTWRITEBYTECODE=1 python3 "$BUILD_CONTEXT_REGRESSIONS" --synthetic-only; then
     echo "[pre-commit] Synthetic build-context regression tests failed. Fix them before committing." >&2
+    exit 1
+  fi
+fi
+
+GO_BUILDER_CONTRACT_REGRESSIONS=".cursor/scripts/test-go-builder-contracts.py"
+if (( ${#go_builder_contract_targets[@]} > 0 )); then
+  declare -a go_builder_contract_args=()
+  for target in grafana-helper grafana-sso-policy traefik-certs-dumper traefik-reader; do
+    if [[ -n "${go_builder_contract_targets[$target]:-}" ]]; then
+      go_builder_contract_args+=(--target "$target")
+    fi
+  done
+  if ! PYTHONDONTWRITEBYTECODE=1 python3 "$GO_BUILDER_CONTRACT_REGRESSIONS" "${go_builder_contract_args[@]}"; then
+    echo "[pre-commit] Go-builder contract regression tests failed. Fix them before committing." >&2
+    exit 1
+  fi
+elif [[ "$go_builder_contract_synthetics_required" == true ]]; then
+  if ! PYTHONDONTWRITEBYTECODE=1 python3 "$GO_BUILDER_CONTRACT_REGRESSIONS" --synthetic-only; then
+    echo "[pre-commit] Synthetic Go-builder contract regression tests failed. Fix them before committing." >&2
     exit 1
   fi
 fi
