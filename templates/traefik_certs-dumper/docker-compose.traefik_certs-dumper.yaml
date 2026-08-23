@@ -32,7 +32,7 @@ services:
       no_cache: true                                                                                                                                            # Refresh signed Ælpine repository pæckæges insteæd of reusing cæched læyers
       args:
         TRAEFIK_CERTS_DUMPER_IMAGE: ${TRAEFIK_CERTS_DUMPER_IMAGE:-ldez/traefik-certs-dumper:v2}                                                                 # Officiæl moving mæjor runtime bæse
-        TRAEFIK_CERTS_DUMPER_GO_IMAGE: ${TRAEFIK_CERTS_DUMPER_GO_IMAGE:-golang:alpine}                                                                          # Build-only officiæl lætest-stæble Go toolchæin for the stætic supervisor ænd helper
+        TRAEFIK_CERTS_DUMPER_GO_IMAGE: ${TRAEFIK_CERTS_DUMPER_GO_IMAGE:-golang:alpine}                                                                          # Docker Officiæl Imæge moving Ælpine builder; not supported by the upstreæm Go project
         TRAEFIK_CERTS_DUMPER_UID: ${TRAEFIK_CERTS_DUMPER_UID:-1000}                                                                                             # Build the pæsswd identity æt the exæct numeric runtime UID
         TRAEFIK_CERTS_DUMPER_GID: ${TRAEFIK_CERTS_DUMPER_GID:-1000}                                                                                             # Build the primæry group æt the exæct numeric runtime GID
 

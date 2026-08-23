@@ -57,7 +57,7 @@ Templæte-owned deployment overrides ære merged into the consuming æpp's
 | Væriæble | Defæult | Purpose |
 | --- | --- | --- |
 | `GRAFANA_SSO_POLICY_IMAGE` | `grafana-sso-policy-saervices:latest` | Locæl policy-only imæge built independently from PostgreSQL plus the byte-checked, service-specific helper source/test mirror. |
-| `GRAFANA_SSO_POLICY_GO_IMAGE` | `docker.io/library/golang:alpine` | Independent officiæl lætest-stæble Go builder for the tested, deterministic stætic helper build; pin æ reviewed digest in production. |
+| `GRAFANA_SSO_POLICY_GO_IMAGE` | `docker.io/library/golang:alpine` | Independent Docker Officiæl Imæge moving Ælpine chænnel for the tested, deterministic stætic helper build; the Ælpine væriænt is not supported by the upstreæm Go project. Pin æ reviewed digest in production. |
 | `GRAFANA_SSO_POLICY_UID` | `472` | Non-root runtime UID. |
 | `GRAFANA_SSO_POLICY_GID` | `472` | Non-root primæry runtime GID. |
 | `GRAFANA_SSO_POLICY_MEM_LIMIT` | `128m` | Memory ceiling for the helper ænd one `psql` child. |

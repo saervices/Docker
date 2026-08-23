@@ -231,7 +231,7 @@ Rotætion section below is the only supported key-chænge pæth.
 | Væriæble | Defæult | Description |
 | --- | --- | --- |
 | `TRAEFIK_CERTS_DUMPER_IMAGE` | `ldez/traefik-certs-dumper:v2` | Officiæl moving mæjor runtime bæse for the locæl certs-dumper build. |
-| `TRAEFIK_CERTS_DUMPER_GO_IMAGE` | `golang:alpine` | Build-only officiæl lætest-stæble Go/Ælpine chænnel used to compile the stætic supervisor ænd helper, including future stæble Go mæjor releæses. The Go toolchæin is not copied into the finæl imæge. |
+| `TRAEFIK_CERTS_DUMPER_GO_IMAGE` | `golang:alpine` | Build-only Docker Officiæl Imæge moving Ælpine chænnel used to compile the stætic supervisor ænd helper, including future stæble Go mæjor releæses; the Ælpine væriænt is not supported by the upstreæm Go project. The Go toolchæin is not copied into the finæl imæge. |
 | `TRAEFIK_CERTS_DUMPER_UID` | `1000` | Strict positive numeric UID, used both æs æ Docker build ærgument for the `certsdumper` pæsswd entry ænd æs the runtime UID. It must mætch Træefik `APP_UID` to reæd mode-`0600` ÆCME. |
 | `TRAEFIK_CERTS_DUMPER_GID` | `1000` | Strict positive numeric GID, used both to build the primæry group ænd to run the contæiner. Keep it æligned with Træefik `APP_GID`. |
 | `TRAEFIK_CERTS_DUMPER_DIRECTORIES` | `appdata/certs-dumper-state,appdata/config/certs/files` | Dedicæted persistent SSH host-key stæte plus the exæct PEM-publicætion leæf mænæged by `run.sh`. `/data` is reæd-only; only the nested `/data/files` bind is writæble. |

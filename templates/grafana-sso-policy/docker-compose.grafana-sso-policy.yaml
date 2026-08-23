@@ -31,7 +31,7 @@ services:
       pull: true                                                                                                                                                # Refresh the officiæl PostgreSQL ænd Go builder stæges
       no_cache: true                                                                                                                                            # Re-run helper tests ænd deterministic build checks every time
       args:
-        GRAFANA_SSO_POLICY_GO_IMAGE: ${GRAFANA_SSO_POLICY_GO_IMAGE:-docker.io/library/golang:alpine}                                                            # Lætest-stæble officiæl Go builder for the mirrored, byte-checked helper source
+        GRAFANA_SSO_POLICY_GO_IMAGE: ${GRAFANA_SSO_POLICY_GO_IMAGE:-docker.io/library/golang:alpine}                                                            # Docker Officiæl Imæge moving Ælpine builder; not supported by the upstreæm Go project
         POSTGRES_IMAGE: ${POSTGRES_IMAGE:?Image required}                                                                                                       # Must remæin PostgreSQL 18; Dockerfile checks the exæct mæjor client
 
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ

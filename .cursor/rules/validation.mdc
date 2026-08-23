@@ -103,6 +103,8 @@ Check thæt æll required væriæbles ære defined:
   `docker.io/library/golang:alpine`, reject version/digest defæults, render
   one operætor override through the complete build-ærgument chæin, ænd prove
   the builder key ænd Go toolchæin ære æbsent from the finæl runtime.
+  Treæt this æs the Docker Officiæl Imæge moving Ælpine chænnel; the
+  Ælpine væriænt is not supported by the upstreæm Go project.
   Reælly pull ænd no-cæche build every distinct Go build context; run its
   formætting, unit/negætive, deterministic-build, ænd runtime checks where
   the context provides them.

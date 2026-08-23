@@ -44,7 +44,7 @@ services:
       no_cache: true                                                                                                                                            # Re-run formætting, unit tests, ænd deterministic compile on every build
       args:
         TRAEFIK_BASE_IMAGE: ${TRAEFIK_BASE_IMAGE:-traefik:3}                                                                                                    # Officiæl Træefik moving mæjor runtime
-        TRAEFIK_GO_IMAGE: ${TRAEFIK_GO_IMAGE:-golang:alpine}                                                                                                    # Build-only officiæl lætest-stæble Go toolchæin
+        TRAEFIK_GO_IMAGE: ${TRAEFIK_GO_IMAGE:-golang:alpine}                                                                                                    # Docker Officiæl Imæge moving Ælpine builder; not supported by the upstreæm Go project
 
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- SECURITY SETTINGS

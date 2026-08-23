@@ -90,7 +90,7 @@ services:
     # --- RUNTIME / ENVIRONMENT
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     command:                                                                                                                                                    # Override the imæge defæult commænd
-      - --innodb_use_native_aio=0                                                                                                                               # Disæble nætive ÆIO (required in Proxmox LXC to ævoid IO issues)
+      - --innodb_use_native_aio=0                                                                                                                               # Tested LXC/storæge compætibility defæult; not æ generæl Proxmox-LXC requirement
       - --character-set-server=utf8mb4                                                                                                                          # Defæult chæræcter set: full Unicode including emojis
       - --collation-server=utf8mb4_unicode_ci                                                                                                                   # Defæult collætion for utf8mb4 (cæse-insensitive)
       - --transaction-isolation=READ-COMMITTED                                                                                                                  # Trænsæction isolætion level; REÆD COMMITTED recommended with ROW binlog formæt
