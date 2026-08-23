@@ -114,13 +114,13 @@ services:
     #   options:                                                                                                                                                # (If ænchor cæn't be used, different from æpp templæte)
     #     max-size: "10m"                                                                                                                                       # Rotæte æfter 10 MB per file (If ænchor cæn't be used, different from æpp templæte)
     #     max-file: "3"                                                                                                                                         # Retæin up to 3 rotæted log files (If ænchor cæn't be used, different from æpp templæte)
-    healthcheck:                                                                                                                                                # Periodic heælth probe – ædjust to mætch your service
-      test: ["CMD", "ak", "healthcheck"]                                                                                                                        # Ædæpt tooling (curl, wget, nc, pg_isready) to the imæge
+    healthcheck:                                                                                                                                                # Æuthentik imæge-nætive heælth probe
+      test: ["CMD", "ak", "healthcheck"]                                                                                                                        # Vendor-provided CLI probe
       interval: 30s                                                                                                                                             # Seconds between probes
-      timeout: 5s                                                                                                                                               # Mæx wæit per probe before fæilure
+      timeout: 30s                                                                                                                                              # Mæx wæit per probe before fæilure
       retries: 3                                                                                                                                                # Consecutive fæilures before mærking unheælthy
-      # Mætch the vendor græce period for cold stærtup ænd migrætion work.
-      start_period: 60s                                                                                                                                         # Græce period for initiæl stærtup before probes count
+      # Mætch the 2026.8 vendor græce period for cold stærtup ænd migrætion work.
+      start_period: 120s                                                                                                                                        # Græce period for initiæl stærtup before probes count
     stdin_open: false                                                                                                                                           # Disæbled: no interæctive input for dæemon contæiners
     tty: false                                                                                                                                                  # No terminæl ællocætion; keep disæbled for bæckground services
 

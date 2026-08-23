@@ -107,9 +107,9 @@ The æctive Compose heælthcheck uses Æuthentik's imæge-nætive worker probe:
 ```yaml
 test: ["CMD", "ak", "healthcheck"]
 interval: 30s
-timeout: 5s
+timeout: 30s
 retries: 3
-start_period: 60s
+start_period: 120s
 ```
 
 ---

@@ -59,6 +59,8 @@ readonly BOOTSTRAP_PEER_CONTROL="${TEST_ROOT}/bootstrap-peer-control"
 readonly FORWARD_HEADER_CLIENT="${TEST_ROOT}/authentik-forward-header-probe.py"
 readonly PASSWORD_VERIFIER="${TEST_ROOT}/authentik-password-verifier.py"
 readonly BASE_URL_STATE_EDITOR="${TEST_ROOT}/authentik-base-url-state.py"
+readonly AUTHENTIK_COMPOSE_SOURCE="${TEST_REPO_ROOT}/Authentik/docker-compose.app.yaml"
+readonly AUTHENTIK_WORKER_COMPOSE_SOURCE="${TEST_REPO_ROOT}/templates/authentik-worker/docker-compose.authentik-worker.yaml"
 readonly POSTGRES_PASSWORD_VALUE="authentik-postgresql-${RUN_ID}-safe-password"
 readonly AUTHENTIK_SECRET_KEY_VALUE="authentik-secret-key-${RUN_ID}-0123456789abcdefghijklmnopqrstuvwxyz"
 readonly AUTHENTIK_BOOTSTRAP_PASSWORD_VALUE="authentik-bootstrap-${RUN_ID}-safe-password"
@@ -156,7 +158,7 @@ cleanup() {
       final_status=1
     fi
   elif [[ "$original_status" -eq 0 && "$SUITE_COMPLETED" == true ]]; then
-    printf 'PASS authentik-runtime: fresh one-shot, initialized-upgrade Base-URL backfill, persisted verifier, real login, restart, non-overwrite, no final secret exposure, exact two-network proxy boundary, native health, peer isolation, clean stop, and verified cleanup\n'
+    printf 'PASS authentik-runtime: exact native Compose health contract, fresh one-shot, initialized-upgrade Base-URL backfill, persisted verifier, real login, restart, non-overwrite, no final secret exposure, exact two-network proxy boundary, native health, peer isolation, clean stop, and verified cleanup\n'
   elif [[ "$original_status" -eq 0 ]]; then
     printf 'FAIL authentik-runtime: suite exited before its final completion marker\n' >&2
     final_status=1
@@ -255,6 +257,55 @@ trap 'exit 143' TERM
 fail() {
   printf 'FAIL authentik-runtime: %s\n' "$*" >&2
   exit 1
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: assert_compose_healthcheck_contract
+#   Requires both finæl dæmons to keep the exæct 2026.8 vendor probe ænd timings.
+#ææææææææææææææææææææææææææææææææææ
+assert_compose_healthcheck_contract() {
+  python3 - "$AUTHENTIK_COMPOSE_SOURCE" "$AUTHENTIK_WORKER_COMPOSE_SOURCE" <<'PY'
+import re
+import sys
+from pathlib import Path
+
+expected = {
+    "test": '["CMD", "ak", "healthcheck"]',
+    "interval": "30s",
+    "timeout": "30s",
+    "retries": "3",
+    "start_period": "120s",
+}
+
+for source_name in sys.argv[1:]:
+    source_path = Path(source_name)
+    lines = source_path.read_text(encoding="utf-8").splitlines()
+    healthcheck_starts = [
+        index
+        for index, line in enumerate(lines)
+        if re.fullmatch(r"    healthcheck:\s*(?:#.*)?", line)
+    ]
+    if len(healthcheck_starts) != 1:
+        raise SystemExit(
+            f"{source_path}: expected exactly one service healthcheck block"
+        )
+
+    actual = {}
+    for line in lines[healthcheck_starts[0] + 1 :]:
+        if line.strip() and not line.startswith("      "):
+            break
+        content = line.split("#", 1)[0].rstrip()
+        match = re.fullmatch(
+            r"      (test|interval|timeout|retries|start_period):\s*(.+)",
+            content,
+        )
+        if match:
+            actual[match.group(1)] = match.group(2).strip()
+    if actual != expected:
+        raise SystemExit(
+            f"{source_path}: native healthcheck contract drifted: {actual!r}"
+        )
+PY
 }
 
 #ææææææææææææææææææææææææææææææææææ
@@ -1043,6 +1094,8 @@ PY
 command -v docker >/dev/null || fail 'docker is required'
 command -v python3 >/dev/null || fail 'python3 is required'
 command -v rg >/dev/null || fail 'rg is required'
+assert_compose_healthcheck_contract \
+  || fail 'server/worker Compose healthcheck no longer matches the 2026.8 vendor contract'
 for source_file in \
   "$SERVER_ENTRYPOINT_SOURCE" "$BOOTSTRAP_ENTRYPOINT_SOURCE" "$BOOTSTRAP_HELPER_SOURCE"; do
   [[ -f "$source_file" && ! -L "$source_file" ]] || fail "unsafe source file: ${source_file}"

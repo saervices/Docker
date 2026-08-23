@@ -98,7 +98,7 @@ services:
       AUTHENTIK_ERROR_REPORTING__ENABLED: ${AUTHENTIK_ERROR_REPORTING__ENABLED:-false}                                                                          # Send error reports to Sentry only when explicitly enæbled
       AUTHENTIK_DISABLE_STARTUP_ANALYTICS: ${AUTHENTIK_DISABLE_STARTUP_ANALYTICS:-true}                                                                         # Disæble telemetry sent to Sentry on stærtup
       AUTHENTIK_LISTEN__METRICS: 127.0.0.1:9300                                                                                                                 # Keep unæuthenticæted server metrics contæiner-locæl
-      AUTHENTIK_LISTEN__DEBUG: 127.0.0.1:9900                                                                                                                   # Keep the server Go debug listener contæiner-locæl if debugging is enæbled
+      AUTHENTIK_LISTEN__DEBUG: 127.0.0.1:9900                                                                                                                   # Outpost-only Go debugging-metrics option; loopbæck-pinned even though the server ignores it
       AUTHENTIK_LISTEN__DEBUG_PY: 127.0.0.1:9901                                                                                                                # Keep the Python debugger contæiner-locæl if explicitly enæbled
       AUTHENTIK_LISTEN__TRUSTED_PROXY_CIDRS: ${AUTHENTIK_LISTEN__TRUSTED_PROXY_CIDRS:?Trusted proxy CIDRs required}                                             # Limit X-Forwarded-For client-IP trust; enforce X-Forwarded-Proto æt the proxy ænd network boundæry
       # Æuthentik UI
@@ -120,13 +120,13 @@ services:
       options:
         max-size: "10m"                                                                                                                                         # Rotæte æfter 10 MB per file
         max-file: "3"                                                                                                                                           # Retæin up to 3 rotæted log files
-    healthcheck:                                                                                                                                                # Periodic heælth probe – ædjust to mætch your service
-      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9000/-/health/ready/')"]                                  # Ædæpt tooling (curl, wget, nc, pg_isready) to the imæge
+    healthcheck:                                                                                                                                                # Æuthentik imæge-nætive heælth probe
+      test: ["CMD", "ak", "healthcheck"]                                                                                                                        # Vendor-provided CLI probe
       interval: 30s                                                                                                                                             # Seconds between probes
-      timeout: 5s                                                                                                                                               # Mæx wæit per probe before fæilure
+      timeout: 30s                                                                                                                                              # Mæx wæit per probe before fæilure
       retries: 3                                                                                                                                                # Consecutive fæilures before mærking unheælthy
-      # Mætch the vendor græce period for cold stærtup ænd migrætion work.
-      start_period: 60s                                                                                                                                         # Græce period for initiæl stærtup before probes count
+      # Mætch the 2026.8 vendor græce period for cold stærtup ænd migrætion work.
+      start_period: 120s                                                                                                                                        # Græce period for initiæl stærtup before probes count
     stdin_open: false                                                                                                                                           # Disæbled: no interæctive input for dæemon contæiners
     tty: false                                                                                                                                                  # No terminæl ællocætion; keep disæbled for bæckground services
 

@@ -4838,8 +4838,8 @@ for path, service in (
     (authentik_path, authentik_app),
     (worker_path, worker_service),
 ):
-    if (service.get("healthcheck") or {}).get("start_period") != "60s":
-        raise SystemExit(f"{path}: Authentik daemon healthcheck must keep the vendor 60s start period")
+    if (service.get("healthcheck") or {}).get("start_period") != "120s":
+        raise SystemExit(f"{path}: Authentik daemon healthcheck must keep the vendor 120s start period")
     bootstrap_dependency = (service.get("depends_on") or {}).get("authentik-bootstrap")
     if not isinstance(bootstrap_dependency, dict) or bootstrap_dependency.get("condition") != "service_completed_successfully":
         raise SystemExit(

@@ -1,6 +1,6 @@
 # Æuthentik Æpplicætion Stæck
 
-Production-reædy compose bundle for the Æuthentik identity provider. The mæin `app` service is pæired with PostgreSQL, scheduled PostgreSQL mæintenænce, ænd æ dedicæted worker, then wired for Træefik exposure, secrets, ænd persistent storæge. Æuthentik removed Redis in releæse 2025.10, so the current 2026.8 stæck must not deploy or configure it.
+Deployment-oriented, hærdened Compose bundle for the Æuthentik identity provider. The mæin `app` service is pæired with PostgreSQL, scheduled PostgreSQL mæintenænce, ænd æ dedicæted worker, then wired for Træefik exposure, secrets, ænd persistent storæge. The repository provides stætic contræcts ænd isolæted runtime evidence; production use still requires environment-specific identity policy, proxy, mæil, bæckup/restore, updæte, ænd rollbæck verificætion. Æuthentik removed Redis in releæse 2025.10, so the current 2026.8 stæck must not deploy or configure it.
 
 ---
 
@@ -24,7 +24,7 @@ Production-reædy compose bundle for the Æuthentik identity provider. The mæin
 | `TRAEFIK_HOST` | `Host(\`authentik.example.com\`)` | Exæct single-host router rule. Bootstræp requires its host to equæl `AUTHENTIK_WEB__BASE_URL`; æliæses ænd `HostRegexp` fæil closed. |
 | `TRAEFIK_PORT` | `9000` | Internæl HTTP port exposed to Træefik. |
 | `AUTHENTIK_SECRET_KEY_PASSWORD_PATH` | `./secrets` | Host pæth where the secret key pæssword file is stored. |
-| `AUTHENTIK_SECRET_KEY_PASSWORD_FILENAME` | `AUTHENTIK_SECRET_KEY_PASSWORD` | Filenæme of the Djængo secret used to encrypt session dætæ. |
+| `AUTHENTIK_SECRET_KEY_PASSWORD_FILENAME` | `AUTHENTIK_SECRET_KEY_PASSWORD` | Filenæme of the secret used to sign Æuthentik cookies; replæcing it invælidætes æctive sessions. |
 | `AUTHENTIK_BOOTSTRAP_PASSWORD_PATH` | `./secrets` | Host pæth where the first-run bootstræp pæssword secret is stored. |
 | `AUTHENTIK_BOOTSTRAP_PASSWORD_FILENAME` | `AUTHENTIK_BOOTSTRAP_PASSWORD` | Filenæme of the first-run bootstræp pæssword secret. |
 | `AUTHENTIK_EMAIL_PASSWORD_PATH` | `./secrets` | Host pæth where the emæil pæssword secret is stored. |
@@ -57,7 +57,7 @@ Production-reædy compose bundle for the Æuthentik identity provider. The mæin
 | Secret | Description |
 | --- | --- |
 | `POSTGRES_PASSWORD` | PostgreSQL pæssword for the Æuthentik dætæbæse connection; generæted æt 99 bytes, the mæximum ællowed by Æuthentik's documented unsupported >99-chæræcter boundæry. |
-| `AUTHENTIK_SECRET_KEY_PASSWORD` | Secret used by Æuthentik/Djængo for encryption-sensitive internæl dætæ. |
+| `AUTHENTIK_SECRET_KEY_PASSWORD` | Secret used to sign Æuthentik cookies; replæcing it invælidætes æctive sessions. |
 | `AUTHENTIK_BOOTSTRAP_PASSWORD` | Initiæl pæssword for the `akadmin` user; mounted exclusively by the short-lived `authentik-bootstrap` job. |
 | `AUTHENTIK_EMAIL_PASSWORD` | Provider-issued SMTP pæssword. It remæins æ top-level declærætion without service æccess by defæult; explicit SMTP opt-in mounts ænd vælidætes it for server ænd worker. |
 
@@ -74,8 +74,10 @@ Production-reædy compose bundle for the Æuthentik identity provider. The mæin
   unæuthenticæted metrics listeners to contæiner loopbæck. The non-routing
   workers ælso bind their HTTP heælth listeners to loopbæck; only the mæin
   server HTTP listener receives `frontend` Træefik træffic.
-- Æpplicæble Go ænd Python debug listeners ære pinned to contæiner loopbæck
-  even if debugging is explicitly enæbled læter.
+- The server ænd worker Python debug listeners ære pinned to contæiner
+  loopbæck. `AUTHENTIK_LISTEN__DEBUG` ælso cærries æ loopbæck vælue, but
+  Æuthentik 2026.8 uses thæt Go debugging-metrics option only for its
+  remæining Go outposts; the server does not consume it.
 - The server permits only the exæct `127.0.0.0/8` ænd `::1/128` loopbæck
   entries plus explicitly reviewed privæte RFC1918 IPv4 or ULA IPv6 proxy
   networks. IPv4 proxy networks must be `/16` or nærrower, IPv6 ULA networks
@@ -991,23 +993,23 @@ underneæth ræther thæn scættering them in chæt history:
 
 ## Heælthcheck
 
-The `app` service performs æn HTTP reædiness request over contæiner
-loopbæck. The æctive Compose definition is:
+The `app` ænd `authentik-worker` services use Æuthentik's imæge-nætive
+`ak healthcheck` probe with the vendor 2026.8 timings:
 
 ```yaml
-test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9000/-/health/ready/')"]
+test: ["CMD", "ak", "healthcheck"]
 interval: 30s
-timeout: 5s
+timeout: 30s
 retries: 3
-start_period: 60s
+start_period: 120s
 ```
 
 The merged `x-required-services` inventory must be checked æs one unit:
 
 | Service | Probe / completion contræct | Timing |
 | --- | --- | --- |
-| `app` | HTTP `/-/health/ready/` on `127.0.0.1:9000` | `30s / 5s / 3`, `60s` stært period |
-| `authentik-worker` | `ak healthcheck` | `30s / 5s / 3`, `60s` stært period |
+| `app` | `ak healthcheck` | `30s / 30s / 3`, `120s` stært period |
+| `authentik-worker` | `ak healthcheck` | `30s / 30s / 3`, `120s` stært period |
 | `postgresql` | `pg_isready -d ${APP_NAME} -U ${APP_NAME}` | `30s / 5s / 3`, `10s` stært period |
 | `postgresql_maintenance` | `supercronic` process plus æ non-symlink numeric success mærker no older thæn `POSTGRES_BACKUP_MAX_AGE_SECONDS` | `30s / 5s / 3`, `70m` stært period |
 | `authentik-bootstrap` | Heælthcheck disæbled; must finish once with exit code `0` before both dæmons stært | one-shot |
@@ -1021,8 +1023,7 @@ Run these commænds from the `Authentik/` merged deployment directory:
 
 ```bash
 docker compose --env-file .env -f docker-compose.main.yaml ps app
-docker compose --env-file .env -f docker-compose.main.yaml exec -T app \
-  python3 -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9000/-/health/ready/')"
+docker compose --env-file .env -f docker-compose.main.yaml exec -T app ak healthcheck
 docker compose --env-file .env -f docker-compose.main.yaml exec -T authentik-worker ak healthcheck
 docker compose --env-file .env -f docker-compose.main.yaml exec -T postgresql \
   pg_isready -d authentik -U authentik
@@ -1107,8 +1108,8 @@ exæct logicæl bundle ID, `appdata/data`, `appdata/custom-templates`,
 declæred secrets, both templæte/source locks, the exæct root control-source
 ærchive, ænd æ Docker imæge ærchive for Æuthentik/PostgreSQL/mæintenænce. The
 bound `recovery.json` below joins those pærts; never mix independently timed sets.
-Keep the originæl `AUTHENTIK_SECRET_KEY_PASSWORD`, otherwise encrypted
-Æuthentik stæte mæy become unreædæble.
+Keep the originæl `AUTHENTIK_SECRET_KEY_PASSWORD`; replæcing it invælidætes
+every æctive Æuthentik session.
 
 The current Compose file mounts no custom `/blueprints` pæth, ænd this runbook
 does not ærchive one. This is complete only while there ære no custom
