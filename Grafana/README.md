@@ -676,7 +676,8 @@ one-time æudited ædoption:
    so no temporæry æuto-login source chænge is needed between the credentiæl
    mutætion ænd æctivætion. Only æfter the preceding
    secret, version-pin, bæckup, ænd writer-exclusivity checks pæss, run
-   `./run.sh Grafana`, render, ænd consciously build both locæl imæges.
+   `./run.sh Grafana` from the repository root, render, ænd consciously
+   build both locæl imæges.
 2. Do not stært `app` ænd do not run migrætor or policy before bootstræp. Inspect
    both built imæges, then list the existing server-ædmin IDs directly from
    PostgreSQL. The selected ID/login must exæctly mætch
@@ -3652,8 +3653,16 @@ reject_compose_shell_overrides() {
   done
 }
 reject_compose_shell_overrides "$backup_env_file"
+clean_backup_compose_base=(env -i PATH="$PATH" docker compose \
+  --project-directory "$live_project_dir" \
+  --env-file "$backup_env_file" -f "$backup_compose_file")
 backup_compose_base=(docker compose --project-directory "$live_project_dir" \
   --env-file "$backup_env_file" -f "$backup_compose_file")
+cmp -s <("${clean_backup_compose_base[@]}" config) \
+  <("${backup_compose_base[@]}" config)
+cmp -s <("${clean_backup_compose_base[@]}" config --format json) \
+  <("${backup_compose_base[@]}" config --format json)
+clean_backup_compose=("${clean_backup_compose_base[@]}")
 backup_compose=("${backup_compose_base[@]}")
 if [ "$recovery_config_mode" = true ]; then
   jq -e '.services | type == "object"' \
@@ -3685,6 +3694,11 @@ if [ -n "${GRAFANA_RECOVERY_IMAGE_OVERRIDE:-}" ]; then
       ] | all)
     ' >/dev/null
   backup_compose+=(-f "$GRAFANA_RECOVERY_IMAGE_OVERRIDE")
+  clean_backup_compose+=(-f "$GRAFANA_RECOVERY_IMAGE_OVERRIDE")
+  cmp -s <("${clean_backup_compose[@]}" config) \
+    <("${backup_compose[@]}" config)
+  cmp -s <("${clean_backup_compose[@]}" config --format json) \
+    <("${backup_compose[@]}" config --format json)
   cmp -s \
     <("${backup_compose_base[@]}" config --format json |
       jq -S '.services |= with_entries(.value |= del(.image, .pull_policy))') \
@@ -3722,8 +3736,75 @@ test "$(realpath -e -- "$bundle_stage")" = "$bundle_stage"
 "${backup_compose[@]}" config --quiet
 "${backup_compose[@]}" config --format json > \
   "$bundle_stage/compose-effective.json"
-rendered_project_name="$(jq -er '.name | select(type == "string" and length > 0)' \
+rendered_project_name="$(jq -er \
+  '.name | select(type == "string" and test("^[a-z0-9][a-z0-9_-]*$"))' \
   "$bundle_stage/compose-effective.json")"
+services_output="$("${clean_backup_compose[@]}" config --services)"
+mapfile -t services <<< "$services_output"
+test "$(printf '%s\n' "${services[@]}" | LC_ALL=C sort)" = \
+  $'app\ngrafana-bootstrap\ngrafana-migrator\ngrafana-sso-policy\npostgresql\npostgresql_maintenance'
+declare -A service_containers=()
+declare -A seen_services=()
+config_hash_override="$bundle_stage/.config-hash-image-override.json"
+for service in "${services[@]}"; do
+  test -n "$service" && test -z "${seen_services[$service]+set}"
+  seen_services[$service]=1
+  containers_output="$(docker ps -aq \
+    --filter "label=com.docker.compose.project=$rendered_project_name" \
+    --filter "label=com.docker.compose.service=$service")"
+  mapfile -t containers <<< "$containers_output"
+  test "${#containers[@]}" -eq 1 && test -n "${containers[0]}"
+  container_id="${containers[0]}"
+  service_containers[$service]="$container_id"
+  test "$(docker inspect --format \
+    '{{index .Config.Labels "com.docker.compose.project"}}' \
+    "$container_id")" = "$rendered_project_name"
+  test "$(docker inspect --format \
+    '{{index .Config.Labels "com.docker.compose.service"}}' \
+    "$container_id")" = "$service"
+  case "$service" in
+    grafana-bootstrap|grafana-migrator|grafana-sso-policy)
+      test "$(docker inspect --format \
+        '{{.State.Running}}:{{.State.ExitCode}}' "$container_id")" = false:0
+      ;;
+    app|postgresql|postgresql_maintenance)
+      test "$(docker inspect --format '{{.State.Running}}' \
+        "$container_id")" = true
+      ;;
+    *) exit 1 ;;
+  esac
+  container_image_ref="$(docker inspect --format '{{.Config.Image}}' \
+    "$container_id")"
+  container_config_hash="$(docker inspect --format \
+    '{{index .Config.Labels "com.docker.compose.config-hash"}}' \
+    "$container_id")"
+  [[ "$container_config_hash" =~ ^[0-9a-f]{64}$ ]]
+  jq -n --arg service "$service" --arg image "$container_image_ref" \
+    '{services: {($service): {image: $image}}}' > "$config_hash_override"
+  chmod 0600 -- "$config_hash_override"
+  expected_config_hash_line="$("${clean_backup_compose[@]}" \
+    -f "$config_hash_override" config --hash "$service")"
+  case "$expected_config_hash_line" in
+    "$service "*) ;;
+    *) printf 'ERROR: invalid Compose config-hash output for %s.\n' \
+         "$service" >&2; exit 1 ;;
+  esac
+  expected_config_hash="${expected_config_hash_line#"$service "}"
+  [[ "$expected_config_hash" =~ ^[0-9a-f]{64}$ ]]
+  test "$expected_config_hash" = "$container_config_hash"
+done
+rm -- "$config_hash_override"
+project_containers_output="$(docker ps -aq \
+  --filter "label=com.docker.compose.project=$rendered_project_name")"
+mapfile -t project_containers <<< "$project_containers_output"
+test "${#project_containers[@]}" -eq "${#services[@]}"
+for container_id in "${project_containers[@]}"; do
+  test -n "$container_id"
+  container_service="$(docker inspect --format \
+    '{{index .Config.Labels "com.docker.compose.service"}}' "$container_id")"
+  test -n "${seen_services[$container_service]+set}"
+  test "${service_containers[$container_service]}" = "$container_id"
+done
 template_lock="$backup_config_root/.run.conf/.templates.lock"
 test -f "$template_lock"
 test ! -L "$template_lock"
@@ -3737,14 +3818,8 @@ declare -A backup_image_ids=()
 bootstrap_image_alias=
 policy_image_alias=
 for image_service in app grafana-sso-policy postgresql postgresql_maintenance; do
-  image_container="$("${backup_compose[@]}" ps --all -q "$image_service")"
-  case "$image_container" in
-    ''|*$'\n'*) printf 'ERROR: expected one Compose %s container.\n' "$image_service" >&2; exit 1 ;;
-  esac
-  if [ "$image_service" = grafana-sso-policy ]; then
-    test "$(docker inspect --format '{{.State.Running}} {{.State.ExitCode}}' \
-      "$image_container")" = 'false 0'
-  fi
+  image_container="${service_containers[$image_service]}"
+  test -n "$image_container"
   container_image_ref="$(docker inspect --format '{{.Config.Image}}' \
     "$image_container")"
   image_id="$(docker inspect --format '{{.Image}}' "$image_container")"
@@ -3762,7 +3837,7 @@ for image_service in app grafana-sso-policy postgresql postgresql_maintenance; d
   jq -n --arg service "$image_service" --arg image "$container_image_ref" \
     '{services: {($service): {image: $image}}}' > "$config_hash_override"
   chmod 0600 -- "$config_hash_override"
-  expected_config_hash_line="$("${backup_compose[@]}" \
+  expected_config_hash_line="$("${clean_backup_compose[@]}" \
     -f "$config_hash_override" config --hash "$image_service")"
   case "$expected_config_hash_line" in
     "$image_service "*) ;;
