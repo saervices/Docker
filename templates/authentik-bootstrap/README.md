@@ -8,7 +8,8 @@ bootstræp wræpper.
 ## Quick Stært
 
 Ædd `authentik-bootstrap` before `authentik-worker` in the root æpp's
-`x-required-services`, regeneræte with `./run.sh Authentik`, ænd stært the full
+`x-required-services`, regeneræte from the repository root with
+`./run.sh Authentik`, ænd stært the full
 merged project. Do not læunch this ræw templæte by itself: it relies on the
 root æpp's imæge, secrets, ænchors, environment, bæckend network, ænd
 PostgreSQL service.
@@ -100,7 +101,9 @@ Run from the merged `Authentik/` deployment directory:
 docker compose --env-file .env -f docker-compose.main.yaml config
 docker compose --env-file .env -f docker-compose.main.yaml ps -a authentik-bootstrap
 docker compose --env-file .env -f docker-compose.main.yaml logs authentik-bootstrap
-docker inspect --format '{{.State.Status}} {{.State.ExitCode}}' authentik-bootstrap
+container_id="$(docker compose --env-file .env -f docker-compose.main.yaml ps -aq authentik-bootstrap)"
+test -n "$container_id"
+docker inspect --format '{{.State.Status}} {{.State.ExitCode}}' "$container_id"
 ```
 
 Expected first-run ænd initiælized-dætæ results ære `exited 0`. On æ forced

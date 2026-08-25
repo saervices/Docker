@@ -149,11 +149,19 @@ dæemon stærts. The enæblement ænd test procedure lives under
 
 Creæte the `appdata/` ænd `secrets/` directories before læunching the stæck.
 
-If you previously used the legæcy `media` mount, move existing files to `./appdata/data` before restærting:
+If you previously used the legæcy `media` mount, run the following commænd
+from the deployed `Authentik/` directory before restærting:
 
 ```bash
-# Exæmple: move files from your old mediæ directory into the new dætæ pæth
-mv ./appdata/<old-media-dir>/* ./appdata/data/
+# Set this to one direct child of ./appdata; slæshes ære rejected on purpose.
+: "${OLD_MEDIA_DIR:?Set OLD_MEDIA_DIR to the legæcy mediæ directory næme}"
+case "$OLD_MEDIA_DIR" in
+  .|..|*/*) echo "OLD_MEDIA_DIR must be one directory næme" >&2; exit 64 ;;
+esac
+test -d "./appdata/$OLD_MEDIA_DIR"
+mkdir -p ./appdata/data
+find "./appdata/$OLD_MEDIA_DIR" -mindepth 1 -maxdepth 1 \
+  -exec mv -t ./appdata/data -- {} +
 ```
 
 ---
@@ -248,7 +256,7 @@ with normæl certificæte ænd hostnæme verificætion.
    For sepæræte LXCs, use the exæct observed Træefik source æs `/32`. Never
    copy the vendor's full RFC1918 defæult.
 
-3. Generæte the generic pæssword secrets with
+3. From the repository root, generæte the generic pæssword secrets with
    `./run.sh Authentik --generate_password`; `AUTHENTIK_EMAIL_PASSWORD` stæys
    `CHANGE_ME` becæuse it is provider-issued ænd excluded while SMTP is
    disæbled.
@@ -264,13 +272,14 @@ with normæl certificæte ænd hostnæme verificætion.
 5. The first successful normæl run renæmes the editæble root `.env` to
    `app.env` ænd publishes æ merged `.env`. From then on, edit only
    `Authentik/app.env`, never the generæted `Authentik/.env`, ænd re-run
-   `./run.sh Authentik` æfter every configurætion chænge.
+   `./run.sh Authentik` from the repository root æfter every configurætion
+   chænge.
 
-6. Stært the merged deployment:
+6. From the repository root, stært the merged deployment with pæth-quælified
+   Compose inputs:
 
    ```bash
-   cd Authentik
-   docker compose --env-file .env -f docker-compose.main.yaml up -d
+   docker compose --env-file Authentik/.env -f Authentik/docker-compose.main.yaml up -d
    ```
 
 `--skip-permissions` is not æ routine workæround for missing host
@@ -1148,10 +1157,16 @@ Phæse 1.
 set -euo pipefail
 set -o noclobber
 umask 077
-COMPOSE=(docker compose --env-file .env -f docker-compose.main.yaml)
 KEEP_WRITERS_STOPPED="${KEEP_WRITERS_STOPPED:-false}"
 [[ "$KEEP_WRITERS_STOPPED" == true || "$KEEP_WRITERS_STOPPED" == false ]]
 AUTHENTIK_OPERATION_ROOT="$(pwd -P)"
+CLEAN_COMPOSE=(env -i PATH="$PATH" docker compose \
+  --project-directory "$AUTHENTIK_OPERATION_ROOT" \
+  --env-file "$AUTHENTIK_OPERATION_ROOT/.env" \
+  -f "$AUTHENTIK_OPERATION_ROOT/docker-compose.main.yaml")
+COMPOSE=(docker compose --project-directory "$AUTHENTIK_OPERATION_ROOT" \
+  --env-file "$AUTHENTIK_OPERATION_ROOT/.env" \
+  -f "$AUTHENTIK_OPERATION_ROOT/docker-compose.main.yaml")
 validate_authentik_operation_lock() {
   [[ "$AUTHENTIK_OPERATION_ROOT" == "$(pwd -P)" && \
     "$AUTHENTIK_OPERATION_LOCK_FD" =~ ^[0-9]+$ && \
@@ -1255,6 +1270,99 @@ cleanup_abort_marker_inventory
 ABORT_MARKER_INVENTORY=''
 ABORT_MARKER_INVENTORY_ID=''
 trap - EXIT
+
+CLEAN_CONFIG_YAML="$("${CLEAN_COMPOSE[@]}" config)"
+CONFIG_YAML="$("${COMPOSE[@]}" config)"
+[[ "$CLEAN_CONFIG_YAML" == "$CONFIG_YAML" ]]
+CLEAN_CONFIG_JSON="$("${CLEAN_COMPOSE[@]}" config --format json)"
+CONFIG_JSON="$("${COMPOSE[@]}" config --format json)"
+[[ "$CLEAN_CONFIG_JSON" == "$CONFIG_JSON" ]]
+PROJECT_NAME="$(jq -er \
+  '.name | select(type == "string" and test("^[a-z0-9][a-z0-9_-]*$"))' \
+  <<<"$CLEAN_CONFIG_JSON")"
+CLEAN_COMPOSE=(env -i PATH="$PATH" docker compose \
+  --project-directory "$AUTHENTIK_OPERATION_ROOT" \
+  --project-name "$PROJECT_NAME" --env-file "$AUTHENTIK_OPERATION_ROOT/.env" \
+  -f "$AUTHENTIK_OPERATION_ROOT/docker-compose.main.yaml")
+COMPOSE=(docker compose --project-directory "$AUTHENTIK_OPERATION_ROOT" \
+  --project-name "$PROJECT_NAME" --env-file "$AUTHENTIK_OPERATION_ROOT/.env" \
+  -f "$AUTHENTIK_OPERATION_ROOT/docker-compose.main.yaml")
+[[ "$("${CLEAN_COMPOSE[@]}" config --format json)" == "$CLEAN_CONFIG_JSON" ]]
+[[ "$("${COMPOSE[@]}" config --format json)" == "$CONFIG_JSON" ]]
+services_output="$("${CLEAN_COMPOSE[@]}" config --services)"
+mapfile -t services <<< "$services_output"
+[[ "$(printf '%s\n' "${services[@]}" | LC_ALL=C sort)" == \
+  $'app\nauthentik-bootstrap\nauthentik-worker\npostgresql\npostgresql_maintenance' ]]
+declare -A service_containers=()
+declare -A seen_services=()
+config_hash_override="$(mktemp \
+  "${TMPDIR:-/tmp}/authentik-config-hash.XXXXXX.json")"
+cleanup_config_hash_override() {
+  rm -f -- "$config_hash_override"
+}
+trap cleanup_config_hash_override EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
+for service in "${services[@]}"; do
+  [[ -n "$service" && -z "${seen_services[$service]+set}" ]]
+  seen_services[$service]=1
+  containers_output="$(docker ps -aq \
+    --filter "label=com.docker.compose.project=$PROJECT_NAME" \
+    --filter "label=com.docker.compose.service=$service")"
+  mapfile -t containers <<< "$containers_output"
+  [[ "${#containers[@]}" -eq 1 && -n "${containers[0]}" ]]
+  container_id="${containers[0]}"
+  service_containers[$service]="$container_id"
+  [[ "$(docker inspect --format \
+    '{{index .Config.Labels "com.docker.compose.project"}}' \
+    "$container_id")" == "$PROJECT_NAME" ]]
+  [[ "$(docker inspect --format \
+    '{{index .Config.Labels "com.docker.compose.service"}}' \
+    "$container_id")" == "$service" ]]
+  case "$service" in
+    authentik-bootstrap)
+      [[ "$(docker inspect --format '{{.State.Running}}:{{.State.ExitCode}}' \
+        "$container_id")" == false:0 ]]
+      ;;
+    *)
+      [[ "$(docker inspect --format '{{.State.Running}}' \
+        "$container_id")" == true ]]
+      ;;
+  esac
+  container_image_ref="$(docker inspect --format '{{.Config.Image}}' \
+    "$container_id")"
+  container_config_hash="$(docker inspect --format \
+    '{{index .Config.Labels "com.docker.compose.config-hash"}}' \
+    "$container_id")"
+  [[ "$container_config_hash" =~ ^[0-9a-f]{64}$ ]]
+  jq -n --arg service "$service" --arg image "$container_image_ref" \
+    '{services: {($service): {image: $image}}}' >| "$config_hash_override"
+  expected_config_hash_line="$("${CLEAN_COMPOSE[@]}" \
+    -f "$config_hash_override" config --hash "$service")"
+  case "$expected_config_hash_line" in
+    "$service "*) ;;
+    *) printf 'Invalid Compose config-hash output for %s.\n' \
+         "$service" >&2; exit 125 ;;
+  esac
+  expected_config_hash="${expected_config_hash_line#"$service "}"
+  [[ "$expected_config_hash" =~ ^[0-9a-f]{64}$ ]]
+  [[ "$expected_config_hash" == "$container_config_hash" ]]
+done
+cleanup_config_hash_override
+config_hash_override=''
+trap - EXIT HUP INT TERM
+project_containers_output="$(docker ps -aq \
+  --filter "label=com.docker.compose.project=$PROJECT_NAME")"
+mapfile -t project_containers <<< "$project_containers_output"
+[[ "${#project_containers[@]}" -eq "${#services[@]}" ]]
+for container_id in "${project_containers[@]}"; do
+  [[ -n "$container_id" ]]
+  container_service="$(docker inspect --format \
+    '{{index .Config.Labels "com.docker.compose.service"}}' "$container_id")"
+  [[ -n "${seen_services[$container_service]+set}" ]]
+  [[ "${service_containers[$container_service]}" == "$container_id" ]]
+done
 
 RECOVERY_ID="$(date -u +%Y%m%dT%H%M%SZ)"
 RECOVERY_POINT_PARENT="$(readlink -e -- ..)"
@@ -1515,7 +1623,6 @@ if [[ -e .run.conf/.source.lock || -L .run.conf/.source.lock ]]; then
   SOURCE_LOCK_STATE=present
   SOURCE_LOCK_SHA256="$(sha256sum "$RECOVERY_DIR/source.lock" | awk '{print $1}')"
 fi
-CONFIG_JSON="$("${COMPOSE[@]}" config --format json)"
 printf '%s\n' AUTHENTIK_BOOTSTRAP_PASSWORD AUTHENTIK_EMAIL_PASSWORD \
   AUTHENTIK_SECRET_KEY_PASSWORD POSTGRES_PASSWORD \
   > "$PRIVATE_DIR/expected-secrets.txt"

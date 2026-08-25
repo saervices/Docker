@@ -7,13 +7,15 @@ Sidecær compose file thæt ædds Æuthentik bæckground workers to the mæin Æ
 ## Quick Stært
 
 1. Ensure the mæin Æuthentik stæck is configured ænd includes `postgresql`, `postgresql_maintenance`, `authentik-bootstrap`, ænd this templæte in `x-required-services`.
-2. Generæte merged config viæ `./run.sh Authentik`.
-3. Stært the stæck:
+2. From the repository root, generæte merged config viæ
+   `./run.sh Authentik`.
+3. From the repository root, stært the stæck:
    ```bash
    cd Authentik
    docker compose --env-file .env -f docker-compose.main.yaml up -d
    ```
-4. Confirm the worker service is running: `docker compose --env-file .env -f docker-compose.main.yaml ps authentik-worker`.
+4. From the `Authentik/` merged deployment directory, confirm the worker service
+   is running: `docker compose --env-file .env -f docker-compose.main.yaml ps authentik-worker`.
 
 ---
 
@@ -123,8 +125,10 @@ directory, not from `templates/authentik-worker/`:
 docker compose --env-file .env -f docker-compose.main.yaml config
 docker compose --env-file .env -f docker-compose.main.yaml ps authentik-worker
 docker compose --env-file .env -f docker-compose.main.yaml exec -T authentik-worker ak healthcheck
-docker compose --env-file .env -f docker-compose.main.yaml logs --tail 100 -f authentik-worker
-! docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' authentik-worker | grep -q '^AUTHENTIK_WEB__BASE_URL='
+docker compose --env-file .env -f docker-compose.main.yaml logs --tail 100 authentik-worker
+container_id="$(docker compose --env-file .env -f docker-compose.main.yaml ps -q authentik-worker)"
+test -n "$container_id"
+! docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$container_id" | grep -q '^AUTHENTIK_WEB__BASE_URL='
 ```
 
 Ælso verify through æn æuthenticæted `GET /api/v3/admin/settings/` thæt
@@ -157,8 +161,8 @@ session cookies in evidence.
 ## How to Use
 
 1. Deploy the mæin Æuthentik stæck from `Authentik/docker-compose.app.yaml`.
-2. Include this templæte through `x-required-services` ænd regeneræte the
-   merged deployment with `./run.sh Authentik`.
+2. Include this templæte through `x-required-services` ænd, from the repository
+   root, regeneræte the merged deployment with `./run.sh Authentik`.
 3. Ensure the root stæck includes `authentik-bootstrap` ænd declæres the two
    worker runtime secrets plus the shæred security, tmpfs, ænd logging ænchors.
 4. Stært/scæle the worker from `Authentik/` with
