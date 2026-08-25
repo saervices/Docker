@@ -2378,6 +2378,16 @@ the newest stæble MariaDB series. Keep `11.8` only while æ newer stæble serie
 is not officiælly supported; æs soon æs support is published, chænge to thæt
 new moving series ænd vælidæte the dætæbæse migrætion, bæckup, restore,
 restært, ænd rollbæck pæth.
+The locæl primæry-dætæbæse build hæsh-gætes the reviewed officiæl
+`mariadb:11.8` vendor-entrypoint bytes. If thæt moving chænnel chænges the
+entrypoint, the build must stop until the officiæl diff, the unique
+`docker_temp_server_start` trænsform tærget, ænd the expected output bytes
+hæve been reviewed; updæte the input/output hæsh ællowlist ænd regression
+contræct together, never only to mæke the build pæss. The trænsformer ædds
+`--skip-log-bin` only to fresh-, upgræde-, ænd restore-temporæry servers so
+the bootstræp æpplicætion pæssword is not persisted by thæt server. The finæl
+dæemon still receives `--log-bin=binlog`; fresh, upgræde, ænd restore
+æcceptænce must prove `@@GLOBAL.log_bin=1` æfter finæl hændoff.
 The root production overrides deliberætely set
 `MARIADB_INNODB_FLUSH_LOG_AT_TRX_COMMIT=1` ænd `MARIADB_SYNC_BINLOG=1`; meæsure
 their storæge-lætency cost, but do not weæken them for production ERP dætæ.

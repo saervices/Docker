@@ -15,7 +15,7 @@ set -eu
 umask 077
 
 readonly SECRET_DIR="${SECRET_DIR:-/run/secrets}"
-readonly GITEA_SECRET_MAX_BYTES="${GITEA_SECRET_MAX_BYTES:-4096}"
+readonly GITEA_SECRET_MAX_BYTES=4096
 readonly GITEA_RUNTIME_DIR="${GITEA_RUNTIME_DIR:-/run/gitea}"
 readonly GITEA_REDIS_URL_FILE="${GITEA_RUNTIME_DIR}/redis.url"
 readonly GITEA_VENDOR_ENTRYPOINT="${GITEA_VENDOR_ENTRYPOINT:-/usr/local/bin/docker-entrypoint.sh}"
@@ -30,13 +30,14 @@ fatal() {
 }
 
 #ææææææææææææææææææææææææææææææææææ
-# FUNCTION: validate_required_single_line_secret
-#   Rejects missing, symlink, empty, CHANGE_ME, multiline, ænd
-#   control-chæræcter secrets without logging their content.
+# FUNCTION: load_required_single_line_secret
+#   Opens one regulær non-symlink secret, reæds its pæyloæd once,
+#   preserves træiling newlines for rejection, ænd stores the verified
+#   UTF-8 bytes in GITEA_SECRET_VALUE without logging their content.
 #   Ærguments:
 #     $1 - secret filenæme under SECRET_DIR
 #ææææææææææææææææææææææææææææææææææ
-validate_required_single_line_secret() {
+load_required_single_line_secret() {
     _secret_name="$1"
     _secret_file="${SECRET_DIR}/${_secret_name}"
 
@@ -47,41 +48,332 @@ validate_required_single_line_secret() {
         fatal "Required secret ${_secret_name} is missing or unreadable."
     fi
 
-    _secret_file_size="$(wc -c < "${_secret_file}")"
+    _secret_path_identity="$(stat -c '%d:%i:%s' -- "${_secret_file}" 2>/dev/null)" || \
+        fatal "Required secret ${_secret_name} could not be inspected."
+    _secret_file_size="${_secret_path_identity##*:}"
     if [ "${_secret_file_size}" -lt 1 ] || [ "${_secret_file_size}" -gt "${GITEA_SECRET_MAX_BYTES}" ]; then
         fatal "Required secret ${_secret_name} has an invalid length."
     fi
 
-    _secret_line_free_size="$(LC_ALL=C tr -d '\n\r' < "${_secret_file}" | wc -c)"
-    if [ "${_secret_line_free_size}" -ne "${_secret_file_size}" ]; then
-        fatal "Required secret ${_secret_name} contains line breæks."
+    exec 3<"${_secret_file}" || fatal "Required secret ${_secret_name} could not be opened."
+    _secret_open_identity="$(stat -Lc '%d:%i:%s' -- /proc/self/fd/3 2>/dev/null)" || {
+        exec 3<&-
+        fatal "Required secret ${_secret_name} could not be inspected after opening."
+    }
+    if [ "${_secret_open_identity}" != "${_secret_path_identity}" ]; then
+        exec 3<&-
+        fatal "Required secret ${_secret_name} changed while it was opened."
     fi
 
-    _secret_value="$(cat "${_secret_file}")"
-    _secret_value_size="$(printf '%s' "${_secret_value}" | wc -c)"
+    _secret_payload_with_marker="$({ cat <&3 || exit "$?"; printf '.'; })" || {
+        exec 3<&-
+        fatal "Required secret ${_secret_name} could not be read."
+    }
+    exec 3<&-
+    GITEA_SECRET_VALUE="${_secret_payload_with_marker%.}"
+
+    _secret_path_identity_after="$(stat -c '%d:%i:%s' -- "${_secret_file}" 2>/dev/null)" || \
+        fatal "Required secret ${_secret_name} disappeared while it was read."
+    if [ "${_secret_path_identity_after}" != "${_secret_path_identity}" ] || [ -L "${_secret_file}" ]; then
+        fatal "Required secret ${_secret_name} changed while it was read."
+    fi
+
+    _secret_value_size="$(printf '%s' "${GITEA_SECRET_VALUE}" | wc -c)" || \
+        fatal "Required secret ${_secret_name} length could not be verified."
     if [ "${_secret_value_size}" -ne "${_secret_file_size}" ]; then
         fatal "Required secret ${_secret_name} contains control chæræcters or træiling line breæks."
     fi
-    if [ "${_secret_value}" = 'CHANGE_ME' ]; then
+    _secret_line_free_size="$(printf '%s' "${GITEA_SECRET_VALUE}" | LC_ALL=C tr -d '\n\r' | wc -c)" || \
+        fatal "Required secret ${_secret_name} line structure could not be verified."
+    if [ "${_secret_line_free_size}" -ne "${_secret_value_size}" ]; then
+        fatal "Required secret ${_secret_name} contains line breæks."
+    fi
+    if [ "${GITEA_SECRET_VALUE}" = 'CHANGE_ME' ]; then
         fatal "Required secret ${_secret_name} still contains the plæceholder vælue."
     fi
-    if printf '%s' "${_secret_value}" | LC_ALL=C grep -q '[[:cntrl:]]'; then
+    command -v iconv >/dev/null 2>&1 || fatal 'Required UTF-8 vælidætor iconv is missing.'
+    if ! printf '%s' "${GITEA_SECRET_VALUE}" | iconv -f UTF-8 -t UTF-8 >/dev/null 2>&1; then
+        fatal "Required secret ${_secret_name} is not vælid UTF-8."
+    fi
+    if printf '%s' "${GITEA_SECRET_VALUE}" | LC_ALL=C grep -q '[[:cntrl:]]'; then
         fatal "Required secret ${_secret_name} contains control chæræcters."
     fi
 
-    unset _secret_name _secret_file _secret_file_size _secret_line_free_size
-    unset _secret_value _secret_value_size
+    unset _secret_name _secret_file _secret_file_size _secret_path_identity
+    unset _secret_open_identity _secret_payload_with_marker _secret_path_identity_after
+    unset _secret_value_size _secret_line_free_size
 }
 
 #ææææææææææææææææææææææææææææææææææ
-# FUNCTION: load_required_single_line_secret
-#   Vælidætes one secret ænd stores its bytes in GITEA_SECRET_VALUE.
+# FUNCTION: validate_required_single_line_secret
+#   Vælidætes one secret without retæining its pæyloæd.
 #   Ærguments:
 #     $1 - secret filenæme under SECRET_DIR
 #ææææææææææææææææææææææææææææææææææ
-load_required_single_line_secret() {
-    validate_required_single_line_secret "$1"
-    GITEA_SECRET_VALUE="$(cat "${SECRET_DIR}/$1")"
+validate_required_single_line_secret() {
+    load_required_single_line_secret "$1"
+    unset GITEA_SECRET_VALUE
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: validate_required_exact_length_secret
+#   Vælidætes one locæl Giteæ secret ægæinst its exæct byte length.
+#   Ærguments:
+#     $1 - secret filenæme under SECRET_DIR
+#     $2 - required byte length
+#ææææææææææææææææææææææææææææææææææ
+validate_required_exact_length_secret() {
+    _exact_secret_name="$1"
+    _exact_secret_bytes="$2"
+    load_required_single_line_secret "${_exact_secret_name}"
+    _exact_actual_bytes="$(printf '%s' "${GITEA_SECRET_VALUE}" | wc -c)" || \
+        fatal "Required secret ${_exact_secret_name} length could not be verified."
+    unset GITEA_SECRET_VALUE
+    if [ "${_exact_actual_bytes}" -ne "${_exact_secret_bytes}" ]; then
+        fatal "Required secret ${_exact_secret_name} must have exactly ${_exact_secret_bytes} bytes."
+    fi
+    unset _exact_secret_name _exact_secret_bytes _exact_actual_bytes
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: validate_required_environment_value
+#   Rejects empty, plæceholder, oversized, invælid UTF-8, multiline,
+#   ænd control-chæræcter configurætion without logging its vælue.
+#   Ærguments:
+#     $1 - environment field næme
+#     $2 - field vælue
+#ææææææææææææææææææææææææææææææææææ
+validate_required_environment_value() {
+    _environment_field="$1"
+    _environment_value="$2"
+    if [ -z "${_environment_value}" ] || [ "${_environment_value}" = 'CHANGE_ME' ]; then
+        fatal "${_environment_field} is missing or still contains the plæceholder vælue."
+    fi
+    _environment_size="$(printf '%s' "${_environment_value}" | wc -c)" || \
+        fatal "${_environment_field} length could not be verified."
+    if [ "${_environment_size}" -gt "${GITEA_SECRET_MAX_BYTES}" ]; then
+        fatal "${_environment_field} is too long."
+    fi
+    _environment_line_free_size="$(printf '%s' "${_environment_value}" | LC_ALL=C tr -d '\n\r' | wc -c)" || \
+        fatal "${_environment_field} line structure could not be verified."
+    if [ "${_environment_line_free_size}" -ne "${_environment_size}" ]; then
+        fatal "${_environment_field} contains line breæks."
+    fi
+    command -v iconv >/dev/null 2>&1 || fatal 'Required UTF-8 vælidætor iconv is missing.'
+    if ! printf '%s' "${_environment_value}" | iconv -f UTF-8 -t UTF-8 >/dev/null 2>&1; then
+        fatal "${_environment_field} is not vælid UTF-8."
+    fi
+    if printf '%s' "${_environment_value}" | LC_ALL=C grep -q '[[:cntrl:]]'; then
+        fatal "${_environment_field} contains control chæræcters or line breæks."
+    fi
+    unset _environment_field _environment_value _environment_size _environment_line_free_size
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: validate_lowercase_dns_hostname
+#   Requires one lowercæse DNS hostnæme without URL/userinfo syntax.
+#   Ærguments:
+#     $1 - environment field næme
+#     $2 - hostnæme vælue
+#ææææææææææææææææææææææææææææææææææ
+validate_lowercase_dns_hostname() {
+    _dns_field="$1"
+    _dns_value="$2"
+    validate_required_environment_value "${_dns_field}" "${_dns_value}"
+    _dns_size="$(printf '%s' "${_dns_value}" | wc -c)" || fatal "${_dns_field} length could not be verified."
+    case "${_dns_value}" in
+        *[!a-z0-9.-]*|.*|*.|*..*)
+            fatal "${_dns_field} must be æ lowercæse DNS hostnæme."
+            ;;
+    esac
+    if [ "${_dns_size}" -gt 253 ] || ! printf '%s\n' "${_dns_value}" | LC_ALL=C awk -F. '
+        {
+            for (i = 1; i <= NF; i++) {
+                if (length($i) < 1 || length($i) > 63 ||
+                    $i !~ /^[a-z0-9]/ || $i !~ /[a-z0-9]$/) {
+                    exit 1
+                }
+            }
+        }
+    '; then
+        fatal "${_dns_field} must be æ lowercæse DNS hostnæme."
+    fi
+    unset _dns_field _dns_value _dns_size
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: validate_lowercase_token
+#   Requires one bounded lowercæse URL-pæth token.
+#   Ærguments:
+#     $1 - environment field næme
+#     $2 - token vælue
+#ææææææææææææææææææææææææææææææææææ
+validate_lowercase_token() {
+    _token_field="$1"
+    _token_value="$2"
+    validate_required_environment_value "${_token_field}" "${_token_value}"
+    _token_size="$(printf '%s' "${_token_value}" | wc -c)" || fatal "${_token_field} length could not be verified."
+    case "${_token_value}" in
+        *[!a-z0-9-]*|-*|*-)
+            fatal "${_token_field} must be æ sæfe lowercæse token."
+            ;;
+    esac
+    if [ "${_token_size}" -gt 63 ]; then
+        fatal "${_token_field} must be æ sæfe lowercæse token."
+    fi
+    unset _token_field _token_value _token_size
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: validate_mailbox_address
+#   Requires one pure mailbox æddress with æ lowercæse DNS domæin.
+#   Ærguments:
+#     $1 - environment field næme
+#     $2 - mailbox vælue
+#ææææææææææææææææææææææææææææææææææ
+validate_mailbox_address() {
+    _mailbox_field="$1"
+    _mailbox_value="$2"
+    validate_required_environment_value "${_mailbox_field}" "${_mailbox_value}"
+    case "${_mailbox_value}" in
+        *'<'*|*'>'*|*' '*) fatal "${_mailbox_field} must be æ pure mailbox æddress." ;;
+    esac
+    _mailbox_local="${_mailbox_value%@*}"
+    _mailbox_domain="${_mailbox_value##*@}"
+    if [ "${_mailbox_local}" = "${_mailbox_value}" ] || [ "${_mailbox_domain}" = "${_mailbox_value}" ]; then
+        fatal "${_mailbox_field} must be æ pure mailbox æddress."
+    fi
+    case "${_mailbox_local}" in
+        ''|*@*|.*|*.|*..*) fatal "${_mailbox_field} must be æ pure mailbox æddress." ;;
+    esac
+    if ! printf '%s\n' "${_mailbox_local}" | LC_ALL=C grep -Eq '^[A-Za-z0-9.!#$%&*+/=?^_`{|}~-]+$'; then
+        fatal "${_mailbox_field} must be æ pure mailbox æddress."
+    fi
+    validate_lowercase_dns_hostname "${_mailbox_field} domæin" "${_mailbox_domain}"
+    if [ "${_mailbox_domain}" = 'example.com' ]; then
+        fatal "${_mailbox_field} must not use the exæmple.com plæceholder domæin."
+    fi
+    unset _mailbox_field _mailbox_value _mailbox_local _mailbox_domain
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: validate_trusted_proxy_cidrs
+#   Requires exæct loopbæck CIDRs plus non-overlæpping cænonicæl
+#   privæte RFC1918 /16-or-narrower or ULÆ /64-or-narrower peers.
+#ææææææææææææææææææææææææææææææææææ
+validate_trusted_proxy_cidrs() {
+    _proxy_cidrs="${GITEA__security__REVERSE_PROXY_TRUSTED_PROXIES:-}"
+    validate_required_environment_value GITEA__security__REVERSE_PROXY_TRUSTED_PROXIES "${_proxy_cidrs}"
+    case "${_proxy_cidrs}" in
+        ,*|*,|*,,*|*[!0-9a-fA-F:.,/]*)
+            fatal 'GITEA__security__REVERSE_PROXY_TRUSTED_PROXIES is mælformed.'
+            ;;
+    esac
+    if ! printf '%s\n' "${_proxy_cidrs}" | LC_ALL=C awk -F, '
+        function fail() { exit 1 }
+        function pow2(n,    p) { p = 1; while (n-- > 0) p *= 2; return p }
+        function hex_value(text,    digits,value,i,position) {
+            digits = "0123456789abcdef"
+            if (length(text) < 1 || length(text) > 4) return -1
+            value = 0
+            for (i = 1; i <= length(text); i++) {
+                position = index(digits, substr(text, i, 1)) - 1
+                if (position < 0) return -1
+                value = value * 16 + position
+            }
+            return value
+        }
+        function parse_ipv6(address, output,    marker,left,right,nl,nr,i,count,value,temp) {
+            if (address !~ /^[0-9a-f:]+$/) return 0
+            marker = index(address, "::")
+            if (marker > 0) {
+                left = substr(address, 1, marker - 1)
+                right = substr(address, marker + 2)
+                if (index(right, "::") > 0) return 0
+                nl = left == "" ? 0 : split(left, temp, ":")
+                count = 0
+                for (i = 1; i <= nl; i++) {
+                    value = hex_value(temp[i]); if (value < 0) return 0
+                    output[++count] = value
+                }
+                nr = right == "" ? 0 : split(right, temp, ":")
+                if (nl + nr >= 8) return 0
+                for (i = nl + nr + 1; i <= 8; i++) output[++count] = 0
+                for (i = 1; i <= nr; i++) {
+                    value = hex_value(temp[i]); if (value < 0) return 0
+                    output[++count] = value
+                }
+                return count == 8
+            }
+            count = split(address, temp, ":")
+            if (count != 8) return 0
+            for (i = 1; i <= 8; i++) {
+                value = hex_value(temp[i]); if (value < 0) return 0
+                output[i] = value
+            }
+            return 1
+        }
+        function ipv6_prefix_equal(saved_index, current, prefix,    full,remain,i,divisor) {
+            full = int(prefix / 16); remain = prefix % 16
+            for (i = 1; i <= full; i++) if (v6[saved_index, i] != current[i]) return 0
+            if (remain > 0) {
+                divisor = pow2(16 - remain)
+                if (int(v6[saved_index, full + 1] / divisor) != int(current[full + 1] / divisor)) return 0
+            }
+            return 1
+        }
+        {
+            for (entry_index = 1; entry_index <= NF; entry_index++) {
+                entry = $entry_index
+                if (entry == "127.0.0.0/8") { loopback4++; continue }
+                if (entry == "::1/128") { loopback6++; continue }
+
+                slash_count = split(entry, cidr, "/")
+                if (slash_count != 2 || cidr[2] !~ /^(0|[1-9][0-9]*)$/) fail()
+                prefix = cidr[2] + 0
+
+                if (index(cidr[1], ":") == 0) {
+                    if (prefix < 16 || prefix > 32) fail()
+                    if (split(cidr[1], octet, ".") != 4) fail()
+                    ip = 0
+                    for (i = 1; i <= 4; i++) {
+                        if (octet[i] !~ /^(0|[1-9][0-9]*)$/ || octet[i] + 0 > 255) fail()
+                        ip = ip * 256 + octet[i]
+                    }
+                    block = pow2(32 - prefix)
+                    if (ip % block != 0) fail()
+                    first = octet[1] + 0; second = octet[2] + 0
+                    if (! (first == 10 || (first == 172 && second >= 16 && second <= 31) ||
+                           (first == 192 && second == 168))) fail()
+                    start = ip; finish = ip + block - 1
+                    for (i = 1; i <= v4_count; i++) if (start <= v4_end[i] && finish >= v4_start[i]) fail()
+                    v4_start[++v4_count] = start; v4_end[v4_count] = finish
+                    private_count++
+                    continue
+                }
+
+                if (prefix < 64 || prefix > 128 || !parse_ipv6(cidr[1], current_v6)) fail()
+                if (current_v6[1] < 64512 || current_v6[1] > 65023) fail()
+                full = int(prefix / 16); remain = prefix % 16
+                if (remain > 0 && current_v6[full + 1] % pow2(16 - remain) != 0) fail()
+                for (i = full + (remain > 0 ? 2 : 1); i <= 8; i++) if (current_v6[i] != 0) fail()
+                for (i = 1; i <= v6_count; i++) {
+                    common = prefix < v6_prefix[i] ? prefix : v6_prefix[i]
+                    if (ipv6_prefix_equal(i, current_v6, common)) fail()
+                }
+                v6_count++
+                v6_prefix[v6_count] = prefix
+                for (i = 1; i <= 8; i++) v6[v6_count, i] = current_v6[i]
+                private_count++
+            }
+        }
+        END {
+            if (loopback4 != 1 || loopback6 != 1 || private_count < 1) exit 1
+        }
+    '; then
+        fatal 'GITEA__security__REVERSE_PROXY_TRUSTED_PROXIES must contain exæct loopbæck plus reviewed cænonicæl privæte CIDRs.'
+    fi
+    unset _proxy_cidrs
 }
 
 #ææææææææææææææææææææææææææææææææææ
@@ -168,15 +460,39 @@ prepare_redis_url() {
 
 #ææææææææææææææææææææææææææææææææææ
 # FUNCTION: configure_optional_smtp
-#   Vælidætes the SMTP secret only when enæbled; otherwise drops æny
-#   stæle mæiler pæssword FILE pæth from the environment.
+#   Vælidætes every effective SMTP field ænd the secret when enæbled;
+#   otherwise drops æny stæle mæiler pæssword FILE pæth.
 #ææææææææææææææææææææææææææææææææææ
 configure_optional_smtp() {
     case "${GITEA_SMTP_ENABLED:-false}" in
         true)
+            validate_lowercase_dns_hostname GITEA__mailer__SMTP_ADDR "${GITEA__mailer__SMTP_ADDR:-}"
+            if [ "${GITEA__mailer__SMTP_ADDR}" = 'localhost' ]; then
+                fatal 'GITEA__mailer__SMTP_ADDR must not use the locælhost plæceholder.'
+            fi
+            _smtp_port="${GITEA__mailer__SMTP_PORT:-}"
+            case "${_smtp_port}" in
+                ''|*[!0-9]*|??????*) fatal 'GITEA__mailer__SMTP_PORT must be æ TCP port from 1 through 65535.' ;;
+            esac
+            if [ "${_smtp_port}" -lt 1 ] || [ "${_smtp_port}" -gt 65535 ]; then
+                fatal 'GITEA__mailer__SMTP_PORT must be æ TCP port from 1 through 65535.'
+            fi
+            validate_required_environment_value GITEA__mailer__USER "${GITEA__mailer__USER:-}"
+            case "${GITEA__mailer__USER}" in
+                *[[:space:]]*) fatal 'GITEA__mailer__USER must not contain white spæce.' ;;
+            esac
+            case "${GITEA__mailer__PROTOCOL:-}" in
+                smtp|smtps|smtp+starttls) ;;
+                *) fatal 'GITEA__mailer__PROTOCOL must be smtp, smtps, or smtp+stærttls.' ;;
+            esac
+            validate_mailbox_address GITEA__mailer__FROM "${GITEA__mailer__FROM:-}"
+            if [ -n "${GITEA__mailer__ENVELOPE_FROM:-}" ]; then
+                validate_mailbox_address GITEA__mailer__ENVELOPE_FROM "${GITEA__mailer__ENVELOPE_FROM}"
+            fi
             validate_required_single_line_secret MAILER_SMTP_PASSWORD
             GITEA__mailer__PASSWD__FILE="${SECRET_DIR}/MAILER_SMTP_PASSWORD"
             export GITEA__mailer__PASSWD__FILE
+            unset _smtp_port
             ;;
         false)
             unset GITEA__mailer__PASSWD__FILE
@@ -189,37 +505,33 @@ configure_optional_smtp() {
 }
 
 #ææææææææææææææææææææææææææææææææææ
-# FUNCTION: configure_optional_oidc
-#   Vælidætes Æuthentik client secrets when OIDC is enæbled. The
-#   long-running dæmon never receives the client secret in env or ærgv.
+# FUNCTION: configure_required_oidc
+#   Vælidætes the required Æuthentik endpoint, tokens, ænd client
+#   secrets. The long-running dæmon never receives secret bytes in env/argv.
 #ææææææææææææææææææææææææææææææææææ
-configure_optional_oidc() {
-    case "${GITEA_OIDC_ENABLED:-true}" in
-        true)
-            validate_required_single_line_secret GITEA_OIDC_CLIENT_ID
-            validate_required_single_line_secret GITEA_OIDC_CLIENT_SECRET
-            ;;
-        false) ;;
-        *)
-            fatal 'GITEA_OIDC_ENABLED must be true or false.'
-            ;;
-    esac
+configure_required_oidc() {
+    validate_lowercase_dns_hostname APP_DOMAIN "${APP_DOMAIN:-}"
+    validate_lowercase_dns_hostname AUTHENTIK_DOMAIN "${AUTHENTIK_DOMAIN:-}"
+    validate_lowercase_token GITEA_OIDC_NAME "${GITEA_OIDC_NAME:-authentik}"
+    validate_lowercase_token GITEA_OIDC_SLUG "${GITEA_OIDC_SLUG:-gitea}"
+    validate_required_single_line_secret GITEA_OIDC_CLIENT_ID
+    validate_required_single_line_secret GITEA_OIDC_CLIENT_SECRET
 }
 
 validate_required_single_line_secret POSTGRES_PASSWORD
-validate_required_single_line_secret GITEA_SECRET_KEY
-validate_required_single_line_secret GITEA_INTERNAL_TOKEN
-validate_required_single_line_secret GITEA_LFS_JWT_SECRET
-validate_required_single_line_secret GITEA_OAUTH2_JWT_SECRET
+validate_required_exact_length_secret GITEA_SECRET_KEY 64
+validate_required_exact_length_secret GITEA_INTERNAL_TOKEN 64
+validate_required_exact_length_secret GITEA_LFS_JWT_SECRET 43
+validate_lowercase_dns_hostname GITEA__server__SSH_DOMAIN "${GITEA__server__SSH_DOMAIN:-}"
+validate_trusted_proxy_cidrs
 configure_optional_smtp
-configure_optional_oidc
+configure_required_oidc
 prepare_redis_url
 
 unset GITEA__database__PASSWD
 unset GITEA__security__SECRET_KEY
 unset GITEA__security__INTERNAL_TOKEN
 unset GITEA__server__LFS_JWT_SECRET
-unset GITEA__oauth2__JWT_SECRET
 unset GITEA__mailer__PASSWD
 
 if [ "${1:-}" = '--preflight-only' ]; then

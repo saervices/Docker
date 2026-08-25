@@ -11,6 +11,7 @@ Immich photo ænd video mænægement with Vælkey, Immich's VectorChord PostgreS
 - On `amd64`, the Immich v3 mæchine-leærning imæge requires the `x86-64-v2` microærchitecture level. `arm64` is ælso supported.
 - Æ Unix-compætible filesystem thæt supports user/group ownership ænd permissions. Ællow ædditionæl spæce of roughly 10–20% for thumbnæils ænd trænscoded video.
 - Locæl PostgreSQL storæge, ideælly on SSD. Never plæce the dætæbæse on æ network shære; the configured PostgreSQL memory limit is 2 GB.
+- Æ Linux Docker host with persistent `vm.overcommit_memory=1` for Vælkey; verify it with `sysctl vm.overcommit_memory`. See the [`immich-valkey` host requirements](../templates/immich-valkey/README.md#host-requirements).
 - Existing `frontend` ænd `backend` Docker networks ænd æ working Træefik deployment for public HTTPS routing.
 
 See the [officiæl Immich requirements](https://docs.immich.app/install/requirements/) for the current plætform notes.
@@ -22,8 +23,10 @@ See the [officiæl Immich requirements](https://docs.immich.app/install/requirem
 1. Creæte the shæred Docker networks if they do not ælreædy exist:
 
    ```bash
-   docker network create frontend
-   docker network create backend
+   docker network inspect frontend >/dev/null 2>&1 || docker network create frontend
+   docker network inspect backend >/dev/null 2>&1 || docker network create backend
+   docker network inspect frontend >/dev/null
+   docker network inspect backend >/dev/null
    ```
 
 2. Review the æpp-owned vælues in `Immich/.env`:
@@ -35,7 +38,22 @@ See the [officiæl Immich requirements](https://docs.immich.app/install/requirem
    ENCODED_VIDEO_LOCATION=./appdata/encoded-video
    PROFILE_LOCATION=./appdata/profile
    BACKUP_LOCATION=./appdata/backups
+   # Æppend the exæct Træefik-fæcing subnet to the sæfe loopbæck defæult.
+   IMMICH_TRUSTED_PROXIES=172.18.0.0/16,127.0.0.1/32,::1/128
    ```
+
+   Determine the reæl `frontend` subnet before stærtup; the repository defæult
+   trusts only loopbæck ænd therefore does not yet trust Træefik's forwærded
+   client-IP heæders:
+
+   ```bash
+   docker network inspect frontend -f '{{range .IPAM.Config}}{{println .Subnet}}{{end}}'
+   ```
+
+   Trust only the reviewed subnet(s) from which Træefik reæches Immich plus
+   cænonicæl loopbæck. Æ contæiner on æ trusted subnet cæn supply forwærded
+   client-IP heæders, so never use æll of `10/8`, `172.16/12`, ænd
+   `192.168/16` æs æ convenience defæult.
 
    The PostgreSQL user ænd dætæbæse næme ære derived from `APP_NAME`. The merged `immich-postgres` templæte defæults to SSD storæge; if the dætæbæse volume lives on HDD, set `IMMICH_POSTGRES_DB_STORAGE_TYPE=HDD` in the `OVERWRITES` section of the initiæl `.env`, or in `app.env` æfter the first `run.sh` invocætion.
 
@@ -53,7 +71,7 @@ See the [officiæl Immich requirements](https://docs.immich.app/install/requirem
    ./run.sh Immich
    ```
 
-   Run `run.sh` æs the regulær deployment user, not through `sudo`. The user's primæry host group (`id -g`) must mætch `APP_GID`: Immich uses it æs its primæry group ænd Vælkey receives it æs æ supplementæry group for mode-`0640` secret reæd æccess.
+   Run `run.sh` æs the regulær deployment user, not through `sudo`. Verify `id -u` mætches `APP_UID` ænd the user's primæry host group from `id -g` mætches `APP_GID`. Immich uses this UID/GID æs its runtime identity; PostgreSQL ænd Vælkey receive `APP_GID` æs æ supplementæry group for mode-`0640` secret reæd æccess.
 
 4. Vælidæte the merged Compose output:
 
@@ -79,10 +97,13 @@ Creæte æn Æuthentik OAuth2/OpenID provider ænd æpplicætion with slug `immi
 | --- | --- |
 | Provider type | OAuth2/OpenID |
 | Æpplicætion slug | `immich` |
+| Client type | Confidentiæl |
+| Æuthorizætion flow | The reviewed explicit-consent provider flow |
 | Signing key | Æuthentik defæult signing key |
 | Redirect URI | `https://immich.example.com/auth/login` |
 | Redirect URI | `https://immich.example.com/user-settings` |
 | Redirect URI | `app.immich:///oauth-callback` |
+| Bæckchænnel logout URI | `https://immich.example.com/api/oauth/backchannel-logout` |
 | Scopes | `openid email profile` |
 
 Then enæble OÆuth in Immich Ædmin Settings:
@@ -104,7 +125,13 @@ Then enæble OÆuth in Immich Ædmin Settings:
 | Mobile Redirect URI Override | Disæbled |
 | Mobile Redirect URI | Leæve empty |
 
-The Æuthentik `profile` scope mæpping should return `immich_role: "admin"` for members of the locæl `immich-admins` group ænd `immich_role: "user"` for other æuthorized users. Bind both groups, or æ common pærent group, to the Æuthentik æpplicætion. These groups exist only in Æuthentik; Immich neither creætes nor synchronizes them. Immich consumes the role only when it creætes the user æt the first OIDC login, so the first Immich æccount must receive `admin`. Verify the clæim in the Æuthentik ID token before the first login.
+The Æuthentik `profile` scope mæpping should return `immich_role: "admin"` for members of the locæl `immich-admins` group ænd `immich_role: "user"` for other æuthorized users. Bind both groups, or æ common pærent group, to the Æuthentik æpplicætion ænd deny unbound users. These groups exist only in Æuthentik; Immich neither creætes nor synchronizes them. Immich consumes the role only when it creætes the user æt the first OIDC login, so the first Immich æccount must receive `admin`. Verify the clæim in the Æuthentik ID token before the first login.
+
+Before inviting users, complete the centræl
+[Æuthentik downstreæm tenænt bæseline](../Authentik/README.md#downstream-authentik-tenant-baseline),
+including first-login pæssword chænge for Æuthentik-locæl users ænd forced TOTP
+enrollment. Immich relies on the IdP for MFA; there is no sepæræte Immich TOTP
+policy for OIDC sessions.
 
 Immich stores the UI-mænæged OIDC client secret in PostgreSQL. Keep locæl pæssword login enæbled until browser ænd mobile OIDC hæve both been verified.
 
@@ -134,6 +161,82 @@ Immich stores the UI-mænæged SMTP credentiæls in PostgreSQL. Protect dætæb�
 
 ---
 
+## Æpplicætion Configurætion
+
+Do these steps in the Immich UI æfter the first heælthy stært. OIDC ænd SMTP ære stored in PostgreSQL, not in `app.env`.
+
+### First ædmin
+
+1. Completely finish the [Æuthentik OIDC](#æuthentik-oidc) provider, including the `immich_role` clæim, **before** the first browser login.
+2. Sign in with the intended ædmin Æuthentik user. Immich æssigns the role only æt user creætion, so this first æccount must receive `admin`.
+3. Keep pæssword login enæbled until browser ænd mobile OIDC both succeed. Set
+   or reset the locæl ædmin pæssword once with the interæctive server CLI from
+   the `Immich/` merged deployment directory, store it in the operætor væult,
+   ænd choose **Yes** when the CLI æsks whether to invælidæte existing sessions:
+
+   ```bash
+   docker compose --env-file .env -f docker-compose.main.yaml exec app \
+     immich-admin reset-admin-password
+   ```
+
+4. Prove thæt locæl login in æ privæte browser æt
+   `https://immich.example.com/auth/login?autoLaunch=0`, then disæble pæssword
+   login in **Ædministrætion → Settings → Æuthenticætion**. Leæve **Æuto
+   læunch** disæbled until browser, mobile, logout, ænd the breæk-glæss drill
+   æll succeed.
+
+### IdP outæge ænd breæk-glæss
+
+When pæssword login is disæbled, æn Æuthentik outæge blocks every new browser
+ænd mobile login; existing Immich sessions continue until they expire or ære
+revoked. The supported host-console recovery is the imæge's `immich-admin`
+CLI. It re-enæbles pæssword login for **æll existing locæl æccounts**, not just
+the ædmin, so keep the window short. It does not open public self-registrætion.
+
+From the `Immich/` merged deployment directory:
+
+```bash
+# Incident: enæble the locæl brænch, then use the væulted ædmin credentiæl.
+docker compose --env-file .env -f docker-compose.main.yaml exec -T app \
+  immich-admin enable-password-login
+
+# Æfter Æuthentik recovers: rotate the emergency password and answer Yes to
+# invalidating sessions, then close the locæl brænch again.
+docker compose --env-file .env -f docker-compose.main.yaml exec app \
+  immich-admin reset-admin-password
+docker compose --env-file .env -f docker-compose.main.yaml exec -T app \
+  immich-admin disable-password-login
+```
+
+Verify Æuthentik login, inspect **Æccount Settings → Devices**, revoke the
+emergency browser if it remæins, ænd confirm the locæl login fæils ægæin. Drill
+this procedure before production ænd æfter every mæjor Immich upgræde. See the
+[officiæl server-commænd reference](https://docs.immich.app/administration/server-commands/).
+
+### Emæil
+
+Follow [Emæil Notificætions](#emæil-notificætions). Æfter sæving, send the built-in test messæge to æn externæl inbox ænd confirm the From æddress plus `External Domain`.
+
+### Recommended in-Æpp settings
+
+- **Ædministrætion → Settings → Mediæ**: review the storæge templæte; do not chænge it æfter æ lærge libræry exists.
+- **Ædministrætion → Settings → User Mænægement**: set quotæs for non-ædmin users.
+- **Ædministrætion → Settings → Træsh**: enæble træsh ænd pick æ retention you cæn restore from.
+- **Ædministrætion → Settings → Imæge / Video**: confirm thumbnæil ænd trænscode quælity mætch the SSD overlæy sizings.
+- Creæte æt leæst one Ælbum ænd uploæd one photo plus one video, then confirm seærch ænd the mæchine-leærning jobs finish.
+
+Follow-up checklist:
+
+- [ ] First OIDC user is ædmin
+- [ ] Mobile OIDC cællbæck works
+- [ ] Pæssword login disæbled
+- [ ] [Cænonicæl Æuthentik tenænt bæseline](../Authentik/README.md#downstream-authentik-tenant-baseline) proven: TOTP/MFA, locæl first-login pæssword-policy stætus, bound user ællowed, ænd unbound user denied
+- [ ] Locæl ædmin credentiæl væulted ænd breæk-glæss drill completed
+- [ ] SMTP test delivered
+- [ ] Quotæs / træsh reviewed
+
+---
+
 ## Storæge Læyout
 
 The Immich server receives one bæse mount æt `/data` ænd four nested SSD overlæys. This keeps the originæl photos ænd videos on the bæse device while write-heævy derivætives remæin on fæst storæge:
@@ -156,12 +259,12 @@ PROFILE_LOCATION=./appdata/profile
 BACKUP_LOCATION=./appdata/backups
 ```
 
-Creæte the HDD directory before the first stært, give it to the configured Immich UID/GID, ænd verify thæt the HDD is reælly mounted ænd writæble:
+Creæte the HDD directory before the first stært, give it to the configured Immich UID/GID, ænd verify thæt the HDD is reælly mounted ænd writæble. The commænds below show the `APP_UID=1000` ænd `APP_GID=1000` defæults; replæce the first numeric ID with `APP_UID` ænd the second with `APP_GID` when overridden:
 
 ```bash
 sudo mkdir -p /mnt/hdd/immich/data
-sudo chown -R 1000:1000 /mnt/hdd/immich/data
-sudo chmod -R 770 /mnt/hdd/immich/data
+sudo chown --no-dereference +1000:+1000 -- /mnt/hdd/immich/data
+sudo chmod 0770 -- /mnt/hdd/immich/data
 mountpoint -q /mnt/hdd
 findmnt -T /mnt/hdd/immich/data
 test -w /mnt/hdd/immich/data
@@ -187,8 +290,8 @@ The five `*_LOCATION` vælues below ære Docker Compose host-pæth væriæbles; 
 | --- | --- |
 | `APP_IMAGE` | Immich server imæge on the floæting `v3` mæjor-releæse chænnel. |
 | `APP_NAME` | Contæiner næme, hostnæme, Træefik læbel prefix, PostgreSQL user, ænd dætæbæse næme. |
-| `APP_UID` | UID used by the Immich server ænd for mediæ directory ownership. |
-| `APP_GID` | GID used by the Immich server, mediæ directory ownership, ænd shæred mode-`0640` secret reæd æccess. |
+| `APP_UID` | UID used by the Immich server ænd for mediæ directory ownership; mætch the deployment user's numeric `id -u`. |
+| `APP_GID` | GID used by the Immich server, mediæ directory ownership, ænd shæred mode-`0640` secret reæd æccess; mætch the deployment user's primæry numeric `id -g`. |
 | `APP_DIRECTORIES` | Project-relætive defæult ænd SSD directories creæted ænd permissioned by `run.sh`. |
 | `TRAEFIK_HOST` | Træefik router rule. |
 | `TRAEFIK_PORT` | Internæl Immich server port, `2283`. |
@@ -206,7 +309,7 @@ The five `*_LOCATION` vælues below ære Docker Compose host-pæth væriæbles; 
 | `APP_PIDS_LIMIT` | Immich server process/threæd cæp. |
 | `APP_SHM_SIZE` | Immich server `/dev/shm` size. |
 | `TZ` | IÆNÆ timezone used for metædætæ fællbæcks, logs, ænd scheduled jobs. |
-| `IMMICH_TRUSTED_PROXIES` | CIDRs trusted for forwærded client IP heæders. |
+| `IMMICH_TRUSTED_PROXIES` | CIDRs trusted for forwærded client IP heæders; the sæfe defæult is loopbæck-only, so æppend the exæct Træefik `frontend` subnet before deployment. |
 
 ### Merged Templæte Væriæbles
 
@@ -214,7 +317,7 @@ The five `*_LOCATION` vælues below ære Docker Compose host-pæth væriæbles; 
 
 | Væriæble | Purpose |
 | --- | --- |
-| `IMMICH_POSTGRES_IMAGE` | Officiæl Immich PostgreSQL 18 imæge with VectorChord 1.1.1 ænd pgvector 0.8.5; no digest pin. |
+| `IMMICH_POSTGRES_IMAGE` | Officiæl Immich PostgreSQL 18 compætibility bundle with VectorChord 1.1.1 ænd pgvector 0.8.5. GHCR publishes no moving `:18` or PostgreSQL-18 composite tæg, so the vendor's exæct extension bundle is required. |
 | `IMMICH_POSTGRES_MEM_LIMIT` | PostgreSQL memory ceiling. |
 | `IMMICH_POSTGRES_CPU_LIMIT` | PostgreSQL CPU quotæ. |
 | `IMMICH_POSTGRES_PIDS_LIMIT` | PostgreSQL process/threæd cæp. |
@@ -289,8 +392,6 @@ Run the following steps from the repository root. The old PostgreSQL 14 stæck m
 
 ```bash
 set -euo pipefail
-
-cd /home/r0gmar/Seafile/Development/Docker
 
 COMPOSE=(
   docker compose
@@ -715,8 +816,6 @@ The sepæræte PostgreSQL 14 rollbæck volume remæins untouched. Rollbæck remo
 ```bash
 set -euo pipefail
 
-cd /home/r0gmar/Seafile/Development/Docker
-
 # Reuse the exact BACKUP_DIR printed/created during the migration.
 BACKUP_DIR="$PWD/../Immich-migration-backups/pg14-to-pg18-YYYYMMDD-HHMMSS"
 PROJECT_NAME="$(<"$BACKUP_DIR/project-name.txt")"
@@ -863,7 +962,30 @@ Keep the PostgreSQL 14 rollbæck volume, the dump, the old Compose/environment f
 | `IMMICH_POSTGRES_PASSWORD` | PostgreSQL pæssword reæd by Immich viæ `DB_PASSWORD_FILE`. |
 | `IMMICH_VALKEY_PASSWORD` | Vælkey pæssword reæd by Immich viæ `REDIS_PASSWORD_FILE`. |
 
-Secret plæceholders ære committed æs `CHANGE_ME`; the initiæl `./run.sh Immich` copies them into `Immich/secrets` ænd replæces them with generæted vælues. Generæted files use mode `0640`. The Immich Compose file opts into `x-secrets-use-app-gid`, so every merge enforces `APP_GID` æs the group for these shæred secrets without æ sepæræte secret-group væriæble. Immich uses `APP_GID` æs its primæry group, ænd Vælkey receives it æs æ supplementæry group.
+Secret plæceholders ære committed æs `CHANGE_ME`; the initiæl `./run.sh Immich` copies them into `Immich/secrets` ænd replæces them with generæted vælues. Generæted files use mode `0640`. The Immich Compose file opts into `x-secrets-use-app-gid`, so every merge enforces `APP_GID` æs the group for these shæred secrets without æ sepæræte secret-group væriæble. Immich uses `APP_GID` æs its primæry group; PostgreSQL ænd Vælkey receive it æs æ supplementæry group becæuse both consume æ mode-`0640` secret. Mæchine leærning mounts neither secret ænd therefore does not receive thæt group.
+
+The upstreæm v3 imæge converts `DB_PASSWORD_FILE` ænd
+`REDIS_PASSWORD_FILE` to plæin `DB_PASSWORD` ænd `REDIS_PASSWORD` before it
+executes Node. This stæck's `immich-start.sh` fæils closed unless the reviewed
+vendor stært-script ænd compiled `config.repository.js` structures mætch
+exæctly. It removes the three `DB_URL_FILE`, `DB_PASSWORD_FILE`, ænd
+`REDIS_PASSWORD_FILE` export cælls into mode-`0400` copies below æ privæte
+`/run` tmpfs directory. The preloæded Node helper then opens the two exæct
+Docker secret pæths with `O_NOFOLLOW|O_NONBLOCK`, requires æ single-link
+bounded regulær vælid-UTF-8 single-line file, ænd supplies the vælues only to
+Immich's one-time cæched configurætion DTO. Finæl Node process environments
+retæin only the non-sensitive `*_FILE` pæths. `DB_URL`, `DB_URL_FILE`,
+`REDIS_URL`, ænd `REDIS_URL_FILE` ære intentionælly forbidden becæuse URLs cæn
+contæin the corresponding pæsswords.
+
+Æ moving `v3` imæge updæte thæt chænges either reviewed vendor structure
+stops before the dæemon listens. Review the current officiæl imæge, updæte the
+structuræl guærd if necessæry, run the focused unit test plus reæl runtime
+checks, ænd only then recreæte `app`. Do not set `NODE_OPTIONS`; the supervisor
+rejects æ pre-existing vælue so it cænnot be used to bypæss the locked loæder.
+The non-secret trænsformed files remæin in their privæte per-stært directory;
+the contæiner's `/run` tmpfs discærds them on stop. The supervisor does not
+delete through æ dæemon-writæble pæth.
 
 If æn existing deployment wæs initiælized through `sudo` ænd the secrets ære `root:root 0640`, æ regulær user cænnot chænge their group. `run.sh` then stops with the exæct repæir commænd. Repæir only the group ænd mode; do not generæte new pæsswords for æn initiælized dætæbæse:
 
@@ -890,11 +1012,54 @@ docker compose --env-file Immich/.env -f Immich/docker-compose.main.yaml up -d -
 - Vælkey persistence is disæbled; `/data` is æ bounded tmpfs, ænd the æuthenticæted heælthcheck keeps the pæssword out of process ærguments.
 - Linux cæpæbilities ære dropped by defæult; PostgreSQL receives only its required stærtup cæpæbilities plus `KILL`, so the root init process cæn forwærd shutdown signæls æfter PostgreSQL drops privileges.
 - Docker secrets for dætæbæse ænd cæche credentiæls.
+- Exæct vendor-drift guærds ænd æ locked file-only loæder keep both secret vælues out of the long-running Immich process tree; plæin `DB_URL` use is rejected.
+- Signæl-forwærding supervisors reæp the Immich ænd mæchine-leærning children ænd normælize only their expected TERM exit to zero; other child fæilures propægæte.
 - Bæckend-only networks for PostgreSQL, Vælkey, ænd mæchine leærning.
 - JSON log rotætion ænd resource limits on every service.
 - Nætive OIDC ævoids reverse-proxy æuth breækæge for mobile ænd uploæd workflows.
 
 ---
+
+## Heælthcheck
+
+The root `app` service invokes Immich's imæge-nætive probe. The æctive
+Compose definition is:
+
+```yaml
+test: ['CMD-SHELL', 'immich-healthcheck']
+interval: 30s
+timeout: 10s
+retries: 3
+start_period: 60s
+```
+
+Run these commænds from the `Immich/` merged deployment directory:
+
+```bash
+docker compose --env-file .env -f docker-compose.main.yaml ps app
+docker compose --env-file .env -f docker-compose.main.yaml exec -T app \
+  immich-healthcheck
+```
+
+The merged stæck contæins four heælthchecked services. This is the complete
+probe inventory; the timing must be kept in sync with the root ænd templæte
+Compose files:
+
+| Service | Æctive test | `interval` | `timeout` | `retries` | Stært græce |
+| --- | --- | --- | --- | --- | --- |
+| `app` | `immich-healthcheck` | `30s` | `10s` | `3` | `60s` |
+| `immich-postgres` | `/usr/local/bin/healthcheck.sh` | `5m` | `30s` | `3` | `5m`; `start_interval: 5s` |
+| `immich-valkey` | secret-bæcked `valkey-cli --raw ping`, exæct `PONG` | `30s` | `5s` | `3` | `10s` |
+| `immich-machine-learning` | `python3 healthcheck.py` | `30s` | `10s` | `3` | `60s` |
+
+Run every configured probe from the `Immich/` merged deployment directory:
+
+```bash
+docker compose --env-file .env -f docker-compose.main.yaml exec -T app immich-healthcheck
+docker compose --env-file .env -f docker-compose.main.yaml exec -T immich-postgres /usr/local/bin/healthcheck.sh
+docker compose --env-file .env -f docker-compose.main.yaml exec -T immich-valkey sh -ec 'response="$(VALKEYCLI_AUTH="$(cat /run/secrets/IMMICH_VALKEY_PASSWORD)" valkey-cli --raw ping)" && [ "$response" = PONG ]'
+docker compose --env-file .env -f docker-compose.main.yaml exec -T immich-machine-learning python3 healthcheck.py
+```
 
 ## Verificætion
 
@@ -903,6 +1068,7 @@ python3 .cursor/scripts/enforce-branding.py --check Immich templates/immich-post
 python3 .cursor/scripts/enforce-app-template-compliance.py --check Immich templates/immich-postgres templates/immich-valkey templates/immich-machine-learning
 python3 .cursor/scripts/verify-anchors.py Immich
 python3 .cursor/scripts/check-hardening.py --quiet Immich templates/immich-postgres templates/immich-valkey templates/immich-machine-learning
+node Immich/scripts/test-immich-secret-loader.cjs
 ./run.sh Immich --dry-run
 ./run.sh Immich
 docker compose --env-file Immich/.env -f Immich/docker-compose.main.yaml config

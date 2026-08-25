@@ -1,0 +1,87 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 it.særvices
+#
+# Descriptor-pinned secret snæpshot helpers for the Mætrix Æuthenticætion Service.
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: matrix_snapshot_secret
+#   Copies one bounded secret exactly once from a pinned regular-file descriptor.
+#   Ærguments:
+#     $1 - source secret file pæth
+#     $2 - new private destination file pæth
+#     $3 - mæximum accepted byte count
+#     $4 - byte policy: single or pem
+#ææææææææææææææææææææææææææææææææææ
+matrix_snapshot_secret() {
+  local source_path="$1" destination_path="$2" maximum_bytes="$3" byte_policy="$4"
+  local path_identity fd_identity path_identity_after fd_type byte_count byte_dump byte grep_status
+
+  [[ "${maximum_bytes}" =~ ^[1-9][0-9]*$ ]] || return 1
+  [[ "${byte_policy}" == "single" || "${byte_policy}" == "pem" ]] || return 1
+  [[ ! -e "${destination_path}" && ! -L "${destination_path}" ]] || return 1
+  [[ ! -L "${source_path}" && -f "${source_path}" && -r "${source_path}" ]] || return 1
+  exec 9< "${source_path}" || return 1
+  if [[ -L "${source_path}" || ! -f "${source_path}" ]]; then
+    exec 9<&-
+    return 1
+  fi
+  path_identity="$(LC_ALL=C stat -Lc '%d:%i:%h' -- "${source_path}")" || { exec 9<&-; return 1; }
+  fd_identity="$(LC_ALL=C stat -Lc '%d:%i:%h' -- /proc/self/fd/9)" || { exec 9<&-; return 1; }
+  fd_type="$(LC_ALL=C stat -Lc '%F' -- /proc/self/fd/9)" || { exec 9<&-; return 1; }
+  if [[ "${fd_type}" != "regular file" || "${fd_identity}" != "${path_identity}" || "${fd_identity}" != *:1 ]]; then
+    exec 9<&-
+    return 1
+  fi
+  if ! (umask 077; set -C; : > "${destination_path}"); then exec 9<&-; return 1; fi
+  if ! dd bs="$((maximum_bytes + 1))" count=1 <&9 > "${destination_path}" 2>/dev/null; then exec 9<&-; return 1; fi
+  exec 9<&-
+  chmod 0400 -- "${destination_path}" || return 1
+  path_identity_after="$(LC_ALL=C stat -Lc '%d:%i:%h' -- "${source_path}")" || return 1
+  [[ ! -L "${source_path}" && "${path_identity_after}" == "${path_identity}" ]] || return 1
+  byte_count="$(LC_ALL=C wc -c < "${destination_path}")" || return 1
+  (( byte_count >= 1 && byte_count <= maximum_bytes )) || return 1
+  byte_dump="$(LC_ALL=C od -An -v -t u1 -- "${destination_path}")" || return 1
+  for byte in ${byte_dump}; do
+    if [[ "${byte_policy}" == "single" ]]; then
+      (( byte >= 32 && byte <= 126 )) || return 1
+    else
+      (( byte == 10 || (byte >= 32 && byte <= 126) )) || return 1
+    fi
+  done
+  unset byte_dump byte
+  LC_ALL=C grep -qxF 'CHANGE_ME' -- "${destination_path}" >/dev/null 2>&1
+  grep_status=$?
+  case "${grep_status}" in 0) return 1 ;; 1) return 0 ;; *) return 1 ;; esac
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: matrix_require_rsa_private_key
+#   Verifies one staged ASCII PEM as exactly one unencrypted RSA private key.
+#   Ærguments:
+#     $1 - staged private-key file pæth
+#ææææææææææææææææææææææææææææææææææ
+matrix_require_rsa_private_key() {
+  local key_path="$1" begin_line end_line begin_count end_count
+  begin_line="$(LC_ALL=C head -n 1 -- "${key_path}")" || return 1
+  end_line="$(LC_ALL=C tail -n 1 -- "${key_path}")" || return 1
+  case "${begin_line}:${end_line}" in
+    '-----BEGIN PRIVATE KEY-----:-----END PRIVATE KEY-----'|'-----BEGIN RSA PRIVATE KEY-----:-----END RSA PRIVATE KEY-----') : ;;
+    *) return 1 ;;
+  esac
+  begin_count="$(LC_ALL=C grep -Ec '^-----BEGIN (RSA )?PRIVATE KEY-----$' -- "${key_path}")" || return 1
+  end_count="$(LC_ALL=C grep -Ec '^-----END (RSA )?PRIVATE KEY-----$' -- "${key_path}")" || return 1
+  [[ "${begin_count}" == "1" && "${end_count}" == "1" ]] || return 1
+  openssl rsa -in "${key_path}" -passin pass: -check -noout >/dev/null 2>&1 || return 1
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: matrix_yaml_squote
+#   Prints one string æs a YAML single-quoted scalar.
+#   Ærguments:
+#     $1 - validated string value
+#ææææææææææææææææææææææææææææææææææ
+matrix_yaml_squote() {
+  local value="$1"
+  printf "'%s'" "${value//\'/\'\'}"
+}

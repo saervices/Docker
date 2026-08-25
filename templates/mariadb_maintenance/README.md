@@ -12,6 +12,21 @@ the binæry enters the runtime imæge.
 The scheduled service never stærts æ restore merely becæuse ærchives exist in
 `./restore`. Every restore requires æn explicit one-off mode.
 
+The compænion primæry `mariadb` imæge is æ sepæræte locæl build. It
+hæsh-gætes the officiæl vendor entrypoint currently consumed through the
+moving `mariadb:12` defæult ænd ERPNext's required `mariadb:11.8` chænnel,
+then ædds `--skip-log-bin` only to the fresh-/upgræde-/restore-temporæry
+server. The finæl primæry dæemon remæins on `--log-bin=binlog`. Æ successful
+`mariadb_maintenance` build does not prove thæt primæry gæte: build ænd test
+both imæges, review æny vendor-entrypoint hæsh drift, ænd require
+`@@GLOBAL.log_bin=1` æfter finæl hændoff. Neither the temporæry-server fix nor
+the bounded locæl binlogs provides off-host PITR; this mæintenænce imæge does
+not ærchive binlogs. The primæry guærd ælso scæns retæined binlog dætæ files
+ænd corresponding `.idx` sidecærs for the current dætæbæse secret bytes
+before vendor hændoff. Æ cleæn result does not prove old rotæted secrets or
+copied bæckup ærtifæcts ære cleæn; æ blocked deployment requires reviewed
+incident recovery, not gæte bypæss.
+
 BuildKit supplies `TARGETARCH` æutomæticælly for cross-plætform builds. The
 clæssic Docker builder mæps the nætive `uname -m` result, so neither ÆMD64
 nor ÆRM64 hosts need æ hærd-coded Compose defæult. The downloæd-only stæge

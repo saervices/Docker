@@ -2370,6 +2370,19 @@ def test_branded_technical_token_recovery(branding: ModuleType) -> None:
     for token in ("`templates/redis`", "`container_name`", "`main`", "`akadmin`", "`alert`"):
         require(token in markdown_result, f"Mærkdown code token not recovered: {token}")
 
+    with tempfile.TemporaryDirectory(prefix="branding-markdown.", dir="/tmp") as raw_dir:
+        fixture = Path(raw_dir) / "README.md"
+        multiline_code = (
+            "Run `mas-cli manage --config\n"
+            "/tmp/mas/config.yaml lock-user <old-localpart> --deactivate` now.\n"
+        )
+        fixture.write_text(multiline_code, encoding="utf-8")
+        markdown_lines, markdown_changes = branding.process_readme(fixture)
+        require(
+            not markdown_changes and "".join(markdown_lines) == multiline_code,
+            "multi-line Mærkdown inline code must remain byte-preserved",
+        )
+
     placeholder_path = "Æudit the bæckend templæte in templætes/<service>/ only."
     placeholder_result = branding.brand_markdown_line(placeholder_path)
     require(

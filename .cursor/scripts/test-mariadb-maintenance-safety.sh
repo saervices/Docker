@@ -11,6 +11,8 @@ readonly TEST_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/mariadb-maintenance-safety.XXXX
 readonly RESTORE_SCRIPT="${TEST_REPO_ROOT}/templates/mariadb_maintenance/dockerfiles/entrypoint.mariadb_maintenance.sh"
 readonly BACKUP_SCRIPT="${TEST_REPO_ROOT}/templates/mariadb_maintenance/dockerfiles/backup.mariadb_maintenance.sh"
 readonly GUARD_SCRIPT="${TEST_REPO_ROOT}/templates/mariadb/dockerfiles/entrypoint.mariadb.sh"
+readonly MARIADB_DOCKERFILE="${TEST_REPO_ROOT}/templates/mariadb/dockerfiles/dockerfile.mariadb"
+readonly BINLOG_SCANNER="${TEST_REPO_ROOT}/templates/mariadb/dockerfiles/scan-binlogs.mariadb.pl"
 
 PASS=0
 FAIL=0
@@ -904,17 +906,40 @@ EOF
 
 prepare_guard_copy() {
   local root="$1"
+  local scanner_sha256=""
+  local scanner_owner=""
+  local vendor_sha256=""
+  local vendor_owner=""
+  mkdir -p -- "$root/data" "$root/secrets"
+  printf 'test-app-database-password' >"$root/secrets/MARIADB_PASSWORD"
+  printf 'test-root-database-password' >"$root/secrets/MARIADB_ROOT_PASSWORD"
   sed \
-    -e "s#MARIADB_DATA_ROOT=/var/lib/mysql#MARIADB_DATA_ROOT=$root/data#" \
-    -e "s#MARIADB_VENDOR_ENTRYPOINT=/usr/local/bin/docker-entrypoint.sh#MARIADB_VENDOR_ENTRYPOINT=$root/vendor#" \
-    "$GUARD_SCRIPT" >"$root/guard"
-  chmod 0755 "$root/guard"
+    -e "s#/var/lib/mysql#$root/data#" \
+    -e "s#/run/secrets/MARIADB_PASSWORD#$root/secrets/MARIADB_PASSWORD#" \
+    -e "s#/run/secrets/MARIADB_ROOT_PASSWORD#$root/secrets/MARIADB_ROOT_PASSWORD#" \
+    "$BINLOG_SCANNER" >"$root/scanner"
+  chmod 0555 "$root/scanner"
+  scanner_sha256="$(sha256sum "$root/scanner")"
+  scanner_sha256="${scanner_sha256%% *}"
+  scanner_owner="$(stat -c '%u:%g' "$root/scanner")"
   cat >"$root/vendor" <<EOF
 #!/bin/sh
 printf '%s\n' "\$*" >"$root/vendor-called"
 EOF
-  chmod 0755 "$root/vendor"
-  mkdir -p -- "$root/data"
+  chmod 0555 "$root/vendor"
+  vendor_sha256="$(sha256sum "$root/vendor")"
+  vendor_sha256="${vendor_sha256%% *}"
+  vendor_owner="$(stat -c '%u:%g' "$root/vendor")"
+  sed \
+    -e "s#MARIADB_DATA_ROOT=/var/lib/mysql#MARIADB_DATA_ROOT=$root/data#" \
+    -e "s#MARIADB_BINLOG_SCANNER=/usr/local/libexec/scan-binlogs.mariadb.pl#MARIADB_BINLOG_SCANNER=$root/scanner#" \
+    -e "s#^MARIADB_BINLOG_SCANNER_SHA256=.*#MARIADB_BINLOG_SCANNER_SHA256='$scanner_sha256'#" \
+    -e "s#^MARIADB_BINLOG_SCANNER_OWNER=.*#MARIADB_BINLOG_SCANNER_OWNER='$scanner_owner'#" \
+    -e "s#MARIADB_VENDOR_ENTRYPOINT=/usr/local/bin/docker-entrypoint-reviewed.sh#MARIADB_VENDOR_ENTRYPOINT=$root/vendor#" \
+    -e "s#^MARIADB_VENDOR_ENTRYPOINT_SHA256S=.*#MARIADB_VENDOR_ENTRYPOINT_SHA256S='$vendor_sha256'#" \
+    -e "s#^MARIADB_VENDOR_ENTRYPOINT_OWNER=.*#MARIADB_VENDOR_ENTRYPOINT_OWNER='$vendor_owner'#" \
+    "$GUARD_SCRIPT" >"$root/guard"
+  chmod 0755 "$root/guard"
 }
 
 case_guard_handoff() {
@@ -1010,6 +1035,219 @@ case_guard_rejects_invalid_purge_replica_threshold() {
   [[ "$(<"$root/vendor-called")" == mariadbd ]]
 }
 
+case_guard_rejects_vendor_byte_drift() {
+  local root="$TEST_ROOT/guard-vendor-byte-drift"
+  local status=0
+  mkdir -p -- "$root"
+  prepare_guard_copy "$root"
+  chmod 0755 "$root/vendor"
+  printf '\n' >>"$root/vendor"
+  chmod 0555 "$root/vendor"
+  set +e
+  "$root/guard" mariadbd
+  status=$?
+  set -e
+  (( status == 78 ))
+  [[ ! -e "$root/vendor-called" ]]
+}
+
+case_guard_rejects_vendor_metadata_drift() {
+  local root="$TEST_ROOT/guard-vendor-metadata-drift"
+  local status=0
+  mkdir -p -- "$root"
+  prepare_guard_copy "$root"
+  chmod 0755 "$root/vendor"
+  set +e
+  "$root/guard" mariadbd
+  status=$?
+  set -e
+  (( status == 78 ))
+  [[ ! -e "$root/vendor-called" ]]
+}
+
+case_guard_scans_safe_binlog() {
+  local root="$TEST_ROOT/guard-safe-binlog"
+  mkdir -p -- "$root"
+  prepare_guard_copy "$root"
+  : >"$root/data/binlog.000000"
+  printf 'safe binary log fixture without credential bytes' >"$root/data/binlog.000001"
+  printf 'safe reviewed binary-log sidecar' >"$root/data/binlog.000001.idx"
+  "$root/guard" mariadbd
+  [[ "$(<"$root/vendor-called")" == mariadbd ]]
+}
+
+case_guard_rejects_each_current_secret_in_binlog() {
+  local root="$TEST_ROOT/guard-binlog-secret"
+  local secret_name=""
+  local output=""
+  local status=0
+  mkdir -p -- "$root"
+  prepare_guard_copy "$root"
+  for secret_name in MARIADB_PASSWORD MARIADB_ROOT_PASSWORD; do
+    rm -f -- "$root/vendor-called" "$root/data/binlog.000001"
+    head -c 1048568 /dev/zero | tr '\0' x >"$root/data/binlog.000001"
+    printf 'boundary' >>"$root/data/binlog.000001"
+    dd if="$root/secrets/$secret_name" bs=4096 count=1 status=none >>"$root/data/binlog.000001"
+    set +e
+    output="$("$root/guard" mariadbd 2>&1)"
+    status=$?
+    set -e
+    (( status == 78 ))
+    [[ ! -e "$root/vendor-called" ]]
+    [[ "$output" == *'an active binary log contains a current database secret'* ]]
+    [[ "$output" != *"$(<"$root/secrets/$secret_name")"* ]]
+  done
+}
+
+case_guard_rejects_hostile_secret_inputs() {
+  local root="$TEST_ROOT/guard-hostile-secrets"
+  local kind=""
+  local status=0
+  mkdir -p -- "$root"
+  prepare_guard_copy "$root"
+  for kind in symlink fifo hardlink control placeholder; do
+    rm -f -- "$root/secrets/MARIADB_PASSWORD" "$root/secrets/secret-target" "$root/vendor-called"
+    case "$kind" in
+      symlink) ln -s -- "$root/secrets/MARIADB_ROOT_PASSWORD" "$root/secrets/MARIADB_PASSWORD" ;;
+      fifo) mkfifo -- "$root/secrets/MARIADB_PASSWORD" ;;
+      hardlink)
+        printf 'test-hardlinked-database-password' >"$root/secrets/secret-target"
+        ln -- "$root/secrets/secret-target" "$root/secrets/MARIADB_PASSWORD"
+        ;;
+      control) printf 'test-control-password\n' >"$root/secrets/MARIADB_PASSWORD" ;;
+      placeholder) printf CHANGE_ME >"$root/secrets/MARIADB_PASSWORD" ;;
+    esac
+    set +e
+    timeout 5 "$root/guard" mariadbd
+    status=$?
+    set -e
+    (( status == 78 ))
+    [[ ! -e "$root/vendor-called" ]]
+  done
+}
+
+case_guard_rejects_hostile_binlog_types() {
+  local root="$TEST_ROOT/guard-hostile-binlog"
+  local kind=""
+  local status=0
+  mkdir -p -- "$root"
+  prepare_guard_copy "$root"
+  for kind in symlink fifo hardlink directory; do
+    rm -rf -- "$root/data/binlog.000001" "$root/data/binlog-hardlink-target" "$root/vendor-called"
+    case "$kind" in
+      symlink) ln -s -- /dev/null "$root/data/binlog.000001" ;;
+      fifo) mkfifo -- "$root/data/binlog.000001" ;;
+      hardlink)
+        printf safe >"$root/data/binlog-hardlink-target"
+        ln -- "$root/data/binlog-hardlink-target" "$root/data/binlog.000001"
+        ;;
+      directory) mkdir -- "$root/data/binlog.000001" ;;
+    esac
+    set +e
+    timeout 5 "$root/guard" mariadbd
+    status=$?
+    set -e
+    (( status == 78 ))
+    [[ ! -e "$root/vendor-called" ]]
+  done
+}
+
+case_guard_rejects_hostile_binlog_sidecar() {
+  local root="$TEST_ROOT/guard-hostile-binlog-sidecar"
+  local status=0
+  mkdir -p -- "$root"
+  prepare_guard_copy "$root"
+  mkfifo -- "$root/data/binlog.000001.idx"
+  set +e
+  timeout 5 "$root/guard" mariadbd
+  status=$?
+  set -e
+  (( status == 78 ))
+  [[ ! -e "$root/vendor-called" ]]
+}
+
+case_guard_rejects_binlog_inventory_bounds() {
+  local root="$TEST_ROOT/guard-binlog-bounds"
+  local index=0
+  local status=0
+  mkdir -p -- "$root"
+  prepare_guard_copy "$root"
+  for (( index = 1; index <= 513; index++ )); do
+    : >"$root/data/binlog.$(printf '%06d' "$index")"
+  done
+  set +e
+  "$root/guard" mariadbd
+  status=$?
+  set -e
+  (( status == 78 ))
+  [[ ! -e "$root/vendor-called" ]]
+
+  find "$root/data" -xdev -mindepth 1 -maxdepth 1 -type f -name 'binlog.*' -delete
+  truncate -s 1100000001 "$root/data/binlog.000001"
+  set +e
+  "$root/guard" mariadbd
+  status=$?
+  set -e
+  (( status == 78 ))
+  [[ ! -e "$root/vendor-called" ]]
+}
+
+case_guard_rejects_unexpected_binlog_name() {
+  local root="$TEST_ROOT/guard-unexpected-binlog-name"
+  local status=0
+  mkdir -p -- "$root"
+  prepare_guard_copy "$root"
+  printf safe >"$root/data/binlog.0x"
+  set +e
+  "$root/guard" mariadbd
+  status=$?
+  set -e
+  (( status == 78 ))
+  [[ ! -e "$root/vendor-called" ]]
+}
+
+case_guard_rejects_scanner_drift() {
+  local root="$TEST_ROOT/guard-scanner-drift"
+  local status=0
+  mkdir -p -- "$root"
+  prepare_guard_copy "$root"
+  chmod 0755 "$root/scanner"
+  printf '\n' >>"$root/scanner"
+  chmod 0555 "$root/scanner"
+  set +e
+  "$root/guard" mariadbd
+  status=$?
+  set -e
+  (( status == 78 ))
+  [[ ! -e "$root/vendor-called" ]]
+}
+
+case_reviewed_target_preexistence_guard() {
+  local root="$TEST_ROOT/reviewed-target-preexistence"
+  local target="$root/reviewed"
+  mkdir -p -- "$root"
+  : >"$target"
+  ! { test ! -e "$target" && test ! -L "$target"; }
+  rm -f -- "$target"
+  ln -s -- "$root/missing" "$target"
+  ! { test ! -e "$target" && test ! -L "$target"; }
+  rg -F 'test ! -e "$target" && test ! -L "$target"' "$MARIADB_DOCKERFILE" >/dev/null
+}
+
+case_static_temp_server_binlog_contract() {
+  rg -F 'f0093b5ac80091c0138592c1dd5c2e920ed80d16a56f0fad952e14ee502520a0)' "$MARIADB_DOCKERFILE" >/dev/null
+  rg -F 'f25d3c3a100936e686b9a508cca4f1fa9d2abcc4bc74ed4c1dabe57e88703be3' "$MARIADB_DOCKERFILE" >/dev/null
+  rg -F '6e0c54561e24829b2b1e73dd96a7fcfadcaf576b1624dda8500f55dc970a7b53)' "$MARIADB_DOCKERFILE" >/dev/null
+  rg -F '23426ac0f8d688aa3f8f1c7506a46f884269e19d4e7661831421649d03579ee4' "$MARIADB_DOCKERFILE" >/dev/null
+  rg -F '$new = q!"$@" --skip-log-bin --skip-networking --default-time-zone=SYSTEM --socket="${SOCKET}" --wsrep_on=OFF!' "$MARIADB_DOCKERFILE" >/dev/null
+  rg -F 'target=/usr/local/bin/docker-entrypoint-reviewed.sh' "$MARIADB_DOCKERFILE" >/dev/null
+  rg -F 'COPY scan-binlogs.mariadb.pl /usr/local/libexec/scan-binlogs.mariadb.pl' "$MARIADB_DOCKERFILE" >/dev/null
+  rg -F 'MARIADB_BINLOG_SCANNER=/usr/local/libexec/scan-binlogs.mariadb.pl' "$GUARD_SCRIPT" >/dev/null
+  rg -F 'MARIADB_BINLOG_SCANNER_SHA256=' "$GUARD_SCRIPT" >/dev/null
+  rg -F 'MARIADB_VENDOR_ENTRYPOINT=/usr/local/bin/docker-entrypoint-reviewed.sh' "$GUARD_SCRIPT" >/dev/null
+  rg -F 'MARIADB_VENDOR_ENTRYPOINT_SHA256S=' "$GUARD_SCRIPT" >/dev/null
+}
+
 case_static_destructive_bounds() {
   ! rg -n 'find "\$MARIADB_DIR".*rm -rf|rm -rf -- "\$MARIADB_DIR"' "$RESTORE_SCRIPT"
   rg -F 'find "$path" -xdev -depth -mindepth 1 -delete' "$RESTORE_SCRIPT" >/dev/null
@@ -1067,6 +1305,18 @@ expect_success guard-rejects-unsafe-root case_guard_rejects_unsafe_root
 expect_success guard-find-error-blocks case_guard_find_error_blocks
 expect_success guard-rejects-invalid-binlog-retention case_guard_rejects_invalid_binlog_retention
 expect_success guard-rejects-invalid-purge-replica-threshold case_guard_rejects_invalid_purge_replica_threshold
+expect_success guard-rejects-vendor-byte-drift case_guard_rejects_vendor_byte_drift
+expect_success guard-rejects-vendor-metadata-drift case_guard_rejects_vendor_metadata_drift
+expect_success guard-scans-safe-binlog case_guard_scans_safe_binlog
+expect_success guard-rejects-each-current-secret-in-binlog case_guard_rejects_each_current_secret_in_binlog
+expect_success guard-rejects-hostile-secret-inputs case_guard_rejects_hostile_secret_inputs
+expect_success guard-rejects-hostile-binlog-types case_guard_rejects_hostile_binlog_types
+expect_success guard-rejects-hostile-binlog-sidecar case_guard_rejects_hostile_binlog_sidecar
+expect_success guard-rejects-binlog-inventory-bounds case_guard_rejects_binlog_inventory_bounds
+expect_success guard-rejects-unexpected-binlog-name case_guard_rejects_unexpected_binlog_name
+expect_success guard-rejects-scanner-drift case_guard_rejects_scanner_drift
+expect_success reviewed-target-preexistence-guard case_reviewed_target_preexistence_guard
+expect_success static-temp-server-binlog-contract case_static_temp_server_binlog_contract
 expect_success static-destructive-bounds case_static_destructive_bounds
 
 printf '\nMariaDB maintenance safety: %d passed, %d failed\n' "$PASS" "$FAIL"

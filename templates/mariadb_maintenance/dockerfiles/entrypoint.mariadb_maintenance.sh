@@ -69,7 +69,6 @@ RESTORE_SWITCH_JOURNAL=""
 RESTORE_SWITCH_ACTIVE=false
 RESTORE_SWITCH_COMMITTED=false
 RESTORE_SWITCH_FINALIZED=false
-RESTORE_TRANSACTION_UNCERTAIN=false
 RESTORE_JOURNAL_STATE=""
 RESTORE_OLD_SOURCES=()
 RESTORE_OLD_DESTINATIONS=()
@@ -273,7 +272,6 @@ cleanup() {
   if [[ "$RESTORE_SWITCH_ACTIVE" == "true" && "$RESTORE_SWITCH_COMMITTED" != "true" ]]; then
     if ! rollback_restore_switch; then
       preserve_workspace=true
-      RESTORE_TRANSACTION_UNCERTAIN=true
       log_error "MariaDB data-directory rollback is uncertain; preserving the recovery journal and workspace: $TMP_BASE"
     fi
   fi
@@ -443,6 +441,8 @@ capture_restore_inventory() {
 #     $2 - directory to inspect recursively
 #ææææææææææææææææææææææææææææææææææ
 capture_mount_inventory() {
+  # ShellCheck cænnot infer thæt this næmeref remæins æn ærræy æcross mæpfile.
+  # shellcheck disable=SC2034,SC2178
   local -n output_array="$1"
   local path="$2"
   local output=""
@@ -454,6 +454,7 @@ capture_mount_inventory() {
     [[ "$status" == "1" && -z "$output" ]] || return 1
     return 0
   fi
+  # shellcheck disable=SC2034
   [[ -n "$output" ]] && mapfile -t output_array <<<"$output"
 }
 

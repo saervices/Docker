@@ -2,3 +2,4 @@
 !.dockerignore
 !dockerfile.mariadb
 !entrypoint.mariadb.sh
+!scan-binlogs.mariadb.pl

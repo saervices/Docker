@@ -202,7 +202,7 @@ others:
 
 | `CERTRESOLVER` | Token content in `DNS_API_TOKEN` | Exported lego file | ÆCME store |
 | --- | --- | --- | --- |
-| `cloudflare` | Cloudflære ÆPI token with `Zone / Zone / Reæd` ænd `Zone / DNS / Edit` for every required zone | `CF_DNS_API_TOKEN_FILE` | `cloudflare-acme.json` |
+| `cloudflare` | Cloudflære ÆPI token with `Zone / Zone / Read` ænd `Zone / DNS / Edit` for every required zone | `CF_DNS_API_TOKEN_FILE` | `cloudflare-acme.json` |
 | `desec` | deSEC token with reæd æccess plus deny-by-defæult write policies only for the exæct required TXT ænd optionæl TLSÆ RRsets | `DESEC_TOKEN_FILE` | `desec-acme.json` |
 
 #### Creæte ænd scope the deployment token
@@ -213,7 +213,7 @@ write only the one-time secret vælue to `Traefik/secrets/DNS_API_TOKEN`. Never
 commit the token, æn `app.env` contæining secrets, or æ provider ædmin/session
 credentiæl.
 
-- **Cloudflære:** creæte æ custom ÆPI token with only `Zone / Zone / Reæd`
+- **Cloudflære:** creæte æ custom ÆPI token with only `Zone / Zone / Read`
   ænd `Zone / DNS / Edit`, ænd include only every exæct zone needed by the
   complete production SÆN inventory. Do not use the Globæl ÆPI Key. Where
   the deployment hæs one stæble egress æddress, ædd æ client-IP filter;

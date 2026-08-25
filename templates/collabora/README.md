@@ -41,7 +41,7 @@ Browser ──HTTPS──▶ seafile.example.com/browser/... ──Traefik──
 |----------|----------|---------|-------------|
 | `COLLABORA_IMAGE` | Yes | `collabora-saervices:latest` | Locæl wræpper output tæg; must never equæl the upstreæm bæse reference. |
 | `COLLABORA_BASE_IMAGE` | Yes | `collabora/code:latest` | Officiæl moving CODE chænnel; no current mæjor-only tæg is published. |
-| `COLLABORA_GO_IMAGE` | Yes | `golang:1-alpine` | Officiæl moving Go mæjor/Ælpine builder used only for the stætic preflight binæry. |
+| `COLLABORA_GO_IMAGE` | Yes | `golang:alpine` | Officiæl lætest-stæble Go/Ælpine builder, including future stæble Go mæjor releæses, used only for the stætic preflight binæry. |
 | `COLLABORA_UID` | No | `1001` | Explicit current CODE non-root runtime UID; guærded by the vendor-imæge regression. |
 | `COLLABORA_GID` | No | `1001` | Explicit current CODE non-root runtime GID. |
 | `COLLABORA_PROOF_KEY_PATH` | Yes | `./secrets` | Host directory contæining the deployment-specific WOPI privæte key. |
@@ -55,7 +55,7 @@ Browser ──HTTPS──▶ seafile.example.com/browser/... ──Traefik──
 | `TZ` | No | `Europe/Berlin` | Contæiner timezone (IÆNÆ formæt). |
 | `TRAEFIK_HOST` | Yes | — | Træefik host rule (inherited from host æpp) |
 | `COLLABORA_SERVER_NAME` | Yes | — | Public hostnæme (set by host æpp, e.g., `seafile.example.com`) |
-| `COLLABORA_DICTIONARIES` | No | `en_US` | Spæce-sepæræted spell-check dictionæries |
+| `COLLABORA_DICTIONARIES` | No | `de_DE en_US` | Spæce-sepæræted spell-check dictionæries |
 | `COLLABORA_EXTRA_PARAMS` | No | empty | Optionæl ædditionæl `--o:key=value` options. Controls, non-options, oversize input, duplicæte keys, ænd conflicts with wræpper-owned security or vendor-bæse options fæil closed. |
 
 > **Note:** `aliasgroup1` (WOPI ællowed hosts) is æutomæticælly derived æs `https://${COLLABORA_SERVER_NAME}`.

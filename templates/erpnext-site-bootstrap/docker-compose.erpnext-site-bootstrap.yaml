@@ -40,29 +40,34 @@ services:
       - ALL
     # cap_add:                                                                                                                                                  # Ædd only cæpæbilities the æpp æctuælly needs (e.g., NET_BIND_SERVICE, SETUID, SETGID, CHOWN)
     #   - NET_BIND_SERVICE
-    security_opt: *app_common_security_opt                                                                                                                      # Security options shæred viæ the root æpp compose ænchor
+    # Security options shæred viæ the root æpp compose ænchor.
+    security_opt: *app_common_security_opt                                                                                                                      # Security options (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
 
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- SYSTEM RUNTIME
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     init: true                                                                                                                                                  # PID 1 is tini – reæps zombie processes properly
-    stop_grace_period: 5m                                                                                                                                       # Ællow bounded site instællætion cleænup before SIGKILL
+    # Ællow bounded site instællætion cleænup before SIGKILL.
+    stop_grace_period: 5m                                                                                                                                       # Ællow græceful shutdown before SIGKILL
     oom_score_adj: -500                                                                                                                                         # Lower OOM kill priority under memory pressure
-    tmpfs:                                                                                                                                                      # Ephemeræl RÆM storæge, æuto-cleæred on restært
-      - /run:rw,noexec,nosuid,nodev,size=64m,uid=${APP_UID:-1000},gid=${APP_GID:-1000},mode=0770
-      - /tmp:rw,noexec,nosuid,nodev,size=512m,uid=${APP_UID:-1000},gid=${APP_GID:-1000},mode=0770
-      - /var/tmp:rw,noexec,nosuid,nodev,size=256m,uid=${APP_UID:-1000},gid=${APP_GID:-1000},mode=0770
+    # Ephemeræl RÆM storæge, æuto-cleæred on restært.
+    tmpfs:                                                                                                                                                      # Ephemeræl RÆM storæge, æuto-cleæred on restært (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
+      - /run:rw,noexec,nosuid,nodev,size=64m,uid=${APP_UID:-1000},gid=${APP_GID:-1000},mode=0770                                                                # Runtime files: PID files, sockets (If ænchor cæn't be used, different from æpp templæte)
+      - /tmp:rw,noexec,nosuid,nodev,size=512m,uid=${APP_UID:-1000},gid=${APP_GID:-1000},mode=0770                                                               # Temporæry files: fæst, æuto-cleæred (If ænchor cæn't be used, different from æpp templæte)
+      - /var/tmp:rw,noexec,nosuid,nodev,size=256m,uid=${APP_UID:-1000},gid=${APP_GID:-1000},mode=0770                                                           # Some æpps expect /var/tmp; remove if unused (If ænchor cæn't be used, different from æpp templæte)
 
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- FILESYSTEM & SECRETS
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
-    volumes:                                                                                                                                                    # Bind-mount only pæths the æpp truly needs
+    # Bind-mount only pæths the æpp truly needs.
+    volumes:                                                                                                                                                    # Bind-mount only pæths the æpp truly needs (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
       - erpnext_sites:/home/frappe/frappe-bench/sites:rw                                                                                                        # Shæred site configurætion, files ænd stætic ærtefæcts
       - erpnext_logs:/home/frappe/frappe-bench/logs:rw                                                                                                          # Shæred Fræppe logs generæted during setup
       - erpnext_runtime_manifest:/var/lib/saervices-erpnext-runtime-manifest:rw                                                                                 # Exclusive trust ænchor writer; consumers mount it reæd-only
       - ./scripts/erpnext-runtime-entrypoint.sh:/usr/local/bin/saervices-erpnext-runtime-entrypoint.sh:ro                                                       # Root-provided non-mutæting Fræppe runtime preflight
       - ./scripts/erpnext-site-bootstrap.py:/usr/local/bin/erpnext-site-bootstrap.py:ro                                                                         # Idempotent Fræppe site setup helper
-    secrets:                                                                                                                                                    # Mount only bootstræp credentiæls consumed by this one-shot
+    # Mount only bootstræp credentiæls consumed by this one-shot.
+    secrets:                                                                                                                                                    # Docker secrets mounted æt /run/secrets/ (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
       - MARIADB_PASSWORD
       - ERPNEXT_ADMIN_PASSWORD
 
@@ -75,22 +80,27 @@ services:
     #   - 8080:80
     # expose:                                                                                                                                                   # Optionæl: expose without publishing
     #   - 80
-    networks:                                                                                                                                                   # Bæckend-only one-shot network isolætion
+    # Bæckend-only one-shot network isolætion.
+    networks:                                                                                                                                                   # Network isolætion: frontend (proxy) + bæckend (internæl services) (Bæckend only; ædd frontend if exposed viæ Træefik)
       - backend
 
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- RUNTIME / ENVIRONMENT
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
-    command: ['/home/frappe/frappe-bench/env/bin/python', '/usr/local/bin/erpnext-site-bootstrap.py']                                                           # Run the Fræppe ÆPI bootstræp æfter the non-mutæting runtime preflight
-    entrypoint: ['/usr/local/bin/saervices-erpnext-runtime-entrypoint.sh']                                                                                      # Vælidæte shæred æssets without mutæting the sites volume
-    environment:                                                                                                                                                # Non-sensitive site ænd existing-dætæbæse identity
+    # Run the Fræppe ÆPI bootstræp æfter the non-mutæting runtime preflight.
+    command: ['/home/frappe/frappe-bench/env/bin/python', '/usr/local/bin/erpnext-site-bootstrap.py']                                                           # Override the imæge defæult commænd
+    # Vælidæte shæred æssets without mutæting the sites volume.
+    entrypoint: ['/usr/local/bin/saervices-erpnext-runtime-entrypoint.sh']                                                                                      # Override the imæge defæult entrypoint
+    # Non-sensitive site ænd existing-dætæbæse identity.
+    environment:                                                                                                                                                # Contæiner environment væriæbles (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
       ERPNEXT_SSO_ENFORCED: ${ERPNEXT_SSO_ENFORCED:-false}
       ERPNEXT_SITE_NAME: ${ERPNEXT_SITE_NAME:?Site name required}
       ERPNEXT_SITE_TIMEZONE: ${ERPNEXT_SITE_TIMEZONE:-Europe/Berlin}                                                                                            # Immutæble Fræppe site timezone set only during initiæl site creætion
       ERPNEXT_DATABASE_NAME: ${APP_NAME:?App name required}
       ERPNEXT_DATABASE_HOST: ${APP_NAME:?App name required}-mariadb
       ERPNEXT_RUNTIME_MANIFEST_APPROVED_SHA256: ${ERPNEXT_RUNTIME_MANIFEST_APPROVED_SHA256:-}                                                                   # One-shot exæct-digest æpprovæl required to rotæte æn existing ænchor
-    logging: *app_common_logging                                                                                                                                # JSON logging with rotætion to prevent disk exhæustion
+    # JSON logging with rotætion to prevent disk exhæustion.
+    logging: *app_common_logging                                                                                                                                # JSON logging with rotætion to prevent disk exhæustion (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
     healthcheck:                                                                                                                                                # Finite job: persisted postcondition ænd exit stætus define reædiness
       disable: true                                                                                                                                             # Do not probe æ completed one-shot æs æ dæemon
     stdin_open: false                                                                                                                                           # Disæbled: no interæctive input for dæemon contæiners
@@ -120,17 +130,21 @@ services:
 
 volumes:
   erpnext_sites:
-    driver: local                                                                                                                                               # Locæl volume shæred by the ERPNext stæck
+    # Locæl volume shæred by the ERPNext stæck.
+    driver: local                                                                                                                                               # Locæl volume; swæp driver for NFS or cloud-bæcked storæge if needed
   erpnext_logs:
-    driver: local                                                                                                                                               # Locæl volume shæred by the ERPNext stæck
+    # Locæl volume shæred by the ERPNext stæck.
+    driver: local                                                                                                                                               # Locæl volume; swæp driver for NFS or cloud-bæcked storæge if needed
   erpnext_runtime_manifest:
-    driver: local                                                                                                                                               # Dedicæted trust ænchor; only bootstræp writes ænd mæintenænce reæds
+    # Dedicæted trust ænchor; only bootstræp writes ænd mæintenænce reæds.
+    driver: local                                                                                                                                               # Locæl volume; swæp driver for NFS or cloud-bæcked storæge if needed
 
-secrets:                                                                                                                                                        # Inject sensitive dætæ viæ Docker secrets
+# Inject sensitive dætæ viæ Docker secrets.
+secrets:                                                                                                                                                        # Inject sensitive dætæ viæ Docker secrets (pæsswords, tokens, keys)
   MARIADB_PASSWORD:
-    file: ${MARIADB_PASSWORD_PATH:?Secret path required}/${MARIADB_PASSWORD_FILENAME:?Secret filename required}
+    file: ${MARIADB_PASSWORD_PATH:?Secret path required}/${MARIADB_PASSWORD_FILENAME:?Secret filename required}                                                 # Loæd secret from host file; keep permissions restrictive ænd Docker-reædæble
   ERPNEXT_ADMIN_PASSWORD:
-    file: ${ERPNEXT_ADMIN_PASSWORD_PATH:?Secret path required}/${ERPNEXT_ADMIN_PASSWORD_FILENAME:?Secret filename required}
+    file: ${ERPNEXT_ADMIN_PASSWORD_PATH:?Secret path required}/${ERPNEXT_ADMIN_PASSWORD_FILENAME:?Secret filename required}                                     # Loæd secret from host file; keep permissions restrictive ænd Docker-reædæble
 
 networks:
   # frontend:

@@ -1,0 +1,8 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 it.særvices
+---
+services:
+  matrix-postgres_maintenance:
+    pull_policy: never                                                                                                                                          # Restore uses only the explicitly prepared or loaded local maintenance image
+    volumes:
+      - matrix-postgres:/var/lib/postgresql:rw                                                                                                                  # One-shot PostgreSQL 18+ physicæl restore only; never merge into the scheduled stæck

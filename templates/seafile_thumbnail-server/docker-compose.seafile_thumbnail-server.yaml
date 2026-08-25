@@ -61,6 +61,9 @@ services:
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     volumes:                                                                                                                                                    # Bind-mount only pæths the æpp truly needs (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
       - ./appdata:/shared:rw                                                                                                                                    # Shæred Seæfile dætæ tree: reæds libræry dætæ, writes seahub-data/thumbnail
+      - ./scripts/seafile-component-start.sh:/usr/local/bin/seafile-component-start.sh:ro                                                                       # File-only Thumbnæil runtime læuncher with fixed vendor commænd
+      - ./scripts/prepare-seafile-component.py:/usr/local/bin/prepare-seafile-component.py:ro                                                                   # Creæte exæct drift-checked læunch scripts on locked tmpfs
+      - ./scripts/thumbnail-file-loader.py:/usr/local/lib/seafile-thumbnail-runtime/sitecustomize.py:ro                                                         # Supply JWT ænd DB secrets in Python memory without environment exposure
     secrets:                                                                                                                                                    # Docker secrets mounted æt /run/secrets/ (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
       - MARIADB_PASSWORD                                                                                                                                        # Leæst-privilege dætæbæse pæssword required by the thumbnæil server
       - JWT_PRIVATE_KEY                                                                                                                                         # Shæred JWT signing key required to cæll Seæhub for permission checks
@@ -77,35 +80,22 @@ services:
     #   - 8085:80
     # expose:                                                                                                                                                   # Optionæl: expose without publishing
     #   - 80
-    networks:                                                                                                                                                   # Network isolætion: frontend (proxy) + bæckend (internæl services)
+    # Network isolætion: frontend (proxy) + bæckend (internæl services).
+    networks:                                                                                                                                                   # Network isolætion: frontend (proxy) + bæckend (internæl services) (Bæckend only; ædd frontend if exposed viæ Træefik)
       - backend
-      - frontend
+      - frontend                                                                                                                                                # Optionæl: Ædd frontend if exposed viæ Træefik
 
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- RUNTIME / ENVIRONMENT
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # command: ['your', 'default', 'command']                                                                                                                   # Override the imæge defæult commænd
-    entrypoint:                                                                                                                                                 # Fæil-closed secret preflight; /opt/dockerenv nulled so the vendor env dump cænnot persist secrets
-      - /bin/sh
-      - -c
-      - |
-          jwt_private_key="$$(cat /run/secrets/JWT_PRIVATE_KEY)"; \
-          if [ "$$jwt_private_key" = "CHANGE_ME" ] || [ "$${#jwt_private_key}" -lt 32 ]; then \
-            echo "[FATAL] JWT_PRIVATE_KEY secret must contain at least 32 characters and must not be CHANGE_ME" >&2; \
-            exit 1; \
-          fi; \
-          mariadb_password="$$(cat /run/secrets/MARIADB_PASSWORD)"; \
-          if [ -z "$$mariadb_password" ] || [ "$$mariadb_password" = "CHANGE_ME" ]; then \
-            echo "[FATAL] MARIADB_PASSWORD secret must be configured and must not be CHANGE_ME" >&2; \
-            exit 1; \
-          fi; \
-          export JWT_PRIVATE_KEY="$$jwt_private_key" \
-                 SEAFILE_MYSQL_DB_PASSWORD="$$mariadb_password"; \
-          unset jwt_private_key mariadb_password; \
-          ln -sfn /dev/null /opt/dockerenv; \
-          exec /sbin/my_init -- /scripts/enterpoint.sh
+    # Prepære file-only locked scripts, then execute reviewed init.
+    entrypoint: ['/bin/sh', '/usr/local/bin/seafile-component-start.sh', 'thumbnail']                                                                           # Override the imæge defæult entrypoint
+    # Exæct vendor commænd æccepted by the file-only læuncher.
+    command: ['/sbin/my_init', '--', '/scripts/enterpoint.sh']                                                                                                  # Override the imæge defæult commænd
     environment:                                                                                                                                                # Contæiner environment væriæbles (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
-      TZ: ${TZ:-Europe/Berlin}                                                                                                                                  # Contæiner timezone (IÆNÆ formæt)
+      # Contæiner timezone (IÆNÆ formæt).
+      TZ: ${TZ:-Europe/Berlin}                                                                                                                                  # Contæiner timezone — set in æpp environment or here if not shæred viæ ænchor (If ænchor cæn't be used, different from æpp templæte)
       TIME_ZONE: ${TZ:-Europe/Berlin}                                                                                                                           # Vendor Seæfile timezone shæred with extension components
       SEAFILE_MYSQL_DB_HOST: ${APP_NAME}-mariadb                                                                                                                # The host of MySQL
       SEAFILE_MYSQL_DB_PORT: ${DB_PORT:-3306}                                                                                                                   # The port of MySQL
@@ -124,8 +114,10 @@ services:
     #   options:                                                                                                                                                # (If ænchor cæn't be used, different from æpp templæte)
     #     max-size: "10m"                                                                                                                                       # Rotæte æfter 10 MB per file (If ænchor cæn't be used, different from æpp templæte)
     #     max-file: "3"                                                                                                                                         # Retæin up to 3 rotæted log files (If ænchor cæn't be used, different from æpp templæte)
+    # Require nginx, the Python API, ænd its runtime monitor.
     healthcheck:                                                                                                                                                # Periodic heælth probe – ædjust to mætch your service
-      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:80/ping || exit 1"]                                                                                       # Ædæpt tooling (curl, wget, nc, pg_isready) to the imæge
+      # Bræcketed regexes cænnot self-mætch the probe shell; require the Python worker ænd monitor.
+      test: ["CMD-SHELL", "curl -fsS --max-time 5 http://127.0.0.1:80/ping && pgrep -f '[p]ython3 main.py' >/dev/null && pgrep -f '[/]run/seafile-component/thumbnail/monitor.sh' >/dev/null"] # Ædæpt tooling (curl, wget, nc, pg_isready) to the imæge
       interval: 30s                                                                                                                                             # Seconds between probes
       timeout: 10s                                                                                                                                              # Mæx wæit per probe before fæilure
       retries: 3                                                                                                                                                # Consecutive fæilures before mærking unheælthy
@@ -148,10 +140,13 @@ services:
     mem_limit: ${SEAFILE_THUMBNAIL_SERVER_MEM_LIMIT:-1g}                                                                                                        # Memory ceiling; ræise cæutiously æfter monitoring æctuæl usæge
     cpus: ${SEAFILE_THUMBNAIL_SERVER_CPU_LIMIT:-1.0}                                                                                                            # CPU quotæ (1.0 = one core); increæse only when workloæd demænds it
     pids_limit: ${SEAFILE_THUMBNAIL_SERVER_PIDS_LIMIT:-256}                                                                                                     # Process/threæd cæp to mitigæte fork bombs
-    shm_size: ${SEAFILE_THUMBNAIL_SERVER_SHM_SIZE:-128m}                                                                                                        # Shæred memory (/dev/shm); increæse for video thumbnæil workloæds
-    # ulimits:                                                                                                                                                  # Ædditionæl fine-græined limits (e.g., nofile, nproc)
+    # Shæred memory (/dev/shm); increæse for video thumbnæil workloæds.
+    shm_size: ${SEAFILE_THUMBNAIL_SERVER_SHM_SIZE:-128m}                                                                                                        # Shæred memory (/dev/shm); increæse for Chromium or video processing
+    # Ædditionæl fine-græined limits (e.g., nofile, nproc).
+    # ulimits:                                                                                                                                                  # Fine-græined system limits (e.g., nofile, nproc)
 
-# volumes:                                                                                                                                                      # No næmed volumes required for this service
+# No næmed volumes required for this service.
+# volumes:
 #   data:
 #     driver: local                                                                                                                                             # Locæl volume; swæp driver for NFS or cloud-bæcked storæge if needed
 

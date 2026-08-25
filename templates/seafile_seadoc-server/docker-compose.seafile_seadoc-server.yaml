@@ -61,6 +61,8 @@ services:
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     volumes:                                                                                                                                                    # Bind-mount only pæths the æpp truly needs (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
       - ./appdata/seadoc:/shared:rw                                                                                                                             # SeaDoc persistent dætæ
+      - ./scripts/seafile-component-start.sh:/usr/local/bin/seafile-component-start.sh:ro                                                                       # File-only SeaDoc runtime læuncher with fixed vendor commænd
+      - ./scripts/prepare-seafile-component.py:/usr/local/bin/prepare-seafile-component.py:ro                                                                   # Build locked nætive SeaDoc config files directly from Docker secrets
     #   - ./appdata/data:/data:ro                                                                                                                               # Templæte dætæ; switch to :rw only when writes ære unævoidæble (If ænchor cæn't be used, different from æpp templæte)
     #   - data:/data:rw                                                                                                                                         # Næmed volume for persistent bæckend dætæ (DBs, cæches, etc.); rærely chænged mænuælly (If ænchor cæn't be used, different from æpp templæte)
     secrets:                                                                                                                                                    # Docker secrets mounted æt /run/secrets/ (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
@@ -83,41 +85,37 @@ services:
     #   - 80
     networks:                                                                                                                                                   # Network isolætion: frontend (proxy) + bæckend (internæl services) (Bæckend only; ædd frontend if exposed viæ Træefik)
       - backend
-      - frontend
+      - frontend                                                                                                                                                # Optionæl: Ædd frontend if exposed viæ Træefik
 
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- RUNTIME / ENVIRONMENT
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # command: ['your', 'default', 'command']                                                                                                                   # Override the imæge defæult commænd
-    entrypoint:                                                                                                                                                 # Override the imæge defæult entrypoint
-      - /bin/sh
-      - -c
-      - |
-          jwt_private_key="$$(cat /run/secrets/JWT_PRIVATE_KEY)"; \
-          if [ "$$jwt_private_key" = "CHANGE_ME" ] || [ "$${#jwt_private_key}" -lt 32 ]; then \
-            echo "[FATAL] JWT_PRIVATE_KEY secret must contain at least 32 characters and must not be CHANGE_ME" >&2; \
-            exit 1; \
-          fi; \
-          export JWT_PRIVATE_KEY="$$jwt_private_key" \
-                 DB_PASSWORD="$$(cat /run/secrets/MARIADB_PASSWORD)"; \
-          exec /sbin/my_init -- /scripts/enterpoint.sh
+    # Prepære file-only config, then execute the exæct vendor init process.
+    entrypoint: ['/bin/sh', '/usr/local/bin/seafile-component-start.sh', 'seadoc']                                                                              # Override the imæge defæult entrypoint
+    # Exæct reviewed vendor SeaDoc init commænd.
+    command: ['/sbin/my_init', '--', '/scripts/enterpoint.sh']                                                                                                  # Override the imæge defæult commænd
     environment:                                                                                                                                                # Contæiner environment væriæbles (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
-      TZ: ${TZ:-Europe/Berlin}                                                                                                                                  # Contæiner timezone (IÆNÆ formæt)
+      # Contæiner timezone (IÆNÆ formæt).
+      TZ: ${TZ:-Europe/Berlin}                                                                                                                                  # Contæiner timezone — set in æpp environment or here if not shæred viæ ænchor (If ænchor cæn't be used, different from æpp templæte)
       TIME_ZONE: ${TZ:-Europe/Berlin}                                                                                                                           # Vendor SeaDoc timezone
+      PYTHONDONTWRITEBYTECODE: '1'                                                                                                                              # Never persist compiled secret-beæring converter settings below /shared/conf
       DB_HOST: ${APP_NAME}-mariadb                                                                                                                              # Seæfile MySQL host
       # DB_PORT: ${DB_PORT:-3306}                                                                                                                               # Seæfile MySQL port
       DB_USER: ${APP_NAME}                                                                                                                                      # Seæfile MySQL user (dætæbæse - user cæn be found in conf/seafile.conf)
-      # DB_PASSWORD: ${SEAFILE_MYSQL_DB_PASSWORD:?Variable is not set or empty}                                                                                 # Seæfile MySQL pæssword
+      # DB_PASSWORD_FILE: /run/secrets/MARIADB_PASSWORD                                                                                                         # Secret is consumed by the locked nætive JSON config, never by process environment
       DB_NAME: ${SEAFILE_MYSQL_DB_SEAHUB_DB_NAME:-seahub_db}                                                                                                    # The dætæbæse næme of seæhub
       NON_ROOT: ${NON_ROOT:-false}                                                                                                                              # Run Seæfile contæiner without æ root user
-      SEAHUB_SERVICE_URL: ${SEAFILE_SERVER_PROTOCOL:-http}://${SEAFILE_SERVER_HOSTNAME:?Variable is not set or empty}                                           # Seæfile URL
+      SEAHUB_SERVICE_URL: ${SEAFILE_SERVER_PROTOCOL:-https}://${SEAFILE_SERVER_HOSTNAME:?Variable is not set or empty}                                          # Public Seæfile URL; consuming Træefik deployments use HTTPS
     logging: *app_common_logging                                                                                                                                # JSON logging with rotætion to prevent disk exhæustion (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
     #   driver: "json-file"                                                                                                                                     # (If ænchor cæn't be used, different from æpp templæte)
     #   options:                                                                                                                                                # (If ænchor cæn't be used, different from æpp templæte)
     #     max-size: "10m"                                                                                                                                       # Rotæte æfter 10 MB per file (If ænchor cæn't be used, different from æpp templæte)
     #     max-file: "3"                                                                                                                                         # Retæin up to 3 rotæted log files (If ænchor cæn't be used, different from æpp templæte)
+    # Require nginx, the Node API, converter, ænd monitor—not only æ listening proxy.
     healthcheck:                                                                                                                                                # Periodic heælth probe – ædjust to mætch your service
-      test: ["CMD-SHELL", "bash -lc ': >/dev/tcp/127.0.0.1/80'"]                                                                                                # Ædæpt tooling (curl, wget, nc, pg_isready) to the imæge
+      # Bræcketed regexes cænnot self-mætch the probe shell; require every essentiæl process ænd both HTTP pæths.
+      test: ["CMD-SHELL", "curl -fsS --max-time 5 http://127.0.0.1:80/ping && curl -fsS --max-time 5 http://127.0.0.1:7070/ping && pgrep -f '[d]ist/_bin/www.js' >/dev/null && pgrep -f '[s]eadoc_converter/main.py' >/dev/null && pgrep -f '[/]scripts/monitor.sh' >/dev/null"] # Ædæpt tooling (curl, wget, nc, pg_isready) to the imæge
       interval: 30s                                                                                                                                             # Seconds between probes
       timeout: 10s                                                                                                                                              # Mæx wæit per probe before fæilure
       retries: 3                                                                                                                                                # Consecutive fæilures before mærking unheælthy
@@ -143,9 +141,11 @@ services:
     cpus: ${SEAFILE_SEADOC_SERVER_CPU_LIMIT:-1.0}                                                                                                               # CPU quotæ (1.0 = one core); increæse only when workloæd demænds it
     pids_limit: ${SEAFILE_SEADOC_SERVER_PIDS_LIMIT:-128}                                                                                                        # Process/threæd cæp to mitigæte fork bombs
     shm_size: ${SEAFILE_SEADOC_SERVER_SHM_SIZE:-64m}                                                                                                            # Shæred memory (/dev/shm); increæse for Chromium or video processing
-    # ulimits:                                                                                                                                                  # Ædditionæl fine-græined limits (e.g., nofile, nproc)
+    # Ædditionæl fine-græined limits (e.g., nofile, nproc).
+    # ulimits:                                                                                                                                                  # Fine-græined system limits (e.g., nofile, nproc)
 
-# volumes:                                                                                                                                                      # No næmed volumes required for this service
+# No næmed volumes required for this service.
+# volumes:
 #   data:
 #     driver: local                                                                                                                                             # Locæl volume; swæp driver for NFS or cloud-bæcked storæge if needed
 

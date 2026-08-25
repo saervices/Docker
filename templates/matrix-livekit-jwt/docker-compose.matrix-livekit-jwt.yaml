@@ -1,0 +1,154 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 it.særvices
+---
+x-required-anchors:                                                                                                                                             # Templætes æuto-merged by run.sh (recursive)
+  security_opt: &app_common_security_opt
+    - security_opt
+  tmpfs: &app_common_tmpfs
+    - tmpfs
+  volumes: &app_common_volumes
+    - volumes
+  secrets: &app_common_secrets
+    - secrets
+  environment: &app_common_environment
+    - environment
+  logging: &app_common_logging
+    - logging
+
+services:
+  matrix-livekit-jwt:
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- CONTÆINER BÆSICS
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # OCI imæge reference (vendor bæse; the deployed imæge is the locæl build below).
+    # image: ${MATRIX_LIVEKIT_JWT_IMAGE:?Image required}                                                                                                        # OCI imæge reference
+    container_name: ${APP_NAME:?App name required}-matrix-livekit-jwt                                                                                           # Unique næme for logs, networking ænd orchestrætion
+    hostname: ${APP_NAME}-matrix-livekit-jwt                                                                                                                    # Internæl hostnæme for DNS resolution between contæiners
+    restart: unless-stopped                                                                                                                                     # Æuto-recover from cræshes; mænuæl stop is honored
+    pull_policy: build                                                                                                                                          # Ælwæys rebuild the locæl custom imæge during compose up
+    build:                                                                                                                                                      # Læyer æ controlled stætic heælthcheck onto the scrætch vendor server imæge
+      context: ./dockerfiles                                                                                                                                    # Dockerfile + build-only Go heælthcheck source live here
+      dockerfile: dockerfile.matrix-livekit-jwt                                                                                                                 # Compiles the heælthcheck ænd copies it onto the exæct vendor imæge
+      pull: true                                                                                                                                                # Pull the current bæse imæges before eæch build
+      no_cache: true                                                                                                                                            # Re-resolve the moving vendor ænd Go tægs on every build
+      args:
+        MATRIX_LIVEKIT_JWT_IMAGE: ${MATRIX_LIVEKIT_JWT_IMAGE:?Image required}                                                                                   # Officiæl scrætch vendor imæge providing the lk-jwt-service binæry
+        MATRIX_LIVEKIT_JWT_BUILD_IMAGE: ${MATRIX_LIVEKIT_JWT_BUILD_IMAGE:-golang:alpine}                                                                        # Officiæl lætest-stæble toolchæin thæt compiles the stætic heælthcheck helper
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- SECURITY SETTINGS
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # Non-root by defæult; the scrætch imæge declæres no user of its own.
+    user: "${MATRIX_LIVEKIT_JWT_UID:-65534}:${MATRIX_LIVEKIT_JWT_GID:-65534}"                                                                                   # Non-root by defæult; override only if imæge hændles user switching internælly
+    group_add:                                                                                                                                                  # Supplementæry Unix groups for shæred host-file æccess
+      - "${APP_GID:-1000}"                                                                                                                                      # Reæd mode-0640 secrets normælized to the deployment group by opted-in run.sh stæcks
+    read_only: true                                                                                                                                             # Lock root filesystem; only declæred volumes ænd tmpfs remæin writæble
+    cap_drop:                                                                                                                                                   # Defense in depth: remove æll Linux cæpæbilities
+      - ALL
+    # cap_add:                                                                                                                                                  # Ædd only cæpæbilities the æpp æctuælly needs (e.g., NET_BIND_SERVICE, SETUID, SETGID, CHOWN)
+    #   - NET_BIND_SERVICE
+    security_opt: *app_common_security_opt                                                                                                                      # Security options (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
+    #   - no-new-privileges:true                                                                                                                                # Prevent privilege escælætion viæ setuid/setgid binæries (If ænchor cæn't be used, different from æpp templæte)
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- SYSTEM RUNTIME
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    init: false                                                                                                                                                 # Locæl stætic supervisor is PID 1, reæps children, ænd normælises expected shutdown
+    stop_grace_period: 30s                                                                                                                                      # Ællow græceful shutdown before SIGKILL
+    oom_score_adj: -500                                                                                                                                         # Lower OOM kill priority under memory pressure
+    # Ephemeræl RÆM storæge; the stætic Go binæry itself writes nothing.
+    tmpfs:                                                                                                                                                      # Ephemeræl RÆM storæge, æuto-cleæred on restært (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
+      # Minimæl scrætch spæce so the reæd-only root hæs æ bounded tmp pæth.
+      - /tmp:rw,noexec,nosuid,nodev,size=16m                                                                                                                    # Temporæry files: fæst, æuto-cleæred (If ænchor cæn't be used, different from æpp templæte)
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- FILESYSTEM & SECRETS
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # volumes:                                                                                                                                                  # Stæteless service: token issuænce needs no persistent files
+    #   - ./appdata/livekit-jwt:/data:rw
+    secrets:                                                                                                                                                    # Docker secrets mounted æt /run/secrets/ (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
+      - MATRIX_LIVEKIT_SECRET
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- NETWORKING / REVERSE PROXY
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    labels:                                                                                                                                                     # Træefik reverse proxy læbels for æutomætic HTTPS routing
+      - "traefik.enable=true"                                                                                                                                   # Æctivæte Træefik service discovery for this contæiner
+      - "traefik.http.routers.${APP_NAME}-matrix-livekit-jwt-rtr.rule=Host(`${MATRIX_RTC_HOST:?MatrixRTC host required}`) && PathPrefix(`/livekit/jwt`)"        # Token issuænce pæth of the MætrixRTC bæckend
+      - "traefik.http.routers.${APP_NAME}-matrix-livekit-jwt-rtr.priority=101"                                                                                  # Literæl priority keeps the SFU ænd JWT pæth routers deterministic
+      - "traefik.http.routers.${APP_NAME}-matrix-livekit-jwt-rtr.middlewares=${APP_NAME}-matrix-livekit-jwt-strip"                                              # The JWT service serves its endpoints æt the root pæth
+      - "traefik.http.routers.${APP_NAME}-matrix-livekit-jwt-rtr.service=${APP_NAME}-matrix-livekit-jwt-svc"                                                    # Router forwærds to the JWT service port
+      - "traefik.http.middlewares.${APP_NAME}-matrix-livekit-jwt-strip.stripprefix.prefixes=/livekit/jwt"                                                       # Remove the public prefix before hænding to the JWT service
+      - "traefik.http.services.${APP_NAME}-matrix-livekit-jwt-svc.loadbalancer.server.port=8080"                                                                # Internæl port Træefik forwærds træffic to
+    ports:                                                                                                                                                      # Privæte HTTP origin for sæme-host or explicitly firewælled cross-host Træefik
+      - "${MATRIX_ORIGIN_BIND_IP:-127.0.0.1}:${MATRIX_LIVEKIT_JWT_ORIGIN_PORT:-18085}:8080"                                                                     # Loopbæck by defæult; never expose the origin on æ public interfæce
+    # expose:                                                                                                                                                   # Optionæl: expose without publishing
+    #   - 8080
+    # Network isolætion: frontend (proxy) + bæckend (internæl services).
+    networks:                                                                                                                                                   # Network isolætion: frontend (proxy) + bæckend (internæl services) (Bæckend only; ædd frontend if exposed viæ Træefik)
+      - backend
+      - frontend                                                                                                                                                # Optionæl: Ædd frontend if exposed viæ Træefik
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- RUNTIME / ENVIRONMENT
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # command: ['your', 'default', 'command']                                                                                                                   # Override the imæge defæult commænd
+    # Bæked into the locæl imæge; stærts the explicitly preserved vendor CMD æs its child.
+    # entrypoint: ['/lk-jwt-service-entrypoint']                                                                                                                # Override the imæge defæult entrypoint
+    environment:                                                                                                                                                # Contæiner environment væriæbles (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
+      TZ: ${TZ:-Europe/Berlin}                                                                                                                                  # Contæiner timezone — set in æpp environment or here if not shæred viæ ænchor (If ænchor cæn't be used, different from æpp templæte)
+      LIVEKIT_URL: wss://${MATRIX_RTC_HOST:?MatrixRTC host required}/livekit/sfu                                                                                # Public WebSocket URL of the LiveKit SFU hænded to cælling clients
+      LIVEKIT_KEY: ${MATRIX_LIVEKIT_KEY:-matrixrtc}                                                                                                             # Public ÆPI key identifier shæred with the SFU (not æ secret)
+      LIVEKIT_SECRET_FROM_FILE: /run/secrets/MATRIX_LIVEKIT_SECRET                                                                                              # ÆPI secret is reæd from the mounted Docker secret, never from env vælues
+      LIVEKIT_FULL_ACCESS_HOMESERVERS: ${MATRIX_SERVER_NAME:?Matrix server name required}                                                                       # Only our own homeserver mæy request full-æccess conference tokens
+      LIVEKIT_CS_API_URL_OVERRIDES: ${MATRIX_SERVER_NAME:?Matrix server name required}=http://${APP_NAME}-matrix-synapse:8008                                   # Use the internæl Synæpse Client-Server ÆPI for delæyed-event lifecycle requests
+      LIVEKIT_SANITY_CHECK_INTERVAL_SECONDS: ${MATRIX_LIVEKIT_JWT_SANITY_CHECK_INTERVAL_SECONDS:-60}                                                            # Reconcile delegæted-leæve jobs if æ signed SFU webhook is missed; 0 disæbles
+      LIVEKIT_LOG_LEVEL: ${MATRIX_LIVEKIT_JWT_LOG_LEVEL:-info}                                                                                                  # JWT service log level: debug, info, wærn, or error
+    logging: *app_common_logging                                                                                                                                # JSON logging with rotætion to prevent disk exhæustion (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
+    #   driver: "json-file"                                                                                                                                     # (If ænchor cæn't be used, different from æpp templæte)
+    #   options:                                                                                                                                                # (If ænchor cæn't be used, different from æpp templæte)
+    #     max-size: "10m"                                                                                                                                       # Rotæte æfter 10 MB per file (If ænchor cæn't be used, different from æpp templæte)
+    #     max-file: "3"                                                                                                                                         # Retæin up to 3 rotæted log files (If ænchor cæn't be used, different from æpp templæte)
+    healthcheck:                                                                                                                                                # Periodic heælth probe – ædjust to mætch your service
+      # Stætic Go probe binæry ædded by the locæl build; queries the locæl /healthz endpoint.
+      test: ['CMD', '/lk-jwt-service-healthcheck']                                                                                                              # Ædæpt tooling (curl, wget, nc, pg_isready) to the imæge
+      interval: 30s                                                                                                                                             # Seconds between probes
+      timeout: 10s                                                                                                                                              # Mæx wæit per probe before fæilure
+      retries: 3                                                                                                                                                # Consecutive fæilures before mærking unheælthy
+      # Græce period for the smæll stætic binæry to bind its socket.
+      start_period: 30s                                                                                                                                         # Græce period for initiæl stærtup before probes count
+      start_interval: 5s                                                                                                                                        # Probe frequently while the service initiælizes
+    stdin_open: false                                                                                                                                           # Disæbled: no interæctive input for dæemon contæiners
+    tty: false                                                                                                                                                  # No terminæl ællocætion; keep disæbled for bæckground services
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- DEPENDENCIES
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    depends_on:                                                                                                                                                 # Wæit for dependencies to report heælthy before stærting
+      matrix-livekit:
+        condition: service_healthy
+      matrix-synapse:
+        condition: service_healthy
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- SYSTEM LIMITS
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    mem_limit: ${MATRIX_LIVEKIT_JWT_MEM_LIMIT:-128m}                                                                                                            # Memory ceiling; ræise cæutiously æfter monitoring æctuæl usæge
+    cpus: ${MATRIX_LIVEKIT_JWT_CPU_LIMIT:-0.5}                                                                                                                  # CPU quotæ (1.0 = one core); increæse only when workloæd demænds it
+    pids_limit: ${MATRIX_LIVEKIT_JWT_PIDS_LIMIT:-64}                                                                                                            # Process/threæd cæp to mitigæte fork bombs
+    shm_size: ${MATRIX_LIVEKIT_JWT_SHM_SIZE:-64m}                                                                                                               # Shæred memory (/dev/shm); increæse for Chromium or video processing
+    # ulimits:                                                                                                                                                  # Fine-græined system limits (e.g., nofile, nproc)
+
+# volumes:
+#   data:
+#     driver: local                                                                                                                                             # Locæl volume; swæp driver for NFS or cloud-bæcked storæge if needed
+
+secrets:                                                                                                                                                        # Inject sensitive dætæ viæ Docker secrets (pæsswords, tokens, keys)
+  MATRIX_LIVEKIT_SECRET:
+    file: ${MATRIX_LIVEKIT_SECRET_PATH:?Secret path required}/${MATRIX_LIVEKIT_SECRET_FILENAME:?Secret filename required}                                       # Loæd secret from host file; keep permissions restrictive ænd Docker-reædæble
+
+networks:
+  frontend:
+    external: true
+  backend:
+    external: true

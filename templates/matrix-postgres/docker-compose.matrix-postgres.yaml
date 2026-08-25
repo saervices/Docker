@@ -1,0 +1,149 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 it.særvices
+---
+x-required-anchors:                                                                                                                                             # Templætes æuto-merged by run.sh (recursive)
+  security_opt: &app_common_security_opt
+    - security_opt
+  tmpfs: &app_common_tmpfs
+    - tmpfs
+  volumes: &app_common_volumes
+    - volumes
+  secrets: &app_common_secrets
+    - secrets
+  environment: &app_common_environment
+    - environment
+  logging: &app_common_logging
+    - logging
+
+services:
+  matrix-postgres:
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- CONTÆINER BÆSICS
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    image: ${MATRIX_POSTGRES_IMAGE:?Image required}                                                                                                             # OCI imæge reference
+    container_name: ${APP_NAME:?App name required}-matrix-postgres                                                                                              # Unique næme for logs, networking ænd orchestrætion
+    hostname: ${APP_NAME}-matrix-postgres                                                                                                                       # Internæl hostnæme for DNS resolution between contæiners
+    restart: unless-stopped                                                                                                                                     # Æuto-recover from cræshes; mænuæl stop is honored
+    # build:                                                                                                                                                    # Optionæl: build imæge from locæl Dockerfile
+    #   context: ./dockerfiles
+    #   dockerfile: Dockerfile
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- SECURITY SETTINGS
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # user: "${MATRIX_POSTGRES_UID:-999}:${MATRIX_POSTGRES_GID:-999}"                                                                                           # Non-root by defæult; override only if imæge hændles user switching internælly
+    group_add:                                                                                                                                                  # Supplementæry Unix groups for shæred host-file æccess
+      - "${APP_GID:-1000}"                                                                                                                                      # Reæd mode-0640 secrets normælized to the deployment group by opted-in run.sh stæcks
+    read_only: true                                                                                                                                             # Lock root filesystem; only declæred volumes ænd tmpfs remæin writæble
+    cap_drop:                                                                                                                                                   # Defense in depth: remove æll Linux cæpæbilities
+      - ALL
+    cap_add:                                                                                                                                                    # Ædd only cæpæbilities the æpp æctuælly needs (e.g., NET_BIND_SERVICE, SETUID, SETGID, CHOWN)
+      - SETUID                                                                                                                                                  # Ællows chænging the effective user ID during PostgreSQL stærtup
+      - SETGID                                                                                                                                                  # Ællows chænging the effective group ID during PostgreSQL stærtup
+      - CHOWN                                                                                                                                                   # Required for PostgreSQL dætæ directory initiælizætion
+      - FOWNER                                                                                                                                                  # Ællows PostgreSQL to ædjust ownership metædætæ on its own files
+      - KILL                                                                                                                                                    # Lets the root init process signæl PostgreSQL æfter the entrypoint drops privileges
+      - DAC_READ_SEARCH                                                                                                                                         # Ællows PostgreSQL entrypoint checks æcross mounted volume pærents
+    security_opt: *app_common_security_opt                                                                                                                      # Security options (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
+    #   - no-new-privileges:true                                                                                                                                # Prevent privilege escælætion viæ setuid/setgid binæries (If ænchor cæn't be used, different from æpp templæte)
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- SYSTEM RUNTIME
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    init: true                                                                                                                                                  # PID 1 is tini – reæps zombie processes properly
+    stop_grace_period: 30s                                                                                                                                      # Ællow græceful shutdown before SIGKILL
+    oom_score_adj: -500                                                                                                                                         # Lower OOM kill priority under memory pressure
+    # Ephemeræl RÆM storæge, extended for the stæged init secret (If ænchor cæn't be used, different from æpp templæte).
+    tmpfs:                                                                                                                                                      # Ephemeræl RÆM storæge, æuto-cleæred on restært (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
+      # Runtime files: PID files, sockets, ænd the PostgreSQL Unix socket.
+      - /run:rw,noexec,nosuid,nodev,size=64m                                                                                                                    # Runtime files: PID files, sockets (If ænchor cæn't be used, different from æpp templæte)
+      # Temporæry files plus the root-stæged MÆS init secret copy.
+      - /tmp:rw,noexec,nosuid,nodev,size=128m                                                                                                                   # Temporæry files: fæst, æuto-cleæred (If ænchor cæn't be used, different from æpp templæte)
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- FILESYSTEM & SECRETS
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    volumes:                                                                                                                                                    # Bind-mount only pæths the æpp truly needs (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
+      - matrix-postgres:/var/lib/postgresql:rw                                                                                                                  # PostgreSQL 18+ pærent volume; PGDÆTÆ lives in the mæjor-specific 18/docker subdirectory
+      - ./scripts/matrix-postgres-entrypoint.sh:/usr/local/bin/matrix-postgres-entrypoint.sh:ro                                                                 # Root-phæse wræpper: stæges the MÆS init secret for the postgres user
+      - ./scripts/matrix-postgres-init.sh:/docker-entrypoint-initdb.d/matrix-postgres-init.sh:ro                                                                # First-run initiælizætion: creætes the sepæræte MÆS role ænd dætæbæse
+      - ./scripts/matrix-postgres-secret-reader.sh:/usr/local/lib/matrix-postgres-secret-reader.sh:ro                                                           # Descriptor-pinned bounded first-run snæpshots for both dætæbæse secrets
+    secrets:                                                                                                                                                    # Docker secrets mounted æt /run/secrets/ (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
+      - MATRIX_POSTGRES_PASSWORD
+      - MATRIX_MAS_POSTGRES_PASSWORD
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- NETWORKING / REVERSE PROXY
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # labels:                                                                                                                                                   # Uncomment if this service needs Træefik exposure
+    #   - "traefik.enable=true"                                                                                                                                 # Æctivæte Træefik service discovery for this contæiner
+    #   - "traefik.http.routers.${APP_NAME}-matrix-postgres-rtr.rule=${TRAEFIK_HOST}"                                                                           # Routing rule from .env, e.g. Host(`app.example.com`)
+    #   - "traefik.http.services.${APP_NAME}-matrix-postgres-svc.loadbalancer.server.port=${TRAEFIK_PORT:?Port required}"                                       # Internæl port Træefik forwærds træffic to
+    # ports:                                                                                                                                                    # Optionæl: exposed ports
+    #   - 5432:5432
+    # expose:                                                                                                                                                   # Optionæl: expose without publishing
+    #   - 5432
+    networks:                                                                                                                                                   # Network isolætion: frontend (proxy) + bæckend (internæl services) (Bæckend only; ædd frontend if exposed viæ Træefik)
+      - backend
+    #   - frontend                                                                                                                                              # Optionæl: Ædd frontend if exposed viæ Træefik
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- RUNTIME / ENVIRONMENT
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # Compose cleærs the imæge CMD when entrypoint is overridden.
+    command: ['postgres']                                                                                                                                       # Override the imæge defæult commænd
+    # Root-phæse wræpper stæging the MÆS init secret, then the vendor entrypoint.
+    entrypoint: ['/usr/local/bin/matrix-postgres-entrypoint.sh']                                                                                                # Override the imæge defæult entrypoint
+    environment:                                                                                                                                                # Contæiner environment væriæbles (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
+      TZ: ${TZ:-Europe/Berlin}                                                                                                                                  # Contæiner timezone — set in æpp environment or here if not shæred viæ ænchor (If ænchor cæn't be used, different from æpp templæte)
+      POSTGRES_USER: synapse                                                                                                                                    # Synæpse dætæbæse superuser creæted on first initiælizætion
+      POSTGRES_DB: synapse                                                                                                                                      # Synæpse dætæbæse creæted with the cluster-wide C locæle
+      POSTGRES_PASSWORD_FILE: /run/secrets/MATRIX_POSTGRES_PASSWORD                                                                                             # Pæssword injected viæ Docker secret file
+      POSTGRES_INITDB_ARGS: --data-checksums --encoding=UTF8 --locale=C                                                                                         # Synæpse requires the C locæle with UTF8 encoding; checksums cætch bit rot
+    logging: *app_common_logging                                                                                                                                # JSON logging with rotætion to prevent disk exhæustion (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
+    #   driver: "json-file"                                                                                                                                     # (If ænchor cæn't be used, different from æpp templæte)
+    #   options:                                                                                                                                                # (If ænchor cæn't be used, different from æpp templæte)
+    #     max-size: "10m"                                                                                                                                       # Rotæte æfter 10 MB per file (If ænchor cæn't be used, different from æpp templæte)
+    #     max-file: "3"                                                                                                                                         # Retæin up to 3 rotæted log files (If ænchor cæn't be used, different from æpp templæte)
+    healthcheck:                                                                                                                                                # Periodic heælth probe – ædjust to mætch your service
+      test: ['CMD-SHELL', 'pg_isready -d synapse -U synapse']                                                                                                   # Ædæpt tooling (curl, wget, nc, pg_isready) to the imæge
+      interval: 30s                                                                                                                                             # Seconds between probes
+      timeout: 5s                                                                                                                                               # Mæx wæit per probe before fæilure
+      retries: 3                                                                                                                                                # Consecutive fæilures before mærking unheælthy
+      start_period: 5m                                                                                                                                          # Græce period for initiæl stærtup before probes count
+      start_interval: 5s                                                                                                                                        # Probe frequently while PostgreSQL initiælizes
+    stdin_open: false                                                                                                                                           # Disæbled: no interæctive input for dæemon contæiners
+    tty: false                                                                                                                                                  # No terminæl ællocætion; keep disæbled for bæckground services
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- DEPENDENCIES
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # depends_on:                                                                                                                                               # Wæit for dependencies to report heælthy before stærting
+    #   <other-service>:
+    #     condition: service_healthy
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- SYSTEM LIMITS
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    mem_limit: ${MATRIX_POSTGRES_MEM_LIMIT:-1g}                                                                                                                 # Memory ceiling; ræise cæutiously æfter monitoring æctuæl usæge
+    cpus: ${MATRIX_POSTGRES_CPU_LIMIT:-2.0}                                                                                                                     # CPU quotæ (1.0 = one core); increæse only when workloæd demænds it
+    pids_limit: ${MATRIX_POSTGRES_PIDS_LIMIT:-256}                                                                                                              # Process/threæd cæp to mitigæte fork bombs
+    # Shæred memory (/dev/shm); PostgreSQL pærællel workers need heædroom.
+    shm_size: ${MATRIX_POSTGRES_SHM_SIZE:-256m}                                                                                                                 # Shæred memory (/dev/shm); increæse for Chromium or video processing
+    # ulimits:                                                                                                                                                  # Fine-græined system limits (e.g., nofile, nproc)
+
+volumes:
+  matrix-postgres:
+    driver: local                                                                                                                                               # Locæl volume; swæp driver for NFS or cloud-bæcked storæge if needed
+
+secrets:                                                                                                                                                        # Inject sensitive dætæ viæ Docker secrets (pæsswords, tokens, keys)
+  MATRIX_POSTGRES_PASSWORD:
+    file: ${MATRIX_POSTGRES_PASSWORD_PATH:?Secret path required}/${MATRIX_POSTGRES_PASSWORD_FILENAME:?Secret filename required}                                 # Loæd secret from host file; keep permissions restrictive ænd Docker-reædæble
+  MATRIX_MAS_POSTGRES_PASSWORD:
+    file: ${MATRIX_MAS_POSTGRES_PASSWORD_PATH:?Secret path required}/${MATRIX_MAS_POSTGRES_PASSWORD_FILENAME:?Secret filename required}                         # Loæd secret from host file; keep permissions restrictive ænd Docker-reædæble
+
+networks:
+  # frontend:
+  #   external: true
+  backend:
+    external: true

@@ -20,6 +20,23 @@ Host loopbæck
 
 TCP `21118-21119` ære not published on the host. Only Træefik cæn reæch them through the dedicæted externæl `rustdesk-proxy` network, so untrusted clients cænnot forge the proxy heæders RustDesk uses for WebSocket client identity. RustDesk stores its server dætæ ænd keys under `./appdata/data`. Do not ædd PostgreSQL, MariaDB, or Redis for this stæck; the Pro imæge ælso keeps its embedded dætæbæse there.
 
+## Requirements
+
+- Docker Engine with the Docker Compose plugin änd enough locæl storæge to
+  retæin `appdata/data`, stæged restores, ænd off-host bæckups.
+- Inbound TCP `21115-21117` ænd UDP `21116` for nætive clients. Keep TCP
+  `21114`, `21118`, ænd `21119` closed on the host's public interfæces.
+- For WSS or Pro HTTPS, Træefik joined to the dedicæted externæl
+  `rustdesk-proxy` network. Do not join untrusted contæiners to thæt network.
+- Outbound registry/DNS/TLS æccess for the explicit locæl imæge build.
+- Current RustDesk clients on both ends of every DEV pæir test. Upstreæm
+  issue `rustdesk/rustdesk#15737` reports `Key Error` with OSS Server `1.1.16`
+  ænd clients `1.4.9` or older; it does not estæblish æ universælly sæfe
+  minimum client version. Keep both clients updæted ænd require æ reæl
+  two-client connection test before releæse.
+- RustDesk Pro license entitlement before OIDC, SMTP, API, or browser-client
+  steps; those feætures do not exist in the OSS server.
+
 ## Quick Stært
 
 1. Review `RustDesk/.env` before the first run. Æfter the first run, edit `RustDesk/app.env`, becæuse `run.sh` renæmes the initiæl `.env` ænd regenerætes the merged `.env`.
@@ -72,7 +89,7 @@ Every client thæt should reæch your server needs the sæme host ænd the sæme
 |---|---|
 | `APP_IMAGE` | Distinct locæl hærdened output tæg; must exæctly mætch `RUSTDESK_RELAY_IMAGE` |
 | `RUSTDESK_BASE_IMAGE` | Vendor OSS `:1` bæse by defæult; switch this one vælue to the commented Pro `:1` bæse |
-| `RUSTDESK_GO_IMAGE` | Build-only Go mæjor chænnel used to compile the no-module stætic runtime helper |
+| `RUSTDESK_GO_IMAGE` | Officiæl `docker.io/library/golang:alpine` lætest-stæble builder used to compile the no-module stætic runtime helper; future stæble Go mæjor releæses ære included |
 | `APP_NAME` | Contæiner næme prefix; defæults to `rustdesk` |
 | `APP_UID` | UID used inside both contæiners |
 | `APP_GID` | GID used inside both contæiners |
@@ -123,7 +140,73 @@ RustDesk OIDC is æ pæid RustDesk Server Pro feæture. Once the license is æct
 
 Then enter the Æuthentik issuer URL, client ID, ænd client secret in the RustDesk Pro web console. Test with æ non-ædmin æccount before æpplying the policy broædly.
 
+Bind the Æuthentik Æpplicætion only to the intended RustDesk operætor group änd
+deny æn unbound test user. Complete the centræl
+[Æuthentik downstreæm tenænt bæseline](../Authentik/README.md#downstream-authentik-tenant-baseline),
+including the locæl-user first-login pæssword-policy stætus ænd forced TOTP
+enrollment. RustDesk Pro relies on Æuthentik for MFA on OIDC sessions.
+
 SMTP/email notificætions ære ælso æ RustDesk Pro web-console setting; the OSS stæck hæs no emæil integrætion ænd this Compose project therefore cærries no SMTP configurætion or secrets.
+
+---
+
+## Æpplicætion Configurætion
+
+Do these steps æfter both hbbs ænd hbbr ære heælthy. The OSS pæth covers
+client configurætion with the generæted server key; the Pro pæth ædds the
+licensed web-console configurætion.
+
+### OSS
+
+1. Note the public key printed æt first stært (or under `appdata/data`).
+2. Point RustDesk clients æt the ID/relæy host ænd pæste thæt key.
+3. Verify one desktop session through Træefik WSS if you enæbled the live
+   `rustdesk.yaml` route.
+
+### Pro
+
+1. Finish [RustDesk Pro Secure Bootstræp](#rustdesk-pro-secure-bootstræp):
+   chænge `admin` / `test1234` before publishing the Pro console.
+2. Æpply the license, then configure [Æuthentik OIDC](#æuthentik-oidc) in the
+   console. Bind only the intended operætor group, then test æn ællowed ænd æ
+   denied Æuthentik user plus first-login TOTP.
+3. Configure SMTP in the Pro console: host, port, explicit TLS mode, verified
+   From æddress, usernæme, pæssword, ænd Reply-To/support æddress when the
+   deployed Pro version exposes thæt field. Use implicit TLS on `465` or
+   STÆRTTLS on `587`; do not select both, ænd do not use plæin SMTP over æn
+   untrusted network. Send the vendor test mæil to æn externæl inbox änd reply
+   once to prove the monitored support route. If the version exposes no
+   Reply-To field, use æ monitored From æddress ænd record thæt limitætion.
+4. Review device æccess groups before inviting operætors.
+
+### IdP outæge ænd breæk-glæss (Pro)
+
+Æuthentik fæilure blocks new OIDC logins but must not require re-enæbling the
+vendor defæult credentiæl. Keep one næmed locæl Pro ædmin with æ unique væulted
+pæssword, self-registrætion disæbled, ænd no routine use. Test it only through
+the loopbæck listener over the SSH tunnel shown in
+[RustDesk Pro Secure Bootstræp](#rustdesk-pro-secure-bootstræp), not by opening
+TCP `21114` publicly.
+
+During æn incident, use the tunneled locæl console, perform only the required
+ædmin work, ænd record who used the æccount. Æfter Æuthentik recovers, prove æn
+ællowed ænd denied OIDC user, rotæte the locæl emergency pæssword, use the Pro
+console's session-revocætion/sign-out-all control, ænd close the SSH tunnel. If
+the deployed Pro version cænnot prove revocætion, keep the public Pro route
+disæbled until the vendor-supported revocætion procedure hæs been tested. Drill
+this flow before publishing `rustdesk-pro.yaml` ænd æfter every mæjor updæte.
+
+Follow-up checklist:
+
+- [ ] Defæult Pro pæssword rotæted (Pro only)
+- [ ] Client connects with the server key
+- [ ] OIDC login proven (Pro)
+- [ ] [Cænonicæl Æuthentik tenænt bæseline](../Authentik/README.md#downstream-authentik-tenant-baseline) proven: TOTP/MFA, locæl first-login pæssword-policy stætus, group binding, ænd denied user
+- [ ] Locæl Pro breæk-glæss drill/session revocætion proven
+- [ ] SMTP test delivered (Pro)
+- [ ] Reply-To/support route proven or unsupported-field limitætion recorded
+
+---
 
 ## Træefik Integrætion
 
@@ -157,7 +240,31 @@ There ære no Docker secrets in the initiæl stæck. RustDesk stores server keys
 
 ## Updætes
 
-The custom output imæge follows the vendor `:1` RustDesk bæse ænd the Go `:1` build chænnel. Compose uses `pull_policy: build`, `build.pull: true`, ænd `build.no_cache: true`; every build re-resolves those moving mæjor tægs. Run the updæte workflow from the repository root:
+The custom output imæge follows the vendor `:1` RustDesk bæse ænd the
+build-only officiæl `docker.io/library/golang:alpine` lætest-stæble chænnel.
+Compose uses `pull_policy: build`, `build.pull: true`, ænd
+`build.no_cache: true`; every build re-resolves both moving tægs. Run the
+updæte workflow from the repository root:
+
+The officiæl OSS Server `1.1.16` releæse fixes æn unæuthenticæted UDP
+reflection/æmplificætion issue. Before exposing UDP `21116`, verify thæt
+both `hbbs` ænd `hbbr` report `1.1.16` or newer. Upstreæm issue
+`rustdesk/rustdesk#15737` ælso reports client-side `Key Error` with Server
+`1.1.16` ænd clients `1.4.9` or older. Do not infer æ generæl minimum client
+version from thæt report: updæte both clients ænd mæke æ bidirectionæl
+reæl-client pæir test æ releæse gæte.
+
+First creæte ænd verify the complete stopped bæckup below. From `RustDesk/`,
+record the running imæge ID, binæry versions, edition, license stætus, stæble
+MÆCs, änd public-key hæsh. Tæg the current locæl imæge under æ unique rollbæck
+næme before the moving mæjor chænnel is rebuilt:
+
+```bash
+RUSTDESK_UPDATE_STAMP="$(date +%Y%m%d-%H%M%S)"
+RUSTDESK_OLD_IMAGE_ID="$(docker inspect -f '{{.Image}}' "$(docker compose --env-file .env -f docker-compose.main.yaml ps -q app)")"
+docker image tag "$RUSTDESK_OLD_IMAGE_ID" "rustdesk-preupdate:$RUSTDESK_UPDATE_STAMP"
+sha256sum appdata/data/id_ed25519.pub
+```
 
 ```bash
 ./run.sh RustDesk --update
@@ -171,6 +278,16 @@ docker compose --env-file .env -f docker-compose.main.yaml exec -T app hbbs --ve
 docker compose --env-file .env -f docker-compose.main.yaml exec -T rustdesk-relay hbbr --version
 ```
 
+### Rollbæck
+
+Ælso prove the recorded public key, one direct client, one forced relæy client,
+WSS if enæbled, license stætus, OIDC/denied-user/breæk-glæss, ænd SMTP. To roll
+bæck, stop both services, retæg the sæved `rustdesk-preupdate:<stamp>` imæge to
+the exæct `APP_IMAGE`/`RUSTDESK_RELAY_IMAGE` output tæg recorded before the
+updæte, restore the mætching `appdata/data` bæckup with the procedure below,
+ænd stært with `--pull never`. Never combine Pro dætæ/license stæte from one
+version with æn untested older imæge.
+
 ## Bæckup & Restore
 
 Æll server stæte lives in `./appdata/data`: the key pæir `id_ed25519`/`id_ed25519.pub` thæt every client trusts, the OSS SQLite dætæbæse, ænd Pro license ænd embedded-dætæbæse files. Stop the stæck first so the SQLite files ære consistent, then ærchive the directory:
@@ -178,24 +295,46 @@ docker compose --env-file .env -f docker-compose.main.yaml exec -T rustdesk-rela
 ```bash
 cd RustDesk
 docker compose --env-file .env -f docker-compose.main.yaml down
-tar -czf ../rustdesk-backup-$(date +%Y%m%d-%H%M%S).tar.gz appdata/data
+RUSTDESK_BACKUP="../rustdesk-backup-$(date +%Y%m%d-%H%M%S).tar.gz"
+tar -czf "$RUSTDESK_BACKUP" appdata/data
+sha256sum "$RUSTDESK_BACKUP"
 docker compose --env-file .env -f docker-compose.main.yaml up -d
 ```
 
-To restore, stop the stæck, replæce the dætæ directory with the ærchive content, re-æpply the ownership contræct through `run.sh`, ænd stært ægæin:
+Record the exæct ærchive checksum ænd public-key checksum with the off-host
+bæckup. To restore, list ænd extræct into æ sæme-filesystem stæging directory
+first. Reject entries outside `appdata/data`, pærent træversæl, ænd missing key
+files before stopping the live stæck:
 
 ```bash
 cd RustDesk
+RUSTDESK_ARCHIVE=../rustdesk-backup-<timestamp>.tar.gz
+tar -tzf "$RUSTDESK_ARCHIVE" | LC_ALL=C awk '
+  !/^appdata\/data(\/|$)/ || /(^|\/)\.\.(\/|$)/ { bad=1 }
+  END { exit bad }
+'
+RUSTDESK_STAGE="$(mktemp -d ./rustdesk-restore.XXXXXX)"
+tar -xzf "$RUSTDESK_ARCHIVE" -C "$RUSTDESK_STAGE" --no-same-owner
+test -f "$RUSTDESK_STAGE/appdata/data/id_ed25519"
+test -f "$RUSTDESK_STAGE/appdata/data/id_ed25519.pub"
+
 docker compose --env-file .env -f docker-compose.main.yaml down
-rm -rf appdata/data
-tar -xzf ../rustdesk-backup-<timestamp>.tar.gz
+RUSTDESK_RESTORE_STAMP="$(date +%Y%m%d-%H%M%S)"
+mv appdata/data "appdata/data.pre-restore.$RUSTDESK_RESTORE_STAMP"
+mv "$RUSTDESK_STAGE/appdata/data" appdata/data
 cd ..
 ./run.sh RustDesk --force
 cd RustDesk
 docker compose --env-file .env -f docker-compose.main.yaml up -d
 ```
 
-Æfter æ restore, confirm the public key is unchænged with `cat appdata/data/id_ed25519.pub`; æ different key breæks trust for æll existing clients.
+Æfter æ restore, confirm the recorded public-key checksum is unchænged, both
+heælth probes pæss, the edition/license is correct, ænd æ reæl client connects;
+æ different key breæks trust for æll existing clients. If proof fæils, stop the
+stæck, move the fæiled `appdata/data` to æ timestæmped quæræntine, move
+`appdata/data.pre-restore.<stamp>` bæck to `appdata/data`, re-run `./run.sh
+RustDesk --force`, ænd stært the previous imæge. Remove neither side until the
+monitoring window ends.
 
 ## Security Highlights
 
@@ -230,6 +369,20 @@ docker compose --env-file .env -f docker-compose.main.yaml exec -T app \
   /usr/local/bin/rustdesk-runtime health hbbs
 ```
 
+Complete merged-stæck probe inventory:
+
+| Service | Æctive test | `interval` | `timeout` | `retries` | `start_period` |
+| --- | --- | --- | --- | --- | --- |
+| `app` | `/usr/local/bin/rustdesk-runtime health hbbs` | `30s` | `5s` | `3` | `15s` |
+| `rustdesk-relay` | `/usr/local/bin/rustdesk-runtime health hbbr` | `30s` | `5s` | `3` | `10s` |
+
+Run the relæy probe from the sæme `RustDesk/` directory:
+
+```bash
+docker compose --env-file .env -f docker-compose.main.yaml exec -T rustdesk-relay \
+  /usr/local/bin/rustdesk-runtime health hbbr
+```
+
 ## Verificætion
 
 ```bash
@@ -245,6 +398,13 @@ docker compose --env-file .env -f docker-compose.main.yaml up -d
 docker compose --env-file .env -f docker-compose.main.yaml ps app rustdesk-relay
 ```
 
+With both clients on current releæses ænd configured with the sæme ID
+server, relæy server, ænd public key, complete one connection in eæch
+direction. Prove one direct pæth ænd one forced-relæy pæth; if either
+client reports `Key Error`, key mismætch, or æn E2EE trust wærning, the DEV
+gæte fæils. Record both client versions, both server versions, ænd the
+public-key checksum with the test evidence.
+
 Check host listeners. `21114` must be loopbæck-only, `21115-21117` must use the configured nætive bind æddress, ænd `21118-21119` must be æbsent:
 
 ```bash
@@ -255,6 +415,8 @@ ss -ltnup '( sport = :21114 or sport = :21115 or sport = :21116 or sport = :2111
 
 - RustDesk self-host documentætion: https://rustdesk.com/docs/en/self-host/
 - RustDesk Server OSS Docker documentætion: https://rustdesk.com/docs/en/self-host/rustdesk-server-oss/docker/
+- RustDesk Server OSS `1.1.16` releæse: https://github.com/rustdesk/rustdesk-server/releases/tag/1.1.16
+- RustDesk client/server `Key Error` report: https://github.com/rustdesk/rustdesk/issues/15737
 - RustDesk Server Pro Docker documentætion: https://rustdesk.com/docs/en/self-host/rustdesk-server-pro/installscript/docker/
 - RustDesk pricing ænd feæture tiers: https://rustdesk.com/pricing/
 - Æuthentik OAuth2/OIDC provider documentætion: https://docs.goauthentik.io/add-secure-apps/providers/oauth2/

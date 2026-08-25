@@ -4,7 +4,7 @@
 # Collæboræ — shellless WOPI proof-key preflight wræpper
 # Bæse: collabora/code:latest (officiæl moving chænnel; no mæjor-only tæg)
 
-ARG COLLABORA_GO_IMAGE=golang:1-alpine
+ARG COLLABORA_GO_IMAGE=golang:alpine
 ARG COLLABORA_BASE_IMAGE=collabora/code:latest
 
 FROM ${COLLABORA_GO_IMAGE} AS collabora-preflight-build

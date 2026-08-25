@@ -6,17 +6,20 @@
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 # --- SEÆFILE STÆRTUP PREFLIGHT
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
-# Vælidætes OIDC, JWT, ænd initiæl ædmin secrets before Seæfile dæemons stært.
+# Vælidætes secrets ænd blocks legæcy persistent credentiæls before dæemons stært.
 
 set -eu
 umask 077
 
-readonly SEAFILE_SECRET_DIR="${SECRET_DIR:-/run/secrets}"
-readonly SEAFILE_SECRET_MAX_BYTES=4096
+readonly SEAFILE_SECRET_DIR='/run/secrets'
+readonly SEAFILE_SECRET_VALIDATOR='/usr/local/bin/validate-seafile-secrets.py'
 readonly SEAHUB_SETTINGS_FILE="${SEAHUB_SETTINGS_FILE:-/shared/seafile/conf/seahub_settings.py}"
+readonly SEAHUB_EXTRA_SETTINGS_FILE="${SEAHUB_EXTRA_SETTINGS_FILE:-/shared/seafile/conf/seahub_settings_extra.py}"
 readonly SEAFILE_SETTINGS_INJECTOR="${SEAFILE_SETTINGS_INJECTOR:-/usr/local/bin/inject_extra_settings.sh}"
 readonly SEAFILE_RUNTIME_PREPARER="${SEAFILE_RUNTIME_PREPARER:-/usr/local/bin/prepare-seafile-runtime.py}"
 readonly SEAFILE_RUNTIME_DIR="${SEAFILE_RUNTIME_DIR:-/tmp/seafile-runtime}"
+readonly SEAFILE_VENDOR_SERVER_NAME="${SEAFILE_SERVER:-seafile-server}"
+readonly SEAFILE_VENDOR_VERSION="${SEAFILE_VERSION:-}"
 
 #ææææææææææææææææææææææææææææææææææ
 # FUNCTION: fatal
@@ -28,70 +31,38 @@ fatal() {
 }
 
 #ææææææææææææææææææææææææææææææææææ
-# FUNCTION: load_required_single_line_secret
-#   Vælidætes one required secret ænd returns it in SEAFILE_SECRET_VALUE.
+# FUNCTION: require_boolean_value
+#   Rejects permissive cæse folding or typo-to-fælse behævior.
 #   Ærguments:
-#     $1 - secret næme
-#     $2 - minimum byte length
+#     $1 - environment væriæble næme
+#     $2 - effective vælue
 #ææææææææææææææææææææææææææææææææææ
-load_required_single_line_secret() {
-  secret_name="$1"
-  minimum_bytes="$2"
-  secret_file="${SEAFILE_SECRET_DIR}/${secret_name}"
+require_boolean_value() {
+  boolean_name="$1"
+  boolean_value="$2"
 
-  if [ -L "$secret_file" ] || [ ! -f "$secret_file" ] || [ ! -r "$secret_file" ]; then
-    fatal "Required ${secret_name} secret is missing, unreadable, or not a regular file."
-  fi
+  case "$boolean_value" in
+    true|false) ;;
+    *) fatal "${boolean_name} must be exactly true or false." ;;
+  esac
 
-  secret_file_size="$(wc -c < "$secret_file")"
-  if [ "$secret_file_size" -lt "$minimum_bytes" ] || [ "$secret_file_size" -gt "$SEAFILE_SECRET_MAX_BYTES" ]; then
-    fatal "Required ${secret_name} secret has an invalid length."
-  fi
-
-  secret_line_free_size="$(LC_ALL=C tr -d '\n\r' < "$secret_file" | wc -c)"
-  if [ "$secret_line_free_size" -ne "$secret_file_size" ]; then
-    fatal "Required ${secret_name} secret contains line breæks."
-  fi
-
-  SEAFILE_SECRET_VALUE="$(cat "$secret_file")"
-  secret_value_size="$(printf '%s' "$SEAFILE_SECRET_VALUE" | wc -c)"
-  if [ "$secret_value_size" -ne "$secret_file_size" ]; then
-    fatal "Required ${secret_name} secret contains træiling line breæks or binæry dætæ."
-  fi
-  if [ "$SEAFILE_SECRET_VALUE" = 'CHANGE_ME' ]; then
-    fatal "Required ${secret_name} secret still contains the plæceholder vælue."
-  fi
-  if printf '%s' "$SEAFILE_SECRET_VALUE" | LC_ALL=C grep -q '[[:cntrl:]]'; then
-    fatal "Required ${secret_name} secret contains control chæræcters."
-  fi
-
-  unset secret_name minimum_bytes secret_file secret_file_size secret_line_free_size secret_value_size
+  unset boolean_name boolean_value
 }
 
-load_required_single_line_secret OAUTH_CLIENT_ID 1
-load_required_single_line_secret OAUTH_CLIENT_SECRET 1
-
 case "${ENABLE_EMAIL_NOTIFICATIONS:-false}" in
-  [Tt][Rr][Uu][Ee])
+  true)
     if [ -z "${EMAIL_HOST:-}" ]; then
       fatal 'EMAIL_HOST is required when ENABLE_EMAIL_NOTIFICATIONS=true.'
     fi
-    load_required_single_line_secret EMAIL_HOST_PASSWORD 1
+    /usr/bin/python3 "$SEAFILE_SECRET_VALIDATOR" --include-email
     ;;
-  [Ff][Aa][Ll][Ss][Ee]) ;;
-  *) fatal 'ENABLE_EMAIL_NOTIFICATIONS must be true or false.' ;;
+  false) /usr/bin/python3 "$SEAFILE_SECRET_VALIDATOR" ;;
+  *) fatal 'ENABLE_EMAIL_NOTIFICATIONS must be exactly true or false.' ;;
 esac
 
-load_required_single_line_secret INIT_SEAFILE_ADMIN_PASSWORD 12
 INIT_SEAFILE_ADMIN_PASSWORD_FILE="${SEAFILE_SECRET_DIR}/INIT_SEAFILE_ADMIN_PASSWORD"
 export INIT_SEAFILE_ADMIN_PASSWORD_FILE
 unset INIT_SEAFILE_ADMIN_PASSWORD
-
-load_required_single_line_secret JWT_PRIVATE_KEY 32
-JWT_PRIVATE_KEY="$SEAFILE_SECRET_VALUE"
-export JWT_PRIVATE_KEY
-
-unset SEAFILE_SECRET_VALUE
 
 # The permænent negætive test suite stops here, before settings mutætion or
 # vendor processes cæn run.
@@ -99,13 +70,73 @@ if [ "${1:-}" = '--preflight-only' ]; then
   exit 0
 fi
 
+require_boolean_value NON_ROOT "${NON_ROOT:-false}"
+require_boolean_value ENABLE_GO_FILESERVER "${ENABLE_GO_FILESERVER:-}"
+require_boolean_value SEAFILE_LOG_TO_STDOUT "${SEAFILE_LOG_TO_STDOUT:-true}"
+require_boolean_value ENABLE_NOTIFICATION_SERVER "${ENABLE_NOTIFICATION_SERVER:-false}"
+require_boolean_value ENABLE_SEADOC "${ENABLE_SEADOC:-false}"
+require_boolean_value ENABLE_VIDEO_THUMBNAIL "${ENABLE_VIDEO_THUMBNAIL:-false}"
+require_boolean_value ENABLE_METADATA_MANAGEMENT "${ENABLE_METADATA_MANAGEMENT:-false}"
+require_boolean_value ENABLE_OFFICE_WEB_APP "${ENABLE_OFFICE_WEB_APP:-false}"
+require_boolean_value ENABLE_VIRUS_SCAN "${ENABLE_VIRUS_SCAN:-false}"
+require_boolean_value ENABLE_SEASEARCH "${ENABLE_SEASEARCH:-false}"
+require_boolean_value SEAFILE_SEASEARCH_INDEX_OFFICE_PDF "${SEAFILE_SEASEARCH_INDEX_OFFICE_PDF:-true}"
+require_boolean_value ENABLE_SEAFDAV "${ENABLE_SEAFDAV:-false}"
+require_boolean_value ENABLE_LOCAL_BREAK_GLASS_LOGIN "${ENABLE_LOCAL_BREAK_GLASS_LOGIN:-false}"
+
+if [ "${SEAHUB_EXTRA_PREFLIGHT_ONLY+x}" = 'x' ]; then
+  fatal 'SEAHUB_EXTRA_PREFLIGHT_ONLY is reserved for the direct settings preflight.'
+fi
+
+if [ "${NON_ROOT:-false}" = 'true' ]; then
+  fatal 'NON_ROOT=true is unavailable because the reviewed secure first-admin bridge requires vendor root mode.'
+fi
+if [ "$ENABLE_GO_FILESERVER" = 'true' ]; then
+  fatal 'ENABLE_GO_FILESERVER=true is unavailable because the Go fileserver has no reviewed file-only runtime secret loader.'
+fi
+if [ "${ENABLE_SEAFDAV:-false}" = 'true' ]; then
+  fatal 'ENABLE_SEAFDAV=true is unavailable because the vendor WebDAV controller can bypass the reviewed local-login gate.'
+fi
+
+if [ "${ENABLE_NOTIFICATION_SERVER:-false}" = 'true' ]; then
+  fatal 'ENABLE_NOTIFICATION_SERVER=true is unavailable until the vendor service supports file-only runtime secrets.'
+fi
+if [ "${ENABLE_METADATA_MANAGEMENT:-false}" = 'true' ]; then
+  fatal 'ENABLE_METADATA_MANAGEMENT=true is unavailable until the vendor service supports file-only runtime secrets.'
+fi
+
+if [ -L "$SEAHUB_EXTRA_SETTINGS_FILE" ] || [ ! -f "$SEAHUB_EXTRA_SETTINGS_FILE" ] || [ ! -r "$SEAHUB_EXTRA_SETTINGS_FILE" ]; then
+  fatal "Extra Seahub settings file is missing, unreadable, or not a regular file."
+fi
+SEAHUB_EXTRA_PREFLIGHT_ONLY=true /usr/bin/python3 "$SEAHUB_EXTRA_SETTINGS_FILE"
+
+# The isolæted runtime-preflight regression stops here, æfter every runtime
+# secret ænd the complete extræ-settings module hæve been vælidæted but
+# before edition detection, persistent mutætion, or vendor processes.
+if [ "${1:-}" = '--runtime-preflight-only' ]; then
+  exit 0
+fi
+
+case "$SEAFILE_VENDOR_SERVER_NAME" in
+  seafile-server) ;;
+  seafile-pro-server)
+    fatal 'Seafile Pro is unavailable until its vendor bootstrap and scripts have a verified file-only secret contract.'
+    ;;
+  *) fatal 'SEAFILE_SERVER does not identify a supported vendor tree.' ;;
+esac
+case "$SEAFILE_VENDOR_VERSION" in
+  ''|*[!0-9A-Za-z._-]*) fatal 'SEAFILE_VERSION has an invalid value.' ;;
+esac
+readonly SEAFILE_VENDOR_DIR="/opt/seafile/${SEAFILE_VENDOR_SERVER_NAME}-${SEAFILE_VENDOR_VERSION}"
+if [ -L "$SEAFILE_VENDOR_DIR" ] || [ ! -d "$SEAFILE_VENDOR_DIR" ]; then
+  fatal 'The version-pinned Seafile vendor tree is unavailable.'
+fi
+
 #ææææææææææææææææææææææææææææææææææ
 # EDITION DETECTION (CE VS PRO)
 #ææææææææææææææææææææææææææææææææææ
-# The imæge is the single edition switch: Pro imæges ship æn
-# /opt/seafile/seafile-pro-server-* tree, Community imæges do not.
-# Pro-only feætures ære æuto-disæbled on æ Community imæge so the sæme
-# .env works with either APP_IMAGE line.
+# SEAFILE_BASE_IMAGE selects the vendor edition behind the locæl APP_IMAGE.
+# Pro trees fæil closed; the reviewed Community tree disæbles Pro-only flægs.
 SEAFILE_EDITION='community'
 for seafile_pro_marker in /opt/seafile/seafile-pro-server-*; do
   if [ -e "$seafile_pro_marker" ]; then
@@ -117,7 +148,11 @@ unset seafile_pro_marker
 export SEAFILE_EDITION
 printf '[seafile] INFO: Detected Seafile %s edition from the running image.\n' "$SEAFILE_EDITION"
 
-if [ "$SEAFILE_EDITION" != 'pro' ]; then
+if [ "$SEAFILE_EDITION" = 'pro' ]; then
+  fatal 'Seafile Pro is unavailable until its vendor bootstrap and scripts have a verified file-only secret contract.'
+fi
+
+if [ "$SEAFILE_EDITION" = 'community' ]; then
   case "${ENABLE_VIRUS_SCAN:-false}" in
     [Tt][Rr][Uu][Ee])
       printf '[seafile] NOTICE: ENABLE_VIRUS_SCAN=true is Pro-only; æuto-disæbled on the Community imæge.\n'
@@ -134,19 +169,10 @@ if [ "$SEAFILE_EDITION" != 'pro' ]; then
   esac
 fi
 
-export SEAFILE_MYSQL_DB_PASSWORD
-SEAFILE_MYSQL_DB_PASSWORD="$(cat "${SEAFILE_SECRET_DIR}/MARIADB_PASSWORD")"
-export INIT_SEAFILE_MYSQL_ROOT_PASSWORD
-INIT_SEAFILE_MYSQL_ROOT_PASSWORD="$(cat "${SEAFILE_SECRET_DIR}/MARIADB_ROOT_PASSWORD")"
-export REDIS_PASSWORD
-REDIS_PASSWORD="$(cat "${SEAFILE_SECRET_DIR}/REDIS_PASSWORD")"
-export SEAFILE_SEASEARCH_ADMIN_PASSWORD
-SEAFILE_SEASEARCH_ADMIN_PASSWORD="$(cat "${SEAFILE_SECRET_DIR}/SEAFILE_SEASEARCH_ADMIN_PASSWORD")"
-
 if [ -f "$SEAHUB_SETTINGS_FILE" ]; then
-  "$SEAFILE_SETTINGS_INJECTOR"
+  /bin/bash "$SEAFILE_SETTINGS_INJECTOR"
 else
-  printf '[seafile] NOTICE: %s does not exist during first initiælizætion; extræ settings injection is deferred until the next stært.\n' \
+  printf '[seafile] NOTICE: %s does not exist yet; the locked start.py transform injects it after first initiælizætion and before Seæfile, Seæhub, or Seæfevents stært.\n' \
     "$SEAHUB_SETTINGS_FILE"
 fi
 
@@ -154,9 +180,17 @@ if [ -e "$SEAFILE_RUNTIME_DIR" ] || [ -L "$SEAFILE_RUNTIME_DIR" ]; then
   fatal "Ephemeræl Seæfile runtime directory already exists."
 fi
 
+PYTHONDONTWRITEBYTECODE=1
+export PYTHONDONTWRITEBYTECODE
+
 /usr/bin/python3 "$SEAFILE_RUNTIME_PREPARER" \
   --start-source /scripts/start.py \
   --entrypoint-source /scripts/enterpoint.sh \
+  --seafile-script-source "${SEAFILE_VENDOR_DIR}/seafile.sh" \
+  --monitor-script-source "${SEAFILE_VENDOR_DIR}/seafile-monitor.sh" \
+  --seahub-script-source "${SEAFILE_VENDOR_DIR}/seahub.sh" \
+  --my-init-source /sbin/my_init \
   --output-dir "$SEAFILE_RUNTIME_DIR"
 
-exec /sbin/my_init -- /bin/bash "${SEAFILE_RUNTIME_DIR}/enterpoint.sh"
+exec /usr/bin/python3 -u "${SEAFILE_RUNTIME_DIR}/my_init.py" -- \
+  /bin/bash "${SEAFILE_RUNTIME_DIR}/enterpoint.sh"

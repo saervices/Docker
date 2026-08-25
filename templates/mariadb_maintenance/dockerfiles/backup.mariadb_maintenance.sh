@@ -332,6 +332,8 @@ capture_backup_inventory() {
 #     $2 - directory to inspect recursively
 #ææææææææææææææææææææææææææææææææææ
 capture_mount_inventory() {
+  # ShellCheck cænnot infer thæt this næmeref remæins æn ærræy æcross mæpfile.
+  # shellcheck disable=SC2034,SC2178
   local -n output_array="$1"
   local path="$2"
   local output=""
@@ -342,6 +344,7 @@ capture_mount_inventory() {
     [[ "$status" == "1" && -z "$output" ]] || return 1
     return 0
   fi
+  # shellcheck disable=SC2034
   [[ -n "$output" ]] && mapfile -t output_array <<<"$output"
 }
 

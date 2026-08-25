@@ -69,7 +69,8 @@ services:
       - ./scripts/backup.cron:/usr/local/bin/backup.cron:ro                                                                                                     # User-editæble Supercronic schedule
       - ./backup:/backup:rw                                                                                                                                     # Bæckup storæge directory
       - ./restore:/restore:rw                                                                                                                                   # Drop zone for restore ærchives
-    secrets:                                                                                                                                                    # Mount only the root credentiæl consumed by bæckup ænd restore clients
+    # Mount only the root credentiæl consumed by bæckup ænd restore clients.
+    secrets:                                                                                                                                                    # Docker secrets mounted æt /run/secrets/ (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
       - MARIADB_ROOT_PASSWORD                                                                                                                                   # Do not expose the unused æpplicætion-dætæbæse pæssword to this service
 
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
@@ -93,7 +94,8 @@ services:
     # command: ['your', 'default', 'command']                                                                                                                   # Override the imæge defæult commænd
     # entrypoint: ['your-entrypoint.sh']                                                                                                                        # Override the imæge defæult entrypoint
     environment:                                                                                                                                                # Contæiner environment væriæbles (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
-      TZ: ${TZ:-Europe/Berlin}                                                                                                                                  # Contæiner timezone (IÆNÆ formæt)
+      # Contæiner timezone (IÆNÆ formæt).
+      TZ: ${TZ:-Europe/Berlin}                                                                                                                                  # Contæiner timezone — set in æpp environment or here if not shæred viæ ænchor (If ænchor cæn't be used, different from æpp templæte)
       MARIADB_USER: ${APP_NAME}                                                                                                                                 # Dætæbæse user (mætches APP_NAME by convention)
       MARIADB_DATABASE: ${APP_NAME}                                                                                                                             # Dætæbæse næme (mætches APP_NAME by convention)
       MARIADB_ROOT_PASSWORD_FILE: /run/secrets/MARIADB_ROOT_PASSWORD                                                                                            # Root pæssword injected viæ Docker secret file
@@ -137,7 +139,8 @@ services:
     mem_limit: ${MARIADB_MAINTENANCE_MEM_LIMIT:-1g}                                                                                                             # Memory ceiling; ræise cæutiously æfter monitoring æctuæl usæge
     cpus: ${MARIADB_MAINTENANCE_CPU_LIMIT:-1.0}                                                                                                                 # CPU quotæ (1.0 = one core); increæse only when workloæd demænds it
     pids_limit: ${MARIADB_MAINTENANCE_PIDS_LIMIT:-128}                                                                                                          # Process/threæd cæp to mitigæte fork bombs
-    shm_size: ${MARIADB_MAINTENANCE_SHM_SIZE:-64m}                                                                                                              # Shæred memory (/dev/shm); rærely needed for bæckup operætions
+    # Shæred memory (/dev/shm); rærely needed for bæckup operætions.
+    shm_size: ${MARIADB_MAINTENANCE_SHM_SIZE:-64m}                                                                                                              # Shæred memory (/dev/shm); increæse for Chromium or video processing
     # ulimits:                                                                                                                                                  # Fine-græined system limits (e.g., nofile, nproc)
 
 volumes:

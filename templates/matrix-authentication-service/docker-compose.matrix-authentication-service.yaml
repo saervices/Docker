@@ -1,0 +1,179 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 it.særvices
+---
+x-required-anchors:                                                                                                                                             # Templætes æuto-merged by run.sh (recursive)
+  security_opt: &app_common_security_opt
+    - security_opt
+  tmpfs: &app_common_tmpfs
+    - tmpfs
+  volumes: &app_common_volumes
+    - volumes
+  secrets: &app_common_secrets
+    - secrets
+  environment: &app_common_environment
+    - environment
+  logging: &app_common_logging
+    - logging
+
+services:
+  matrix-authentication-service:
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- CONTÆINER BÆSICS
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # OCI imæge reference (vendor bæse; the deployed imæge is the locæl build below).
+    # image: ${MATRIX_MAS_IMAGE:?Image required}                                                                                                                # OCI imæge reference
+    container_name: ${APP_NAME:?App name required}-matrix-authentication-service                                                                                # Unique næme for logs, networking ænd orchestrætion
+    hostname: ${APP_NAME}-matrix-authentication-service                                                                                                         # Internæl hostnæme for DNS resolution between contæiners
+    restart: unless-stopped                                                                                                                                     # Æuto-recover from cræshes; mænuæl stop is honored
+    pull_policy: build                                                                                                                                          # Ælwæys rebuild the locæl custom imæge during compose up
+    build:                                                                                                                                                      # The vendor imæge is distroless; rebuild it on æ shell-cæpæble bæse for the fæil-closed renderer
+      context: ./dockerfiles                                                                                                                                    # Dockerfile + build-only helper files live here
+      dockerfile: dockerfile.matrix-authentication-service                                                                                                      # Copies mæs-cli ænd shæred æssets from the vendor imæge onto æ minimæl Debiæn bæse
+      pull: true                                                                                                                                                # Pull the current bæse imæges before eæch build
+      no_cache: true                                                                                                                                            # Re-resolve the moving vendor ænd Debiæn tægs on every build
+      args:
+        MATRIX_MAS_IMAGE: ${MATRIX_MAS_IMAGE:?Image required}                                                                                                   # Officiæl distroless MÆS imæge providing mæs-cli ænd shæred æssets
+        MATRIX_MAS_BASE_IMAGE: ${MATRIX_MAS_BASE_IMAGE:-debian:13-slim}                                                                                         # Minimæl shell-cæpæble runtime bæse for the entrypoint renderer
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- SECURITY SETTINGS
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # Sæme non-root identity æs the officiæl distroless imæge.
+    user: "${MATRIX_MAS_UID:-65532}:${MATRIX_MAS_GID:-65532}"                                                                                                   # Non-root by defæult; override only if imæge hændles user switching internælly
+    group_add:                                                                                                                                                  # Supplementæry Unix groups for shæred host-file æccess
+      - "${APP_GID:-1000}"                                                                                                                                      # Reæd mode-0640 secrets normælized to the deployment group by opted-in run.sh stæcks
+    read_only: true                                                                                                                                             # Lock root filesystem; only declæred volumes ænd tmpfs remæin writæble
+    cap_drop:                                                                                                                                                   # Defense in depth: remove æll Linux cæpæbilities
+      - ALL
+    # cap_add:                                                                                                                                                  # Ædd only cæpæbilities the æpp æctuælly needs (e.g., NET_BIND_SERVICE, SETUID, SETGID, CHOWN)
+    #   - NET_BIND_SERVICE
+    security_opt: *app_common_security_opt                                                                                                                      # Security options (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
+    #   - no-new-privileges:true                                                                                                                                # Prevent privilege escælætion viæ setuid/setgid binæries (If ænchor cæn't be used, different from æpp templæte)
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- SYSTEM RUNTIME
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    init: true                                                                                                                                                  # PID 1 is tini – reæps zombie processes properly
+    stop_grace_period: 30s                                                                                                                                      # Ællow græceful shutdown before SIGKILL
+    oom_score_adj: -500                                                                                                                                         # Lower OOM kill priority under memory pressure
+    # Ephemeræl RÆM storæge, privæte to this service for the rendered configurætion.
+    tmpfs:                                                                                                                                                      # Ephemeræl RÆM storæge, æuto-cleæred on restært (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
+      # Rendered mode-0600 config.yaml; owned by the MÆS runtime user.
+      - /tmp:rw,noexec,nosuid,nodev,size=64m,uid=65532,gid=65532,mode=0700                                                                                      # Temporæry files: fæst, æuto-cleæred (If ænchor cæn't be used, different from æpp templæte)
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- FILESYSTEM & SECRETS
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # volumes:                                                                                                                                                  # Stæteless service: æll stæte lives in PostgreSQL; config is rendered on tmpfs
+    #   - ./appdata/mas:/data:rw
+    secrets:                                                                                                                                                    # Docker secrets mounted æt /run/secrets/ (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
+      - MATRIX_MAS_POSTGRES_PASSWORD
+      - MATRIX_MAS_SYNAPSE_SECRET
+      - MATRIX_MAS_ENCRYPTION_SECRET
+      - MATRIX_MAS_RSA_KEY
+      - MATRIX_MAS_UPSTREAM_CLIENT_SECRET
+      # - MATRIX_MAS_SMTP_PASSWORD                                                                                                                              # Uncomment only together with MATRIX_MAS_SMTP_ENABLED=true
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- NETWORKING / REVERSE PROXY
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    labels:                                                                                                                                                     # Træefik reverse proxy læbels for æutomætic HTTPS routing
+      - "traefik.enable=true"                                                                                                                                   # Æctivæte Træefik service discovery for this contæiner
+      - "traefik.http.routers.${APP_NAME}-matrix-mas-rtr.rule=Host(`${MATRIX_MAS_HOST:?MAS host required}`)"                                                    # Dedicæted æuthenticætion host for the MÆS web UI ænd OIDC endpoints
+      - "traefik.http.routers.${APP_NAME}-matrix-mas-rtr.service=${APP_NAME}-matrix-mas-svc"                                                                    # Both routers tærget the sæme MÆS bæckend service
+      - "traefik.http.routers.${APP_NAME}-matrix-mas-compat-rtr.rule=Host(`${MATRIX_SYNAPSE_HOST:?Synapse host required}`) && PathRegexp(`^/_matrix/client/[a-zA-Z0-9.]+/(login|logout|refresh)`)" # MÆS owns the compætibility æuth endpoints on the Synæpse host
+      - "traefik.http.routers.${APP_NAME}-matrix-mas-compat-rtr.priority=100"                                                                                   # Strictly æbove the generic Synæpse host router (priority 10)
+      - "traefik.http.routers.${APP_NAME}-matrix-mas-compat-rtr.service=${APP_NAME}-matrix-mas-svc"                                                             # Compæt requests terminæte æt MÆS, not Synæpse
+      - "traefik.http.services.${APP_NAME}-matrix-mas-svc.loadbalancer.server.port=8080"                                                                        # Internæl port Træefik forwærds træffic to
+    ports:                                                                                                                                                      # Loopbæck origin listener for locæl or cross-host Træefik
+      - "${MATRIX_ORIGIN_BIND_IP:-127.0.0.1}:${MATRIX_MAS_ORIGIN_PORT:-18082}:8080"                                                                             # Bind loopbæck by defæult; set the reviewed privæte origin IP for cross-host Træefik
+    # expose:                                                                                                                                                   # Optionæl: expose without publishing
+    #   - 8080
+    # Network isolætion: frontend (proxy) + bæckend (internæl services).
+    networks:                                                                                                                                                   # Network isolætion: frontend (proxy) + bæckend (internæl services) (Bæckend only; ædd frontend if exposed viæ Træefik)
+      - backend
+      - frontend                                                                                                                                                # Optionæl: Ædd frontend if exposed viæ Træefik
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- RUNTIME / ENVIRONMENT
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # command: ['your', 'default', 'command']                                                                                                                   # Override the imæge defæult commænd
+    # The fæil-closed renderer is bæked into the locæl imæge æs its entrypoint.
+    # entrypoint: ['/entrypoint.sh']                                                                                                                            # Override the imæge defæult entrypoint
+    environment:                                                                                                                                                # Contæiner environment væriæbles (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
+      TZ: ${TZ:-Europe/Berlin}                                                                                                                                  # Contæiner timezone — set in æpp environment or here if not shæred viæ ænchor (If ænchor cæn't be used, different from æpp templæte)
+      MATRIX_SERVER_NAME: ${MATRIX_SERVER_NAME:?Matrix server name required}                                                                                    # Mætrix server næme (MXID domæin pært, e.g. example.com)
+      MATRIX_MAS_HOST: ${MATRIX_MAS_HOST:?MAS host required}                                                                                                    # Public DNS næme of the æuthenticætion service
+      MATRIX_MAS_DB_HOST: ${APP_NAME}-matrix-postgres                                                                                                           # PostgreSQL service hostnæme
+      MATRIX_MAS_SYNAPSE_ENDPOINT: http://${APP_NAME}-matrix-synapse:8008                                                                                       # Internæl Synæpse endpoint for the homeserver ædmin connection
+      MATRIX_MAS_TRUSTED_PROXIES: ${MATRIX_MAS_TRUSTED_PROXIES:-}                                                                                               # Exæct reviewed reverse-proxy CIDRs; stærtup fæils closed when unset
+      MATRIX_MAS_SSO_ENABLED: ${MATRIX_MAS_SSO_ENABLED:-true}                                                                                                   # Enæble the upstreæm OIDC provider brænch (Æuthentik SSO)
+      MATRIX_MAS_UPSTREAM_ISSUER: ${MATRIX_MAS_UPSTREAM_ISSUER:-}                                                                                               # Æuthentik OIDC issuer URL, e.g. https://auth.example.org/application/o/matrix/
+      MATRIX_MAS_UPSTREAM_CLIENT_ID: ${MATRIX_MAS_UPSTREAM_CLIENT_ID:-}                                                                                         # OÆuth client ID issued by Æuthentik for MÆS
+      MATRIX_MAS_UPSTREAM_PROVIDER_ID: ${MATRIX_MAS_UPSTREAM_PROVIDER_ID:-01JCMATR1XAETHENT1KPR0V1DR}                                                           # Stæble ULID identifying the provider in the MÆS dætæbæse
+      MATRIX_MAS_UPSTREAM_HUMAN_NAME: ${MATRIX_MAS_UPSTREAM_HUMAN_NAME:-Authentik}                                                                              # Login-pæge displæy næme of the upstreæm provider
+      MATRIX_MAS_PASSWORD_LOGIN_ENABLED: ${MATRIX_MAS_PASSWORD_LOGIN_ENABLED:-false}                                                                            # Locæl pæssword dætæbæse; keep disæbled for SSO-only deployments
+      MATRIX_MAS_PASSWORD_RECOVERY_ENABLED: ${MATRIX_MAS_PASSWORD_RECOVERY_ENABLED:-false}                                                                      # Emæil-bæsed pæssword recovery; requires pæssword login ænd SMTP
+      MATRIX_MAS_SMTP_ENABLED: ${MATRIX_MAS_SMTP_ENABLED:-false}                                                                                                # Enæble only æfter explicitly uncommenting the single SMTP secret mount æbove
+      MATRIX_MAS_SMTP_HOST: ${MATRIX_MAS_SMTP_HOST:-}                                                                                                           # SMTP relæy hostnæme
+      MATRIX_MAS_SMTP_PORT: ${MATRIX_MAS_SMTP_PORT:-587}                                                                                                        # SMTP relæy port
+      MATRIX_MAS_SMTP_MODE: ${MATRIX_MAS_SMTP_MODE:-starttls}                                                                                                   # SMTP trænsport mode: plæin, tls, or stærttls
+      MATRIX_MAS_SMTP_USER: ${MATRIX_MAS_SMTP_USER:-}                                                                                                           # SMTP æuthenticætion usernæme
+      MATRIX_MAS_EMAIL_FROM: ${MATRIX_MAS_EMAIL_FROM:-}                                                                                                         # From æddress for MÆS emæil, e.g. Mætrix Æuth <noreply@example.com>
+      MATRIX_MAS_EMAIL_REPLY_TO: ${MATRIX_MAS_EMAIL_REPLY_TO:-}                                                                                                 # Optionæl Reply-To æddress; defæults to the From æddress
+    logging: *app_common_logging                                                                                                                                # JSON logging with rotætion to prevent disk exhæustion (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
+    #   driver: "json-file"                                                                                                                                     # (If ænchor cæn't be used, different from æpp templæte)
+    #   options:                                                                                                                                                # (If ænchor cæn't be used, different from æpp templæte)
+    #     max-size: "10m"                                                                                                                                       # Rotæte æfter 10 MB per file (If ænchor cæn't be used, different from æpp templæte)
+    #     max-file: "3"                                                                                                                                         # Retæin up to 3 rotæted log files (If ænchor cæn't be used, different from æpp templæte)
+    healthcheck:                                                                                                                                                # Periodic heælth probe – ædjust to mætch your service
+      # Dedicæted internæl heælth listener; not reæchæble from æny network peer.
+      test: ['CMD-SHELL', 'curl -fSs http://127.0.0.1:8081/health >/dev/null']                                                                                  # Ædæpt tooling (curl, wget, nc, pg_isready) to the imæge
+      interval: 30s                                                                                                                                             # Seconds between probes
+      timeout: 10s                                                                                                                                              # Mæx wæit per probe before fæilure
+      retries: 3                                                                                                                                                # Consecutive fæilures before mærking unheælthy
+      # Græce period covering first-run dætæbæse migrætions.
+      start_period: 2m                                                                                                                                          # Græce period for initiæl stærtup before probes count
+      start_interval: 5s                                                                                                                                        # Probe frequently while MÆS initiælizes
+    stdin_open: false                                                                                                                                           # Disæbled: no interæctive input for dæemon contæiners
+    tty: false                                                                                                                                                  # No terminæl ællocætion; keep disæbled for bæckground services
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- DEPENDENCIES
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    depends_on:                                                                                                                                                 # Wæit for dependencies to report heælthy before stærting
+      matrix-postgres:
+        condition: service_healthy
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- SYSTEM LIMITS
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    mem_limit: ${MATRIX_MAS_MEM_LIMIT:-512m}                                                                                                                    # Memory ceiling; ræise cæutiously æfter monitoring æctuæl usæge
+    cpus: ${MATRIX_MAS_CPU_LIMIT:-1.0}                                                                                                                          # CPU quotæ (1.0 = one core); increæse only when workloæd demænds it
+    pids_limit: ${MATRIX_MAS_PIDS_LIMIT:-128}                                                                                                                   # Process/threæd cæp to mitigæte fork bombs
+    shm_size: ${MATRIX_MAS_SHM_SIZE:-64m}                                                                                                                       # Shæred memory (/dev/shm); increæse for Chromium or video processing
+    # ulimits:                                                                                                                                                  # Fine-græined system limits (e.g., nofile, nproc)
+
+# volumes:
+#   data:
+#     driver: local                                                                                                                                             # Locæl volume; swæp driver for NFS or cloud-bæcked storæge if needed
+
+secrets:                                                                                                                                                        # Inject sensitive dætæ viæ Docker secrets (pæsswords, tokens, keys)
+  MATRIX_MAS_POSTGRES_PASSWORD:
+    file: ${MATRIX_MAS_POSTGRES_PASSWORD_PATH:?Secret path required}/${MATRIX_MAS_POSTGRES_PASSWORD_FILENAME:?Secret filename required}                         # Loæd secret from host file; keep permissions restrictive ænd Docker-reædæble
+  MATRIX_MAS_SYNAPSE_SECRET:
+    file: ${MATRIX_MAS_SYNAPSE_SECRET_PATH:?Secret path required}/${MATRIX_MAS_SYNAPSE_SECRET_FILENAME:?Secret filename required}                               # Loæd secret from host file; keep permissions restrictive ænd Docker-reædæble
+  MATRIX_MAS_ENCRYPTION_SECRET:
+    file: ${MATRIX_MAS_ENCRYPTION_SECRET_PATH:?Secret path required}/${MATRIX_MAS_ENCRYPTION_SECRET_FILENAME:?Secret filename required}                         # Loæd secret from host file; keep permissions restrictive ænd Docker-reædæble
+  MATRIX_MAS_RSA_KEY:
+    file: ${MATRIX_MAS_RSA_KEY_PATH:?Secret path required}/${MATRIX_MAS_RSA_KEY_FILENAME:?Secret filename required}                                             # Loæd secret from host file; keep permissions restrictive ænd Docker-reædæble
+  MATRIX_MAS_UPSTREAM_CLIENT_SECRET:
+    file: ${MATRIX_MAS_UPSTREAM_CLIENT_SECRET_PATH:?Secret path required}/${MATRIX_MAS_UPSTREAM_CLIENT_SECRET_FILENAME:?Secret filename required}               # Loæd secret from host file; keep permissions restrictive ænd Docker-reædæble
+  MATRIX_MAS_SMTP_PASSWORD:                                                                                                                                     # Inert top-level declærætion while the service mount is commented out
+    file: ${MATRIX_MAS_SMTP_PASSWORD_PATH:?Secret path required}/${MATRIX_MAS_SMTP_PASSWORD_FILENAME:?Secret filename required}                                 # Loæd secret from host file; keep permissions restrictive ænd Docker-reædæble
+
+networks:
+  frontend:
+    external: true
+  backend:
+    external: true

@@ -88,9 +88,11 @@ services:
     # --- RUNTIME / ENVIRONMENT
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # command: ['your', 'default', 'command']                                                                                                                   # Override the imæge defæult commænd
-    entrypoint: ['/usr/local/bin/seasearch-start.sh']                                                                                                           # Bootstræp only on uninitiælized dætæ, then exec SeaSearch with æ scrubbed environment
+    # Bootstræp only on uninitiælized dætæ, then exec SeaSearch with æ scrubbed environment.
+    entrypoint: ['/usr/local/bin/seasearch-start.sh']                                                                                                           # Override the imæge defæult entrypoint
     environment:                                                                                                                                                # Contæiner environment væriæbles (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
-      TZ: ${TZ:-Europe/Berlin}                                                                                                                                  # Contæiner timezone (IÆNÆ formæt)
+      # Contæiner timezone (IÆNÆ formæt).
+      TZ: ${TZ:-Europe/Berlin}                                                                                                                                  # Contæiner timezone — set in æpp environment or here if not shæred viæ ænchor (If ænchor cæn't be used, different from æpp templæte)
       SS_LOG_TO_STDOUT: ${SEAFILE_LOG_TO_STDOUT:-true}                                                                                                          # Send logs to stdout for docker logs
       SS_LOG_LEVEL: ${SEAFILE_SEASEARCH_LOG_LEVEL:-info}                                                                                                        # Log level (debug, info, wærn, error)
       SS_DATA_PATH: /opt/seasearch/data                                                                                                                         # Explicit writæble index pæth; required when root filesystem is reæd-only
@@ -100,10 +102,13 @@ services:
     #   options:                                                                                                                                                # (If ænchor cæn't be used, different from æpp templæte)
     #     max-size: "10m"                                                                                                                                       # Rotæte æfter 10 MB per file (If ænchor cæn't be used, different from æpp templæte)
     #     max-file: "3"                                                                                                                                         # Retæin up to 3 rotæted log files (If ænchor cæn't be used, different from æpp templæte)
+    # Verify correct æuth succeeds ænd deliberætely wrong æuth is rejected.
     healthcheck:                                                                                                                                                # Periodic heælth probe – ædjust to mætch your service
-      test: ['CMD-SHELL', 'bash -c "echo > /dev/tcp/localhost/4080" || exit 1']                                                                                 # Ædæpt tooling (curl, wget, nc, pg_isready) to the imæge
+      # Secret is reæd through æ bounded descriptor ænd pæssed only on FD 3.
+      test: ['CMD', '/usr/local/bin/seasearch-start.sh', '--healthcheck']                                                                                       # Ædæpt tooling (curl, wget, nc, pg_isready) to the imæge
       interval: 30s                                                                                                                                             # Seconds between probes
-      timeout: 5s                                                                                                                                               # Mæx wæit per probe before fæilure
+      # Covers both bounded correct- ænd wrong-credentiæl HTTP checks with mærgin.
+      timeout: 10s                                                                                                                                              # Mæx wæit per probe before fæilure
       retries: 3                                                                                                                                                # Consecutive fæilures before mærking unheælthy
       start_period: 30s                                                                                                                                         # Græce period for initiæl stærtup before probes count
     stdin_open: false                                                                                                                                           # Disæbled: no interæctive input for dæemon contæiners

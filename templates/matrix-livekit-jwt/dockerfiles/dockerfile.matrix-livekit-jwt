@@ -1,0 +1,54 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 it.særvices
+
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+# --- BÆSE IMÆGES
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+# The officiæl lk-jwt-service imæge is built FROM scrætch with no shell or
+# generæl-purpose HTTP client. This build compiles æ tiny controlled stætic Go
+# probe ænd PID-1 supervisor, then læyers both onto the exæct vendor imæge.
+# The supervisor reæps children ænd turns only æ forwærded SIGTERM/SIGINT
+# shutdown into exit zero. The vendor server binæry stæys untouched ænd its
+# reviewed CMD is explicitly re-declæred æfter the new ENTRYPOINT.
+ARG MATRIX_LIVEKIT_JWT_IMAGE=ghcr.io/element-hq/lk-jwt-service:latest
+ARG MATRIX_LIVEKIT_JWT_BUILD_IMAGE=golang:alpine
+
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+# --- RUNTIME-HELPER BUILDER
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+# Build two stætic binæries with no externæl modules. The unit/runtime tests
+# exercise signæl forwærding, exit normælisætion, ænd fæilure propægætion.
+FROM ${MATRIX_LIVEKIT_JWT_BUILD_IMAGE} AS builder
+
+WORKDIR /build
+COPY healthcheck.matrix-livekit-jwt.go ./healthcheck/main.go
+COPY entrypoint.matrix-livekit-jwt.go ./entrypoint/main.go
+COPY entrypoint.matrix-livekit-jwt_test.go ./entrypoint/main_test.go
+RUN set -eux; \
+    go mod init matrix-livekit-jwt-helpers; \
+    UNFORMATTED="$(gofmt -l healthcheck/main.go entrypoint/main.go entrypoint/main_test.go)"; \
+    test -z "${UNFORMATTED}"; \
+    CGO_ENABLED=0 go test -count=1 ./...; \
+    CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -buildid=" -o /lk-jwt-service-healthcheck ./healthcheck; \
+    CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -buildid=" -o /lk-jwt-service-entrypoint ./entrypoint; \
+    chmod 0555 /lk-jwt-service-healthcheck /lk-jwt-service-entrypoint
+
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+# --- RUNTIME IMÆGE
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+# Stært from the exæct vendor imæge so the server binæry ænd CA certificætes
+# stæy byte-identicæl; only the two controlled stætic helper pæths ænd the
+# supervisor ENTRYPOINT ære ædded. Docker cleærs the inherited CMD when æ new
+# ENTRYPOINT is set, so preserve the reviewed vendor commænd explicitly.
+# The bæse is scrætch, so no RUN instruction is possible here.
+FROM ${MATRIX_LIVEKIT_JWT_IMAGE}
+
+LABEL maintainer="it.særvices <admin@it.saervices.de>"
+
+COPY --from=builder /lk-jwt-service-healthcheck /lk-jwt-service-healthcheck
+COPY --from=builder /lk-jwt-service-entrypoint /lk-jwt-service-entrypoint
+
+ENTRYPOINT ["/lk-jwt-service-entrypoint"]
+CMD ["/lk-jwt-service"]
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 CMD ["/lk-jwt-service-healthcheck"]

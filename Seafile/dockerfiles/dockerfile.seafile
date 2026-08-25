@@ -1,0 +1,87 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 it.særvices
+
+ARG SEAFILE_CC_IMAGE=docker.io/library/gcc:14-bookworm
+ARG SEAFILE_BASE_IMAGE=seafileltd/seafile-mc:13.0-latest
+
+FROM ${SEAFILE_CC_IMAGE} AS seafile-runtime-secret-build
+
+RUN set -eux; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends libglib2.0-dev pkg-config; \
+    rm -rf /var/lib/apt/lists/*
+
+WORKDIR /src
+COPY seafile-jwt-file.c seafile-jwt-file_test.c ./
+
+RUN set -eux; \
+    mkdir -p /out; \
+    cc -std=c11 -O2 -fPIC -fstack-protector-strong \
+      -D_FORTIFY_SOURCE=2 -Wall -Wextra -Werror -Wformat=2 \
+      -shared -Wl,-z,defs,-z,now,-z,relro \
+      -o /out/libseafile-jwt-file.so seafile-jwt-file.c -ldl -pthread; \
+    cc -std=c11 -O2 -fstack-protector-strong \
+      -D_FORTIFY_SOURCE=2 -Wall -Wextra -Werror -Wformat=2 \
+      -o /out/seafile-jwt-file-test seafile-jwt-file_test.c \
+      $(pkg-config --cflags --libs glib-2.0); \
+    mkdir -p /run/secrets; \
+    printf '%s' '0123456789abcdef0123456789abcdef' > /run/secrets/JWT_PRIVATE_KEY; \
+    printf '%s' 'database-password' > /run/secrets/MARIADB_PASSWORD; \
+    printf '%s' 'redis-password' > /run/secrets/REDIS_PASSWORD; \
+    SEAFILE_SHIM_DELEGATION_TEST=delegated \
+      JWT_PRIVATE_KEY_FILE=/run/secrets/JWT_PRIVATE_KEY \
+      SEAFILE_MYSQL_DB_PASSWORD_FILE=/run/secrets/MARIADB_PASSWORD \
+      REDIS_PASSWORD_FILE=/run/secrets/REDIS_PASSWORD \
+      LD_PRELOAD=/out/libseafile-jwt-file.so \
+      /out/seafile-jwt-file-test JWT_PRIVATE_KEY present; \
+    SEAFILE_SHIM_DELEGATION_TEST=delegated \
+      SEAFILE_MYSQL_DB_PASSWORD_FILE=/run/secrets/MARIADB_PASSWORD \
+      LD_PRELOAD=/out/libseafile-jwt-file.so \
+      /out/seafile-jwt-file-test SEAFILE_MYSQL_DB_PASSWORD present; \
+    SEAFILE_SHIM_DELEGATION_TEST=delegated \
+      REDIS_PASSWORD_FILE=/run/secrets/REDIS_PASSWORD \
+      LD_PRELOAD=/out/libseafile-jwt-file.so \
+      /out/seafile-jwt-file-test REDIS_PASSWORD present; \
+    rm -f /run/secrets/JWT_PRIVATE_KEY; \
+    ln -s /etc/passwd /run/secrets/JWT_PRIVATE_KEY; \
+    SEAFILE_SHIM_DELEGATION_TEST=delegated \
+      JWT_PRIVATE_KEY_FILE=/run/secrets/JWT_PRIVATE_KEY \
+      LD_PRELOAD=/out/libseafile-jwt-file.so \
+      /out/seafile-jwt-file-test JWT_PRIVATE_KEY absent; \
+    rm -f /run/secrets/JWT_PRIVATE_KEY; \
+    mkfifo /run/secrets/JWT_PRIVATE_KEY; \
+    SEAFILE_SHIM_DELEGATION_TEST=delegated \
+      JWT_PRIVATE_KEY_FILE=/run/secrets/JWT_PRIVATE_KEY \
+      LD_PRELOAD=/out/libseafile-jwt-file.so \
+      timeout 5 /out/seafile-jwt-file-test JWT_PRIVATE_KEY absent; \
+    rm -f /run/secrets/JWT_PRIVATE_KEY; \
+    printf '%s' '0123456789abcdef0123456789abcdef' > /run/secrets/JWT_PRIVATE_KEY; \
+    ln /run/secrets/JWT_PRIVATE_KEY /tmp/JWT_PRIVATE_KEY.hardlink; \
+    SEAFILE_SHIM_DELEGATION_TEST=delegated \
+      JWT_PRIVATE_KEY_FILE=/run/secrets/JWT_PRIVATE_KEY \
+      LD_PRELOAD=/out/libseafile-jwt-file.so \
+      /out/seafile-jwt-file-test JWT_PRIVATE_KEY absent; \
+    rm -f /tmp/JWT_PRIVATE_KEY.hardlink /run/secrets/JWT_PRIVATE_KEY; \
+    printf '%s\n%s' '0123456789abcdef0123456789abcdef' 'second-line' \
+      > /run/secrets/JWT_PRIVATE_KEY; \
+    SEAFILE_SHIM_DELEGATION_TEST=delegated \
+      JWT_PRIVATE_KEY_FILE=/run/secrets/JWT_PRIVATE_KEY \
+      LD_PRELOAD=/out/libseafile-jwt-file.so \
+      /out/seafile-jwt-file-test JWT_PRIVATE_KEY absent; \
+    rm -f /run/secrets/JWT_PRIVATE_KEY; \
+    printf '\377%s' '0123456789abcdef0123456789abcdef' \
+      > /run/secrets/JWT_PRIVATE_KEY; \
+    SEAFILE_SHIM_DELEGATION_TEST=delegated \
+      JWT_PRIVATE_KEY_FILE=/run/secrets/JWT_PRIVATE_KEY \
+      LD_PRELOAD=/out/libseafile-jwt-file.so \
+      /out/seafile-jwt-file-test JWT_PRIVATE_KEY absent; \
+    rm -f /run/secrets/JWT_PRIVATE_KEY \
+      /run/secrets/MARIADB_PASSWORD /run/secrets/REDIS_PASSWORD; \
+    chmod 0555 /out/libseafile-jwt-file.so
+
+FROM ${SEAFILE_BASE_IMAGE} AS seafile-runtime
+
+LABEL maintainer="it.særvices <admin@it.saervices.de>"
+LABEL org.opencontainers.image.description="Seæfile 13 with æ bounded JWT, MæriæDB, ænd Redis file-only runtime secret loæder"
+
+COPY --from=seafile-runtime-secret-build /out/libseafile-jwt-file.so /usr/local/lib/libseafile-jwt-file.so

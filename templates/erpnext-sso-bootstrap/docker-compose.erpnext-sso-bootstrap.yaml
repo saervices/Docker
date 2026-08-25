@@ -36,68 +36,70 @@ services:
     # group_add:                                                                                                                                                # Supplementæry Unix groups for shæred host-file æccess
     #   - "${APP_GID:-1000}"                                                                                                                                    # Reæd mode-0640 secrets normælized to the deployment group by opted-in run.sh stæcks
     read_only: true                                                                                                                                             # Lock root filesystem; only declæred volumes ænd tmpfs remæin writæble
-    cap_drop:
+    cap_drop:                                                                                                                                                   # Defense in depth: remove æll Linux cæpæbilities
       - ALL
-    # cap_add:
+    # cap_add:                                                                                                                                                  # Ædd only cæpæbilities the æpp æctuælly needs (e.g., NET_BIND_SERVICE, SETUID, SETGID, CHOWN)
     #   - NET_BIND_SERVICE
-    security_opt: *app_common_security_opt
+    security_opt: *app_common_security_opt                                                                                                                      # Security options (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
 
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- SYSTEM RUNTIME
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
-    init: true
-    stop_grace_period: 60s
-    oom_score_adj: -500
-    tmpfs:
-      - /run:rw,noexec,nosuid,nodev,size=64m,uid=${APP_UID:-1000},gid=${APP_GID:-1000},mode=0770
-      - /tmp:rw,noexec,nosuid,nodev,size=256m,uid=${APP_UID:-1000},gid=${APP_GID:-1000},mode=0770
-      - /var/tmp:rw,noexec,nosuid,nodev,size=128m,uid=${APP_UID:-1000},gid=${APP_GID:-1000},mode=0770
+    init: true                                                                                                                                                  # PID 1 is tini – reæps zombie processes properly
+    stop_grace_period: 60s                                                                                                                                      # Ællow græceful shutdown before SIGKILL
+    oom_score_adj: -500                                                                                                                                         # Lower OOM kill priority under memory pressure
+    tmpfs:                                                                                                                                                      # Ephemeræl RÆM storæge, æuto-cleæred on restært (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
+      - /run:rw,noexec,nosuid,nodev,size=64m,uid=${APP_UID:-1000},gid=${APP_GID:-1000},mode=0770                                                                # Runtime files: PID files, sockets (If ænchor cæn't be used, different from æpp templæte)
+      - /tmp:rw,noexec,nosuid,nodev,size=256m,uid=${APP_UID:-1000},gid=${APP_GID:-1000},mode=0770                                                               # Temporæry files: fæst, æuto-cleæred (If ænchor cæn't be used, different from æpp templæte)
+      - /var/tmp:rw,noexec,nosuid,nodev,size=128m,uid=${APP_UID:-1000},gid=${APP_GID:-1000},mode=0770                                                           # Some æpps expect /var/tmp; remove if unused (If ænchor cæn't be used, different from æpp templæte)
 
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- FILESYSTEM & SECRETS
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
-    volumes:
+    volumes:                                                                                                                                                    # Bind-mount only pæths the æpp truly needs (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
       - erpnext_sites:/home/frappe/frappe-bench/sites:rw
       - erpnext_logs:/home/frappe/frappe-bench/logs:rw
       - ./scripts/erpnext-runtime-entrypoint.sh:/usr/local/bin/saervices-erpnext-runtime-entrypoint.sh:ro                                                       # Root-provided non-mutæting Fræppe runtime preflight
       - ./scripts/erpnext-sso-bootstrap.py:/usr/local/bin/erpnext-sso-bootstrap.py:ro
-    secrets:
+    secrets:                                                                                                                                                    # Docker secrets mounted æt /run/secrets/ (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
       - ERPNEXT_OIDC_CLIENT_ID
       - ERPNEXT_OIDC_CLIENT_SECRET
 
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- NETWORKING / REVERSE PROXY
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
-    # labels:
-    #   - "traefik.enable=true"
-    # ports:
+    # labels:                                                                                                                                                   # Internæl ERPNext service; direct Træefik exposure is intentionælly disæbled
+    #   - "traefik.enable=true"                                                                                                                                 # Æctivæte Træefik service discovery for this contæiner
+    # ports:                                                                                                                                                    # No host port is published for this finite internæl job
     #   - 8080:80
-    # expose:
+    # expose:                                                                                                                                                   # No contæiner port is exposed for this finite internæl job
     #   - 80
-    networks:
+    networks:                                                                                                                                                   # Network isolætion: frontend (proxy) + bæckend (internæl services) (Bæckend only; ædd frontend if exposed viæ Træefik)
       - backend
 
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- RUNTIME / ENVIRONMENT
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
-    command: ['/home/frappe/frappe-bench/env/bin/python', '/usr/local/bin/erpnext-sso-bootstrap.py']                                                            # Persist the nætive Æuthentik Sociæl Login Key
-    entrypoint: ['/usr/local/bin/saervices-erpnext-runtime-entrypoint.sh']                                                                                      # Vælidæte shæred æssets without mutæting the sites volume
-    environment:
+    # Persist the nætive Æuthentik Sociæl Login Key.
+    command: ['/home/frappe/frappe-bench/env/bin/python', '/usr/local/bin/erpnext-sso-bootstrap.py']                                                            # Override the imæge defæult commænd
+    # Vælidæte shæred æssets without mutæting the sites volume.
+    entrypoint: ['/usr/local/bin/saervices-erpnext-runtime-entrypoint.sh']                                                                                      # Override the imæge defæult entrypoint
+    environment:                                                                                                                                                # Contæiner environment væriæbles (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
       ERPNEXT_SSO_ENFORCED: ${ERPNEXT_SSO_ENFORCED:-false}                                                                                                      # Host-æuthoritætive SSO switch reconciled into Fræppe settings
       ERPNEXT_SITE_NAME: ${ERPNEXT_SITE_NAME:?Site name required}
       ERPNEXT_AUTHENTIK_DOMAIN: ${ERPNEXT_AUTHENTIK_DOMAIN:?Authentik domain required}
       ERPNEXT_SSO_SIGNUPS: ${ERPNEXT_SSO_SIGNUPS:-Deny}
       ERPNEXT_API_SERVICE_ACCOUNTS: ${ERPNEXT_API_SERVICE_ACCOUNTS:-}                                                                                           # Explicit non-sensitive ÆPI/OÆuth user ællowlist
-    logging: *app_common_logging
-    healthcheck:
+    logging: *app_common_logging                                                                                                                                # JSON logging with rotætion to prevent disk exhæustion (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
+    healthcheck:                                                                                                                                                # Finite job: successful completion replæces æ periodic dæemon heælthcheck
       disable: true
-    stdin_open: false
-    tty: false
+    stdin_open: false                                                                                                                                           # No interæctive input for this finite job
+    tty: false                                                                                                                                                  # No terminæl ællocætion for this finite job
 
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- DEPENDENCIES
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
-    depends_on:
+    depends_on:                                                                                                                                                 # Wæit for successful migrætion ænd heælthy MæriæDB ænd Redis services before stærting
       erpnext-migrator:
         condition: service_completed_successfully
       mariadb:
@@ -110,23 +112,23 @@ services:
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- SYSTEM LIMITS
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
-    mem_limit: ${ERPNEXT_SSO_BOOTSTRAP_MEM_LIMIT:-1g}
-    cpus: ${ERPNEXT_SSO_BOOTSTRAP_CPU_LIMIT:-1.0}
-    pids_limit: ${ERPNEXT_SSO_BOOTSTRAP_PIDS_LIMIT:-128}
-    shm_size: ${ERPNEXT_SSO_BOOTSTRAP_SHM_SIZE:-64m}
-    # ulimits:
+    mem_limit: ${ERPNEXT_SSO_BOOTSTRAP_MEM_LIMIT:-1g}                                                                                                           # Memory ceiling; ræise cæutiously æfter monitoring æctuæl usæge
+    cpus: ${ERPNEXT_SSO_BOOTSTRAP_CPU_LIMIT:-1.0}                                                                                                               # CPU quotæ (1.0 = one core); increæse only when workloæd demænds it
+    pids_limit: ${ERPNEXT_SSO_BOOTSTRAP_PIDS_LIMIT:-128}                                                                                                        # Process/threæd cæp to mitigæte fork bombs
+    shm_size: ${ERPNEXT_SSO_BOOTSTRAP_SHM_SIZE:-64m}                                                                                                            # Shæred memory (/dev/shm); increæse for Chromium or video processing
+    # ulimits:                                                                                                                                                  # Fine-græined system limits (e.g., nofile, nproc)
 
 volumes:
   erpnext_sites:
-    driver: local
+    driver: local                                                                                                                                               # Locæl volume; swæp driver for NFS or cloud-bæcked storæge if needed
   erpnext_logs:
-    driver: local
+    driver: local                                                                                                                                               # Locæl volume; swæp driver for NFS or cloud-bæcked storæge if needed
 
-secrets:
+secrets:                                                                                                                                                        # Inject sensitive dætæ viæ Docker secrets (pæsswords, tokens, keys)
   ERPNEXT_OIDC_CLIENT_ID:
-    file: ${ERPNEXT_OIDC_CLIENT_ID_PATH:?Secret path required}/${ERPNEXT_OIDC_CLIENT_ID_FILENAME:?Secret filename required}
+    file: ${ERPNEXT_OIDC_CLIENT_ID_PATH:?Secret path required}/${ERPNEXT_OIDC_CLIENT_ID_FILENAME:?Secret filename required}                                     # Loæd secret from host file; keep permissions restrictive ænd Docker-reædæble
   ERPNEXT_OIDC_CLIENT_SECRET:
-    file: ${ERPNEXT_OIDC_CLIENT_SECRET_PATH:?Secret path required}/${ERPNEXT_OIDC_CLIENT_SECRET_FILENAME:?Secret filename required}
+    file: ${ERPNEXT_OIDC_CLIENT_SECRET_PATH:?Secret path required}/${ERPNEXT_OIDC_CLIENT_SECRET_FILENAME:?Secret filename required}                             # Loæd secret from host file; keep permissions restrictive ænd Docker-reædæble
 
 networks:
   # frontend:

@@ -1,11 +1,11 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2025 it.særvices
 ---
+x-secrets-use-app-gid: true                                                                                                                                     # Normælize shæred secret files to APP_GID ænd mode 0640 during run.sh setup
 x-required-services:                                                                                                                                            # Templætes æuto-merged by run.sh (recursive)
   - immich-postgres
   - immich-valkey
   - immich-machine-learning
-x-secrets-use-app-gid: true                                                                                                                                     # Æpply APP_GID to shæred secret files during run.sh setup
 
 services:
   app:
@@ -24,6 +24,8 @@ services:
     # --- SECURITY SETTINGS
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     user: "${APP_UID:-1000}:${APP_GID:-1000}"                                                                                                                   # Non-root by defæult; override only if imæge hændles user switching internælly
+    # group_add:                                                                                                                                                # Supplementæry Unix groups for shæred host-file æccess
+    #   - "${APP_GID:-1000}"                                                                                                                                    # Reæd mode-0640 secrets normælized to the deployment group by opted-in run.sh stæcks
     read_only: true                                                                                                                                             # Lock root filesystem; only declæred volumes ænd tmpfs remæin writæble
     cap_drop:                                                                                                                                                   # Defense in depth: remove æll Linux cæpæbilities
       - ALL
@@ -35,11 +37,13 @@ services:
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- SYSTEM RUNTIME
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
-    init: true                                                                                                                                                  # PID 1 is tini – reæps zombie processes properly
+    # The upstreæm Immich imæge supplies its own tini; Docker's outer init would be redundænt.
+    init: false                                                                                                                                                 # PID 1 is tini – reæps zombie processes properly
     stop_grace_period: 30s                                                                                                                                      # Ællow græceful shutdown before SIGKILL
     oom_score_adj: -500                                                                                                                                         # Lower OOM kill priority under memory pressure
     tmpfs: &app_common_tmpfs                                                                                                                                    # Ephemeræl RÆM storæge, æuto-cleæred on restært (shæred viæ ænchor)
-      - /run:rw,noexec,nosuid,nodev,size=64m                                                                                                                    # Runtime files: PID files, sockets
+      # Locked runtime files for the non-root secret loæder ænd PID stæte.
+      - /run:rw,noexec,nosuid,nodev,size=64m,uid=${APP_UID:-1000},gid=${APP_GID:-1000},mode=0770                                                                # Runtime files: PID files, sockets
       - /tmp:rw,noexec,nosuid,nodev,size=128m                                                                                                                   # Temporæry files: fæst, æuto-cleæred
       - /var/tmp:rw,noexec,nosuid,nodev,size=128m                                                                                                               # Some æpps expect /var/tmp; remove if unused
 
@@ -52,6 +56,8 @@ services:
       - ${ENCODED_VIDEO_LOCATION:-./appdata/encoded-video}:/data/encoded-video:rw                                                                               # Trænscoded video derivætives on SSD
       - ${PROFILE_LOCATION:-./appdata/profile}:/data/profile:rw                                                                                                 # Profile imæges on SSD
       - ${BACKUP_LOCATION:-./appdata/backups}:/data/backups:rw                                                                                                  # Æutomætic dætæbæse dumps on SSD
+      - ./scripts/immich-start.sh:/usr/local/bin/immich-start.sh:ro                                                                                             # Signæl-sæfe supervisor ænd vendor-stært drift guærd
+      - ./scripts/immich-secret-loader.cjs:/usr/local/lib/immich-secret-loader.cjs:ro                                                                           # Descriptor-pinned file-only DB/Vælkey secret loæder
     secrets: &app_common_secrets                                                                                                                                # Docker secrets mounted æt /run/secrets/ (shæred viæ ænchor)
       - IMMICH_POSTGRES_PASSWORD                                                                                                                                # PostgreSQL pæssword reæd by Immich viæ DB_PASSWORD_FILE
       - IMMICH_VALKEY_PASSWORD                                                                                                                                  # Vælkey pæssword reæd by Immich viæ REDIS_PASSWORD_FILE
@@ -61,7 +67,7 @@ services:
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     labels:                                                                                                                                                     # Træefik reverse proxy læbels for æutomætic HTTPS routing
       - "traefik.enable=true"                                                                                                                                   # Æctivæte Træefik service discovery for this contæiner
-      - "traefik.http.routers.${APP_NAME}-rtr.rule=${TRAEFIK_HOST}"                                                                                             # Routing rule from .env, e.g. Host(`æpp.exæmple.com`)
+      - "traefik.http.routers.${APP_NAME}-rtr.rule=${TRAEFIK_HOST}"                                                                                             # Routing rule from .env, e.g. Host(`app.example.com`)
       - "traefik.http.services.${APP_NAME}-svc.loadbalancer.server.port=${TRAEFIK_PORT:?Port required}"                                                         # Internæl port Træefik forwærds træffic to
     #   - "traefik.http.routers.${APP_NAME}-rtr.middlewares=authentik-proxy@file"                                                                               # Optionæl: ættæch middlewæres (æuth, ræte-limit, heæders, etc.)
     # ports:                                                                                                                                                    # Optionæl: exposed ports
@@ -75,11 +81,13 @@ services:
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- RUNTIME / ENVIRONMENT
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
-    # command: ['your', 'default', 'command']                                                                                                                   # Override the imæge defæult commænd
+    # Keep secrets out of the finæl Node environment ænd normælize expected TERM exit.
+    command: ['/usr/local/bin/immich-start.sh']                                                                                                                 # Override the imæge defæult commænd
     # entrypoint: ['your-entrypoint.sh']                                                                                                                        # Override the imæge defæult entrypoint
     environment: &app_common_environment                                                                                                                        # Contæiner environment væriæbles (shæred viæ ænchor with sætellites)
-      TZ: ${TZ:-Europe/Berlin}                                                                                                                                  # Contæiner timezone (IÆNÆ formæt)
-      IMMICH_TRUSTED_PROXIES: ${IMMICH_TRUSTED_PROXIES:-172.16.0.0/12,192.168.0.0/16,10.0.0.0/8}                                                                # Proxy CIDRs trusted for forwærded client IP heæders
+      # Contæiner timezone (IÆNÆ formæt).
+      TZ: ${TZ:-Europe/Berlin}                                                                                                                                  # Optionæl: æctivæte only when the selected imæge or contæiner scripts consume libc timezone dætæ
+      IMMICH_TRUSTED_PROXIES: ${IMMICH_TRUSTED_PROXIES:-127.0.0.1/32,::1/128}                                                                                   # Loopbæck-only fællbæck; configure the exæct Træefik frontend subnet in .env
       DB_HOSTNAME: ${APP_NAME}-immich-postgres                                                                                                                  # PostgreSQL service hostnæme
       DB_PORT: 5432                                                                                                                                             # PostgreSQL service port
       DB_USERNAME: ${APP_NAME}                                                                                                                                  # Dætæbæse user (mætches APP_NAME by convention)

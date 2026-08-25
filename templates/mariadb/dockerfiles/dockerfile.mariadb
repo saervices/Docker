@@ -6,8 +6,33 @@ FROM ${MARIADB_IMAGE}
 
 LABEL maintainer="it.særvices <admin@it.saervices.de>"
 
+RUN set -eu; \
+    source=/usr/local/bin/docker-entrypoint.sh; \
+    target=/usr/local/bin/docker-entrypoint-reviewed.sh; \
+    test -f "$source" && test ! -L "$source"; \
+    test "$(stat -c '%u:%g:%h:%a' "$source")" = '0:0:1:755'; \
+    input_sha="$(sha256sum "$source")"; \
+    input_sha="${input_sha%% *}"; \
+    case "$input_sha" in \
+      f0093b5ac80091c0138592c1dd5c2e920ed80d16a56f0fad952e14ee502520a0) expected_output_sha=f25d3c3a100936e686b9a508cca4f1fa9d2abcc4bc74ed4c1dabe57e88703be3 ;; \
+      6e0c54561e24829b2b1e73dd96a7fcfadcaf576b1624dda8500f55dc970a7b53) expected_output_sha=23426ac0f8d688aa3f8f1c7506a46f884269e19d4e7661831421649d03579ee4 ;; \
+      *) printf '[FATAL] Unreviewed MariaDB vendor entrypoint source.\n' >&2; exit 78 ;; \
+    esac; \
+    test ! -e "$target" && test ! -L "$target"; \
+    perl -0pe 'BEGIN { $old = q!"$@" --skip-networking --default-time-zone=SYSTEM --socket="${SOCKET}" --wsrep_on=OFF!; $new = q!"$@" --skip-log-bin --skip-networking --default-time-zone=SYSTEM --socket="${SOCKET}" --wsrep_on=OFF! } $count += s/\Q$old\E/$new/g; END { exit 78 unless $count == 1 }' "$source" >"$target"; \
+    output_sha="$(sha256sum "$target")"; \
+    output_sha="${output_sha%% *}"; \
+    test "$output_sha" = "$expected_output_sha"; \
+    test "$(grep -Fc -- '"$@" --skip-log-bin --skip-networking --default-time-zone=SYSTEM --socket="${SOCKET}" --wsrep_on=OFF' "$target")" -eq 1; \
+    chown 0:0 "$target"; \
+    chmod 0555 "$target"
+
 COPY entrypoint.mariadb.sh /usr/local/bin/entrypoint.mariadb-guard.sh
-RUN chmod 0755 /usr/local/bin/entrypoint.mariadb-guard.sh
+COPY scan-binlogs.mariadb.pl /usr/local/libexec/scan-binlogs.mariadb.pl
+RUN chown 0:0 /usr/local/bin/entrypoint.mariadb-guard.sh /usr/local/libexec/scan-binlogs.mariadb.pl \
+    && chmod 0755 /usr/local/bin/entrypoint.mariadb-guard.sh \
+    && chmod 0555 /usr/local/libexec/scan-binlogs.mariadb.pl \
+    && test "$(sha256sum /usr/local/libexec/scan-binlogs.mariadb.pl | cut -d ' ' -f 1)" = '239103c167e51dc264c4295472c017d838f26ec12116ca66dccd1107ce8315b2'
 
 ENTRYPOINT ["/usr/local/bin/entrypoint.mariadb-guard.sh"]
 CMD ["mariadbd"]

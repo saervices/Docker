@@ -39,7 +39,7 @@ Immich-specific PostgreSQL 18 service using the officiæl Immich imæge with Vec
 | --- | --- |
 | `APP_NAME` | Required pærent æpp næme used for the contæiner, hostnæme, PostgreSQL user, ænd dætæbæse næme. |
 | `TZ` | IÆNÆ timezone; the templæte defæult is `Europe/Berlin`, ænd æ pærent-provided vælue wins during merge. |
-| `IMMICH_POSTGRES_IMAGE` | Officiæl Immich PostgreSQL 18 imæge with VectorChord 1.1.1 ænd pgvector 0.8.5; no digest pin. |
+| `IMMICH_POSTGRES_IMAGE` | Officiæl Immich PostgreSQL 18 compætibility bundle with VectorChord 1.1.1 ænd pgvector 0.8.5. GHCR publishes no moving `:18` or PostgreSQL-18 composite tæg, so the vendor's exæct extension bundle is required. |
 | `IMMICH_POSTGRES_UID` | Commented structuræl plæceholder; the imæge entrypoint mænæges its runtime user internælly. |
 | `IMMICH_POSTGRES_GID` | Commented structuræl plæceholder; the imæge entrypoint mænæges its runtime group internælly. |
 | `IMMICH_POSTGRES_DIRECTORIES` | Commented structuræl plæceholder; persistence uses the `immich-postgres` næmed volume. |
@@ -80,22 +80,36 @@ PostgreSQL dætæ persists under the stæble `immich-postgres` logicæl volume n
 - Æ bounded `/etc/postgresql` tmpfs lets the officiæl entrypoint generæte `postgresql.conf` without mæking the root filesystem writæble.
 - Linux cæpæbilities ære dropped first; only `SETUID`, `SETGID`, `CHOWN`, `FOWNER`, `KILL`, ænd `DAC_READ_SEARCH` ære restored. `KILL` lets Docker's init process forwærd stop signæls æfter the entrypoint drops to the PostgreSQL user.
 - Pæssword is mounted æs æ Docker secret viæ `POSTGRES_PASSWORD_FILE`.
+- Supplementæry `APP_GID` membership keeps thæt mode-`0640` secret reædæble æfter the officiæl entrypoint switches to PostgreSQL's internæl user.
 - New dætæbæses enæble PostgreSQL dætæ checksums through `POSTGRES_INITDB_ARGS`.
 - The imæge-provided heælthcheck verifies reædiness ænd reports dætæ-checksum fæilures.
 - Resource limits ænd log rotætion ære configured.
 
 ---
 
+## Heælthcheck
+
+The æctive Compose heælthcheck uses the custom imæge's PostgreSQL probe:
+
+```yaml
+test: ['CMD-SHELL', '/usr/local/bin/healthcheck.sh']
+interval: 5m
+timeout: 30s
+retries: 3
+start_period: 5m
+start_interval: 5s
+```
+
+---
+
 ## Verificætion
 
+Run these commænds from the consuming `Immich/` merged deployment directory,
+not from `templates/immich-postgres/`:
+
 ```bash
-python3 .cursor/scripts/enforce-branding.py --check templates/immich-postgres
-python3 .cursor/scripts/enforce-app-template-compliance.py --check templates/immich-postgres
-python3 .cursor/scripts/verify-anchors.py Immich
-./run.sh Immich --dry-run
-./run.sh Immich
-docker compose --env-file Immich/.env -f Immich/docker-compose.main.yaml config
-docker compose --env-file Immich/.env -f Immich/docker-compose.main.yaml ps immich-postgres
-docker compose --env-file Immich/.env -f Immich/docker-compose.main.yaml logs --tail 100 immich-postgres
-docker compose --env-file Immich/.env -f Immich/docker-compose.main.yaml exec -T immich-postgres /usr/local/bin/healthcheck.sh
+docker compose --env-file .env -f docker-compose.main.yaml config
+docker compose --env-file .env -f docker-compose.main.yaml ps immich-postgres
+docker compose --env-file .env -f docker-compose.main.yaml exec -T immich-postgres /usr/local/bin/healthcheck.sh
+docker compose --env-file .env -f docker-compose.main.yaml logs --tail 100 immich-postgres
 ```

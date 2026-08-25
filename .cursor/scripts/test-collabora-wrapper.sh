@@ -12,7 +12,7 @@ readonly DOCKERFILE="${CONTEXT_DIR}/dockerfile.collabora"
 readonly COMPOSE_FILE="${REPO_ROOT}/templates/collabora/docker-compose.collabora.yaml"
 readonly ENV_FILE="${REPO_ROOT}/templates/collabora/.env"
 readonly BASE_IMAGE="${COLLABORA_BASE_IMAGE:-collabora/code:latest}"
-readonly GO_IMAGE="${COLLABORA_GO_IMAGE:-golang:1-alpine}"
+readonly GO_IMAGE="${COLLABORA_GO_IMAGE:-golang:alpine}"
 readonly RUN_ID="${BASHPID}"
 readonly TEST_IMAGE="codex-collabora-preflight-test:${RUN_ID}"
 readonly RUNTIME_CONTAINER="codex-collabora-preflight-runtime-${RUN_ID}"
@@ -125,7 +125,7 @@ if [[ "$compose_user" == '${COLLABORA_UID:-1001}:${COLLABORA_GID:-1001}' \
   && "$compose_cap_add" == null \
   && "$compose_image" == '${COLLABORA_IMAGE:?Image required}' \
   && "$compose_base_arg" == '${COLLABORA_BASE_IMAGE:?Vendor image required}' \
-  && "$compose_go_arg" == '${COLLABORA_GO_IMAGE:-golang:1-alpine}' \
+  && "$compose_go_arg" == '${COLLABORA_GO_IMAGE:-golang:alpine}' \
   && "$compose_pull_policy" == build \
   && "$compose_build_pull" == true \
   && "$compose_no_cache" == true \

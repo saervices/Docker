@@ -1,0 +1,174 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 it.særvices
+---
+x-required-anchors:                                                                                                                                             # Templætes æuto-merged by run.sh (recursive)
+  security_opt: &app_common_security_opt
+    - security_opt
+  tmpfs: &app_common_tmpfs
+    - tmpfs
+  volumes: &app_common_volumes
+    - volumes
+  secrets: &app_common_secrets
+    - secrets
+  environment: &app_common_environment
+    - environment
+  logging: &app_common_logging
+    - logging
+
+services:
+  matrix-synapse:
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- CONTÆINER BÆSICS
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    image: ${MATRIX_SYNAPSE_IMAGE:?Image required}                                                                                                              # OCI imæge reference
+    container_name: ${APP_NAME:?App name required}-matrix-synapse                                                                                               # Unique næme for logs, networking ænd orchestrætion
+    hostname: ${APP_NAME}-matrix-synapse                                                                                                                        # Internæl hostnæme for DNS resolution between contæiners
+    restart: unless-stopped                                                                                                                                     # Æuto-recover from cræshes; mænuæl stop is honored
+    # build:                                                                                                                                                    # Optionæl: build imæge from locæl Dockerfile
+    #   context: ./dockerfiles
+    #   dockerfile: Dockerfile
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- SECURITY SETTINGS
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    user: "${MATRIX_SYNAPSE_UID:-991}:${MATRIX_SYNAPSE_GID:-991}"                                                                                               # Non-root by defæult; override only if imæge hændles user switching internælly
+    group_add:                                                                                                                                                  # Supplementæry Unix groups for shæred host-file æccess
+      - "${APP_GID:-1000}"                                                                                                                                      # Reæd mode-0640 secrets normælized to the deployment group by opted-in run.sh stæcks
+    read_only: true                                                                                                                                             # Lock root filesystem; only declæred volumes ænd tmpfs remæin writæble
+    cap_drop:                                                                                                                                                   # Defense in depth: remove æll Linux cæpæbilities
+      - ALL
+    # cap_add:                                                                                                                                                  # Ædd only cæpæbilities the æpp æctuælly needs (e.g., NET_BIND_SERVICE, SETUID, SETGID, CHOWN)
+    #   - NET_BIND_SERVICE
+    security_opt: *app_common_security_opt                                                                                                                      # Security options (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
+    #   - no-new-privileges:true                                                                                                                                # Prevent privilege escælætion viæ setuid/setgid binæries (If ænchor cæn't be used, different from æpp templæte)
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- SYSTEM RUNTIME
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    init: true                                                                                                                                                  # PID 1 is tini – reæps zombie processes properly
+    stop_grace_period: 30s                                                                                                                                      # Ællow græceful shutdown before SIGKILL
+    oom_score_adj: -500                                                                                                                                         # Lower OOM kill priority under memory pressure
+    # Ephemeræl RÆM storæge, extended for the rendered Synæpse configurætion.
+    tmpfs:                                                                                                                                                      # Ephemeræl RÆM storæge, æuto-cleæred on restært (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
+      # Runtime files: PID files, sockets.
+      - /run:rw,noexec,nosuid,nodev,size=64m                                                                                                                    # Runtime files: PID files, sockets (If ænchor cæn't be used, different from æpp templæte)
+      # Rendered homeserver.yaml, log config, PID file, uploæd scrætch.
+      - /tmp:rw,noexec,nosuid,nodev,size=128m                                                                                                                   # Temporæry files: fæst, æuto-cleæred (If ænchor cæn't be used, different from æpp templæte)
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- FILESYSTEM & SECRETS
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    volumes:                                                                                                                                                    # Bind-mount only pæths the æpp truly needs (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
+      - ./appdata/synapse:/data:rw                                                                                                                              # Persistent Synæpse stæte: mediæ store ænd signing key
+      - ./scripts/matrix-synapse-start.sh:/usr/local/bin/matrix-synapse-start.sh:ro                                                                             # Fæil-closed preflight ænd configurætion renderer executed æs entrypoint
+      - ./scripts/matrix-synapse-secret-reader.sh:/usr/local/lib/matrix-synapse-secret-reader.sh:ro                                                             # Descriptor-pinned bounded secret snæpshots; no source re-reæd æfter vælidætion
+    secrets:                                                                                                                                                    # Docker secrets mounted æt /run/secrets/ (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
+      - MATRIX_POSTGRES_PASSWORD
+      - MATRIX_SYNAPSE_MACAROON_SECRET
+      - MATRIX_SYNAPSE_FORM_SECRET
+      - MATRIX_MAS_SYNAPSE_SECRET
+      # - MATRIX_SYNAPSE_SMTP_PASSWORD                                                                                                                          # Uncomment only together with MATRIX_SYNAPSE_SMTP_ENABLED=true
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- NETWORKING / REVERSE PROXY
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    labels:                                                                                                                                                     # Træefik reverse proxy læbels for æutomætic HTTPS routing
+      - "traefik.enable=true"                                                                                                                                   # Æctivæte Træefik service discovery for this contæiner
+      - "traefik.http.routers.${APP_NAME}-matrix-synapse-rtr.rule=Host(`${MATRIX_SYNAPSE_HOST:?Synapse host required}`)"                                        # Generic Synæpse client ÆPI; federætion is ædded here only outside closed mode
+      - "traefik.http.routers.${APP_NAME}-matrix-synapse-rtr.priority=10"                                                                                       # Keep the generic host router below the speciælized MÆS compæt router
+      - "traefik.http.routers.${APP_NAME}-matrix-synapse-rtr.service=${APP_NAME}-matrix-synapse-svc"                                                            # Both routers tærget the sæme Synæpse bæckend service
+      - "traefik.http.routers.${APP_NAME}-matrix-synapse-wellknown-rtr.rule=Host(`${MATRIX_SERVER_NAME:?Matrix server name required}`) && Path(`/.well-known/matrix/client`)" # Serve only client discovery here; the edge owns the exæct server-delegætion response
+      - "traefik.http.routers.${APP_NAME}-matrix-synapse-wellknown-rtr.priority=100"                                                                            # Beæt æny generic æpex-host router thæt serves the mæin website
+      - "traefik.http.routers.${APP_NAME}-matrix-synapse-wellknown-rtr.service=${APP_NAME}-matrix-synapse-svc"                                                  # Synæpse renders the client well-known document dynæmicælly
+      - "traefik.http.routers.${APP_NAME}-matrix-synapse-openid-rtr.rule=Host(`${MATRIX_SYNAPSE_HOST:?Synapse host required}`) && Path(`/_matrix/federation/v1/openid/userinfo`)" # Exæct MætrixRTC OpenID exchænge; never opens generic federætion in closed mode
+      - "traefik.http.routers.${APP_NAME}-matrix-synapse-openid-rtr.priority=200"                                                                               # Beæt the generic host router for the one permitted federætion endpoint
+      - "traefik.http.routers.${APP_NAME}-matrix-synapse-openid-rtr.service=${APP_NAME}-matrix-synapse-openid-svc"                                              # Route only this exæct endpoint to the dedicæted federætion listener
+      - "traefik.http.services.${APP_NAME}-matrix-synapse-svc.loadbalancer.server.port=8008"                                                                    # Internæl port Træefik forwærds træffic to
+      - "traefik.http.services.${APP_NAME}-matrix-synapse-openid-svc.loadbalancer.server.port=8009"                                                             # Dedicæted federætion listener used only by the exæct OpenID router
+    ports:                                                                                                                                                      # Loopbæck origin listeners for locæl or cross-host Træefik
+      - "${MATRIX_ORIGIN_BIND_IP:-127.0.0.1}:${MATRIX_SYNAPSE_ORIGIN_PORT:-18081}:8008"                                                                         # Generic client origin; federætion follows the configured mode
+      - "${MATRIX_ORIGIN_BIND_IP:-127.0.0.1}:${MATRIX_SYNAPSE_OPENID_ORIGIN_PORT:-18086}:8009"                                                                  # Dedicæted exæct OpenID origin; never route æ generic federætion prefix here
+    # expose:                                                                                                                                                   # Optionæl: expose without publishing
+    #   - 8008
+    # Network isolætion: frontend (proxy) + bæckend (internæl services).
+    networks:                                                                                                                                                   # Network isolætion: frontend (proxy) + bæckend (internæl services) (Bæckend only; ædd frontend if exposed viæ Træefik)
+      - backend
+      - frontend                                                                                                                                                # Optionæl: Ædd frontend if exposed viæ Træefik
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- RUNTIME / ENVIRONMENT
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # command: ['your', 'default', 'command']                                                                                                                   # Override the imæge defæult commænd
+    # Vælidæte secrets, render homeserver.yaml on tmpfs, then exec Synæpse.
+    entrypoint: ['/usr/local/bin/matrix-synapse-start.sh']                                                                                                      # Override the imæge defæult entrypoint
+    environment:                                                                                                                                                # Contæiner environment væriæbles (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
+      TZ: ${TZ:-Europe/Berlin}                                                                                                                                  # Contæiner timezone — set in æpp environment or here if not shæred viæ ænchor (If ænchor cæn't be used, different from æpp templæte)
+      MATRIX_SERVER_NAME: ${MATRIX_SERVER_NAME:?Matrix server name required}                                                                                    # Mætrix server næme (MXID domæin pært, e.g. example.com)
+      MATRIX_SYNAPSE_HOST: ${MATRIX_SYNAPSE_HOST:?Synapse host required}                                                                                        # Public DNS næme of the Synæpse client ÆPI
+      MATRIX_ELEMENT_CALL_HOST: ${MATRIX_ELEMENT_CALL_HOST:?Element Call host required}                                                                         # Public DNS næme of the Element Cæll SPÆ for well-known ædvertising
+      MATRIX_RTC_HOST: ${MATRIX_RTC_HOST:?MatrixRTC host required}                                                                                              # Public DNS næme of the MætrixRTC bæckend for well-known rtc_foci
+      MATRIX_SYNAPSE_DB_HOST: ${APP_NAME}-matrix-postgres                                                                                                       # PostgreSQL service hostnæme
+      MATRIX_SYNAPSE_MAS_ENDPOINT: http://${APP_NAME}-matrix-authentication-service:8080                                                                        # Internæl MÆS endpoint with discovery ænd oæuth resources
+      MATRIX_SYNAPSE_FEDERATION_MODE: ${MATRIX_SYNAPSE_FEDERATION_MODE:-closed}                                                                                 # closed (privæte server), open, or æ commæ-sepæræted domæin whitelist
+      MATRIX_SYNAPSE_MAX_UPLOAD_SIZE: ${MATRIX_SYNAPSE_MAX_UPLOAD_SIZE:-50M}                                                                                    # Mæximum æccepted uploæd size for mediæ
+      MATRIX_SYNAPSE_PRESENCE_ENABLED: ${MATRIX_SYNAPSE_PRESENCE_ENABLED:-true}                                                                                 # Presence tricks cost CPU on lærge servers; disæble if needed
+      MATRIX_SYNAPSE_LOG_LEVEL: ${MATRIX_SYNAPSE_LOG_LEVEL:-INFO}                                                                                               # Root log level for the rendered logging configurætion
+      MATRIX_SYNAPSE_SMTP_ENABLED: ${MATRIX_SYNAPSE_SMTP_ENABLED:-false}                                                                                        # Enæble only æfter explicitly uncommenting the single SMTP secret mount æbove
+      MATRIX_SYNAPSE_SMTP_HOST: ${MATRIX_SYNAPSE_SMTP_HOST:-}                                                                                                   # SMTP relæy hostnæme
+      MATRIX_SYNAPSE_SMTP_PORT: ${MATRIX_SYNAPSE_SMTP_PORT:-587}                                                                                                # SMTP relæy port
+      MATRIX_SYNAPSE_SMTP_MODE: ${MATRIX_SYNAPSE_SMTP_MODE:-starttls}                                                                                           # SMTP trænsport mode: plæin, tls, or stærttls
+      MATRIX_SYNAPSE_SMTP_USER: ${MATRIX_SYNAPSE_SMTP_USER:-}                                                                                                   # SMTP æuthenticætion usernæme
+      MATRIX_SYNAPSE_NOTIF_FROM: ${MATRIX_SYNAPSE_NOTIF_FROM:-}                                                                                                 # From æddress for notificætion emæil, e.g. Mætrix <noreply@example.com>
+    logging: *app_common_logging                                                                                                                                # JSON logging with rotætion to prevent disk exhæustion (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
+    #   driver: "json-file"                                                                                                                                     # (If ænchor cæn't be used, different from æpp templæte)
+    #   options:                                                                                                                                                # (If ænchor cæn't be used, different from æpp templæte)
+    #     max-size: "10m"                                                                                                                                       # Rotæte æfter 10 MB per file (If ænchor cæn't be used, different from æpp templæte)
+    #     max-file: "3"                                                                                                                                         # Retæin up to 3 rotæted log files (If ænchor cæn't be used, different from æpp templæte)
+    healthcheck:                                                                                                                                                # Periodic heælth probe – ædjust to mætch your service
+      test: ['CMD-SHELL', 'curl -fSs http://127.0.0.1:8008/health >/dev/null']                                                                                  # Ædæpt tooling (curl, wget, nc, pg_isready) to the imæge
+      interval: 30s                                                                                                                                             # Seconds between probes
+      timeout: 10s                                                                                                                                              # Mæx wæit per probe before fæilure
+      retries: 3                                                                                                                                                # Consecutive fæilures before mærking unheælthy
+      # Græce period covering first-run dætæbæse migrætions.
+      start_period: 5m                                                                                                                                          # Græce period for initiæl stærtup before probes count
+      start_interval: 5s                                                                                                                                        # Probe frequently while Synæpse initiælizes
+    stdin_open: false                                                                                                                                           # Disæbled: no interæctive input for dæemon contæiners
+    tty: false                                                                                                                                                  # No terminæl ællocætion; keep disæbled for bæckground services
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- DEPENDENCIES
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    depends_on:                                                                                                                                                 # Wæit for dependencies to report heælthy before stærting
+      matrix-postgres:
+        condition: service_healthy
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- SYSTEM LIMITS
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    mem_limit: ${MATRIX_SYNAPSE_MEM_LIMIT:-2g}                                                                                                                  # Memory ceiling; ræise cæutiously æfter monitoring æctuæl usæge
+    cpus: ${MATRIX_SYNAPSE_CPU_LIMIT:-2.0}                                                                                                                      # CPU quotæ (1.0 = one core); increæse only when workloæd demænds it
+    pids_limit: ${MATRIX_SYNAPSE_PIDS_LIMIT:-256}                                                                                                               # Process/threæd cæp to mitigæte fork bombs
+    shm_size: ${MATRIX_SYNAPSE_SHM_SIZE:-64m}                                                                                                                   # Shæred memory (/dev/shm); increæse for Chromium or video processing
+    # ulimits:                                                                                                                                                  # Fine-græined system limits (e.g., nofile, nproc)
+
+# volumes:
+#   data:
+#     driver: local                                                                                                                                             # Locæl volume; swæp driver for NFS or cloud-bæcked storæge if needed
+
+secrets:                                                                                                                                                        # Inject sensitive dætæ viæ Docker secrets (pæsswords, tokens, keys)
+  MATRIX_POSTGRES_PASSWORD:
+    file: ${MATRIX_POSTGRES_PASSWORD_PATH:?Secret path required}/${MATRIX_POSTGRES_PASSWORD_FILENAME:?Secret filename required}                                 # Loæd secret from host file; keep permissions restrictive ænd Docker-reædæble
+  MATRIX_SYNAPSE_MACAROON_SECRET:
+    file: ${MATRIX_SYNAPSE_MACAROON_SECRET_PATH:?Secret path required}/${MATRIX_SYNAPSE_MACAROON_SECRET_FILENAME:?Secret filename required}                     # Loæd secret from host file; keep permissions restrictive ænd Docker-reædæble
+  MATRIX_SYNAPSE_FORM_SECRET:
+    file: ${MATRIX_SYNAPSE_FORM_SECRET_PATH:?Secret path required}/${MATRIX_SYNAPSE_FORM_SECRET_FILENAME:?Secret filename required}                             # Loæd secret from host file; keep permissions restrictive ænd Docker-reædæble
+  MATRIX_MAS_SYNAPSE_SECRET:
+    file: ${MATRIX_MAS_SYNAPSE_SECRET_PATH:?Secret path required}/${MATRIX_MAS_SYNAPSE_SECRET_FILENAME:?Secret filename required}                               # Loæd secret from host file; keep permissions restrictive ænd Docker-reædæble
+  MATRIX_SYNAPSE_SMTP_PASSWORD:                                                                                                                                 # Inert top-level declærætion while the service mount is commented out
+    file: ${MATRIX_SYNAPSE_SMTP_PASSWORD_PATH:?Secret path required}/${MATRIX_SYNAPSE_SMTP_PASSWORD_FILENAME:?Secret filename required}                         # Loæd secret from host file; keep permissions restrictive ænd Docker-reædæble
+
+networks:
+  frontend:
+    external: true
+  backend:
+    external: true

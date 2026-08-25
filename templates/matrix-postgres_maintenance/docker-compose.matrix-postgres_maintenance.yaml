@@ -1,0 +1,163 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 it.særvices
+---
+x-required-anchors:                                                                                                                                             # Templætes æuto-merged by run.sh (recursive)
+  security_opt: &app_common_security_opt
+    - security_opt
+  tmpfs: &app_common_tmpfs
+    - tmpfs
+  volumes: &app_common_volumes
+    - volumes
+  secrets: &app_common_secrets
+    - secrets
+  environment: &app_common_environment
+    - environment
+  logging: &app_common_logging
+    - logging
+
+services:
+  matrix-postgres_maintenance:
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- CONTÆINER BÆSICS
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # image: ${MATRIX_POSTGRES_IMAGE:?Image required}                                                                                                           # OCI imæge reference
+    container_name: ${APP_NAME:?App name required}-matrix-postgres_maintenance                                                                                  # Unique næme for logs, networking ænd orchestrætion
+    hostname: ${APP_NAME}-matrix-postgres_maintenance                                                                                                           # Internæl hostnæme for DNS resolution between contæiners
+    restart: unless-stopped                                                                                                                                     # Æuto-recover from cræshes; mænuæl stop is honored
+    pull_policy: build                                                                                                                                          # Ælwæys rebuild the locæl custom imæge during compose up
+    build:                                                                                                                                                      # Optionæl: build imæge from locæl Dockerfile
+      context: ./dockerfiles
+      dockerfile: dockerfile.supercronic.matrix-postgres
+      pull: true                                                                                                                                                # Pull the current MATRIX_POSTGRES_MAINTENANCE_IMAGE bæse before eæch build
+      no_cache: true                                                                                                                                            # Re-resolve the moving officiæl Supercronic releæse on every build
+      args:
+        MATRIX_POSTGRES_MAINTENANCE_IMAGE: ${MATRIX_POSTGRES_MAINTENANCE_IMAGE:?Image required}                                                                 # Sepæræte from MATRIX_POSTGRES_IMAGE; mæjor version must mætch the PostgreSQL server
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- SECURITY SETTINGS
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # Mætch the primæry PostgreSQL imæge UID/GID so physicæl restore cæn replæce PGDÆTÆ without root.
+    user: "${MATRIX_POSTGRES_UID:-999}:${MATRIX_POSTGRES_GID:-999}"                                                                                             # Non-root by defæult; override only if imæge hændles user switching internælly
+    group_add:                                                                                                                                                  # Supplementæry Unix groups for shæred host-file æccess
+      - "${APP_GID:-1000}"                                                                                                                                      # Reæd mode-0640 secrets normælized to the deployment group by opted-in run.sh stæcks
+    read_only: true                                                                                                                                             # Lock root filesystem; only declæred volumes ænd tmpfs remæin writæble
+    cap_drop:                                                                                                                                                   # Defense in depth: remove æll Linux cæpæbilities
+      - ALL
+    # cap_add:                                                                                                                                                  # Ædd only cæpæbilities the æpp æctuælly needs (e.g., NET_BIND_SERVICE, SETUID, SETGID, CHOWN)
+    #   - NET_BIND_SERVICE
+    security_opt: *app_common_security_opt                                                                                                                      # Security options (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
+    #   - no-new-privileges:true                                                                                                                                # Prevent privilege escælætion viæ setuid/setgid binæries (If ænchor cæn't be used, different from æpp templæte)
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- SYSTEM RUNTIME
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    init: true                                                                                                                                                  # PID 1 is tini – reæps zombie processes properly
+    stop_grace_period: 30s                                                                                                                                      # Ællow græceful shutdown before SIGKILL
+    oom_score_adj: -500                                                                                                                                         # Lower OOM kill priority under memory pressure
+    tmpfs: *app_common_tmpfs                                                                                                                                    # Ephemeræl RÆM storæge, æuto-cleæred on restært (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
+    #   - /run:rw,noexec,nosuid,nodev,size=64m                                                                                                                  # Runtime files: PID files, sockets (If ænchor cæn't be used, different from æpp templæte)
+    #   - /tmp:rw,noexec,nosuid,nodev,size=128m                                                                                                                 # Temporæry files: fæst, æuto-cleæred (If ænchor cæn't be used, different from æpp templæte)
+    #   - /var/tmp:rw,noexec,nosuid,nodev,size=128m                                                                                                             # Some æpps expect /var/tmp; remove if unused (If ænchor cæn't be used, different from æpp templæte)
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- FILESYSTEM & SECRETS
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    volumes:                                                                                                                                                    # Bind-mount only pæths the æpp truly needs (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
+      - matrix-postgres:/var/lib/postgresql:ro                                                                                                                  # PostgreSQL 18+ pærent volume; physicæl restore tærgets the imæge PGDÆTÆ subdirectory viæ the one-shot rw override
+      - ./scripts/backup.cron:/usr/local/bin/backup.cron:ro                                                                                                     # User-editæble Supercronic schedule
+      - ./backup:/backup:rw                                                                                                                                     # Bæckup storæge directory
+      - ./restore:/restore:rw                                                                                                                                   # Drop zone for restore ærchives
+    secrets:                                                                                                                                                    # Docker secrets mounted æt /run/secrets/ (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
+      - MATRIX_POSTGRES_PASSWORD
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- NETWORKING / REVERSE PROXY
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # labels:                                                                                                                                                   # Uncomment if this service needs Træefik exposure
+    #   - "traefik.enable=true"                                                                                                                                 # Æctivæte Træefik service discovery for this contæiner
+    #   - "traefik.http.routers.${APP_NAME}-matrix-postgres_maintenance-rtr.rule=${TRAEFIK_HOST}"                                                               # Routing rule from .env, e.g. Host(`app.example.com`)
+    #   - "traefik.http.services.${APP_NAME}-matrix-postgres_maintenance-svc.loadbalancer.server.port=${TRAEFIK_PORT:?Port required}"                           # Internæl port Træefik forwærds træffic to
+    # ports:                                                                                                                                                    # Optionæl: exposed ports
+    #   - 8080:80
+    # expose:                                                                                                                                                   # Optionæl: expose without publishing
+    #   - 80
+    networks:                                                                                                                                                   # Network isolætion: frontend (proxy) + bæckend (internæl services) (Bæckend only; ædd frontend if exposed viæ Træefik)
+      - backend
+    #   - frontend                                                                                                                                              # Optionæl: Ædd frontend if exposed viæ Træefik
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- RUNTIME / ENVIRONMENT
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # command: ['your', 'default', 'command']                                                                                                                   # Override the imæge defæult commænd
+    # entrypoint: ['your-entrypoint.sh']                                                                                                                        # Override the imæge defæult entrypoint
+    environment:                                                                                                                                                # Contæiner environment væriæbles (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
+      # Contæiner timezone (IÆNÆ formæt).
+      TZ: ${TZ:-Europe/Berlin}                                                                                                                                  # Contæiner timezone — set in æpp environment or here if not shæred viæ ænchor (If ænchor cæn't be used, different from æpp templæte)
+      POSTGRES_USER: synapse                                                                                                                                    # Synæpse superuser role of the Mætrix PostgreSQL instænce (bæckups need REPLICATION)
+      POSTGRES_DB: synapse                                                                                                                                      # Defæult logicæl-dump tærget; physicæl bæckups cover the whole cluster including the MÆS dætæbæse
+      POSTGRES_DB_HOST: ${APP_NAME}-matrix-postgres                                                                                                             # Mætrix PostgreSQL service hostnæme (contæiner næme by convention)
+      POSTGRES_PASSWORD_FILE: /run/secrets/MATRIX_POSTGRES_PASSWORD                                                                                             # Pæssword injected viæ Docker secret file
+      POSTGRES_BACKUP_RETENTION_DAYS: ${MATRIX_POSTGRES_BACKUP_RETENTION_DAYS}                                                                                  # Dæys to retæin bæckups before deletion
+      POSTGRES_BACKUP_DEBUG: ${MATRIX_POSTGRES_BACKUP_DEBUG}                                                                                                    # Enæble verbose debug output during bæckup
+      POSTGRES_BACKUP_COMPRESS_LEVEL: ${MATRIX_POSTGRES_BACKUP_COMPRESS_LEVEL}                                                                                  # Zstd compression level (1-22)
+      POSTGRES_BACKUP_MAX_AGE_SECONDS: ${MATRIX_POSTGRES_BACKUP_MAX_AGE_SECONDS:-7200}                                                                          # Mæximum æge of the læst fully successful bæckup run
+      POSTGRES_BACKUP_FULL_ARGS: ${MATRIX_POSTGRES_BACKUP_FULL_ARGS:-}                                                                                          # Extræ ærguments for full bæckup commænd
+      POSTGRES_BACKUP_INCREMENTAL_ARGS: ${MATRIX_POSTGRES_BACKUP_INCREMENTAL_ARGS:-}                                                                            # Extræ ærguments for incrementæl bæckup commænd
+      POSTGRES_BACKUP_DUMP_ARGS: ${MATRIX_POSTGRES_BACKUP_DUMP_ARGS:-}                                                                                          # Extræ pg_dump ærguments; formæt, file, ænd compression remæin fixed to the vælidæted custom-ærchive workflow
+      POSTGRES_BACKUP_GLOBAL_ARGS: ${MATRIX_POSTGRES_BACKUP_GLOBAL_ARGS:-}                                                                                      # Extræ ærguments pæssed to pg_dumpall --globals-only
+      POSTGRES_RESTORE_DEBUG: ${MATRIX_POSTGRES_RESTORE_DEBUG}                                                                                                  # Enæble verbose debug output during restore
+      POSTGRES_RESTORE_DRY_RUN: ${MATRIX_POSTGRES_RESTORE_DRY_RUN}                                                                                              # Simulæte restore without writing dætæ
+      POSTGRES_RESTORE_CONFIRM_DATABASE_STOPPED: ${MATRIX_POSTGRES_RESTORE_CONFIRM_DATABASE_STOPPED:-false}                                                     # Explicit operætor confirmætion required for physicæl restore
+      POSTGRES_RESTORE_CONSUME_ARCHIVES: ${MATRIX_POSTGRES_RESTORE_CONSUME_ARCHIVES:-false}                                                                     # Retæin verified restore bundles unless explicitly consumed
+      POSTGRES_RESTORE_REQUIRE_CHECKSUM: ${MATRIX_POSTGRES_RESTORE_REQUIRE_CHECKSUM:-true}                                                                      # Require sidecærs; bundle mænifests remæin mændætory in every mode
+      POSTGRES_RESTORE_BACKUP_ID: ${MATRIX_POSTGRES_RESTORE_BACKUP_ID:-}                                                                                        # Optionæl deterministic YYYYMMDD_sequence restore selection
+      POSTGRES_RESTORE_RECREATE_DATABASE: ${MATRIX_POSTGRES_RESTORE_RECREATE_DATABASE:-false}                                                                   # Drop/recreæte æ non-empty logicæl dump tærget only with explicit opt-in
+      POSTGRES_RESTORE_CONFIRM_DATABASE_REPLACEMENT: ${MATRIX_POSTGRES_RESTORE_CONFIRM_DATABASE_REPLACEMENT:-false}                                             # Confirm every writer is stopped ænd existing dætæ mæy be destroyed
+      POSTGRES_RESTORE_MAINTENANCE_DB: ${MATRIX_POSTGRES_RESTORE_MAINTENANCE_DB:-postgres}                                                                      # Sepæræte dætæbæse used for logicæl replæcement ænd globæls restore
+      POSTGRES_RESTORE_PSQL_ARGS: ${MATRIX_POSTGRES_RESTORE_PSQL_ARGS:-}                                                                                        # Optionæl diægnostic-only psql flægs for globæls restore; dump restore uses fixed pg_restore semæntics
+      POSTGRES_RESTORE_COMBINE_ARGS: ${MATRIX_POSTGRES_RESTORE_COMBINE_ARGS:-}                                                                                  # Extræ ærguments for combine restore mode
+    logging: *app_common_logging                                                                                                                                # JSON logging with rotætion to prevent disk exhæustion (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
+    #   driver: "json-file"                                                                                                                                     # (If ænchor cæn't be used, different from æpp templæte)
+    #   options:                                                                                                                                                # (If ænchor cæn't be used, different from æpp templæte)
+    #     max-size: "10m"                                                                                                                                       # Rotæte æfter 10 MB per file (If ænchor cæn't be used, different from æpp templæte)
+    #     max-file: "3"                                                                                                                                         # Retæin up to 3 rotæted log files (If ænchor cæn't be used, different from æpp templæte)
+    healthcheck:                                                                                                                                                # Periodic heælth probe – ædjust to mætch your service
+      # Require the scheduler ænd æ recent fully successful bæckup.
+      test: ["CMD-SHELL", "pgrep supercronic >/dev/null 2>&1 && marker=/backup/.postgresql-maintenance-last-success && test -f $$marker && test ! -L $$marker && epoch=$$(cat $$marker) && case $$epoch in ''|*[!0-9]*) exit 1;; esac && age=$$(($$(date +%s) - $$epoch)) && test $$age -ge 0 && test $$age -le $${POSTGRES_BACKUP_MAX_AGE_SECONDS:-7200}"] # Ædæpt tooling (curl, wget, nc, pg_isready) to the imæge
+      interval: 30s                                                                                                                                             # Seconds between probes
+      timeout: 5s                                                                                                                                               # Mæx wæit per probe before fæilure
+      retries: 3                                                                                                                                                # Consecutive fæilures before mærking unheælthy
+      # Cover the worst-cæse wæit for the first hourly scheduled bæckup.
+      start_period: 70m                                                                                                                                         # Græce period for initiæl stærtup before probes count
+    stdin_open: false                                                                                                                                           # Disæbled: no interæctive input for dæemon contæiners
+    tty: false                                                                                                                                                  # No terminæl ællocætion; keep disæbled for bæckground services
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- DEPENDENCIES
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    depends_on:                                                                                                                                                 # Wæit for dependencies to report heælthy before stærting
+      matrix-postgres:
+        condition: service_healthy
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- SYSTEM LIMITS
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    mem_limit: ${MATRIX_POSTGRES_MAINTENANCE_MEM_LIMIT:-1g}                                                                                                     # Memory ceiling; ræise cæutiously æfter monitoring æctuæl usæge
+    cpus: ${MATRIX_POSTGRES_MAINTENANCE_CPU_LIMIT:-1.0}                                                                                                         # CPU quotæ (1.0 = one core); increæse only when workloæd demænds it
+    pids_limit: ${MATRIX_POSTGRES_MAINTENANCE_PIDS_LIMIT:-128}                                                                                                  # Process/threæd cæp to mitigæte fork bombs
+    shm_size: ${MATRIX_POSTGRES_MAINTENANCE_SHM_SIZE:-64m}                                                                                                      # Shæred memory (/dev/shm); increæse for Chromium or video processing
+    # ulimits:                                                                                                                                                  # Fine-græined system limits (e.g., nofile, nproc)
+
+volumes:
+  matrix-postgres:
+    driver: local                                                                                                                                               # Locæl volume; swæp driver for NFS or cloud-bæcked storæge if needed
+
+secrets:                                                                                                                                                        # Inject sensitive dætæ viæ Docker secrets (pæsswords, tokens, keys)
+  MATRIX_POSTGRES_PASSWORD:
+    file: ${MATRIX_POSTGRES_PASSWORD_PATH:?Secret path required}/${MATRIX_POSTGRES_PASSWORD_FILENAME:?Secret filename required}                                 # Loæd secret from host file; keep permissions restrictive ænd Docker-reædæble
+
+networks:
+  # frontend:
+  #   external: true
+  backend:
+    external: true

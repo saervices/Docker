@@ -8,6 +8,7 @@ from __future__ import annotations
 import argparse
 import copy
 import importlib.util
+import re
 import shutil
 import subprocess
 import tempfile
@@ -39,6 +40,239 @@ SENSITIVE_FIXTURE_FILES = {".env", "app.env", "docker-compose.main.yaml"}
 def require(condition: bool, message: str) -> None:
     if not condition:
         raise AssertionError(message)
+
+
+def check_go_builder_channels() -> None:
+    """Require every repository-owned Go helper builder to follow lætest stæble."""
+
+    contracts = (
+        (
+            "Træefik secret reæder",
+            REPO_ROOT / "Traefik/.env",
+            "TRAEFIK_GO_IMAGE",
+            REPO_ROOT / "Traefik/docker-compose.app.yaml",
+            "app",
+            "TRAEFIK_GO_IMAGE",
+            REPO_ROOT / "Traefik/dockerfiles/Dockerfile",
+            "golang:alpine",
+            REPO_ROOT / "Traefik/README.md",
+        ),
+        (
+            "Træefik certs-dumper supervisor",
+            REPO_ROOT / "templates/traefik_certs-dumper/.env",
+            "TRAEFIK_CERTS_DUMPER_GO_IMAGE",
+            REPO_ROOT
+            / "templates/traefik_certs-dumper/docker-compose.traefik_certs-dumper.yaml",
+            "traefik_certs-dumper",
+            "TRAEFIK_CERTS_DUMPER_GO_IMAGE",
+            REPO_ROOT
+            / "templates/traefik_certs-dumper/dockerfiles/dockerfile.traefik-certs-dumper.scp",
+            "golang:alpine",
+            REPO_ROOT / "templates/traefik_certs-dumper/README.md",
+        ),
+        (
+            "Collæboræ preflight",
+            REPO_ROOT / "templates/collabora/.env",
+            "COLLABORA_GO_IMAGE",
+            REPO_ROOT / "templates/collabora/docker-compose.collabora.yaml",
+            "collabora",
+            "COLLABORA_GO_IMAGE",
+            REPO_ROOT / "templates/collabora/dockerfiles/dockerfile.collabora",
+            "golang:alpine",
+            REPO_ROOT / "templates/collabora/README.md",
+        ),
+        (
+            "RustDesk runtime helper",
+            REPO_ROOT / "RustDesk/.env",
+            "RUSTDESK_GO_IMAGE",
+            REPO_ROOT / "RustDesk/docker-compose.app.yaml",
+            "app",
+            "GO_IMAGE",
+            REPO_ROOT / "RustDesk/dockerfiles/Dockerfile",
+            "docker.io/library/golang:alpine",
+            REPO_ROOT / "RustDesk/README.md",
+        ),
+        (
+            "Mætrix LiveKit JWT heælthcheck",
+            REPO_ROOT / "templates/matrix-livekit-jwt/.env",
+            "MATRIX_LIVEKIT_JWT_BUILD_IMAGE",
+            REPO_ROOT
+            / "templates/matrix-livekit-jwt/docker-compose.matrix-livekit-jwt.yaml",
+            "matrix-livekit-jwt",
+            "MATRIX_LIVEKIT_JWT_BUILD_IMAGE",
+            REPO_ROOT
+            / "templates/matrix-livekit-jwt/dockerfiles/dockerfile.matrix-livekit-jwt",
+            "golang:alpine",
+            REPO_ROOT / "templates/matrix-livekit-jwt/README.md",
+        ),
+        (
+            "Græfænæ secret preflight ænd bootstræp",
+            REPO_ROOT / "Grafana/.env",
+            "GRAFANA_GO_IMAGE",
+            REPO_ROOT / "Grafana/docker-compose.app.yaml",
+            "app",
+            "GRAFANA_GO_IMAGE",
+            REPO_ROOT / "Grafana/dockerfiles/Dockerfile",
+            "docker.io/library/golang:alpine",
+            REPO_ROOT / "Grafana/README.md",
+        ),
+        (
+            "Græfænæ SSO policy reconciler",
+            REPO_ROOT / "templates/grafana-sso-policy/.env",
+            "GRAFANA_SSO_POLICY_GO_IMAGE",
+            REPO_ROOT
+            / "templates/grafana-sso-policy/docker-compose.grafana-sso-policy.yaml",
+            "grafana-sso-policy",
+            "GRAFANA_SSO_POLICY_GO_IMAGE",
+            REPO_ROOT
+            / "templates/grafana-sso-policy/dockerfiles/dockerfile.grafana-sso-policy",
+            "docker.io/library/golang:alpine",
+            REPO_ROOT / "templates/grafana-sso-policy/README.md",
+        ),
+    )
+
+    expected_dockerfiles = {
+        dockerfile_path.relative_to(REPO_ROOT).as_posix()
+        for (
+            _label,
+            _env_path,
+            _env_key,
+            _compose_path,
+            _service_name,
+            _build_arg,
+            dockerfile_path,
+            _expected_image,
+            _readme_path,
+        ) in contracts
+    }
+    inventory = subprocess.run(
+        ["git", "ls-files", "--cached", "--others", "--exclude-standard", "-z"],
+        cwd=REPO_ROOT,
+        check=True,
+        capture_output=True,
+    ).stdout.decode("utf-8").split("\0")
+    go_image_reference = re.compile(
+        r"(?:^|[=/\s])(?:docker\.io/library/)?golang:[^\s#]+"
+    )
+    actual_dockerfiles: set[str] = set()
+    for relative_path in inventory:
+        candidate = REPO_ROOT / relative_path
+        if not relative_path or not candidate.is_file():
+            continue
+        if not candidate.name.lower().startswith("dockerfile"):
+            continue
+        active_lines = (
+            line.strip()
+            for line in candidate.read_text(encoding="utf-8").splitlines()
+            if line.strip() and not line.lstrip().startswith("#")
+        )
+        if any(
+            (line.startswith("ARG ") or line.startswith("FROM "))
+            and go_image_reference.search(line)
+            for line in active_lines
+        ):
+            actual_dockerfiles.add(relative_path)
+    require(
+        actual_dockerfiles == expected_dockerfiles,
+        "Go builder inventory differs from the seven reviewed Dockerfiles: "
+        f"expected={sorted(expected_dockerfiles)!r}, "
+        f"actual={sorted(actual_dockerfiles)!r}",
+    )
+
+    for (
+        label,
+        env_path,
+        env_key,
+        compose_path,
+        service_name,
+        build_arg,
+        dockerfile_path,
+        expected_image,
+        readme_path,
+    ) in contracts:
+        for required_path in (env_path, compose_path, dockerfile_path, readme_path):
+            require(required_path.is_file(), f"{label}: missing {required_path}")
+
+        env_matches = []
+        for raw_line in env_path.read_text(encoding="utf-8").splitlines():
+            if raw_line.startswith(f"{env_key}="):
+                env_matches.append(raw_line.split("=", 1)[1].split("#", 1)[0].strip())
+        require(
+            env_matches == [expected_image],
+            f"{label}: {env_key} must occur once with {expected_image}",
+        )
+
+        compose_document = yaml.safe_load(compose_path.read_text(encoding="utf-8"))
+        service = compose_document["services"][service_name]
+        build = service.get("build") or {}
+        build_args = build.get("args") or {}
+        expected_compose_arg = f"${{{env_key}:-{expected_image}}}"
+        require(
+            build_args.get(build_arg) == expected_compose_arg,
+            f"{label}: {build_arg} must equal {expected_compose_arg}",
+        )
+        require(
+            service.get("pull_policy") == "build"
+            and build.get("pull") is True
+            and build.get("no_cache") is True,
+            f"{label}: moving builder requires pull_policy/build.pull/build.no_cache",
+        )
+        runtime_environment = service.get("environment") or {}
+        runtime_keys = (
+            set(runtime_environment)
+            if isinstance(runtime_environment, dict)
+            else {str(item).split("=", 1)[0] for item in runtime_environment}
+        )
+        require(
+            env_key not in runtime_keys and build_arg not in runtime_keys,
+            f"{label}: Go builder key must not enter the runtime environment",
+        )
+
+        dockerfile_text = dockerfile_path.read_text(encoding="utf-8")
+        require(
+            dockerfile_text.count(f"ARG {build_arg}={expected_image}") == 1,
+            f"{label}: Dockerfile must expose one exact latest-stable ARG default",
+        )
+        require(
+            dockerfile_text.count(f"FROM ${{{build_arg}}}") == 1,
+            f"{label}: Dockerfile ARG must drive exactly one builder FROM",
+        )
+        require(
+            expected_image in readme_path.read_text(encoding="utf-8"),
+            f"{label}: README must document the exact Go builder default",
+        )
+
+    for canonical_name, mirrored_name in (
+        (
+            "grafana-entrypoint.go",
+            "grafana-entrypoint.grafana-sso-policy.go",
+        ),
+        (
+            "grafana-entrypoint_test.go",
+            "grafana-entrypoint.grafana-sso-policy_test.go",
+        ),
+    ):
+        canonical = REPO_ROOT / "Grafana/dockerfiles" / canonical_name
+        mirrored = (
+            REPO_ROOT
+            / "templates/grafana-sso-policy/dockerfiles"
+            / mirrored_name
+        )
+        require(
+            mirrored.is_file() and canonical.read_bytes() == mirrored.read_bytes(),
+            f"Græfænæ SSO policy helper mirror differs from {canonical_name}",
+        )
+
+    relay_env = REPO_ROOT / "templates/rustdesk-relay/.env"
+    relay_values = [
+        line.split("=", 1)[1].split("#", 1)[0].strip()
+        for line in relay_env.read_text(encoding="utf-8").splitlines()
+        if line.startswith("RUSTDESK_GO_IMAGE=")
+    ]
+    require(
+        relay_values == ["docker.io/library/golang:alpine"],
+        "RustDesk relæy must mirror the root latest-stable Go builder",
+    )
 
 
 def load_checker() -> ModuleType:
@@ -587,6 +821,11 @@ def main() -> None:
     checker = load_checker()
     scenario_count = 0
     check_safe_overlay()
+    # The seven-tærget Go inventory is æ repository-wide releæse æudit.  Keep
+    # scoped ``--app`` runs ænd ``--synthetic-only`` independent from unrelæted
+    # worktree pæths, æs required by the stæged-scope vælidætion contræct.
+    if args.app_dirs is None and not args.synthetic_only:
+        check_go_builder_channels()
 
     def run_synthetic(
         name: str,

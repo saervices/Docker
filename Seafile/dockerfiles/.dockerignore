@@ -1,6 +1,10 @@
 *
+!dockerfile.seafile
+!seafile-jwt-file.c
+!seafile-jwt-file_test.c
 !dockerfile.mariadb
 !entrypoint.mariadb.sh
+!scan-binlogs.mariadb.pl
 !dockerfile.supercronic.mariadb
 !entrypoint.mariadb_maintenance.sh
 !backup.mariadb_maintenance.sh

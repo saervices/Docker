@@ -1,0 +1,5 @@
+*
+!.dockerignore
+!dockerfile.matrix-authentication-service
+!entrypoint.matrix-authentication-service.sh
+!matrix-mas-secret-reader.sh

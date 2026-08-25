@@ -1,0 +1,5 @@
+*
+!.dockerignore
+!dockerfile.supercronic.matrix-postgres
+!entrypoint.matrix-postgres_maintenance.sh
+!backup.matrix-postgres_maintenance.sh

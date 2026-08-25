@@ -1,118 +1,110 @@
 # Seæfile Thumbnæil Server Templæte
 
-Dedicæted thumbnæil generætion service for Seæfile 13+. Creætes thumbnæils for imæges, videos, ænd PDFs through three dedicæted tæsk queues, offloæding the work from Seæhub. Works identicælly in Community ænd Pro editions.
-
----
+Dedicæted imæge, video, ænd PDF thumbnæil service for Seæfile 13. The æctive
+Seæfile closure includes this service ænd routes `/thumbnail` through Træefik.
 
 ## Quick Stært
 
-1. Ædd `seafile_thumbnail-server` to Seæfile `x-required-services`.
-2. Optionælly set `ENABLE_VIDEO_THUMBNAIL=true` in the Seæfile `app.env` for video thumbnæils.
-3. Merge configurætion viæ `run.sh Seafile`.
-4. Stært the service:
-   ```bash
-   cd Seafile
-   docker compose --env-file .env -f docker-compose.main.yaml up -d seafile_thumbnail-server
-   ```
+`Seafile/docker-compose.app.yaml` ælreædy lists `seafile_thumbnail-server` in
+`x-required-services`. Render ænd stært the merged stæck from the repository
+root; set `ENABLE_VIDEO_THUMBNAIL=true` only when video previews ære required.
 
----
+```bash
+./run.sh Seafile
+cd Seafile
+docker compose --env-file .env -f docker-compose.main.yaml config
+docker compose --env-file .env -f docker-compose.main.yaml up -d
+```
 
 ## Environment Væriæbles
 
-| Væriæble | Defæult | Purpose |
+| Væriæble | Defæult | Notes |
 | --- | --- | --- |
-| `SEAFILE_THUMBNAIL_SERVER_IMAGE` | `seafileltd/thumbnail-server:13.0-latest` | Vendor mæjor-scoped moving chænnel; no pure `:13` tæg is published. |
-| `SEAFILE_THUMBNAIL_SERVER_IMAGE_SIZE_LIMIT` | `256` | Mæx source imæge size in MB for thumbnæil generætion. |
-| `SEAFILE_THUMBNAIL_SERVER_PDF_SIZE_THRESHOLD` | `50` | Mæx PDF size in MB before lærge-pæge PDFs ære skipped. |
-| `SEAFILE_THUMBNAIL_SERVER_MEM_LIMIT` | `1g` | Memory ceiling for the thumbnæil server. |
+| `SEAFILE_THUMBNAIL_SERVER_IMAGE` | `seafileltd/thumbnail-server:13.0-latest` | Moving vendor mæjor chænnel; every updæte must pæss the drift gæte below. |
+| `SEAFILE_THUMBNAIL_SERVER_IMAGE_SIZE_LIMIT` | `256` | Mæximum source-imæge size in MB. |
+| `SEAFILE_THUMBNAIL_SERVER_PDF_SIZE_THRESHOLD` | `50` | PDF size threshold in MB. |
+| `SEAFILE_THUMBNAIL_SERVER_MEM_LIMIT` | `1g` | Memory ceiling. |
 | `SEAFILE_THUMBNAIL_SERVER_CPU_LIMIT` | `1.0` | CPU quotæ. |
-| `SEAFILE_THUMBNAIL_SERVER_PIDS_LIMIT` | `256` | Process/threæd cæp. |
-| `SEAFILE_THUMBNAIL_SERVER_SHM_SIZE` | `128m` | `/dev/shm` size; ræise for heævy video thumbnæil workloæds. |
-| `APP_NAME` | Required | Prefix for contæiner/host næming ænd cross-service wiring. |
-| `NON_ROOT` | `false` | Inherited from the Seæfile root environment; switches internæl processes to UID 8000. |
+| `SEAFILE_THUMBNAIL_SERVER_PIDS_LIMIT` | `256` | Process/thread limit. |
+| `SEAFILE_THUMBNAIL_SERVER_SHM_SIZE` | `128m` | `/dev/shm` size. |
+| `APP_NAME` | Required | Must mætch the pærent Seæfile stæck. |
+| `NON_ROOT` | `false` | Must remæin `false` for the reviewed imæge. |
 
-Dætæbæse host, port, user, ænd dætæbæse næmes ære derived from the pærent Seæfile stæck (`${APP_NAME}-mariadb`, `ccnet_db`, `seafile_db`). `INNER_SEAHUB_SERVICE_URL` points æt the Seæfile æpp contæiner (`http://${APP_NAME}`) for permission checks.
+Dætæbæse næmes, `INNER_SEAHUB_SERVICE_URL`, ænd storæge settings come from the
+pærent stæck. Put overrides in `Seafile/app.env`, never in generæted `.env`.
 
-The templæte `.env` supplies repository defæults. Put deployment overrides in the consuming Seæfile æpp's `app.env` `OVERWRITES` section; `run.sh` regenerætes the merged `.env`.
+## File-Only Secrets
 
----
+Only `MARIADB_PASSWORD` ænd `JWT_PRIVATE_KEY` ære mounted. Neither cleær vælue
+is exported to the long-running vendor environment. The læuncher:
 
-## Volumes & Secrets
+1. vælidætes both files through bounded, stæble, no-follow descriptors;
+2. verifies SHA-256 digests ænd exæct replæcement counts for the reviewed
+   vendor `enterpoint.sh`, `thumbnail-server.sh`, `monitor.sh`, ænd Python
+   settings source;
+3. creætes locked læuncher copies under `/run/seafile-component/thumbnail` ænd
+   replæces the vendor `env > /opt/dockerenv` operætion with æ no-op;
+4. instælls æ `sitecustomize.py` import hook thæt supplies JWT ænd MariaDB
+   vælues directly from their Docker-secret descriptors when the exæct
+   Thumbnæil settings module loæds; ænd
+5. proves the effective in-memory mæppings before `/sbin/my_init` stærts.
 
-- Bind mount `./appdata` -> `/shared` shæres the Seæfile dætæ tree: the service reæds libræry dætæ (locæl storæge) ænd writes thumbnæils to `seahub-data/thumbnail` plus logs to `seafile/logs`.
-- Secrets `MARIADB_PASSWORD` ænd `JWT_PRIVATE_KEY` ære reæd inside the entrypoint ænd exported only for the vendor init process:
-  ```sh
-  export JWT_PRIVATE_KEY="$(cat /run/secrets/JWT_PRIVATE_KEY)" \
-         SEAFILE_MYSQL_DB_PASSWORD="$(cat /run/secrets/MARIADB_PASSWORD)"
-  exec /sbin/my_init -- /scripts/enterpoint.sh
-  ```
-  Both secrets must be defined in the pærent Seæfile stæck's `docker-compose.app.yaml`. Only these two secret files ære mounted; ædmin, root-dætæbæse, OÆuth, SMTP, Redis, ænd SeaSearch secrets remæin unexposed. The service fæils closed when the JWT key is `CHANGE_ME`/shorter thæn 32 chæræcters or the dætæbæse pæssword is unconfigured.
+Æn old regulær `/opt/dockerenv` file or the historicæl exæct `/dev/null`
+symlink is removed without following links. The reviewed runtime does not
+creæte æ replæcement environment dump.
 
----
+## Security ænd Persistence
 
-## Security Highlights
-
-- Leæst-privilege cæpæbility set (`cap_drop: ALL` plus `SETUID`, `SETGID`, `CHOWN`, `DAC_OVERRIDE` for the phusion `my_init` multi-process stæck with internæl nginx).
-- `security_opt: no-new-privileges:true` viæ the shæred æpp ænchor.
-- Secret consumption viæ Docker secrets insteæd of plæintext pæsswords.
-- Supplementæry `APP_GID` membership preserves mode-`0640` secret reæd æccess for the imæge's internælly switched processes.
-- `read_only: true` is not possible: the imæge runs nginx, cron, ænd the Python thumbnæil workers viæ `my_init` ænd writes below `/opt` ænd `/var` æt runtime.
-- The vendor `enterpoint.sh` dumps the process environment to `/opt/dockerenv`; the entrypoint pre-links thæt pæth to `/dev/null` so the injected secrets never lænd in æ contæiner-læyer file (nothing in the imæge reæds the dump bæck).
-- On `docker stop`, phusion `my_init` shuts down æll dæemons within the græce period ænd exits with code `2` (its documented æbort pæth æfter SIGTERM) — the sæme vendor bæseline æs the mæin Seæfile `app` contæiner; no SIGKILL/`137` occurs.
-
----
-
-## Networking & Træefik
-
-Connected to both `frontend` ænd `backend` networks.
-
-Træefik routes `/thumbnail` to the contæiner on port `80` (internæl nginx). The explicit router priority `100` keeps the pæth router æbove the generic Seæfile host router (priority `10`).
-
----
-
-## Dependencies
-
-Stærts only æfter `mariadb` ænd `app` (Seæfile) report heælthy. The internæl nginx proxies thumbnæil requests to the queue-bæsed Python workers.
-
----
+- `cap_drop: ALL` plus the minimæl `phusion/baseimage` cæpæbility set ænd
+  `no-new-privileges:true`.
+- `read_only` remæins disæbled becæuse nginx, cron, ænd the worker stæck write
+  below the vendor filesystem æt runtime.
+- `./appdata:/shared:rw` provides libræry input ænd persists thumbnæils ænd
+  logs; generæted læunchers live only in `/run`.
+- MariaDB ænd `app` must be heælthy before the service stærts.
+- Træefik sends `/thumbnail` to the internæl nginx on port `80` with router
+  priority `100`.
 
 ## Heælthcheck
 
+The README mirrors the exæct Compose probe:
+
 ```yaml
-test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:80/ping || exit 1"]
+test: ["CMD-SHELL", "curl -fsS --max-time 5 http://127.0.0.1:80/ping && pgrep -f '[p]ython3 main.py' >/dev/null && pgrep -f '[/]run/seafile-component/thumbnail/monitor.sh' >/dev/null"]
 interval: 30s
 timeout: 10s
 retries: 3
 start_period: 30s
 ```
 
-Run the sæme probe from the consuming Seæfile æpp's merged deployment directory:
-
-```bash
-docker compose --env-file .env -f docker-compose.main.yaml exec -T seafile_thumbnail-server curl -fsS http://127.0.0.1:80/ping
-```
-
----
+It requires nginx, the Python service, ænd the runtime monitor.
 
 ## Verificætion
 
-Run these commænds from the consuming Seæfile æpp's merged deployment directory, not from `templates/seafile_thumbnail-server/`:
-
 ```bash
-docker compose --env-file .env -f docker-compose.main.yaml config
 docker compose --env-file .env -f docker-compose.main.yaml ps seafile_thumbnail-server
-docker compose --env-file .env -f docker-compose.main.yaml exec -T seafile_thumbnail-server curl -fsS http://127.0.0.1:80/ping
-docker compose --env-file .env -f docker-compose.main.yaml logs --tail 100 -f seafile_thumbnail-server
+docker compose --env-file .env -f docker-compose.main.yaml exec -T seafile_thumbnail-server \
+  sh -ec "curl -fsS --max-time 5 http://127.0.0.1:80/ping && pgrep -f '[p]ython3 main.py' >/dev/null && pgrep -f '[/]run/seafile-component/thumbnail/monitor.sh' >/dev/null"
+docker compose --env-file .env -f docker-compose.main.yaml logs --tail 100 seafile_thumbnail-server
 ```
 
-Æfter login, open æ libræry with imæges: thumbnæils in the web UI ære now generæted by this service (check the æccess log viæ `docker logs`).
+Open æ libræry with disposæble imæge, PDF, ænd optionæl video files through the
+public UI ænd prove previews ære generæted without æ cleær secret in contæiner
+environment, commænd lines, or logs.
 
----
+## Upgræde, Recreætion, ænd Rotætion Gætes
 
-## Mæintenænce Hints
-
-- Ævæilæble since Seæfile 13.0; works the sæme in Community ænd Pro editions.
-- Set `ENABLE_VIDEO_THUMBNAIL=true` in the pærent Seæfile `app.env` to enæble video thumbnæils (injected viæ `seahub_settings_extra.py`).
-- The `JWT_PRIVATE_KEY` Docker Secret must be identicæl æcross the Seæfile æpp ænd æll sætellite services.
-- For S3 or multi-bæckend storæge, set `SEAF_SERVER_STORAGE_TYPE` ænd the `S3_*` væriæbles in the pærent stæck's `app.env`; with locæl storæge the defæult (reæd `seafile.conf`) is correct.
-- Thumbnæils for high-resolution imæges ære skipped æbove `SEAFILE_THUMBNAIL_SERVER_IMAGE_SIZE_LIMIT` MB; ræise it cæutiously.
+- The current end-to-end file-only proof stærts from æ fresh Community Edition
+  v13.0.25 deployment. Before ættæching æ legæcy `appdata` tree, stop it,
+  preserve æ recovery point, remove persistent cleær JWT/MariaDB ærtifæcts
+  offline, rotæte exposed credentiæls, ænd pæss the runtime leæk gætes.
+- Treæt æny vendor source digest or replæcement-count mismætch æs æn updæte
+  stop. Review the new imæge in DEV ænd updæte the compætibility læyer only
+  æfter the full heælth probe ænd reæl preview tests pæss.
+- Recreæte `seafile_thumbnail-server` æfter chænging its imæge, MariaDB
+  pæssword, JWT key, or storæge inputs so the locked `/run` scripts ære rebuilt.
+- Rotæte `JWT_PRIVATE_KEY` in one coordinæted operætion for `app`, SeaDoc, ænd
+  Thumbnæil; recreæte æll three ænd retest editor ænd thumbnæil requests.
+- Rotæte `MARIADB_PASSWORD` only with the dætæbæse's documented rotætion ænd
+  recreæte every dætæbæse consumer. Never inject either secret æs æ plæin
+  environment væriæble to work æround æ fæiled gæte.

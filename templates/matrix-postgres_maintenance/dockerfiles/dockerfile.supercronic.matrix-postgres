@@ -1,0 +1,103 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 it.særvices
+#
+# Mætrix PostgreSQL mæintenænce — bounded bæckup, restore, ænd Supercronic runtime
+# Bæse: postgres:18 (officiæl moving mæjor chænnel)
+
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+# --- BÆSE IMÆGE
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+ARG MATRIX_POSTGRES_MAINTENANCE_IMAGE=postgres:18
+
+FROM ${MATRIX_POSTGRES_MAINTENANCE_IMAGE} AS supercronic-fetch
+
+ARG TARGETARCH
+
+# Resolve the current officiæl releæse, mætch its ærchitecture-specific æsset,
+# ænd verify the GitHub-published SHÆ256 digest before the binæry enters the runtime imæge.
+RUN set -eux; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends ca-certificates curl jq; \
+    SUPERCRONIC_ARCH="${TARGETARCH:-$(dpkg --print-architecture)}"; \
+    case "${SUPERCRONIC_ARCH}" in \
+      amd64|arm64) ;; \
+      *) echo "Unsupported target architecture: ${SUPERCRONIC_ARCH}" >&2; exit 1 ;; \
+    esac; \
+    SUPERCRONIC_BINARY="supercronic-linux-${SUPERCRONIC_ARCH}"; \
+    RELEASE_METADATA="$(mktemp)"; \
+    curl --proto '=https' --tlsv1.2 \
+      --fail --silent --show-error --location \
+      --retry 5 --retry-all-errors --connect-timeout 15 --max-time 120 \
+      -H 'Accept: application/vnd.github+json' \
+      -H 'X-GitHub-Api-Version: 2022-11-28' \
+      -H 'User-Agent: it-saervices-docker-build' \
+      'https://api.github.com/repos/aptible/supercronic/releases/latest' \
+      -o "${RELEASE_METADATA}"; \
+    jq -e 'type == "object" and .draft == false and .prerelease == false' \
+      "${RELEASE_METADATA}" >/dev/null; \
+    SUPERCRONIC_RELEASE="$(jq -er '.tag_name | select(type == "string")' "${RELEASE_METADATA}")"; \
+    printf '%s' "${SUPERCRONIC_RELEASE}" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$' \
+      || { echo "Unexpected Supercronic release tag: ${SUPERCRONIC_RELEASE}" >&2; exit 1; }; \
+    SUPERCRONIC_ASSET="$(jq -cer --arg asset "${SUPERCRONIC_BINARY}" \
+      '[.assets[]? | select(.name == $asset and .state == "uploaded")] | if length == 1 then .[0] else error("missing or duplicate uploaded release asset") end' \
+      "${RELEASE_METADATA}")"; \
+    SUPERCRONIC_URL="$(printf '%s' "${SUPERCRONIC_ASSET}" | jq -er '.browser_download_url | select(type == "string")')"; \
+    SUPERCRONIC_DIGEST="$(printf '%s' "${SUPERCRONIC_ASSET}" | jq -er '.digest | select(type == "string")')"; \
+    SUPERCRONIC_SIZE="$(printf '%s' "${SUPERCRONIC_ASSET}" | jq -er '.size | select(type == "number" and . > 0 and floor == .)')"; \
+    EXPECTED_URL="https://github.com/aptible/supercronic/releases/download/${SUPERCRONIC_RELEASE}/${SUPERCRONIC_BINARY}"; \
+    [ "${SUPERCRONIC_URL}" = "${EXPECTED_URL}" ] \
+      || { echo "Unexpected official asset URL: ${SUPERCRONIC_URL}" >&2; exit 1; }; \
+    printf '%s' "${SUPERCRONIC_DIGEST}" | grep -Eq '^sha256:[0-9a-f]{64}$' \
+      || { echo "Missing or malformed official SHA256 digest for ${SUPERCRONIC_BINARY}" >&2; exit 1; }; \
+    curl --proto '=https' --proto-redir '=https' --tlsv1.2 \
+      --fail --silent --show-error --location \
+      --retry 5 --retry-all-errors --connect-timeout 15 --max-time 300 \
+      "${SUPERCRONIC_URL}" -o /tmp/supercronic; \
+    [ "$(stat -c '%s' /tmp/supercronic)" = "${SUPERCRONIC_SIZE}" ] \
+      || { echo "Downloaded Supercronic asset size does not match GitHub metadata" >&2; exit 1; }; \
+    printf '%s  %s\n' "${SUPERCRONIC_DIGEST#sha256:}" /tmp/supercronic | sha256sum -c -; \
+    chmod 0755 /tmp/supercronic; \
+    /tmp/supercronic -version; \
+    printf 'release=%s\nasset=%s\ndigest=%s\n' \
+      "${SUPERCRONIC_RELEASE}" "${SUPERCRONIC_BINARY}" "${SUPERCRONIC_DIGEST}" \
+      > /tmp/supercronic-release; \
+    printf 'Installed Supercronic %s for %s with verified %s\n' \
+      "${SUPERCRONIC_RELEASE}" "${SUPERCRONIC_ARCH}" "${SUPERCRONIC_DIGEST}"; \
+    rm -f "${RELEASE_METADATA}"; \
+    rm -rf /var/lib/apt/lists/*
+
+FROM ${MATRIX_POSTGRES_MAINTENANCE_IMAGE}
+
+LABEL maintainer="it.særvices <admin@it.saervices.de>"
+
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+# --- INSTÆLL REQUIRED TOOLS
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+RUN set -eux; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends ca-certificates procps util-linux zstd; \
+    rm -rf /var/lib/apt/lists/*;
+
+#ææææææææææææææææææææææææææææææææææ
+# INSTÆLL SUPERCRONIC
+#ææææææææææææææææææææææææææææææææææ
+COPY --from=supercronic-fetch /tmp/supercronic /usr/local/bin/supercronic
+COPY --from=supercronic-fetch /tmp/supercronic-release /usr/local/share/supercronic-release
+
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+# --- CREÆTE DIRECTORIES & COPY SCRIPTS
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+RUN set -eux; \
+    mkdir -p /backup /restore;
+
+COPY entrypoint.matrix-postgres_maintenance.sh /usr/local/bin/entrypoint.sh
+COPY backup.matrix-postgres_maintenance.sh /usr/local/bin/backup.sh
+RUN chmod +x /usr/local/bin/*
+
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+# --- DEFÆULT USER & ENTRYPOINT
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+USER postgres:postgres
+
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
+CMD ["schedule"]

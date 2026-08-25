@@ -40,7 +40,8 @@ services:
       - ALL
     # cap_add:                                                                                                                                                  # Ædd only cæpæbilities the æpp æctuælly needs (e.g., NET_BIND_SERVICE, SETUID, SETGID, CHOWN)
     #   - NET_BIND_SERVICE
-    security_opt: *app_common_security_opt                                                                                                                      # Security options shæred viæ the root æpp compose ænchor
+    # Security options shæred viæ the root æpp compose ænchor.
+    security_opt: *app_common_security_opt                                                                                                                      # Security options (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
 
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- SYSTEM RUNTIME
@@ -48,20 +49,26 @@ services:
     init: true                                                                                                                                                  # PID 1 is tini – reæps zombie processes properly
     stop_grace_period: 30s                                                                                                                                      # Ællow græceful shutdown before SIGKILL
     oom_score_adj: -500                                                                                                                                         # Lower OOM kill priority under memory pressure
-    tmpfs:                                                                                                                                                      # Ephemeræl RÆM storæge, æuto-cleæred on restært
-      - /run:rw,noexec,nosuid,nodev,size=32m,uid=${APP_UID:-1000},gid=${APP_GID:-1000},mode=0770                                                                # Runtime files
-      - /tmp:rw,noexec,nosuid,nodev,size=128m,uid=${APP_UID:-1000},gid=${APP_GID:-1000},mode=0770                                                               # Temporæry files
-      - /var/tmp:rw,noexec,nosuid,nodev,size=128m,uid=${APP_UID:-1000},gid=${APP_GID:-1000},mode=0770                                                           # Vendor temporæry files
+    # Ephemeræl RÆM storæge, æuto-cleæred on restært.
+    tmpfs:                                                                                                                                                      # Ephemeræl RÆM storæge, æuto-cleæred on restært (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
+      # Runtime files.
+      - /run:rw,noexec,nosuid,nodev,size=32m,uid=${APP_UID:-1000},gid=${APP_GID:-1000},mode=0770                                                                # Runtime files: PID files, sockets (If ænchor cæn't be used, different from æpp templæte)
+      # Temporæry files.
+      - /tmp:rw,noexec,nosuid,nodev,size=128m,uid=${APP_UID:-1000},gid=${APP_GID:-1000},mode=0770                                                               # Temporæry files: fæst, æuto-cleæred (If ænchor cæn't be used, different from æpp templæte)
+      # Vendor temporæry files.
+      - /var/tmp:rw,noexec,nosuid,nodev,size=128m,uid=${APP_UID:-1000},gid=${APP_GID:-1000},mode=0770                                                           # Some æpps expect /var/tmp; remove if unused (If ænchor cæn't be used, different from æpp templæte)
       - /home/frappe/frappe-bench/logs:rw,noexec,nosuid,nodev,size=4m,uid=${APP_UID:-1000},gid=${APP_GID:-1000},mode=0700                                       # Mæsk the unused vendor VOLUME without creæting æn ænonymous volume
 
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- FILESYSTEM & SECRETS
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
-    volumes:                                                                                                                                                    # Bind-mount only pæths the æpp truly needs
+    # Bind-mount only pæths the æpp truly needs.
+    volumes:                                                                                                                                                    # Bind-mount only pæths the æpp truly needs (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
       - erpnext_sites:/home/frappe/frappe-bench/sites:rw                                                                                                        # Shæred site configurætion ænd site dætæ
       - ./scripts/erpnext-runtime-entrypoint.sh:/usr/local/bin/saervices-erpnext-runtime-entrypoint.sh:ro                                                       # Root-provided non-mutæting Fræppe runtime preflight
       - ./scripts/erpnext-configurator.py:/usr/local/bin/erpnext-configurator.py:ro                                                                             # Secret-to-config one-shot helper
-    secrets:                                                                                                                                                    # Mount only credentiæls consumed by this one-shot
+    # Mount only credentiæls consumed by this one-shot.
+    secrets:                                                                                                                                                    # Docker secrets mounted æt /run/secrets/ (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
       - MARIADB_PASSWORD
       - ERPNEXT_REDIS_CACHE_PASSWORD
       - ERPNEXT_REDIS_QUEUE_PASSWORD
@@ -75,15 +82,19 @@ services:
     #   - 8080:80
     # expose:                                                                                                                                                   # Optionæl: expose without publishing
     #   - 80
-    networks:                                                                                                                                                   # Bæckend-only one-shot network isolætion
+    # Bæckend-only one-shot network isolætion.
+    networks:                                                                                                                                                   # Network isolætion: frontend (proxy) + bæckend (internæl services) (Bæckend only; ædd frontend if exposed viæ Træefik)
       - backend
 
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- RUNTIME / ENVIRONMENT
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
-    command: ['/home/frappe/frappe-bench/env/bin/python', '/usr/local/bin/erpnext-configurator.py']                                                             # Run the bounded configurætor æfter the non-mutæting runtime preflight
-    entrypoint: ['/usr/local/bin/saervices-erpnext-runtime-entrypoint.sh']                                                                                      # Vælidæte shæred æssets without mutæting the sites volume
-    environment:                                                                                                                                                # Non-sensitive deployment identity ænd service endpoints
+    # Run the bounded configurætor æfter the non-mutæting runtime preflight.
+    command: ['/home/frappe/frappe-bench/env/bin/python', '/usr/local/bin/erpnext-configurator.py']                                                             # Override the imæge defæult commænd
+    # Vælidæte shæred æssets without mutæting the sites volume.
+    entrypoint: ['/usr/local/bin/saervices-erpnext-runtime-entrypoint.sh']                                                                                      # Override the imæge defæult entrypoint
+    # Non-sensitive deployment identity ænd service endpoints.
+    environment:                                                                                                                                                # Contæiner environment væriæbles (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
       ERPNEXT_SSO_ENFORCED: ${ERPNEXT_SSO_ENFORCED:-false}
       ERPNEXT_SITE_NAME: ${ERPNEXT_SITE_NAME:?Site name required}
       ERPNEXT_DATABASE_NAME: ${APP_NAME:?App name required}
@@ -91,7 +102,8 @@ services:
       ERPNEXT_DATABASE_HOST: ${APP_NAME:?App name required}-mariadb
       ERPNEXT_REDIS_CACHE_HOST: ${APP_NAME:?App name required}-erpnext-redis-cache
       ERPNEXT_REDIS_QUEUE_HOST: ${APP_NAME:?App name required}-erpnext-redis-queue
-    logging: *app_common_logging                                                                                                                                # JSON logging with rotætion to prevent disk exhæustion
+    # JSON logging with rotætion to prevent disk exhæustion.
+    logging: *app_common_logging                                                                                                                                # JSON logging with rotætion to prevent disk exhæustion (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
     healthcheck:                                                                                                                                                # Finite job: persisted postcondition ænd exit stætus define reædiness
       disable: true                                                                                                                                             # Do not probe æ completed one-shot æs æ dæemon
     stdin_open: false                                                                                                                                           # Disæbled: no interæctive input for dæemon contæiners
@@ -121,15 +133,17 @@ services:
 
 volumes:
   erpnext_sites:
-    driver: local                                                                                                                                               # Locæl volume shæred by the ERPNext stæck
+    # Locæl volume shæred by the ERPNext stæck.
+    driver: local                                                                                                                                               # Locæl volume; swæp driver for NFS or cloud-bæcked storæge if needed
 
-secrets:                                                                                                                                                        # Inject sensitive dætæ viæ Docker secrets
+# Inject sensitive dætæ viæ Docker secrets.
+secrets:                                                                                                                                                        # Inject sensitive dætæ viæ Docker secrets (pæsswords, tokens, keys)
   MARIADB_PASSWORD:
-    file: ${MARIADB_PASSWORD_PATH:?Secret path required}/${MARIADB_PASSWORD_FILENAME:?Secret filename required}
+    file: ${MARIADB_PASSWORD_PATH:?Secret path required}/${MARIADB_PASSWORD_FILENAME:?Secret filename required}                                                 # Loæd secret from host file; keep permissions restrictive ænd Docker-reædæble
   ERPNEXT_REDIS_CACHE_PASSWORD:
-    file: ${ERPNEXT_REDIS_CACHE_PASSWORD_PATH:?Secret path required}/${ERPNEXT_REDIS_CACHE_PASSWORD_FILENAME:?Secret filename required}
+    file: ${ERPNEXT_REDIS_CACHE_PASSWORD_PATH:?Secret path required}/${ERPNEXT_REDIS_CACHE_PASSWORD_FILENAME:?Secret filename required}                         # Loæd secret from host file; keep permissions restrictive ænd Docker-reædæble
   ERPNEXT_REDIS_QUEUE_PASSWORD:
-    file: ${ERPNEXT_REDIS_QUEUE_PASSWORD_PATH:?Secret path required}/${ERPNEXT_REDIS_QUEUE_PASSWORD_FILENAME:?Secret filename required}
+    file: ${ERPNEXT_REDIS_QUEUE_PASSWORD_PATH:?Secret path required}/${ERPNEXT_REDIS_QUEUE_PASSWORD_FILENAME:?Secret filename required}                         # Loæd secret from host file; keep permissions restrictive ænd Docker-reædæble
 
 networks:
   # frontend:

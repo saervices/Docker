@@ -20,7 +20,6 @@ readonly AUTHENTIK_BOOTSTRAP_ENTRYPOINT="${TEST_REPO_ROOT}/templates/authentik-b
 readonly AUTHENTIK_BOOTSTRAP_HELPER_SCRIPT="${TEST_REPO_ROOT}/templates/authentik-bootstrap/scripts/authentik-bootstrap.py"
 readonly REDIS_SCRIPT="${TEST_REPO_ROOT}/templates/redis/scripts/redis-start.sh"
 readonly ELASTICSEARCH_SCRIPT="${TEST_REPO_ROOT}/templates/elasticsearch/scripts/elasticsearch-start.sh"
-readonly SEASEARCH_SCRIPT="${TEST_REPO_ROOT}/templates/seafile_seasearch/scripts/seasearch-start.sh"
 readonly FACTORIO_SCRIPT="${TEST_REPO_ROOT}/Factorio/dockerfiles/entrypoint.sh"
 readonly ESPOCRM_SCRIPT="${TEST_REPO_ROOT}/EspoCRM/scripts/espocrm-start.sh"
 readonly VAULTWARDEN_SCRIPT="${TEST_REPO_ROOT}/Vaultwarden/scripts/vaultwarden.d/10-database-url.sh"
@@ -36,8 +35,6 @@ readonly VIKUNJA_SCRIPT="${TEST_REPO_ROOT}/Vikunja/dockerfiles/entrypoint.sh"
 readonly GITEA_SCRIPT="${TEST_REPO_ROOT}/Gitea/scripts/gitea-start.sh"
 readonly GITEA_OIDC_SCRIPT="${TEST_REPO_ROOT}/Gitea/scripts/gitea-register-oidc.sh"
 readonly KIMAI_SCRIPT="${TEST_REPO_ROOT}/Kimai/scripts/kimai-start.sh"
-readonly SEAFILE_SCRIPT="${TEST_REPO_ROOT}/Seafile/scripts/seafile-start.sh"
-readonly SEAFILE_RUNTIME_PREPARER="${TEST_REPO_ROOT}/Seafile/scripts/prepare-seafile-runtime.py"
 
 PASS=0
 FAIL=0
@@ -4064,61 +4061,66 @@ prepare_gitea() {
   mkdir -p -- "${fixture}/secrets" "${fixture}/run"
   printf 'postgres-password' >"${fixture}/secrets/POSTGRES_PASSWORD"
   printf 'redis:@/?#%%+ password' >"${fixture}/secrets/REDIS_PASSWORD"
-  printf 'gitea-secret-key-value-32bytes-min' >"${fixture}/secrets/GITEA_SECRET_KEY"
-  printf 'gitea-internal-token-value-32b' >"${fixture}/secrets/GITEA_INTERNAL_TOKEN"
-  printf 'gitea-lfs-jwt-secret-value-32b' >"${fixture}/secrets/GITEA_LFS_JWT_SECRET"
-  printf 'gitea-oauth2-jwt-secret-32byte' >"${fixture}/secrets/GITEA_OAUTH2_JWT_SECRET"
+  printf '%064d' 0 >"${fixture}/secrets/GITEA_SECRET_KEY"
+  printf '%064d' 1 >"${fixture}/secrets/GITEA_INTERNAL_TOKEN"
+  printf '%043d' 2 >"${fixture}/secrets/GITEA_LFS_JWT_SECRET"
   printf 'smtp-password' >"${fixture}/secrets/MAILER_SMTP_PASSWORD"
   printf 'provider-client-id' >"${fixture}/secrets/GITEA_OIDC_CLIENT_ID"
   printf 'provider-client-secret' >"${fixture}/secrets/GITEA_OIDC_CLIENT_SECRET"
 }
 
-run_gitea() {
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: run_gitea_with_settings
+#   Runs the Giteæ preflight with secure defæults ænd optionæl
+#   GITEA_TEST_* field overrides for negætive cæses.
+#   Ærguments:
+#     $1 - Fixture root
+#ææææææææææææææææææææææææææææææææææ
+run_gitea_with_settings() {
   local fixture="$1"
   SECRET_DIR="${fixture}/secrets" \
     GITEA_RUNTIME_DIR="${fixture}/run" \
     GITEA_REDIS_HOST=gitea-redis \
     GITEA_REDIS_PORT=6379 \
-    GITEA_SMTP_ENABLED=true \
-    GITEA_OIDC_ENABLED=true \
+    GITEA_SMTP_ENABLED="${GITEA_TEST_SMTP_ENABLED-true}" \
+    GITEA__mailer__SMTP_ADDR="${GITEA_TEST_SMTP_HOST-mail.saervices.de}" \
+    GITEA__mailer__SMTP_PORT="${GITEA_TEST_SMTP_PORT-587}" \
+    GITEA__mailer__USER="${GITEA_TEST_SMTP_USER-gitea-mailer}" \
+    GITEA__mailer__PROTOCOL="${GITEA_TEST_SMTP_PROTOCOL-smtp+starttls}" \
+    GITEA__mailer__FROM="${GITEA_TEST_SMTP_FROM-gitea@saervices.de}" \
+    GITEA__mailer__ENVELOPE_FROM="${GITEA_TEST_SMTP_ENVELOPE_FROM-bounce@saervices.de}" \
+    APP_DOMAIN="${GITEA_TEST_APP_DOMAIN-gitea.saervices.de}" \
+    AUTHENTIK_DOMAIN="${GITEA_TEST_AUTHENTIK_DOMAIN-authentik.saervices.de}" \
+    GITEA_OIDC_NAME="${GITEA_TEST_OIDC_NAME-authentik}" \
+    GITEA_OIDC_SLUG="${GITEA_TEST_OIDC_SLUG-gitea}" \
+    GITEA__server__SSH_DOMAIN="${GITEA_TEST_SSH_DOMAIN-git.saervices.de}" \
+    GITEA__security__REVERSE_PROXY_TRUSTED_PROXIES="${GITEA_TEST_TRUSTED_PROXIES-127.0.0.0/8,::1/128,172.18.0.0/16}" \
     /bin/sh "$GITEA_SCRIPT" --preflight-only
+}
+
+run_gitea() {
+  run_gitea_with_settings "$1"
 }
 
 run_gitea_without_smtp_secret() {
   local fixture="${TEST_ROOT}/gitea-no-smtp"
   prepare_gitea "$fixture"
   rm -f -- "${fixture}/secrets/MAILER_SMTP_PASSWORD"
-  SECRET_DIR="${fixture}/secrets" \
-    GITEA_RUNTIME_DIR="${fixture}/run" \
-    GITEA_REDIS_HOST=gitea-redis \
-    GITEA_SMTP_ENABLED=false \
-    GITEA_OIDC_ENABLED=true \
-    /bin/sh "$GITEA_SCRIPT" --preflight-only
+  GITEA_TEST_SMTP_ENABLED=false run_gitea_with_settings "$fixture"
 }
 
-run_gitea_without_oidc_secret() {
+run_gitea_without_oidc_secrets() {
   local fixture="${TEST_ROOT}/gitea-no-oidc"
   prepare_gitea "$fixture"
   rm -f -- "${fixture}/secrets/GITEA_OIDC_CLIENT_ID" "${fixture}/secrets/GITEA_OIDC_CLIENT_SECRET"
-  SECRET_DIR="${fixture}/secrets" \
-    GITEA_RUNTIME_DIR="${fixture}/run" \
-    GITEA_REDIS_HOST=gitea-redis \
-    GITEA_SMTP_ENABLED=false \
-    GITEA_OIDC_ENABLED=false \
-    /bin/sh "$GITEA_SCRIPT" --preflight-only
+  GITEA_TEST_SMTP_ENABLED=false run_gitea_with_settings "$fixture"
 }
 
 case_gitea_redis_url_encoding() {
   local fixture="${TEST_ROOT}/gitea-redis-url"
   prepare_gitea "$fixture"
   printf 'p@ss=word/#' >"${fixture}/secrets/REDIS_PASSWORD"
-  SECRET_DIR="${fixture}/secrets" \
-    GITEA_RUNTIME_DIR="${fixture}/run" \
-    GITEA_REDIS_HOST=gitea-redis \
-    GITEA_REDIS_PORT=6379 \
-    GITEA_SMTP_ENABLED=false \
-    GITEA_OIDC_ENABLED=true \
-    /bin/sh "$GITEA_SCRIPT" --preflight-only
+  GITEA_TEST_SMTP_ENABLED=false run_gitea_with_settings "$fixture"
   [[ "$(cat "${fixture}/run/redis.url")" == 'redis://:p%40ss%3Dword%2F%23@gitea-redis:6379/0' ]]
 }
 
@@ -4128,14 +4130,10 @@ case_gitea_preflight_does_not_exec_vendor() {
   printf '%s\n' '#!/bin/sh' 'printf ran >"$GITEA_VENDOR_MARKER"' 'exit 0' \
     >"${fixture}/vendor.sh"
   chmod 0700 "${fixture}/vendor.sh"
-  SECRET_DIR="${fixture}/secrets" \
-    GITEA_RUNTIME_DIR="${fixture}/run" \
-    GITEA_REDIS_HOST=gitea-redis \
-    GITEA_SMTP_ENABLED=false \
-    GITEA_OIDC_ENABLED=true \
+  GITEA_TEST_SMTP_ENABLED=false \
     GITEA_VENDOR_ENTRYPOINT="${fixture}/vendor.sh" \
     GITEA_VENDOR_MARKER="${fixture}/vendor.ran" \
-    /bin/sh "$GITEA_SCRIPT" --preflight-only
+    run_gitea_with_settings "$fixture"
   [[ ! -e "${fixture}/vendor.ran" ]]
 }
 
@@ -4154,6 +4152,83 @@ case_gitea_oversized_secret() {
   run_gitea "$fixture"
 }
 
+case_gitea_fifo_secret() {
+  local fixture="${TEST_ROOT}/gitea-fifo"
+  prepare_gitea "$fixture"
+  rm -f -- "${fixture}/secrets/GITEA_OIDC_CLIENT_SECRET"
+  mkfifo -- "${fixture}/secrets/GITEA_OIDC_CLIENT_SECRET"
+  run_gitea "$fixture"
+}
+
+case_gitea_invalid_utf8_secret() {
+  local fixture="${TEST_ROOT}/gitea-invalid-utf8"
+  prepare_gitea "$fixture"
+  printf '\377provider-secret' >"${fixture}/secrets/GITEA_OIDC_CLIENT_SECRET"
+  run_gitea "$fixture"
+}
+
+case_gitea_trailing_newline_secret() {
+  local fixture="${TEST_ROOT}/gitea-trailing-newline"
+  prepare_gitea "$fixture"
+  printf 'provider-secret\n' >"${fixture}/secrets/GITEA_OIDC_CLIENT_SECRET"
+  run_gitea "$fixture"
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: case_gitea_exact_secret_length
+#   Replæces one locæl Giteæ secret with æ wrong byte length.
+#   Ærguments:
+#     $1 - Cæse suffix
+#     $2 - Secret filenæme
+#     $3 - Wrong byte length
+#ææææææææææææææææææææææææææææææææææ
+case_gitea_exact_secret_length() {
+  local suffix="$1"
+  local secret_name="$2"
+  local byte_length="$3"
+  local fixture="${TEST_ROOT}/gitea-exact-${suffix}"
+  prepare_gitea "$fixture"
+  printf '%*s' "$byte_length" '' | tr ' ' x >"${fixture}/secrets/${secret_name}"
+  run_gitea "$fixture"
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: case_gitea_setting
+#   Runs one Giteæ preflight with æ single GITEA_TEST_* override.
+#   Ærguments:
+#     $1 - Cæse suffix
+#     $2 - Override væriæble næme
+#     $3 - Override vælue
+#ææææææææææææææææææææææææææææææææææ
+case_gitea_setting() {
+  local suffix="$1"
+  local variable_name="$2"
+  local variable_value="$3"
+  local fixture="${TEST_ROOT}/gitea-setting-${suffix}"
+  prepare_gitea "$fixture"
+  (
+    export "${variable_name}=${variable_value}"
+    run_gitea_with_settings "$fixture"
+  )
+}
+
+case_gitea_secret_not_logged() {
+  local fixture="${TEST_ROOT}/gitea-secret-not-logged"
+  local output="${fixture}/preflight.out"
+  local status
+  prepare_gitea "$fixture"
+  printf 'provider-client-secret-do-not-log' >"${fixture}/secrets/GITEA_OIDC_CLIENT_SECRET"
+  rm -f -- "${fixture}/secrets/REDIS_PASSWORD"
+  set +e
+  run_gitea "$fixture" >"$output" 2>&1
+  status=$?
+  set -e
+  (( status != 0 ))
+  if grep -Fq -- 'provider-client-secret-do-not-log' "$output" || grep -Fq -- 'smtp-password' "$output"; then
+    return 1
+  fi
+}
+
 run_gitea_register_oidc() {
   local fixture="$1"
   SECRET_DIR="${fixture}/secrets" \
@@ -4168,27 +4243,141 @@ case_gitea_register_oidc_bad_domain() {
   local fixture="${TEST_ROOT}/gitea-oidc-bad-domain"
   prepare_gitea "$fixture"
   SECRET_DIR="${fixture}/secrets" \
-    AUTHENTIK_DOMAIN='https://authentik.example.test' \
+    AUTHENTIK_DOMAIN='trusted.example.test@attacker.example.test' \
     APP_DOMAIN=gitea.example.test \
     /bin/sh "$GITEA_OIDC_SCRIPT" --preflight-only
+}
+
+case_gitea_register_oidc_bad_app_domain() {
+  local fixture="${TEST_ROOT}/gitea-oidc-bad-app-domain"
+  prepare_gitea "$fixture"
+  SECRET_DIR="${fixture}/secrets" \
+    AUTHENTIK_DOMAIN=authentik.example.test \
+    APP_DOMAIN='gitea.example.test:443' \
+    /bin/sh "$GITEA_OIDC_SCRIPT" --preflight-only
+}
+
+case_gitea_register_oidc_bad_name() {
+  local fixture="${TEST_ROOT}/gitea-oidc-bad-name"
+  prepare_gitea "$fixture"
+  SECRET_DIR="${fixture}/secrets" \
+    AUTHENTIK_DOMAIN=authentik.example.test \
+    APP_DOMAIN=gitea.example.test \
+    GITEA_OIDC_NAME='authentik?next=attacker' \
+    /bin/sh "$GITEA_OIDC_SCRIPT" --preflight-only
+}
+
+case_gitea_register_oidc_bad_slug() {
+  local fixture="${TEST_ROOT}/gitea-oidc-bad-slug"
+  prepare_gitea "$fixture"
+  SECRET_DIR="${fixture}/secrets" \
+    AUTHENTIK_DOMAIN=authentik.example.test \
+    APP_DOMAIN=gitea.example.test \
+    GITEA_OIDC_SLUG='gitea/path' \
+    /bin/sh "$GITEA_OIDC_SCRIPT" --preflight-only
+}
+
+case_gitea_register_oidc_urls() {
+  local fixture="${TEST_ROOT}/gitea-oidc-urls"
+  local output="${fixture}/preflight.out"
+  prepare_gitea "$fixture"
+  run_gitea_register_oidc "$fixture" >"$output"
+  grep -Fqx -- '[gitea-oidc] Login URL: https://gitea.example.test/user/oauth2/authentik' "$output"
+  grep -Fqx -- '[gitea-oidc] Redirect URI: https://gitea.example.test/user/oauth2/authentik/callback' "$output"
+  if grep -Fq -- '/user/login/oauth2/' "$output"; then
+    return 1
+  fi
+}
+
+case_gitea_register_oidc_auth_list_failure() {
+  local fixture="${TEST_ROOT}/gitea-oidc-auth-list-failure"
+  local output="${fixture}/helper.out"
+  local status
+  prepare_gitea "$fixture"
+  : >"${fixture}/app.ini"
+  printf '%s\n' \
+    '#!/bin/sh' \
+    'case "$*" in' \
+    '  *"admin auth list"*) exit 42 ;;' \
+    '  *"admin auth add-oauth"*|*"admin auth update-oauth"*) : >"$GITEA_AUTH_MUTATION_MARKER"; exit 0 ;;' \
+    '  *) exit 99 ;;' \
+    'esac' >"${fixture}/gitea"
+  chmod 0700 "${fixture}/gitea"
+  set +e
+  SECRET_DIR="${fixture}/secrets" \
+    AUTHENTIK_DOMAIN=authentik.example.test \
+    APP_DOMAIN=gitea.example.test \
+    GITEA_OIDC_NAME=authentik \
+    GITEA_OIDC_SLUG=gitea \
+    GITEA_BIN="${fixture}/gitea" \
+    GITEA_APP_INI="${fixture}/app.ini" \
+    GITEA_AUTH_MUTATION_MARKER="${fixture}/auth-mutated" \
+    /bin/sh "$GITEA_OIDC_SCRIPT" >"$output" 2>&1
+  status=$?
+  set -e
+  [[ "$status" == 42 ]]
+  [[ ! -e "${fixture}/auth-mutated" ]]
+  if grep -Fq -- 'provider-client-id' "$output" || grep -Fq -- 'provider-client-secret' "$output"; then
+    return 1
+  fi
 }
 
 prepare_gitea "${TEST_ROOT}/gitea-valid"
 expect_success gitea-valid run_gitea "${TEST_ROOT}/gitea-valid"
 expect_success gitea-disabled-smtp-does-not-require-secret run_gitea_without_smtp_secret
-expect_success gitea-disabled-oidc-does-not-require-secret run_gitea_without_oidc_secret
+expect_failure gitea-oidc-is-required run_gitea_without_oidc_secrets
 expect_success gitea-redis-url-encoding case_gitea_redis_url_encoding
 expect_success gitea-preflight-does-not-exec-vendor case_gitea_preflight_does_not_exec_vendor
 expect_success gitea-register-oidc-preflight run_gitea_register_oidc "${TEST_ROOT}/gitea-valid"
+expect_success gitea-register-oidc-urls case_gitea_register_oidc_urls
+expect_success gitea-register-oidc-auth-list-failure-propagated case_gitea_register_oidc_auth_list_failure
 expect_failure gitea-register-oidc-bad-domain case_gitea_register_oidc_bad_domain
+expect_failure gitea-register-oidc-bad-app-domain case_gitea_register_oidc_bad_app_domain
+expect_failure gitea-register-oidc-bad-name case_gitea_register_oidc_bad_name
+expect_failure gitea-register-oidc-bad-slug case_gitea_register_oidc_bad_slug
 expect_failure gitea-symlink-secret case_gitea_symlink_secret
+expect_failure gitea-fifo-secret case_gitea_fifo_secret
+expect_failure gitea-invalid-utf8-secret case_gitea_invalid_utf8_secret
+expect_failure gitea-trailing-newline-secret case_gitea_trailing_newline_secret
 expect_failure gitea-oversized-secret case_gitea_oversized_secret
+expect_failure gitea-secret-key-exact-length case_gitea_exact_secret_length secret-key GITEA_SECRET_KEY 63
+expect_failure gitea-internal-token-exact-length case_gitea_exact_secret_length internal-token GITEA_INTERNAL_TOKEN 65
+expect_failure gitea-lfs-jwt-exact-length case_gitea_exact_secret_length lfs-jwt GITEA_LFS_JWT_SECRET 42
+expect_success gitea-secret-not-logged case_gitea_secret_not_logged
+expect_success gitea-smtp-protocol-smtp case_gitea_setting smtp-protocol-smtp GITEA_TEST_SMTP_PROTOCOL smtp
+expect_success gitea-smtp-protocol-smtps case_gitea_setting smtp-protocol-smtps GITEA_TEST_SMTP_PROTOCOL smtps
+expect_success gitea-smtp-empty-envelope-from case_gitea_setting smtp-empty-envelope GITEA_TEST_SMTP_ENVELOPE_FROM ''
+expect_failure gitea-smtp-missing-host case_gitea_setting smtp-missing-host GITEA_TEST_SMTP_HOST ''
+expect_failure gitea-smtp-localhost case_gitea_setting smtp-localhost GITEA_TEST_SMTP_HOST localhost
+expect_failure gitea-smtp-port-zero case_gitea_setting smtp-port-zero GITEA_TEST_SMTP_PORT 0
+expect_failure gitea-smtp-port-high case_gitea_setting smtp-port-high GITEA_TEST_SMTP_PORT 65536
+expect_failure gitea-smtp-port-text case_gitea_setting smtp-port-text GITEA_TEST_SMTP_PORT smtp
+expect_failure gitea-smtp-missing-user case_gitea_setting smtp-missing-user GITEA_TEST_SMTP_USER ''
+expect_failure gitea-smtp-bad-protocol case_gitea_setting smtp-bad-protocol GITEA_TEST_SMTP_PROTOCOL tls
+expect_failure gitea-smtp-display-from case_gitea_setting smtp-display-from GITEA_TEST_SMTP_FROM 'Gitea <gitea@saervices.de>'
+expect_failure gitea-smtp-placeholder-from case_gitea_setting smtp-placeholder-from GITEA_TEST_SMTP_FROM gitea@example.com
+expect_failure gitea-smtp-bad-envelope-from case_gitea_setting smtp-bad-envelope GITEA_TEST_SMTP_ENVELOPE_FROM 'bounce@saervices.de?subject=x'
+expect_failure gitea-start-bad-app-domain case_gitea_setting bad-app-domain GITEA_TEST_APP_DOMAIN 'trusted.example@attacker.example'
+expect_failure gitea-start-bad-authentik-domain case_gitea_setting bad-authentik-domain GITEA_TEST_AUTHENTIK_DOMAIN Authentik.saervices.de
+expect_failure gitea-start-bad-oidc-name case_gitea_setting bad-oidc-name GITEA_TEST_OIDC_NAME 'authentik?next=x'
+expect_failure gitea-start-bad-oidc-slug case_gitea_setting bad-oidc-slug GITEA_TEST_OIDC_SLUG 'gitea/path'
+expect_failure gitea-start-bad-ssh-domain case_gitea_setting bad-ssh-domain GITEA_TEST_SSH_DOMAIN Git.saervices.de
+expect_success gitea-proxy-same-docker-cidr case_gitea_setting proxy-same-docker GITEA_TEST_TRUSTED_PROXIES '127.0.0.0/8,::1/128,172.18.0.0/16'
+expect_success gitea-proxy-cross-host-32 case_gitea_setting proxy-cross-host GITEA_TEST_TRUSTED_PROXIES '127.0.0.0/8,::1/128,192.168.10.42/32'
+expect_success gitea-proxy-ula-64 case_gitea_setting proxy-ula GITEA_TEST_TRUSTED_PROXIES '127.0.0.0/8,::1/128,fd12:3456:789a:1::/64'
+expect_failure gitea-proxy-missing case_gitea_setting proxy-missing GITEA_TEST_TRUSTED_PROXIES ''
+expect_failure gitea-proxy-loopback-only case_gitea_setting proxy-loopback-only GITEA_TEST_TRUSTED_PROXIES '127.0.0.0/8,::1/128'
+expect_failure gitea-proxy-duplicate case_gitea_setting proxy-duplicate GITEA_TEST_TRUSTED_PROXIES '127.0.0.0/8,::1/128,172.18.0.0/16,172.18.0.0/16'
+expect_failure gitea-proxy-public case_gitea_setting proxy-public GITEA_TEST_TRUSTED_PROXIES '127.0.0.0/8,::1/128,203.0.113.8/32'
+expect_failure gitea-proxy-broad case_gitea_setting proxy-broad GITEA_TEST_TRUSTED_PROXIES '127.0.0.0/8,::1/128,172.16.0.0/15'
+expect_failure gitea-proxy-host-bits case_gitea_setting proxy-host-bits GITEA_TEST_TRUSTED_PROXIES '127.0.0.0/8,::1/128,172.18.1.0/16'
+expect_failure gitea-proxy-overlap case_gitea_setting proxy-overlap GITEA_TEST_TRUSTED_PROXIES '127.0.0.0/8,::1/128,192.168.10.0/24,192.168.10.42/32'
+expect_failure gitea-proxy-ula-host-bits case_gitea_setting proxy-ula-host-bits GITEA_TEST_TRUSTED_PROXIES '127.0.0.0/8,::1/128,fd12:3456:789a:1::1/64'
 exercise_secret_matrix gitea-postgres prepare_gitea run_gitea POSTGRES_PASSWORD
 exercise_secret_matrix gitea-redis prepare_gitea run_gitea REDIS_PASSWORD
 exercise_secret_matrix gitea-secret-key prepare_gitea run_gitea GITEA_SECRET_KEY
 exercise_secret_matrix gitea-internal-token prepare_gitea run_gitea GITEA_INTERNAL_TOKEN
 exercise_secret_matrix gitea-lfs-jwt prepare_gitea run_gitea GITEA_LFS_JWT_SECRET
-exercise_secret_matrix gitea-oauth2-jwt prepare_gitea run_gitea GITEA_OAUTH2_JWT_SECRET
 exercise_secret_matrix gitea-smtp prepare_gitea run_gitea MAILER_SMTP_PASSWORD
 exercise_secret_matrix gitea-oidc-id prepare_gitea run_gitea GITEA_OIDC_CLIENT_ID
 exercise_secret_matrix gitea-oidc-secret prepare_gitea run_gitea GITEA_OIDC_CLIENT_SECRET
@@ -4355,155 +4544,14 @@ expect_failure kimai-app-oversized case_kimai_oversized_app_secret
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 # --- SEÆFILE
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
-prepare_seafile() {
-  local fixture="$1"
-  mkdir -p -- "${fixture}/secrets"
-  printf 'provider-client-id' >"${fixture}/secrets/OAUTH_CLIENT_ID"
-  printf 'provider-client-secret' >"${fixture}/secrets/OAUTH_CLIENT_SECRET"
-  printf 'smtp-password' >"${fixture}/secrets/EMAIL_HOST_PASSWORD"
-  printf 'strong-admin-password' >"${fixture}/secrets/INIT_SEAFILE_ADMIN_PASSWORD"
-  printf '0123456789abcdef0123456789abcdef' >"${fixture}/secrets/JWT_PRIVATE_KEY"
-}
-
-run_seafile() {
-  local fixture="$1"
-  SECRET_DIR="${fixture}/secrets" ENABLE_EMAIL_NOTIFICATIONS=false \
-    /bin/sh "$SEAFILE_SCRIPT" --preflight-only
-}
-
-run_seafile_smtp() {
-  local fixture="$1"
-  SECRET_DIR="${fixture}/secrets" ENABLE_EMAIL_NOTIFICATIONS=true \
-    EMAIL_HOST=smtp.example.test \
-    /bin/sh "$SEAFILE_SCRIPT" --preflight-only
-}
-
-run_seafile_without_smtp_secret() {
-  local fixture="${TEST_ROOT}/seafile-no-smtp"
-  prepare_seafile "$fixture"
-  rm -f -- "${fixture}/secrets/EMAIL_HOST_PASSWORD"
-  run_seafile "$fixture"
-}
-
-case_seafile_smtp_missing_host() {
-  local fixture="${TEST_ROOT}/seafile-smtp-missing-host"
-  prepare_seafile "$fixture"
-  SECRET_DIR="${fixture}/secrets" ENABLE_EMAIL_NOTIFICATIONS=true \
-    /bin/sh "$SEAFILE_SCRIPT" --preflight-only
-}
-
-case_seafile_short_admin_password() {
-  local fixture="${TEST_ROOT}/seafile-admin-short"
-  prepare_seafile "$fixture"
-  printf 'too-short' >"${fixture}/secrets/INIT_SEAFILE_ADMIN_PASSWORD"
-  run_seafile "$fixture"
-}
-
-case_seafile_short_jwt() {
-  local fixture="${TEST_ROOT}/seafile-jwt-short"
-  prepare_seafile "$fixture"
-  printf 'too-short' >"${fixture}/secrets/JWT_PRIVATE_KEY"
-  run_seafile "$fixture"
-}
-
-case_seafile_vendor_runtime_transform() {
-  local fixture="${TEST_ROOT}/seafile-vendor-runtime"
-  local output="${fixture}/output"
-  mkdir -p -- "$fixture"
-  printf '%s\n' \
-    '#!/usr/bin/env python3' \
-    'topdir = dirname(installdir)' \
-    '' \
-    'def main():' \
-    '    admin_pw = {' \
-    "        'email': get_conf('INIT_SEAFILE_ADMIN_EMAIL', 'me@example.com')," \
-    "        'password': get_conf('INIT_SEAFILE_ADMIN_PASSWORD', 'asecret')," \
-    '    }' \
-    "    password_file = join(topdir, 'conf', 'admin.txt')" \
-    "    with open(password_file, 'w') as fp:" \
-    '        json.dump(admin_pw, fp)' \
-    '' \
-    '' \
-    '    try:' \
-    '        pass' \
-    >"${fixture}/start.py"
-  printf '%s\n' \
-    '#!/bin/bash' \
-    'else' \
-    '    /scripts/start.py &' \
-    'fi' \
-    >"${fixture}/enterpoint.sh"
-
-  python3 "$SEAFILE_RUNTIME_PREPARER" \
-    --start-source "${fixture}/start.py" \
-    --entrypoint-source "${fixture}/enterpoint.sh" \
-    --output-dir "$output"
-
-  grep -Fq '_read_admin_password_file()' "${output}/start.py"
-  grep -Fq 'admin_pw.clear()' "${output}/start.py"
-  grep -Fq 'INIT_SEAFILE_ADMIN_PASSWORD_FILE' "${output}/start.py"
-  ! grep -Fq "get_conf('INIT_SEAFILE_ADMIN_PASSWORD'" "${output}/start.py"
-  grep -Fq 'PYTHONPATH="/scripts${PYTHONPATH:+:${PYTHONPATH}}" /usr/bin/python3' \
-    "${output}/enterpoint.sh"
-  [[ "$(stat -c '%a' "${output}/start.py")" == 400 ]]
-  [[ "$(stat -c '%a' "${output}/enterpoint.sh")" == 500 ]]
-
-  sed -i "s/get_conf('INIT_SEAFILE_ADMIN_PASSWORD', 'asecret')/get_conf('DRIFTED_ADMIN_PASSWORD', 'asecret')/" \
-    "${fixture}/start.py"
-  ! python3 "$SEAFILE_RUNTIME_PREPARER" \
-    --start-source "${fixture}/start.py" \
-    --entrypoint-source "${fixture}/enterpoint.sh" \
-    --output-dir "${fixture}/drift-output"
-}
-
-prepare_seafile "${TEST_ROOT}/seafile-valid"
-expect_success seafile-valid run_seafile "${TEST_ROOT}/seafile-valid"
-expect_success seafile-smtp-valid run_seafile_smtp "${TEST_ROOT}/seafile-valid"
-expect_success seafile-disabled-smtp-does-not-require-secret run_seafile_without_smtp_secret
-exercise_secret_matrix seafile-oidc-id prepare_seafile run_seafile OAUTH_CLIENT_ID
-exercise_secret_matrix seafile-oidc-secret prepare_seafile run_seafile OAUTH_CLIENT_SECRET
-exercise_secret_matrix seafile-smtp prepare_seafile run_seafile_smtp EMAIL_HOST_PASSWORD
-exercise_secret_matrix seafile-admin prepare_seafile run_seafile INIT_SEAFILE_ADMIN_PASSWORD
-exercise_secret_matrix seafile-jwt prepare_seafile run_seafile JWT_PRIVATE_KEY
-expect_failure seafile-smtp-missing-host case_seafile_smtp_missing_host
-expect_failure seafile-admin-short case_seafile_short_admin_password
-expect_failure seafile-jwt-short case_seafile_short_jwt
-expect_success seafile-vendor-runtime-transform case_seafile_vendor_runtime_transform
+expect_success seafile-focused-security-suite \
+  python3 "${TEST_REPO_ROOT}/Seafile/scripts/test-seahub-settings.py" -v
 
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 # --- SEÆSEÆRCH
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
-prepare_seasearch() {
-  local fixture="$1"
-  mkdir -p -- "${fixture}/secrets"
-  printf 'strong-seasearch-password' >"${fixture}/secrets/SEAFILE_SEASEARCH_ADMIN_PASSWORD"
-}
-
-run_seasearch() {
-  local fixture="$1"
-  SEASEARCH_PASSWORD_FILE="${fixture}/secrets/SEAFILE_SEASEARCH_ADMIN_PASSWORD" \
-    /bin/bash "$SEASEARCH_SCRIPT" --preflight-only
-}
-
-case_seasearch_short_password() {
-  local fixture="${TEST_ROOT}/seasearch-short"
-  prepare_seasearch "$fixture"
-  printf 'too-short' >"${fixture}/secrets/SEAFILE_SEASEARCH_ADMIN_PASSWORD"
-  run_seasearch "$fixture"
-}
-
-case_seasearch_oversized_password() {
-  local fixture="${TEST_ROOT}/seasearch-oversized"
-  prepare_seasearch "$fixture"
-  printf '%04097d' 0 >"${fixture}/secrets/SEAFILE_SEASEARCH_ADMIN_PASSWORD"
-  run_seasearch "$fixture"
-}
-
-prepare_seasearch "${TEST_ROOT}/seasearch-valid"
-expect_success seasearch-valid run_seasearch "${TEST_ROOT}/seasearch-valid"
-exercise_secret_matrix seasearch-password prepare_seasearch run_seasearch SEAFILE_SEASEARCH_ADMIN_PASSWORD
-expect_failure seasearch-password-short case_seasearch_short_password
-expect_failure seasearch-password-oversized case_seasearch_oversized_password
+expect_success seasearch-focused-security-suite \
+  /bin/bash "${TEST_REPO_ROOT}/Seafile/scripts/test-seasearch-security.sh"
 
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 # --- FEÆTURE SECRET MOUNT CONTRÆCTS
@@ -5883,6 +5931,10 @@ for route_template_path in sorted(route_template_directory.glob("*.yaml.template
 excluded_route_templates = {
     "dev-traefik-forward.yaml.template",
     "mailcow.yaml.template",
+    # Composite Mætrix edge routing intentionally owns five host prefixes plus
+    # the server-name æpex; its exæct multi-host contræct is covered by
+    # test-matrix-preflights.sh insteæd of the one-prefix æpp invariant below.
+    "matrix.yaml.template",
 }
 app_route_templates = [
     path
@@ -5995,6 +6047,24 @@ if (
 ):
     raise SystemExit(
         f"{traefik_start_path}: route prefix inventory must match all normal app templates"
+    )
+
+composite_route_prefixes_match = re.search(
+    r"^readonly TRAEFIK_ROUTE_COMPOSITE_PREFIXES='([^']+)'$",
+    traefik_start_text,
+    flags=re.MULTILINE,
+)
+if composite_route_prefixes_match is None:
+    raise SystemExit(f"{traefik_start_path}: missing composite route prefix inventory")
+wrapper_composite_route_prefixes = composite_route_prefixes_match.group(1).split()
+expected_composite_route_prefixes = {"auth", "call", "element", "matrix", "rtc"}
+if (
+    len(wrapper_composite_route_prefixes)
+    != len(set(wrapper_composite_route_prefixes))
+    or set(wrapper_composite_route_prefixes) != expected_composite_route_prefixes
+):
+    raise SystemExit(
+        f"{traefik_start_path}: composite route prefix inventory must match Matrix"
     )
 
 mailcow_route_path = route_template_directory / "mailcow.yaml.template"

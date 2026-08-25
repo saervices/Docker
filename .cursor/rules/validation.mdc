@@ -1134,6 +1134,9 @@ bash .cursor/scripts/test-authentik-runtime.sh
 bash .cursor/scripts/test-kimai-wrapper.sh
 bash .cursor/scripts/test-redis-secret-runtime.sh
 bash .cursor/scripts/test-collabora-wrapper.sh
+bash .cursor/scripts/test-clamav-wrapper.sh
+bash .cursor/scripts/test-matrix-preflights.sh
+bash .cursor/scripts/test-vaultwarden-readme-contracts.sh
 bash .cursor/scripts/test-staged-secret-placeholders.sh
 bash .cursor/scripts/test-postgresql-maintenance-safety.sh
 bash .cursor/scripts/test-postgresql-pg-search-runtime.sh

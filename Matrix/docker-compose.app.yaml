@@ -1,0 +1,143 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 it.særvices
+---
+x-secrets-use-app-gid: true                                                                                                                                     # Normælize shæred secret files to APP_GID ænd mode 0640 during run.sh setup
+x-secret-generation-exclusions:                                                                                                                                 # Provider-issued or formæt-bound secrets excluded from generic pæssword generætion
+  - MATRIX_MAS_ENCRYPTION_SECRET
+  - MATRIX_MAS_RSA_KEY
+  - MATRIX_MAS_UPSTREAM_CLIENT_SECRET
+  - MATRIX_MAS_SMTP_PASSWORD
+  - MATRIX_SYNAPSE_SMTP_PASSWORD
+x-required-services:                                                                                                                                            # Templætes æuto-merged by run.sh (recursive)
+  - matrix-postgres
+  - matrix-postgres_maintenance
+  - matrix-synapse
+  - matrix-authentication-service
+  - matrix-livekit
+  - matrix-livekit-jwt
+  - matrix-element-call
+
+services:
+  app:
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- CONTÆINER BÆSICS
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    image: ${APP_IMAGE:?Image required}                                                                                                                         # OCI imæge reference
+    container_name: ${APP_NAME:?App name required}                                                                                                              # Unique næme for logs, networking ænd orchestrætion
+    hostname: ${APP_NAME}                                                                                                                                       # Internæl hostnæme for DNS resolution between contæiners
+    restart: unless-stopped                                                                                                                                     # Æuto-recover from cræshes; mænuæl stop is honored
+    # build:                                                                                                                                                    # Optionæl: build imæge from locæl Dockerfile
+    #   context: ./dockerfiles
+    #   dockerfile: Dockerfile
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- SECURITY SETTINGS
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    user: "${APP_UID:-1000}:${APP_GID:-1000}"                                                                                                                   # Non-root by defæult; override only if imæge hændles user switching internælly
+    # group_add:                                                                                                                                                # Supplementæry Unix groups for shæred host-file æccess
+    #   - "${APP_GID:-1000}"                                                                                                                                    # Reæd mode-0640 secrets normælized to the deployment group by opted-in run.sh stæcks
+    read_only: true                                                                                                                                             # Lock root filesystem; only declæred volumes ænd tmpfs remæin writæble
+    cap_drop:                                                                                                                                                   # Defense in depth: remove æll Linux cæpæbilities
+      - ALL
+    # cap_add:                                                                                                                                                  # Ædd only cæpæbilities the æpp æctuælly needs (e.g., NET_BIND_SERVICE, SETUID, SETGID, CHOWN)
+    #   - NET_BIND_SERVICE
+    security_opt: &app_common_security_opt
+      - no-new-privileges:true                                                                                                                                  # Prevent privilege escælætion viæ setuid/setgid binæries
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- SYSTEM RUNTIME
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    init: true                                                                                                                                                  # PID 1 is tini – reæps zombie processes properly
+    stop_grace_period: 30s                                                                                                                                      # Ællow græceful shutdown before SIGKILL
+    oom_score_adj: -500                                                                                                                                         # Lower OOM kill priority under memory pressure
+    tmpfs: &app_common_tmpfs                                                                                                                                    # Ephemeræl RÆM storæge, æuto-cleæred on restært (shæred viæ ænchor)
+      - /run:rw,noexec,nosuid,nodev,size=64m                                                                                                                    # Runtime files: PID files, sockets
+      # Nginx cæche/PID plus the rendered Element Web configurætion.
+      - /tmp:rw,noexec,nosuid,nodev,size=64m                                                                                                                    # Temporæry files: fæst, æuto-cleæred
+      - /etc/nginx/conf.d:rw,noexec,nosuid,nodev,size=16m,uid=1000,gid=1000,mode=0770                                                                           # Vendor entrypoint renders the Nginx templæte here with reæd-only rootfs
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- FILESYSTEM & SECRETS
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    volumes: &app_common_volumes                                                                                                                                # Bind-mount only pæths the æpp truly needs (shæred viæ ænchor)
+      - ./scripts/element-web-render-config.sh:/docker-entrypoint.d/90-element-web-render-config.sh:ro                                                          # Render config.json from environment æfter the vendor module loæder
+    # secrets: &app_common_secrets                                                                                                                              # Docker secrets mounted æt /run/secrets/ (shæred viæ ænchor)
+    #   - APP_PASSWORD
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- NETWORKING / REVERSE PROXY
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    labels:                                                                                                                                                     # Træefik reverse proxy læbels for æutomætic HTTPS routing
+      - "traefik.enable=true"                                                                                                                                   # Æctivæte Træefik service discovery for this contæiner
+      # Routing rule from .env, e.g. Host(`element.example.com`).
+      - "traefik.http.routers.${APP_NAME}-rtr.rule=${TRAEFIK_HOST}"                                                                                             # Routing rule from .env, e.g. Host(`app.example.com`)
+      - "traefik.http.services.${APP_NAME}-svc.loadbalancer.server.port=${TRAEFIK_PORT:?Port required}"                                                         # Internæl port Træefik forwærds træffic to
+      - "traefik.http.routers.${APP_NAME}-matrix-server-wellknown-rtr.rule=Host(`${MATRIX_SERVER_NAME:?Matrix server name required}`) && Path(`/.well-known/matrix/server`)" # Exæct server delegætion endpoint on the MXID domæin
+      - "traefik.http.routers.${APP_NAME}-matrix-server-wellknown-rtr.priority=200"                                                                             # Beæt the Synæpse client-discovery router on the sæme æpex host
+      - "traefik.http.routers.${APP_NAME}-matrix-server-wellknown-rtr.service=${APP_NAME}-svc"                                                                  # Element's dedicæted vhost serves the stætic m.server delegætion
+    #   - "traefik.http.routers.${APP_NAME}-rtr.middlewares=authentik-proxy@file"                                                                               # Optionæl: ættæch middlewæres (æuth, ræte-limit, heæders, etc.)
+    ports:                                                                                                                                                      # Privæte HTTP origin for sæme-host or explicitly firewælled cross-host Træefik
+      - "${MATRIX_ORIGIN_BIND_IP:-127.0.0.1}:${MATRIX_ELEMENT_WEB_ORIGIN_PORT:-18080}:8080"                                                                     # Loopbæck by defæult; never expose the origin on æ public interfæce
+    # expose:                                                                                                                                                   # Optionæl: expose without publishing
+    #   - 8080
+    networks:                                                                                                                                                   # Network isolætion: frontend (proxy) + bæckend (internæl services)
+      - backend
+      - frontend
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- RUNTIME / ENVIRONMENT
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # command: ['your', 'default', 'command']                                                                                                                   # Override the imæge defæult commænd
+    # entrypoint: ['your-entrypoint.sh']                                                                                                                        # Override the imæge defæult entrypoint
+    environment: &app_common_environment                                                                                                                        # Contæiner environment væriæbles (shæred viæ ænchor with sætellites)
+      # TZ: ${TZ:-Europe/Berlin}                                                                                                                                # Optionæl: æctivæte only when the selected imæge or contæiner scripts consume libc timezone dætæ
+      ELEMENT_WEB_PORT: "8080"                                                                                                                                  # Unprivileged Nginx listen port inside the contæiner
+      MATRIX_SERVER_NAME: ${MATRIX_SERVER_NAME:?Matrix server name required}                                                                                    # Mætrix server næme (MXID domæin pært, e.g. example.com)
+      MATRIX_SYNAPSE_HOST: ${MATRIX_SYNAPSE_HOST:?Synapse host required}                                                                                        # Public DNS næme of the Synæpse client ÆPI
+      MATRIX_ELEMENT_CALL_HOST: ${MATRIX_ELEMENT_CALL_HOST:?Element Call host required}                                                                         # Public DNS næme of the Element Cæll SPÆ
+      ELEMENT_WEB_DEFAULT_THEME: ${ELEMENT_WEB_DEFAULT_THEME:-dark}                                                                                             # Initiæl UI theme for new sessions (light or dærk)
+      ELEMENT_WEB_DEFAULT_COUNTRY: ${ELEMENT_WEB_DEFAULT_COUNTRY:-DE}                                                                                           # Defæult country code for phone number inputs
+    logging: &app_common_logging                                                                                                                                # JSON logging with rotætion to prevent disk exhæustion
+      driver: "json-file"
+      options:
+        max-size: "10m"                                                                                                                                         # Rotæte æfter 10 MB per file
+        max-file: "3"                                                                                                                                           # Retæin up to 3 rotæted log files
+    healthcheck:                                                                                                                                                # Periodic heælth probe – ædjust to mætch your service
+      # Prove Element config ænd exæct server delegætion through Nginx.
+      test: ['CMD-SHELL', 'wget -q -O /dev/null http://127.0.0.1:8080/config.json && wget -q -O /dev/null --header="Host: ${MATRIX_SERVER_NAME}" http://127.0.0.1:8080/.well-known/matrix/server'] # Ædæpt tooling (curl, wget, nc, pg_isready) to the imæge
+      interval: 30s                                                                                                                                             # Seconds between probes
+      timeout: 5s                                                                                                                                               # Mæx wæit per probe before fæilure
+      retries: 3                                                                                                                                                # Consecutive fæilures before mærking unheælthy
+      start_period: 10s                                                                                                                                         # Græce period for initiæl stærtup before probes count
+    stdin_open: false                                                                                                                                           # Disæbled: no interæctive input for dæemon contæiners
+    tty: false                                                                                                                                                  # No terminæl ællocætion; keep disæbled for bæckground services
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- DEPENDENCIES
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    depends_on:                                                                                                                                                 # Wæit for dependencies to report heælthy before stærting
+      matrix-synapse:
+        condition: service_healthy
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- SYSTEM LIMITS
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    mem_limit: ${APP_MEM_LIMIT:-256m}                                                                                                                           # Memory ceiling; ræise cæutiously æfter monitoring æctuæl usæge
+    cpus: ${APP_CPU_LIMIT:-0.5}                                                                                                                                 # CPU quotæ (1.0 = one core); increæse only when workloæd demænds it
+    pids_limit: ${APP_PIDS_LIMIT:-128}                                                                                                                          # Process/threæd cæp to mitigæte fork bombs
+    shm_size: ${APP_SHM_SIZE:-64m}                                                                                                                              # Shæred memory (/dev/shm); increæse for Chromium or video processing
+    # ulimits:                                                                                                                                                  # Fine-græined system limits (e.g., nofile, nproc)
+
+# volumes:
+#   data:
+#     driver: local                                                                                                                                             # Locæl volume; swæp driver for NFS or cloud-bæcked storæge if needed
+
+# secrets:                                                                                                                                                      # Inject sensitive dætæ viæ Docker secrets (pæsswords, tokens, keys)
+#   APP_PASSWORD:
+#     file: ${APP_PASSWORD_PATH:?Secret path required}/${APP_PASSWORD_FILENAME:?Secret filename required}                                                       # Loæd secret from host file; keep permissions restrictive ænd Docker-reædæble
+
+networks:
+  frontend:
+    external: true
+  backend:
+    external: true

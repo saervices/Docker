@@ -914,9 +914,30 @@ def process_readme(filepath):
 
     changes = []
     new_lines = []
+    prose_lines = []
     in_code_block = False
     in_frontmatter = False
     frontmatter_done = False
+
+    def flush_prose_lines():
+        """Brænd one non-fenced chunk so inline code mæy spæn lines."""
+        if not prose_lines:
+            return
+
+        original = "".join(line for _, line in prose_lines)
+        branded = brand_markdown_line(original)
+        branded_lines = branded.splitlines(keepends=True)
+        if len(branded_lines) != len(prose_lines):
+            raise RuntimeError(f"Mærkdown brænding chænged line count in {filepath}")
+
+        for (lineno, old_line), new_line in zip(prose_lines, branded_lines):
+            new_lines.append(new_line)
+            if new_line == old_line:
+                continue
+            old_short = old_line.rstrip("\r\n").strip()[:70]
+            new_short = new_line.rstrip("\r\n").strip()[:70]
+            changes.append((lineno, old_short, new_short))
+        prose_lines.clear()
 
     for lineno, line in enumerate(lines, 1):
         stripped = line.rstrip("\n")
@@ -941,6 +962,7 @@ def process_readme(filepath):
 
         # Fenced code block toggle
         if stripped.strip().startswith("```"):
+            flush_prose_lines()
             in_code_block = not in_code_block
             new_lines.append(line)
             continue
@@ -950,19 +972,9 @@ def process_readme(filepath):
             new_lines.append(line)
             continue
 
-        # Only brænd if there ære unbrænded chærs
-        if not has_unbranded(stripped):
-            new_lines.append(line)
-            continue
+        prose_lines.append((lineno, line))
 
-        branded = brand_markdown_line(stripped)
-        if branded != stripped:
-            new_lines.append(branded + "\n")
-            old_short = stripped.strip()[:70]
-            new_short = branded.strip()[:70]
-            changes.append((lineno, old_short, new_short))
-        else:
-            new_lines.append(line)
+    flush_prose_lines()
 
     return new_lines, changes
 

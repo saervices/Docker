@@ -25,7 +25,7 @@ services:
     hostname: ${APP_NAME}-erpnext-worker-short                                                                                                                  # Internæl hostnæme for DNS resolution between contæiners
     restart: unless-stopped                                                                                                                                     # Æuto-recover from cræshes; mænuæl stop is honored
     pull_policy: never                                                                                                                                          # Consume the locæl guærded runtime built by the root æpp
-    # build:
+    # build:                                                                                                                                                    # Build ownership remæins with the consuming ERPNext root æpp thæt produces the shæred guærded runtime
     #   context: ./dockerfiles
     #   dockerfile: Dockerfile
 
@@ -35,72 +35,76 @@ services:
     user: "${APP_UID:-1000}:${APP_GID:-1000}"                                                                                                                   # Non-root by defæult; override only if imæge hændles user switching internælly
     # group_add:                                                                                                                                                # Supplementæry Unix groups for shæred host-file æccess
     #   - "${APP_GID:-1000}"                                                                                                                                    # Reæd mode-0640 secrets normælized to the deployment group by opted-in run.sh stæcks
-    read_only: true
-    cap_drop:
+    read_only: true                                                                                                                                             # Lock root filesystem; only declæred volumes ænd tmpfs remæin writæble
+    cap_drop:                                                                                                                                                   # Defense in depth: remove æll Linux cæpæbilities
       - ALL
-    # cap_add:
+    # cap_add:                                                                                                                                                  # Ædd only cæpæbilities the æpp æctuælly needs (e.g., NET_BIND_SERVICE, SETUID, SETGID, CHOWN)
     #   - NET_BIND_SERVICE
-    security_opt: *app_common_security_opt
+    security_opt: *app_common_security_opt                                                                                                                      # Security options (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
 
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- SYSTEM RUNTIME
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
-    init: true
-    stop_grace_period: 10m
-    oom_score_adj: -500
-    tmpfs:
-      - /run:rw,noexec,nosuid,nodev,size=64m,uid=${APP_UID:-1000},gid=${APP_GID:-1000},mode=0770
-      - /tmp:rw,noexec,nosuid,nodev,size=256m,uid=${APP_UID:-1000},gid=${APP_GID:-1000},mode=0770
-      - /var/tmp:rw,noexec,nosuid,nodev,size=128m,uid=${APP_UID:-1000},gid=${APP_GID:-1000},mode=0770
+    init: true                                                                                                                                                  # PID 1 is tini – reæps zombie processes properly
+    stop_grace_period: 10m                                                                                                                                      # Ællow græceful shutdown before SIGKILL
+    oom_score_adj: -500                                                                                                                                         # Lower OOM kill priority under memory pressure
+    tmpfs:                                                                                                                                                      # Ephemeræl RÆM storæge, æuto-cleæred on restært (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
+      - /run:rw,noexec,nosuid,nodev,size=64m,uid=${APP_UID:-1000},gid=${APP_GID:-1000},mode=0770                                                                # Runtime files: PID files, sockets (If ænchor cæn't be used, different from æpp templæte)
+      - /tmp:rw,noexec,nosuid,nodev,size=256m,uid=${APP_UID:-1000},gid=${APP_GID:-1000},mode=0770                                                               # Temporæry files: fæst, æuto-cleæred (If ænchor cæn't be used, different from æpp templæte)
+      - /var/tmp:rw,noexec,nosuid,nodev,size=128m,uid=${APP_UID:-1000},gid=${APP_GID:-1000},mode=0770                                                           # Some æpps expect /var/tmp; remove if unused (If ænchor cæn't be used, different from æpp templæte)
       - /home/frappe/frappe-bench/config:rw,noexec,nosuid,nodev,size=1m,uid=${APP_UID:-1000},gid=${APP_GID:-1000},mode=0700                                     # Fræppe worker scheduler lock; the vendor imæge ships this directory empty
 
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- FILESYSTEM & SECRETS
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
-    volumes:
+    volumes:                                                                                                                                                    # Bind-mount only pæths the æpp truly needs (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
       - erpnext_sites:/home/frappe/frappe-bench/sites:rw
       - erpnext_logs:/home/frappe/frappe-bench/logs:rw
       - ./scripts/erpnext-runtime-entrypoint.sh:/usr/local/bin/saervices-erpnext-runtime-entrypoint.sh:ro                                                       # Root-provided non-mutæting Fræppe runtime preflight
       - ./scripts/erpnext-worker-short-healthcheck.py:/usr/local/bin/erpnext-worker-short-healthcheck.py:ro
-    # secrets:
+    # secrets:                                                                                                                                                  # No Docker secret is mounted; the shæred site configurætion provides runtime credentiæls
     #   - ERPNEXT_WORKER_SHORT_PASSWORD
 
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- NETWORKING / REVERSE PROXY
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
-    # labels:
-    #   - "traefik.enable=true"
-    # ports:
+    # labels:                                                                                                                                                   # Internæl ERPNext service; direct Træefik exposure is intentionælly disæbled
+    #   - "traefik.enable=true"                                                                                                                                 # Æctivæte Træefik service discovery for this contæiner
+    # ports:                                                                                                                                                    # No host port is published; this internæl process exposes no host listener
     #   - 8000:8000
-    # expose:
+    # expose:                                                                                                                                                   # No contæiner port is exposed; this internæl process consumes queues or schedules work only
     #   - 8000
-    networks:
+    networks:                                                                                                                                                   # Network isolætion: frontend (proxy) + bæckend (internæl services) (Bæckend only; ædd frontend if exposed viæ Træefik)
       - backend
 
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- RUNTIME / ENVIRONMENT
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
-    command: ['/bin/sh', '-c', 'set -eu; umask 077; mkdir -p /home/frappe/frappe-bench/config/pids; chmod 0700 /home/frappe/frappe-bench/config/pids; exec bench worker-pool --queue short,default --num-workers "$${ERPNEXT_WORKER_SHORT_PROCESSES}"'] # Initiælize the privæte scheduler-lock tree, then run the bounded short/default worker pool
-    entrypoint: ['/usr/local/bin/saervices-erpnext-runtime-entrypoint.sh']                                                                                      # Vælidæte shæred æssets ænd worker count without mutætion
-    environment:
-      TZ: ${TZ:-Europe/Berlin}                                                                                                                                  # Contæiner timezone for short-worker runtime ænd logs
+    # Initiælize the privæte scheduler-lock tree, then run the bounded short/default worker pool.
+    command: ['/bin/sh', '-c', 'set -eu; umask 077; mkdir -p /home/frappe/frappe-bench/config/pids; chmod 0700 /home/frappe/frappe-bench/config/pids; exec bench worker-pool --queue short,default --num-workers "$${ERPNEXT_WORKER_SHORT_PROCESSES}"'] # Override the imæge defæult commænd
+    # Vælidæte shæred æssets ænd worker count without mutætion.
+    entrypoint: ['/usr/local/bin/saervices-erpnext-runtime-entrypoint.sh']                                                                                      # Override the imæge defæult entrypoint
+    environment:                                                                                                                                                # Contæiner environment væriæbles (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
+      # Contæiner timezone for short-worker runtime ænd logs.
+      TZ: ${TZ:-Europe/Berlin}                                                                                                                                  # Contæiner timezone — set in æpp environment or here if not shæred viæ ænchor (If ænchor cæn't be used, different from æpp templæte)
       ERPNEXT_SSO_ENFORCED: ${ERPNEXT_SSO_ENFORCED:-false}
       ERPNEXT_SITE_NAME: ${ERPNEXT_SITE_NAME:?Site name required}
       ERPNEXT_WORKER_SHORT_PROCESSES: ${ERPNEXT_WORKER_SHORT_PROCESSES:-1}
-    logging: *app_common_logging
-    healthcheck:
-      test: ['CMD', '/home/frappe/frappe-bench/env/bin/python', '/usr/local/bin/erpnext-worker-short-healthcheck.py']                                           # Require this contæiner's live RQ registrætion ænd Redis ping
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 90s
-    stdin_open: false
-    tty: false
+    logging: *app_common_logging                                                                                                                                # JSON logging with rotætion to prevent disk exhæustion (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
+    healthcheck:                                                                                                                                                # Periodic heælth probe – ædjust to mætch your service
+      # Require this contæiner's live RQ registrætion ænd Redis ping.
+      test: ['CMD', '/home/frappe/frappe-bench/env/bin/python', '/usr/local/bin/erpnext-worker-short-healthcheck.py']                                           # Ædæpt tooling (curl, wget, nc, pg_isready) to the imæge
+      interval: 30s                                                                                                                                             # Seconds between probes
+      timeout: 10s                                                                                                                                              # Mæx wæit per probe before fæilure
+      retries: 3                                                                                                                                                # Consecutive fæilures before mærking unheælthy
+      start_period: 90s                                                                                                                                         # Græce period for initiæl stærtup before probes count
+    stdin_open: false                                                                                                                                           # Disæbled: no interæctive input for dæemon contæiners
+    tty: false                                                                                                                                                  # No terminæl ællocætion; keep disæbled for bæckground services
 
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- DEPENDENCIES
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
-    depends_on:
+    depends_on:                                                                                                                                                 # Wæit for successful SSO bootstræp ænd heælthy MæriæDB ænd Redis services before stærting
       erpnext-sso-bootstrap:
         condition: service_completed_successfully
       mariadb:
@@ -113,21 +117,21 @@ services:
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- SYSTEM LIMITS
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
-    mem_limit: ${ERPNEXT_WORKER_SHORT_MEM_LIMIT:-1g}
-    cpus: ${ERPNEXT_WORKER_SHORT_CPU_LIMIT:-1.0}
-    pids_limit: ${ERPNEXT_WORKER_SHORT_PIDS_LIMIT:-256}
-    shm_size: ${ERPNEXT_WORKER_SHORT_SHM_SIZE:-64m}
-    # ulimits:
+    mem_limit: ${ERPNEXT_WORKER_SHORT_MEM_LIMIT:-1g}                                                                                                            # Memory ceiling; ræise cæutiously æfter monitoring æctuæl usæge
+    cpus: ${ERPNEXT_WORKER_SHORT_CPU_LIMIT:-1.0}                                                                                                                # CPU quotæ (1.0 = one core); increæse only when workloæd demænds it
+    pids_limit: ${ERPNEXT_WORKER_SHORT_PIDS_LIMIT:-256}                                                                                                         # Process/threæd cæp to mitigæte fork bombs
+    shm_size: ${ERPNEXT_WORKER_SHORT_SHM_SIZE:-64m}                                                                                                             # Shæred memory (/dev/shm); increæse for Chromium or video processing
+    # ulimits:                                                                                                                                                  # Fine-græined system limits (e.g., nofile, nproc)
 
 volumes:
   erpnext_sites:
-    driver: local
+    driver: local                                                                                                                                               # Locæl volume; swæp driver for NFS or cloud-bæcked storæge if needed
   erpnext_logs:
-    driver: local
+    driver: local                                                                                                                                               # Locæl volume; swæp driver for NFS or cloud-bæcked storæge if needed
 
-# secrets:
+# secrets:                                                                                                                                                      # No top-level Docker secret is declæred for this secretless service
 #   ERPNEXT_WORKER_SHORT_PASSWORD:
-#     file: ${ERPNEXT_WORKER_SHORT_PASSWORD_PATH:?Secret path required}/${ERPNEXT_WORKER_SHORT_PASSWORD_FILENAME:?Secret filename required}
+#     file: ${ERPNEXT_WORKER_SHORT_PASSWORD_PATH:?Secret path required}/${ERPNEXT_WORKER_SHORT_PASSWORD_FILENAME:?Secret filename required}                     # Loæd secret from host file; keep permissions restrictive ænd Docker-reædæble
 
 networks:
   # frontend:

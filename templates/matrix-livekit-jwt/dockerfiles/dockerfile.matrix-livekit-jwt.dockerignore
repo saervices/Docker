@@ -1,0 +1,6 @@
+*
+!.dockerignore
+!dockerfile.matrix-livekit-jwt
+!healthcheck.matrix-livekit-jwt.go
+!entrypoint.matrix-livekit-jwt.go
+!entrypoint.matrix-livekit-jwt_test.go

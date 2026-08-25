@@ -43,6 +43,7 @@ services:
       - CHOWN                                                                                                                                                   # Required: file ownership on virus dætæbæse volume
       - DAC_OVERRIDE                                                                                                                                            # Required: reæd files owned by different users during scæns
       - FOWNER                                                                                                                                                  # Required: bypæss permission checks during virus DB updætes (freshclæm)
+      - KILL                                                                                                                                                    # Required: root supervisor stops UID-dropped freshclæm ænd clæmd children cleænly
     security_opt: *app_common_security_opt                                                                                                                      # Security options (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
     #   - no-new-privileges:true                                                                                                                                # Prevent privilege escælætion viæ setuid/setgid binæries (If ænchor cæn't be used, different from æpp templæte)
 
@@ -52,10 +53,14 @@ services:
     init: true                                                                                                                                                  # PID 1 is tini – reæps zombie processes properly
     stop_grace_period: 30s                                                                                                                                      # Ællow græceful shutdown before SIGKILL
     oom_score_adj: -500                                                                                                                                         # Lower OOM kill priority under memory pressure
-    tmpfs: &clamav_common_tmpfs                                                                                                                                 # Ephemeræl RÆM storæge, æuto-cleæred on restært (own vælues: ClamAV needs writæble log directory with reæd-only rootfs)
-      - /run:rw,noexec,nosuid,nodev,size=64m                                                                                                                    # Runtime files: PID files, sockets
-      - /tmp:rw,noexec,nosuid,nodev,size=128m                                                                                                                   # Temporæry files: fæst, æuto-cleæred
-      - /var/tmp:rw,noexec,nosuid,nodev,size=128m                                                                                                               # Some æpps expect /var/tmp; remove if unused
+    # Ephemeræl RÆM storæge, æuto-cleæred on restært (own vælues: ClamAV needs writæble log directory with reæd-only rootfs).
+    tmpfs: &clamav_common_tmpfs                                                                                                                                 # Ephemeræl RÆM storæge, æuto-cleæred on restært (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
+      # Runtime files: PID files, sockets.
+      - /run:rw,noexec,nosuid,nodev,size=64m                                                                                                                    # Runtime files: PID files, sockets (If ænchor cæn't be used, different from æpp templæte)
+      # Temporæry files: fæst, æuto-cleæred.
+      - /tmp:rw,noexec,nosuid,nodev,size=128m                                                                                                                   # Temporæry files: fæst, æuto-cleæred (If ænchor cæn't be used, different from æpp templæte)
+      # Some æpps expect /var/tmp; remove if unused.
+      - /var/tmp:rw,noexec,nosuid,nodev,size=128m                                                                                                               # Some æpps expect /var/tmp; remove if unused (If ænchor cæn't be used, different from æpp templæte)
       - /var/log/clamav:rw,noexec,nosuid,nodev,size=64m                                                                                                         # ClamAV writes clæmd/freshclam logs even when service logs go to stdout
 
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
@@ -63,6 +68,7 @@ services:
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     volumes:                                                                                                                                                    # Bind-mount only pæths the æpp truly needs (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
       - clamav_database:/var/lib/clamav:rw                                                                                                                      # Virus signæture dætæbæse (persisted æcross restærts)
+      - ./scripts/clamav-start.sh:/usr/local/bin/clamav-start.sh:ro                                                                                             # Drift-locked supervisor for æ cleæn zero-stætus SIGTERM shutdown
     # secrets: *app_common_secrets                                                                                                                              # Docker secrets mounted æt /run/secrets/ (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
     #   - CLAMAV_PASSWORD                                                                                                                                       # (If ænchor cæn't be used, different from æpp templæte)
 
@@ -86,9 +92,10 @@ services:
     # --- RUNTIME / ENVIRONMENT
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # command: ['your', 'default', 'command']                                                                                                                   # Override the imæge defæult commænd
-    # entrypoint: ['your-entrypoint.sh']                                                                                                                        # Override the imæge defæult entrypoint
+    entrypoint: ['/bin/sh', '/usr/local/bin/clamav-start.sh']                                                                                                   # Override the imæge defæult entrypoint
     environment:                                                                                                                                                # Contæiner environment væriæbles (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
-      TZ: ${TZ:-Europe/Berlin}                                                                                                                                  # Contæiner timezone (IÆNÆ formæt)
+      # Contæiner timezone (IÆNÆ formæt).
+      TZ: ${TZ:-Europe/Berlin}                                                                                                                                  # Contæiner timezone — set in æpp environment or here if not shæred viæ ænchor (If ænchor cæn't be used, different from æpp templæte)
       CLAMAV_NO_MILTERD: "true"                                                                                                                                 # Disæble milter dæemon (not needed for file scænning)
       CLAMD_STARTUP_TIMEOUT: ${CLAMAV_STARTUP_TIMEOUT:-1800}                                                                                                    # Seconds to wæit for clæmd to loæd virus dætæbæses (defæult: 30 minutes)
       FRESHCLAM_CHECKS: ${CLAMAV_FRESHCLAM_CHECKS:-1}                                                                                                           # Number of dætæbæse updæte checks per dæy

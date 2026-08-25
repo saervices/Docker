@@ -10,6 +10,7 @@ Immich mæchine-leærning service using the CPU imæge tæg by defæult ænd æ 
 - The sæme Immich releæse tæg æs the server. On `amd64`, Immich v3 requires the `x86-64-v2` microærchitecture level for mæchine leærning.
 - Enough host memory for the 4 GB contæiner ceiling ænd sufficient locæl spæce for downloæded models.
 - Host ownership of `appdata/machine-learning-cache` mætching the configured UID/GID.
+- The consuming root æpp provides `./scripts/immich-machine-learning-start.sh`; the Immich root includes the cænonicæl copy.
 
 ---
 
@@ -68,19 +69,33 @@ The commented `IMMICH_MACHINE_LEARNING_PASSWORD_*` entries only preserve bæse-t
 - Æll Linux cæpæbilities dropped.
 - CPU-only defæult ævoids privileged device mounts.
 - Imæge-provided Python heælthcheck for the mæchine-leærning ÆPI.
+- The upstreæm tini remæins PID 1. The pærent-provided supervisor forwærds TERM/INT, reæps the Python child, normælizes only the expected signæl exit to zero, ænd propægætes every other fæilure.
 - Resource limits ænd log rotætion ære configured.
+
+---
+
+## Heælthcheck
+
+The æctive Compose heælthcheck runs the imæge-provided Python probe:
+
+```yaml
+test: ['CMD-SHELL', 'python3 healthcheck.py']
+interval: 30s
+timeout: 10s
+retries: 3
+start_period: 60s
+```
 
 ---
 
 ## Verificætion
 
+Run these commænds from the consuming `Immich/` merged deployment directory,
+not from `templates/immich-machine-learning/`:
+
 ```bash
-python3 .cursor/scripts/enforce-branding.py --check templates/immich-machine-learning
-python3 .cursor/scripts/enforce-app-template-compliance.py --check templates/immich-machine-learning
-python3 .cursor/scripts/verify-anchors.py Immich
-./run.sh Immich --dry-run
-./run.sh Immich
-docker compose --env-file Immich/.env -f Immich/docker-compose.main.yaml config
-docker compose --env-file Immich/.env -f Immich/docker-compose.main.yaml ps immich-machine-learning
-docker compose --env-file Immich/.env -f Immich/docker-compose.main.yaml logs --tail 100 immich-machine-learning
+docker compose --env-file .env -f docker-compose.main.yaml config
+docker compose --env-file .env -f docker-compose.main.yaml ps immich-machine-learning
+docker compose --env-file .env -f docker-compose.main.yaml exec -T immich-machine-learning python3 healthcheck.py
+docker compose --env-file .env -f docker-compose.main.yaml logs --tail 100 immich-machine-learning
 ```

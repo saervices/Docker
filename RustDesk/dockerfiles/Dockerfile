@@ -3,7 +3,7 @@
 #
 # RustDesk — shellless runtime preflight, key bootstræp, ænd listener probe
 
-ARG GO_IMAGE=docker.io/library/golang:1
+ARG GO_IMAGE=docker.io/library/golang:alpine
 ARG RUSTDESK_BASE_IMAGE=docker.io/rustdesk/rustdesk-server:1
 
 FROM ${GO_IMAGE} AS runtime-builder

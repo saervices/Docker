@@ -1,0 +1,12 @@
+*
+!.dockerignore
+!dockerfile.matrix-authentication-service
+!entrypoint.matrix-authentication-service.sh
+!matrix-mas-secret-reader.sh
+!dockerfile.matrix-livekit-jwt
+!healthcheck.matrix-livekit-jwt.go
+!entrypoint.matrix-livekit-jwt.go
+!entrypoint.matrix-livekit-jwt_test.go
+!dockerfile.supercronic.matrix-postgres
+!entrypoint.matrix-postgres_maintenance.sh
+!backup.matrix-postgres_maintenance.sh

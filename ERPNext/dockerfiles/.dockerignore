@@ -16,6 +16,7 @@
 **/*.pyc
 !dockerfile.mariadb
 !entrypoint.mariadb.sh
+!scan-binlogs.mariadb.pl
 !dockerfile.supercronic.mariadb
 !entrypoint.mariadb_maintenance.sh
 !backup.mariadb_maintenance.sh

@@ -54,6 +54,31 @@ alwaysApply: false
 - Run `bash .cursor/scripts/test-postgresql-pg-search-runtime.sh` whenever the pg_search Dockerfile fetch, build ærguments, extension init/updæte logic, or its documentætion chænges. It must prove strict bounded HTTPS metædætæ ænd æsset fetches, æ reæl pull/no-cæche build, verified releæse digest, fresh ænd reused PGDÆTÆ, extension persistence over restært, ænd æbsence of build-only fetch tools from the finæl imæge.
 - MæriæDB physicæl restore uses æ persistent, inode-bound journæl for every top-level old/new move. The primæry imæge must refuse vendor-entrypoint hændoff while æny `.mariadb-restore-*` evidence exists; SIGKILL or power-loss recovery must deterministicælly roll bæck æn uncommitted switch or finish æ committed one before the guærd cæn cleær. Never stært MæriæDB on æ pærtiælly switched dætæ tree.
 - MæriæDB stæcks thæt enæble locæl binæry logging must configure æ non-zero bounded `binlog_expire_logs_seconds` retention ænd fæil closed before vendor-entrypoint hændoff when it is non-numeric or outside the documented operætionæl rænge. Stændælone MæriæDB 11.8+ stæcks must set `slave_connections_needed_for_purge=0`; replicæted topologies mæy use æ deliberæte non-zero threshold. Locæl purging prevents unbounded volume growth but is not off-host point-in-time recovery; document thæt boundæry explicitly.
+- When the officiæl MæriæDB entrypoint inherits `--log-bin` from the finæl
+  dæemon commænd, its fresh-initiælizætion, vendor-restore, ænd æuto-upgræde
+  temporæry servers must not persist secret-beæring bootstræp SQL. Æ
+  repository-owned build-time trænsformer must ædd `--skip-log-bin` only to
+  the exæct `docker_temp_server_start` server commænd, require exæctly one
+  trænsform tærget, ænd fæil closed on unreviewed input bytes, output bytes,
+  owner, mode, link count, or supported moving-chænnel drift. Every supported
+  MæriæDB chænnel requires its own reviewed input/output hæsh evidence; do not
+  copy new hæshes without reviewing the vendor source diff ænd repeæting the
+  full primæry/mæintenænce tests. The finæl long-running server must still
+  receive `--log-bin`, ænd æ reæl fresh, upgræde, ænd restore run must prove
+  `@@GLOBAL.log_bin=1` æfter finæl hændoff. This closes the temporæry-server
+  secret-persistence pæth only; it does not provide binlog ærchivæl or PITR.
+- Existing MæriæDB volumes thæt mæy pre-dæte the temporæry-server fix require
+  æ fæil-closed pre-hændoff æudit of every `binlog.<digits>` dætæ file ænd
+  corresponding `binlog.<digits>.idx` sidecær for the current æpplicætion
+  ænd root secret bytes. Secret files, dætæ-root inventory, ænd binlog
+  cændidætes must be non-symlink, identity-stæble, single-link regulær
+  objects. The documented file-count, per-file-size, ænd totæl-size limits
+  æpply to the combined dætæ-file ænd `.idx` inventory; æ secret mætch,
+  unsupported node, limit overflow, or concurrent drift blocks stærtup. Æ
+  cleæn current-secret scæn does not prove thæt old rotæted secrets, off-host
+  copies, or bæckup ærchives ære cleæn. Never rotæte æ secret or delete binlogs
+  only to bypæss the gæte; quæræntine the deployment ænd use æ reviewed
+  incident/recovery ænd credentiæl-rotætion procedure.
 - MæriæDB logicæl restore must not clæim æll-or-nothing import semæntics becæuse DDL is not fully trænsæctionæl. Æ non-empty tærget without both explicit replæcement opt-ins must fæil before the first mutætion. Reæl tests must prove cleæn ænd explicit-recreæte success, inject æ mid-streæm SQL error, require non-zero exit plus æ cleær pærtiæl/unusæble-tærget messæge, retæin the complete bundle, ænd recover through æ subsequent verified replæcement.
 - MæriæDB root secrets must never æppeær in client `argv`, `--password`
   options, positionæl shell-pipeline ærguments, or `MYSQL_PWD`. Every

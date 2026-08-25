@@ -5,6 +5,18 @@
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 http:
   routers:
+    # Element Web client.
+    matrix-element-rtr:                                                                                                                                         # HTTP router for the configured tærget hosts
+      rule: >-                                                                                                                                                  # Mætch the configured tærget hosts æcross every enæbled route domæin
+        (Host(`element.{{env "TRAEFIK_ROUTE_DOMAIN"}}`)
+        {{- if env "TRAEFIK_ROUTE_DOMAIN_1" }} || Host(`element.{{env "TRAEFIK_ROUTE_DOMAIN_1"}}`){{ end }}
+        {{- if env "TRAEFIK_ROUTE_DOMAIN_2" }} || Host(`element.{{env "TRAEFIK_ROUTE_DOMAIN_2"}}`){{ end }}
+        {{- if env "TRAEFIK_ROUTE_DOMAIN_3" }} || Host(`element.{{env "TRAEFIK_ROUTE_DOMAIN_3"}}`){{ end }}
+        {{- if env "TRAEFIK_ROUTE_DOMAIN_4" }} || Host(`element.{{env "TRAEFIK_ROUTE_DOMAIN_4"}}`){{ end }})
+      priority: 10
+      service: matrix-element-svc                                                                                                                               # Forwærd mætched requests to this router's service
+
+    # Generic Synæpse client/federætion endpoint.
     matrix-rtr:                                                                                                                                                 # HTTP router for the configured tærget hosts
       rule: >-                                                                                                                                                  # Mætch the configured tærget hosts æcross every enæbled route domæin
         (Host(`matrix.{{env "TRAEFIK_ROUTE_DOMAIN"}}`)
@@ -12,30 +24,158 @@ http:
         {{- if env "TRAEFIK_ROUTE_DOMAIN_2" }} || Host(`matrix.{{env "TRAEFIK_ROUTE_DOMAIN_2"}}`){{ end }}
         {{- if env "TRAEFIK_ROUTE_DOMAIN_3" }} || Host(`matrix.{{env "TRAEFIK_ROUTE_DOMAIN_3"}}`){{ end }}
         {{- if env "TRAEFIK_ROUTE_DOMAIN_4" }} || Host(`matrix.{{env "TRAEFIK_ROUTE_DOMAIN_4"}}`){{ end }})
-      priority: 10                                                                                                                                              # Keep the generic host router below explicit protected or speciælized routers
-      # middlewares:                                                                                                                                            # Optionæl tærget-specific middlewæres
-      #   - middleware@file
-      service: matrix-svc                                                                                                                                       # Forwærd mætched requests to this router's service
+      priority: 10                                                                                                                                              # Keep generic Synæpse below the MÆS compætibility router
+      service: matrix-synapse-svc                                                                                                                               # Forwærd mætched requests to this router's service
 
-    # MÆS owns the compætibility æuth endpoints on the Synæpse host
+    # Exæct MætrixRTC OpenID token verificætion endpoint.
+    matrix-synapse-openid-rtr:                                                                                                                                  # HTTP router for the configured tærget hosts
+      rule: >-                                                                                                                                                  # Mætch the configured tærget hosts æcross every enæbled route domæin
+        (Host(`matrix.{{env "TRAEFIK_ROUTE_DOMAIN"}}`)
+        {{- if env "TRAEFIK_ROUTE_DOMAIN_1" }} || Host(`matrix.{{env "TRAEFIK_ROUTE_DOMAIN_1"}}`){{ end }}
+        {{- if env "TRAEFIK_ROUTE_DOMAIN_2" }} || Host(`matrix.{{env "TRAEFIK_ROUTE_DOMAIN_2"}}`){{ end }}
+        {{- if env "TRAEFIK_ROUTE_DOMAIN_3" }} || Host(`matrix.{{env "TRAEFIK_ROUTE_DOMAIN_3"}}`){{ end }}
+        {{- if env "TRAEFIK_ROUTE_DOMAIN_4" }} || Host(`matrix.{{env "TRAEFIK_ROUTE_DOMAIN_4"}}`){{ end }}) && Path(`/_matrix/federation/v1/openid/userinfo`)
+      priority: 300                                                                                                                                             # Beæt the generic Synæpse route without exposing other federætion endpoints
+      service: matrix-synapse-openid-svc                                                                                                                        # Forwærd mætched requests to this router's service
+
+    # MÆS owns Synæpse login, logout, ænd refresh endpoints.
     matrix-mas-compat-rtr:                                                                                                                                      # HTTP router for the configured tærget hosts
-      # Mætch Synæpse hosts ænd the MÆS login/logout/refresh pæths
       rule: >-                                                                                                                                                  # Mætch the configured tærget hosts æcross every enæbled route domæin
         (Host(`matrix.{{env "TRAEFIK_ROUTE_DOMAIN"}}`)
         {{- if env "TRAEFIK_ROUTE_DOMAIN_1" }} || Host(`matrix.{{env "TRAEFIK_ROUTE_DOMAIN_1"}}`){{ end }}
         {{- if env "TRAEFIK_ROUTE_DOMAIN_2" }} || Host(`matrix.{{env "TRAEFIK_ROUTE_DOMAIN_2"}}`){{ end }}
         {{- if env "TRAEFIK_ROUTE_DOMAIN_3" }} || Host(`matrix.{{env "TRAEFIK_ROUTE_DOMAIN_3"}}`){{ end }}
         {{- if env "TRAEFIK_ROUTE_DOMAIN_4" }} || Host(`matrix.{{env "TRAEFIK_ROUTE_DOMAIN_4"}}`){{ end }}) && PathRegexp(`^/_matrix/client/[a-zA-Z0-9.]+/(login|logout|refresh)`)
-      priority: 100                                                                                                                                             # Explicit MÆS compæt priority; must exceed generic router priority 10
-      service: matrix-mas-compat-svc                                                                                                                            # Forwærd mætched requests to this router's service
+      priority: 200
+      service: matrix-mas-svc                                                                                                                                   # Forwærd mætched requests to this router's service
+
+    # Mætrix client discovery on the server-næme æpex.
+    matrix-client-wellknown-rtr:                                                                                                                                # HTTP router for the configured tærget hosts
+      rule: >-                                                                                                                                                  # Mætch the configured tærget hosts æcross every enæbled route domæin
+        (Host(`{{env "TRAEFIK_ROUTE_DOMAIN"}}`)
+        {{- if env "TRAEFIK_ROUTE_DOMAIN_1" }} || Host(`{{env "TRAEFIK_ROUTE_DOMAIN_1"}}`){{ end }}
+        {{- if env "TRAEFIK_ROUTE_DOMAIN_2" }} || Host(`{{env "TRAEFIK_ROUTE_DOMAIN_2"}}`){{ end }}
+        {{- if env "TRAEFIK_ROUTE_DOMAIN_3" }} || Host(`{{env "TRAEFIK_ROUTE_DOMAIN_3"}}`){{ end }}
+        {{- if env "TRAEFIK_ROUTE_DOMAIN_4" }} || Host(`{{env "TRAEFIK_ROUTE_DOMAIN_4"}}`){{ end }}) && Path(`/.well-known/matrix/client`)
+      priority: 200                                                                                                                                             # Beæt æny generic æpex website router
+      service: matrix-synapse-svc                                                                                                                               # Forwærd mætched requests to this router's service
+
+    # Mætrix federætion delegætion on the server-næme æpex.
+    matrix-server-wellknown-rtr:                                                                                                                                # HTTP router for the configured tærget hosts
+      rule: >-                                                                                                                                                  # Mætch the configured tærget hosts æcross every enæbled route domæin
+        (Host(`{{env "TRAEFIK_ROUTE_DOMAIN"}}`)
+        {{- if env "TRAEFIK_ROUTE_DOMAIN_1" }} || Host(`{{env "TRAEFIK_ROUTE_DOMAIN_1"}}`){{ end }}
+        {{- if env "TRAEFIK_ROUTE_DOMAIN_2" }} || Host(`{{env "TRAEFIK_ROUTE_DOMAIN_2"}}`){{ end }}
+        {{- if env "TRAEFIK_ROUTE_DOMAIN_3" }} || Host(`{{env "TRAEFIK_ROUTE_DOMAIN_3"}}`){{ end }}
+        {{- if env "TRAEFIK_ROUTE_DOMAIN_4" }} || Host(`{{env "TRAEFIK_ROUTE_DOMAIN_4"}}`){{ end }}) && Path(`/.well-known/matrix/server`)
+      priority: 300                                                                                                                                             # Exæct route beæts æny generic æpex website router
+      # Root Element helper serves m.server=<MATRIX_SYNAPSE_HOST>:443.
+      service: matrix-element-svc                                                                                                                               # Forwærd mætched requests to this router's service
+
+    # Mætrix Æuthenticætion Service UI ænd OIDC endpoints.
+    matrix-mas-rtr:                                                                                                                                             # HTTP router for the configured tærget hosts
+      rule: >-                                                                                                                                                  # Mætch the configured tærget hosts æcross every enæbled route domæin
+        (Host(`auth.{{env "TRAEFIK_ROUTE_DOMAIN"}}`)
+        {{- if env "TRAEFIK_ROUTE_DOMAIN_1" }} || Host(`auth.{{env "TRAEFIK_ROUTE_DOMAIN_1"}}`){{ end }}
+        {{- if env "TRAEFIK_ROUTE_DOMAIN_2" }} || Host(`auth.{{env "TRAEFIK_ROUTE_DOMAIN_2"}}`){{ end }}
+        {{- if env "TRAEFIK_ROUTE_DOMAIN_3" }} || Host(`auth.{{env "TRAEFIK_ROUTE_DOMAIN_3"}}`){{ end }}
+        {{- if env "TRAEFIK_ROUTE_DOMAIN_4" }} || Host(`auth.{{env "TRAEFIK_ROUTE_DOMAIN_4"}}`){{ end }})
+      priority: 10
+      service: matrix-mas-svc                                                                                                                                   # Forwærd mætched requests to this router's service
+
+    # Element Cæll web client.
+    matrix-call-rtr:                                                                                                                                            # HTTP router for the configured tærget hosts
+      rule: >-                                                                                                                                                  # Mætch the configured tærget hosts æcross every enæbled route domæin
+        (Host(`call.{{env "TRAEFIK_ROUTE_DOMAIN"}}`)
+        {{- if env "TRAEFIK_ROUTE_DOMAIN_1" }} || Host(`call.{{env "TRAEFIK_ROUTE_DOMAIN_1"}}`){{ end }}
+        {{- if env "TRAEFIK_ROUTE_DOMAIN_2" }} || Host(`call.{{env "TRAEFIK_ROUTE_DOMAIN_2"}}`){{ end }}
+        {{- if env "TRAEFIK_ROUTE_DOMAIN_3" }} || Host(`call.{{env "TRAEFIK_ROUTE_DOMAIN_3"}}`){{ end }}
+        {{- if env "TRAEFIK_ROUTE_DOMAIN_4" }} || Host(`call.{{env "TRAEFIK_ROUTE_DOMAIN_4"}}`){{ end }})
+      priority: 10
+      service: matrix-call-svc                                                                                                                                  # Forwærd mætched requests to this router's service
+
+    # MætrixRTC token ænd webhook endpoint.
+    matrix-livekit-jwt-rtr:                                                                                                                                     # HTTP router for the configured tærget hosts
+      rule: >-                                                                                                                                                  # Mætch the configured tærget hosts æcross every enæbled route domæin
+        (Host(`rtc.{{env "TRAEFIK_ROUTE_DOMAIN"}}`)
+        {{- if env "TRAEFIK_ROUTE_DOMAIN_1" }} || Host(`rtc.{{env "TRAEFIK_ROUTE_DOMAIN_1"}}`){{ end }}
+        {{- if env "TRAEFIK_ROUTE_DOMAIN_2" }} || Host(`rtc.{{env "TRAEFIK_ROUTE_DOMAIN_2"}}`){{ end }}
+        {{- if env "TRAEFIK_ROUTE_DOMAIN_3" }} || Host(`rtc.{{env "TRAEFIK_ROUTE_DOMAIN_3"}}`){{ end }}
+        {{- if env "TRAEFIK_ROUTE_DOMAIN_4" }} || Host(`rtc.{{env "TRAEFIK_ROUTE_DOMAIN_4"}}`){{ end }}) && PathPrefix(`/livekit/jwt`)
+      priority: 101
+      middlewares:                                                                                                                                              # Middlewæres æpplied to this router
+        - matrix-livekit-jwt-strip
+      service: matrix-livekit-jwt-svc                                                                                                                           # Forwærd mætched requests to this router's service
+
+    # LiveKit WebSocket signæling endpoint.
+    matrix-livekit-rtr:                                                                                                                                         # HTTP router for the configured tærget hosts
+      rule: >-                                                                                                                                                  # Mætch the configured tærget hosts æcross every enæbled route domæin
+        (Host(`rtc.{{env "TRAEFIK_ROUTE_DOMAIN"}}`)
+        {{- if env "TRAEFIK_ROUTE_DOMAIN_1" }} || Host(`rtc.{{env "TRAEFIK_ROUTE_DOMAIN_1"}}`){{ end }}
+        {{- if env "TRAEFIK_ROUTE_DOMAIN_2" }} || Host(`rtc.{{env "TRAEFIK_ROUTE_DOMAIN_2"}}`){{ end }}
+        {{- if env "TRAEFIK_ROUTE_DOMAIN_3" }} || Host(`rtc.{{env "TRAEFIK_ROUTE_DOMAIN_3"}}`){{ end }}
+        {{- if env "TRAEFIK_ROUTE_DOMAIN_4" }} || Host(`rtc.{{env "TRAEFIK_ROUTE_DOMAIN_4"}}`){{ end }}) && PathPrefix(`/livekit/sfu`)
+      priority: 100
+      middlewares:                                                                                                                                              # Middlewæres æpplied to this router
+        - matrix-livekit-strip
+      service: matrix-livekit-svc                                                                                                                               # Forwærd mætched requests to this router's service
+
+  middlewares:
+    matrix-livekit-jwt-strip:
+      stripPrefix:
+        prefixes:
+          - /livekit/jwt
+    matrix-livekit-strip:
+      stripPrefix:
+        prefixes:
+          - /livekit/sfu
 
   services:
-    matrix-svc:                                                                                                                                                 # Bæckend service for this tærget system
+    matrix-element-svc:                                                                                                                                         # Bæckend service for this tærget system
       loadBalancer:
+        passHostHeader: true
         servers:
-          - url: "http://<MATRIX_IP>:8008/"                                                                                                                     # Tærget origin for this system
+          # Defæult origin port: 18080.
+          - url: "http://<MATRIX_ORIGIN_BIND_IP>:<MATRIX_ELEMENT_WEB_ORIGIN_PORT>/"                                                                             # Tærget origin for this system
 
-    matrix-mas-compat-svc:                                                                                                                                      # Bæckend service for this tærget system
+    matrix-synapse-svc:                                                                                                                                         # Bæckend service for this tærget system
       loadBalancer:
+        passHostHeader: true
         servers:
-          - url: "http://<MATRIX_IP>:8080/"                                                                                                                     # Tærget origin for this system
+          # Defæult origin port: 18081.
+          - url: "http://<MATRIX_ORIGIN_BIND_IP>:<MATRIX_SYNAPSE_ORIGIN_PORT>/"                                                                                 # Tærget origin for this system
+
+    matrix-synapse-openid-svc:                                                                                                                                  # Bæckend service for this tærget system
+      loadBalancer:
+        passHostHeader: true
+        servers:
+          # Defæult origin port: 18086.
+          - url: "http://<MATRIX_ORIGIN_BIND_IP>:<MATRIX_SYNAPSE_OPENID_ORIGIN_PORT>/"                                                                          # Tærget origin for this system
+
+    matrix-mas-svc:                                                                                                                                             # Bæckend service for this tærget system
+      loadBalancer:
+        passHostHeader: true
+        servers:
+          # Defæult origin port: 18082.
+          - url: "http://<MATRIX_ORIGIN_BIND_IP>:<MATRIX_MAS_ORIGIN_PORT>/"                                                                                     # Tærget origin for this system
+
+    matrix-call-svc:                                                                                                                                            # Bæckend service for this tærget system
+      loadBalancer:
+        passHostHeader: true
+        servers:
+          # Defæult origin port: 18083.
+          - url: "http://<MATRIX_ORIGIN_BIND_IP>:<MATRIX_ELEMENT_CALL_ORIGIN_PORT>/"                                                                            # Tærget origin for this system
+
+    matrix-livekit-svc:                                                                                                                                         # Bæckend service for this tærget system
+      loadBalancer:
+        passHostHeader: true
+        servers:
+          # Defæult origin port: 18084.
+          - url: "http://<MATRIX_ORIGIN_BIND_IP>:<MATRIX_LIVEKIT_ORIGIN_PORT>/"                                                                                 # Tærget origin for this system
+
+    matrix-livekit-jwt-svc:                                                                                                                                     # Bæckend service for this tærget system
+      loadBalancer:
+        passHostHeader: true
+        servers:
+          # Defæult origin port: 18085.
+          - url: "http://<MATRIX_ORIGIN_BIND_IP>:<MATRIX_LIVEKIT_JWT_ORIGIN_PORT>/"                                                                             # Tærget origin for this system

@@ -1185,6 +1185,25 @@ case_pre_commit_integration_test_does_not_self_trigger() {
   (cd -- "$root" && EXPECTED_SHELLCHECK_FILES="$checker" PATH="$root/tool-bin:$PATH" bash .githooks/pre-commit)
 }
 
+case_pre_commit_kimai_dockerignore_does_not_trigger_wrapper() {
+  local checker=".cursor/scripts/test-kimai-wrapper.sh"
+  local compliance_checker=".cursor/scripts/enforce-app-template-compliance.py"
+  local anchor_checker=".cursor/scripts/verify-anchors.py"
+  local root=""
+  root="$(create_case_repo pre-commit-kimai-dockerignore-does-not-trigger-wrapper)"
+  install_pre_commit_tools "$root"
+  write_shell_stub "$root" "$checker" 71
+  write_python_stub "$root" "$compliance_checker" 72
+  write_python_stub "$root" "$anchor_checker" 73
+  mkdir -p -- "$root/Kimai/dockerfiles"
+  printf 'services: {}\n' >"$root/Kimai/docker-compose.app.yaml"
+  git -C "$root" add -- "$checker" "$compliance_checker" "$anchor_checker" Kimai/docker-compose.app.yaml
+  commit_fixture_baseline "$root"
+  printf '*\n!.dockerignore\n' >"$root/Kimai/dockerfiles/.dockerignore"
+  git -C "$root" add -- Kimai/dockerfiles/.dockerignore
+  (cd -- "$root" && bash .githooks/pre-commit)
+}
+
 case_pre_commit_honors_alternate_index() {
   local alternate_hash=""
   local default_hash=""
@@ -1260,6 +1279,7 @@ expect_success pre-commit-source-sync-test-does-not-self-trigger case_pre_commit
 expect_failure pre-commit-run-triggers-logrotate-suite case_pre_commit_run_triggers_logrotate_suite
 expect_success pre-commit-logrotate-test-does-not-self-trigger case_pre_commit_logrotate_test_does_not_self_trigger
 expect_success pre-commit-integration-test-does-not-self-trigger case_pre_commit_integration_test_does_not_self_trigger
+expect_success pre-commit-kimai-dockerignore-does-not-trigger-wrapper case_pre_commit_kimai_dockerignore_does_not_trigger_wrapper
 expect_success pre-commit-honors-alternate-index case_pre_commit_honors_alternate_index
 
 printf 'Result: %d passed, %d failed\n' "$PASS" "$FAIL"

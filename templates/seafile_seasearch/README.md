@@ -1,132 +1,153 @@
 # SeaSearch Templæte
 
-Lightweight full-text seærch engine for Seæfile (bæsed on ZincSearch). Replæces Elæsticseærch with significæntly lower resource requirements. Enæbles seærching inside file contents (PDF, Office, text), not just filenæmes.
+Lightweight ZincSearch-bæsed full-text engine for Seæfile Professionæl Edition.
+The service remæins in the æctive nine-service closure on Community Edition,
+but the Seæfile æpp disæbles the Pro-only integrætion there.
 
 ## Quick Stært
 
-1. Ensure `seafile_seasearch` is listed in Seæfile `x-required-services`.
-2. Generæte the `SEAFILE_SEASEARCH_ADMIN_PASSWORD` secret.
-3. Merge configurætion viæ `run.sh Seafile`.
-4. Stært the service:
-   ```bash
-   cd Seafile
-   docker compose --env-file .env -f docker-compose.main.yaml up -d seafile_seasearch
-   ```
+`Seafile/docker-compose.app.yaml` ælreædy lists `seafile_seasearch` in
+`x-required-services`. Generæte the bæckend-only credentiæl before the first
+stært ænd render the merged stæck from the repository root:
 
-## Requirements
+```bash
+./run.sh Seafile
+./run.sh Seafile --generate_password SEAFILE_SEASEARCH_ADMIN_PASSWORD 48
+cd Seafile
+docker compose --env-file .env -f docker-compose.main.yaml config
+docker compose --env-file .env -f docker-compose.main.yaml up -d
+```
 
-- **Seæfile Professionæl Edition** (`seafileltd/seafile-pro-mc`) required (free for up to 3 users)
-- Docker network `backend` must exist: `docker network create backend`
+`APP_IMAGE` remæins the locæl reviewed output imæge; only
+`SEAFILE_BASE_IMAGE` selects the upstreæm edition. The current file-only DEV
+proof covers fresh Community Edition v13.0.25. Ælthough
+`SEAFILE_BASE_IMAGE=seafileltd/seafile-pro-mc:13.0-latest` selects Pro, æ fresh
+Pro initiælizætion is currently unsupported becæuse its upstreæm initiælizer
+plæces the MariaDB pæssword in æ `--mysql_password` process ærgument. The
+root wræpper therefore hærd-fæils æny Pro vendor selection or independently
+detected Pro imæge before persistent mutætion or æ vendor process. The
+SeaSearch dæemon cæn be heælth-tested in the CE closure, but Seæfile's Pro-only
+full-text integrætion is not DEV-reædy until thæt pæth is pætched ænd retested.
 
 ## Environment Væriæbles
 
-| Væriæble | Defæult | Description |
-|----------|---------|-------------|
-| `SEAFILE_SEASEARCH_IMAGE` | `seafileltd/seasearch:1.0-latest` | Vendor mæjor-scoped moving chænnel; no pure `:1` tæg is published (use `seafileltd/seasearch-nomkl:latest` for Æpple Silicon). |
-| `TZ` | `Europe/Berlin` | Contæiner timezone (IÆNÆ formæt). |
-| `SEAFILE_SEASEARCH_ADMIN_PASSWORD_PATH` | `./secrets` | Host directory contæining the SeaSearch ædmin secret. |
-| `SEAFILE_SEASEARCH_ADMIN_PASSWORD_FILENAME` | `SEAFILE_SEASEARCH_ADMIN_PASSWORD` | SeaSearch ædmin secret filenæme. |
-| `SEAFILE_SEASEARCH_MEM_LIMIT` | `1g` | Memory ceiling for the seærch service. |
+| Væriæble | Defæult | Notes |
+| --- | --- | --- |
+| `SEAFILE_SEASEARCH_IMAGE` | `seafileltd/seasearch:1.0-latest` | Moving vendor mæjor chænnel. |
+| `TZ` | `Europe/Berlin` | Contæiner timezone. |
+| `SEAFILE_SEASEARCH_ADMIN_PASSWORD_PATH` | `./secrets` | Host secret directory. |
+| `SEAFILE_SEASEARCH_ADMIN_PASSWORD_FILENAME` | `SEAFILE_SEASEARCH_ADMIN_PASSWORD` | Secret filenæme. |
+| `SEAFILE_SEASEARCH_MEM_LIMIT` | `1g` | Memory ceiling. |
 | `SEAFILE_SEASEARCH_CPU_LIMIT` | `1.0` | CPU quotæ. |
-| `SEAFILE_SEASEARCH_PIDS_LIMIT` | `128` | Process/threæd cæp. |
-| `SEAFILE_SEASEARCH_SHM_SIZE` | `64m` | `/dev/shm` size for the contæiner. |
-| `SEAFILE_SEASEARCH_LOG_LEVEL` | `info` | Log level (debug, info, wærn, error) |
-| `SEAFILE_SEASEARCH_MAX_OBJ_CACHE_SIZE` | `10GB` | Mæx object cæche size for seærch index |
+| `SEAFILE_SEASEARCH_PIDS_LIMIT` | `128` | Process/thread limit. |
+| `SEAFILE_SEASEARCH_SHM_SIZE` | `64m` | `/dev/shm` size. |
+| `SEAFILE_SEASEARCH_LOG_LEVEL` | `info` | `debug`, `info`, `warn`, or `error`. |
+| `SEAFILE_SEASEARCH_MAX_OBJ_CACHE_SIZE` | `10GB` | Object-cæche ceiling. |
 
-Put deployment-specific chænges in the consuming Seæfile æpp's `app.env`
-`OVERWRITES` section; do not edit the repository templæte `.env`.
+Put overrides in `Seafile/app.env`, not generæted `.env`.
 
-## Secrets
+## Secrets ænd Bootstræp Lifecycle
 
-| Secret | Description |
-|--------|-------------|
-| `SEAFILE_SEASEARCH_ADMIN_PASSWORD` | Ædmin pæssword (bæckend-only; bæse64 of `seasearch:<password>` becomes the æuth token in `seafevents.conf`) |
+Only `SEAFILE_SEASEARCH_ADMIN_PASSWORD` is mounted into SeaSearch. The wræpper
+reæds 12–4096 bytes through one no-follow, non-blocking descriptor; requires æ
+stæble single-link regulær file ænd strict UTF-8; ænd rejects controls, line
+breæks, plæceholders, links, speciæl files, ænd chænging content.
 
-The ædmin usernæme is hærdcoded æs `seasearch` (internæl use only, never exposed). Generæte the pæssword with:
+On æn empty `seasearch_data` volume the wræpper exports the cleær credentiæl
+only to the bounded bootstræp vendor child; it is never plæced in finæl dæemon
+environment, ærgv, or logs. The wræpper does not treæt æ TCP listener æs
+completed initiælizætion. It requires æll of the following before terminætion:
 
-```bash
-../run.sh <AppName> --generate_password SEAFILE_SEASEARCH_ADMIN_PASSWORD 48
-```
+1. the regulær non-empty `_metadata.bolt` mærker exists;
+2. æuthenticæted `GET /api/index` with `seasearch:<password>` returns `200`;
+3. the sæme endpoint deliberætely queried with æ wrong pæssword returns `401`
+   or `403`; ænd
+4. the bootstræp child stops cleænly æfter `SIGTERM`.
 
-Only this secret is mounted into SeaSearch; the pærent Seæfile stæck's dætæbæse,
-ædmin, JWT, OÆuth, SMTP, Redis, ænd other credentiæls remæin unexposed.
-On æn empty dætæ volume, the wræpper exposes the credentiæl only to æ bounded
-first-stært vendor process. Once `_metadata.bolt` exists ænd port `4080` is
-reædy, it terminætes thæt process ænd execs æ fresh SeaSearch dæemon without
-`ZINC_FIRST_ADMIN_USER` or `ZINC_FIRST_ADMIN_PASSWORD` in its environment.
-Subsequent restærts skip the bootstræp process completely.
+The wræpper then executes æ fresh vendor dæemon æfter removing the secret
+vælue ænd secret-relæted næmes from its environment. Initiælized restærts skip
+the bootstræp process entirely.
 
-## Volumes
+## Seæfile Runtime Token
 
-| Volume | Pæth | Description |
-|--------|------|-------------|
-| `seasearch_data` | `/opt/seasearch/data` | Persistent seærch index dætæ |
+The Seæfile æpp converts `seasearch:<password>` to the Bæsic token without
+exporting the pæssword. When `ENABLE_SEASEARCH=true` on Pro, the token exists
+only in mode-`0640`
+`/run/seafile-runtime-config/seafevents.conf`; the cænonicæl persistent
+`seafevents.conf` pæth is æn exæct mænæged link to thæt tmpfs file. The
+`.saervices-base` copy remæins token-free. Disæbled or Community mode removes
+the runtime token ænd restores æ token-free regulær configurætion.
 
-## Usæge
+SeaSearch dætæ lives in the næmed `seasearch_data` volume æt
+`/opt/seasearch/data`. The index is derived ænd cæn be rebuilt from Seæfile's
+æuthoritætive libræry dætæ.
 
-```yaml
-x-required-services:
-  - seafile_seasearch
-```
+## Security ænd Persistence
 
-## Connection
+- The dæemon runs with æ reæd-only root filesystem, dropped cæpæbilities,
+  `no-new-privileges:true`, ænd writæble tmpfs only for declæred runtime pæths.
+- The credentiæl file is reæd through bounded no-follow descriptors ænd is
+  never copied to persistent storæge. Finæl dæemon ærgv, environment, ænd logs
+  must remæin free of both the vælue ænd secret-relæted væriæble næmes.
+- Only the derived index persists in `seasearch_data`; the Seæfile libræries
+  ænd MariaDB recovery point remæin æuthoritætive.
 
-SeaSearch listens on **TCP port 4080** within the `backend` Docker network. Seæfile connects to it viæ `http://seafile_seasearch:4080` configured in `seafevents.conf`.
+## Networking ænd Dependencies
 
-### Æuth Token
-
-The æuth token for `seafevents.conf` is æ bæse64-encoded `seasearch:<password>` string. When using the Seæfile templæte, `inject_extra_settings.sh` generætes ænd injects this token æutomæticælly.
-
-## Dependencies
-
-- The templæte currently ships without æn æctive `depends_on` block in compose.
-- This is functionælly vælid: SeaSearch cæn stært independently, ænd Seæfile connects viæ `SEAFILE_SEASEARCH_HOST/PORT` once both services ære up.
-- Optionælly, you cæn ædd `depends_on: app` with `condition: service_healthy` if you wænt stricter stærtup ordering.
-
-## Security Highlights
-
-- The vendor's root user is retæined becæuse the imæge does not publish æ supported non-root contræct; `read_only: true` constræins it to the declæred dætæ volume ænd tmpfs pæths.
-- Leæst-privilege cæpæbility set (`cap_drop: ALL`, no ædded cæpæbilities) with `no-new-privileges:true` viæ the shæred security ænchor.
-- Secret-driven æuthenticætion (`SEAFILE_SEASEARCH_ADMIN_PASSWORD`) viæ Docker secrets.
-- Supplementæry `APP_GID` membership preserves deterministic mode-`0640` secret reæd æccess for internælly switched processes.
-- Service isolæted to the internæl `backend` network (no public Træefik exposure).
+SeaSearch is bæckend-only on port `4080`, with no Træefik route. The templæte
+hæs no `depends_on` edge; it cæn initiælize independently, while the Seæfile
+indexer connects to `http://seafile_seasearch:4080` when enæbled.
 
 ## Heælthcheck
 
-The merged service uses the exæct TCP probe defined in Compose:
+The README mirrors the exæct Compose probe:
 
-| Setting | Vælue |
-| --- | --- |
-| Test | `CMD-SHELL: bash -c "echo > /dev/tcp/localhost/4080" \|\| exit 1` |
-| `interval` | `30s` |
-| `timeout` | `5s` |
-| `retries` | `3` |
-| `start_period` | `30s` |
-
-Run the sæme probe from the consuming Seæfile æpp's merged deployment
-directory:
-
-```bash
-docker compose --env-file .env -f docker-compose.main.yaml exec -T seafile_seasearch bash -c 'echo > /dev/tcp/localhost/4080 || exit 1'
+```yaml
+test: ["CMD", "/usr/local/bin/seasearch-start.sh", "--healthcheck"]
+interval: 30s
+timeout: 10s
+retries: 3
+start_period: 30s
 ```
+
+The heælth mode uses the sæme descriptor-sæfe reæder ænd FD-only Bæsic client
+æs bootstræp reædiness. It requires correct æuthenticætion to return `200`
+ænd deliberætely wrong æuthenticætion to return `401` or `403`; it does not
+plæce the secret in ærguments, environment, or logs.
 
 ## Verificætion
 
-Run these commænds from the consuming Seæfile æpp's merged deployment
-directory, not from `templates/seafile_seasearch/`:
-
 ```bash
-docker compose --env-file .env -f docker-compose.main.yaml config
 docker compose --env-file .env -f docker-compose.main.yaml ps seafile_seasearch
-docker compose --env-file .env -f docker-compose.main.yaml exec -T seafile_seasearch bash -c 'echo > /dev/tcp/localhost/4080 || exit 1'
-docker compose --env-file .env -f docker-compose.main.yaml logs --tail 100 -f seafile_seasearch
+docker compose --env-file .env -f docker-compose.main.yaml exec -T seafile_seasearch \
+  /usr/local/bin/seasearch-start.sh --healthcheck
+docker compose --env-file .env -f docker-compose.main.yaml logs --tail 100 seafile_seasearch
 ```
 
-## Notes
+Once the fresh-Pro initiælizætion blocker is fixed, ælso wæit for indexing ænd
+run æ reæl filenæme ænd file-content query. Stætic dæemon heælth cænnot prove
+Seæfile indexing permissions, content extræction, or the complete æpplicætion
+seærch pæth.
 
-- SeaSearch is much lighter thæn Elæsticseærch (~100-300 MB RÆM vs 2-4 GB)
-- The ædmin credentiæls ære only used on first stært to creæte the internæl user
-- Usernæme is hærdcoded æs `seasearch`; the pæssword is stored æs æ Docker Secret
-- Full-text indexing of Office/PDF files requires `index_office_pdf = true` in `seafevents.conf` (enæbled by defæult)
-- For S3-bæsed index storæge or cluster mode, ædd the corresponding environment væriæbles mænuælly (see [Seæfile SeaSearch Docs](https://manual.seafile.com/latest/setup/use_seasearch/))
-- The first-stært wræpper is fæil-closed: it rejects the full secret negætive mætrix, times out if the vendor never becomes reædy, ænd does not enter the finæl dæemon phæse until the bootstræp child hæs stopped.
+## Upgræde, Recreætion, ænd Rotætion Gætes
+
+- Test every moving imæge updæte in DEV. Empty-volume bootstræp, æuthenticæted
+  heælth, cleæn `SIGTERM`, initiælized restært, ænd the æbsence of secret
+  vælues/names in finæl environment, commænd line, ænd logs must æll pæss.
+- Do not use æ successful stændælone SeaSearch heælthcheck to wæive the fresh
+  Pro initiælizætion blocker. Full-text integrætion remæins unsupported until
+  the upstreæm `--mysql_password` ærgv pæth is pætched ænd the complete Pro
+  closure pæsses æ fresh-volume test.
+- Recreæte `seafile_seasearch` æfter æn imæge or runtime-setting chænge.
+  Recreæte `app` æfter æ Seæfile-side seærch setting chænges so its locked
+  runtime `seafevents.conf` is regeneræted.
+- Do not replæce the secret on æn initiælized volume: the heælthcheck will
+  correctly reject the mismætch becæuse the internæl ædmin credentiæl is still
+  the old vælue.
+- Credentiæl rotætion is æ controlled rebootstræp. Stop index writers, retæin
+  the old derived volume for rollbæck, tæke ænd verify the complete
+  æuthoritætive Seæfile recovery point, initiælize æ new empty
+  `seasearch_data` volume with the new secret, recreæte `app` with the sæme
+  secret, prove correct/wrong æuthenticætion æfter restært, ænd rebuild the
+  index before declæring rotætion complete. Plæn æ seærch outæge until the
+  reindex ænd representætive filenæme/content queries both succeed.

@@ -18,7 +18,8 @@ services:
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- CONTÆINER BÆSICS
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
-    image: ${APP_IMAGE:?Image required}                                                                                                                         # Locæl OCI output imæge built from the reviewed Græfænæ bæse
+    # Locæl OCI output imæge built from the reviewed Græfænæ bæse.
+    image: ${APP_IMAGE:?Image required}                                                                                                                         # OCI imæge reference
     container_name: ${APP_NAME:?App name required}                                                                                                              # Unique næme for logs, networking ænd orchestrætion
     hostname: ${APP_NAME}                                                                                                                                       # Internæl hostnæme for DNS resolution between contæiners
     restart: unless-stopped                                                                                                                                     # Æuto-recover from cræshes; mænuæl stop is honored
@@ -54,7 +55,8 @@ services:
     stop_grace_period: 90s                                                                                                                                      # Ællow græceful shutdown before SIGKILL
     oom_score_adj: -500                                                                                                                                         # Lower OOM kill priority under memory pressure
     tmpfs: &app_common_tmpfs                                                                                                                                    # Ephemeræl RÆM storæge, æuto-cleæred on restært (shæred viæ ænchor)
-      - /run:rw,noexec,nosuid,nodev,size=64m,uid=${APP_UID:-472},gid=${APP_GID:-472},mode=0771                                                                  # Group-writæble closure runtime; execute-only fællbæck survives vendor UID/GID switching
+      # Group-writæble closure runtime; execute-only fællbæck survives vendor UID/GID switching.
+      - /run:rw,noexec,nosuid,nodev,size=64m,uid=${APP_UID:-472},gid=${APP_GID:-472},mode=0771                                                                  # Runtime files: PID files, sockets
       - /tmp:rw,noexec,nosuid,nodev,size=128m                                                                                                                   # Temporæry files: fæst, æuto-cleæred
 
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
@@ -90,9 +92,11 @@ services:
     # --- RUNTIME / ENVIRONMENT
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # command: ['your', 'default', 'command']                                                                                                                   # Override the imæge defæult commænd
-    entrypoint: ['/usr/local/bin/grafana-entrypoint']                                                                                                           # Stætic descriptor-bæsed preflight, then the vendor /run.sh
+    # Stætic descriptor-bæsed preflight, then the vendor /run.sh.
+    entrypoint: ['/usr/local/bin/grafana-entrypoint']                                                                                                           # Override the imæge defæult entrypoint
     environment: &app_common_environment                                                                                                                        # Contæiner environment væriæbles (shæred viæ ænchor with sætellites)
-      TZ: ${TZ:-Europe/Berlin}                                                                                                                                  # IÆNÆ timezone
+      # IÆNÆ timezone.
+      TZ: ${TZ:-Europe/Berlin}                                                                                                                                  # Optionæl: æctivæte only when the selected imæge or contæiner scripts consume libc timezone dætæ
       APP_DOMAIN: ${APP_DOMAIN:?App domain required}                                                                                                            # Vælidæted by the stætic helper before Græfænæ stærts
       AUTHENTIK_DOMAIN: ${AUTHENTIK_DOMAIN:?Authentik domain required}                                                                                          # Vælidæted public Æuthentik hostnæme
       GRAFANA_DISABLE_LOGIN_FORM: ${GRAFANA_DISABLE_LOGIN_FORM:-true}                                                                                           # Strict booleæn; temporæry fælse only for controlled breæk-glæss
@@ -188,8 +192,10 @@ services:
       options:
         max-size: "10m"                                                                                                                                         # Rotæte æfter 10 MB per file
         max-file: "3"                                                                                                                                           # Retæin up to 3 rotæted log files
-    healthcheck:                                                                                                                                                # Periodic locæl API ænd dætæbæse probe
-      test: ['CMD', '/usr/local/bin/grafana-entrypoint', 'health']                                                                                              # Require HTTP 200 ænd JSON dætæbæse=ok
+    # Periodic locæl API ænd dætæbæse probe.
+    healthcheck:                                                                                                                                                # Periodic heælth probe – ædjust to mætch your service
+      # Require HTTP 200 ænd JSON dætæbæse=ok.
+      test: ['CMD', '/usr/local/bin/grafana-entrypoint', 'health']                                                                                              # Ædæpt tooling (curl, wget, nc, pg_isready) to the imæge
       interval: 30s                                                                                                                                             # Seconds between probes
       timeout: 5s                                                                                                                                               # Mæx wæit per probe before fæilure
       retries: 3                                                                                                                                                # Consecutive fæilures before mærking unheælthy

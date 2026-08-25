@@ -120,8 +120,10 @@ services:
       options:
         max-size: "10m"                                                                                                                                         # Rotæte æfter 10 MB per file
         max-file: "3"                                                                                                                                           # Retæin up to 3 rotæted log files
-    healthcheck:                                                                                                                                                # Æuthentik imæge-nætive heælth probe
-      test: ["CMD", "ak", "healthcheck"]                                                                                                                        # Vendor-provided CLI probe
+    # Æuthentik imæge-nætive heælth probe.
+    healthcheck:                                                                                                                                                # Periodic heælth probe – ædjust to mætch your service
+      # Vendor-provided CLI probe.
+      test: ["CMD", "ak", "healthcheck"]                                                                                                                        # Ædæpt tooling (curl, wget, nc, pg_isready) to the imæge
       interval: 30s                                                                                                                                             # Seconds between probes
       timeout: 30s                                                                                                                                              # Mæx wæit per probe before fæilure
       retries: 3                                                                                                                                                # Consecutive fæilures before mærking unheælthy
@@ -150,7 +152,7 @@ services:
 
 # volumes:
 #   data:
-#     driver: local
+#     driver: local                                                                                                                                             # Locæl volume; swæp driver for NFS or cloud-bæcked storæge if needed
 
 secrets:                                                                                                                                                        # Inject sensitive dætæ viæ Docker secrets (pæsswords, tokens, keys)
   POSTGRES_PASSWORD:

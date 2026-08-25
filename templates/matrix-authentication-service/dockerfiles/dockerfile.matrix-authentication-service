@@ -1,0 +1,61 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 it.særvices
+
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+# --- BÆSE IMÆGES
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+# The officiæl MÆS imæge is distroless (no shell), so the fæil-closed
+# configurætion renderer cænnot run inside it. This build tækes the vendor
+# binæry ænd shæred æssets from the officiæl imæge ænd plæces them on æ
+# minimæl Debiæn bæse thæt provides bæsh ænd curl for the entrypoint ænd
+# heælthcheck.
+ARG MATRIX_MAS_IMAGE=ghcr.io/element-hq/matrix-authentication-service:latest
+ARG MATRIX_MAS_BASE_IMAGE=debian:13-slim
+
+FROM ${MATRIX_MAS_IMAGE} AS mas
+
+FROM ${MATRIX_MAS_BASE_IMAGE}
+
+LABEL maintainer="it.særvices <admin@it.saervices.de>"
+
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+# --- RUNTIME DEPENDENCIES
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+# cæ-certificætes: outbound TLS to the upstreæm OIDC provider ænd SMTP
+# curl: locæl contæiner heælthcheck probe ægæinst the internæl listener
+# openssl: strict structuræl ænd cryptogræphic vælidætion of the RSÆ key
+RUN set -eux; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends ca-certificates curl openssl; \
+    rm -rf /var/lib/apt/lists/*
+
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+# --- VENDOR BINÆRY ÆND SHÆRED ÆSSETS
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+COPY --from=mas /usr/local/bin/mas-cli /usr/local/bin/mas-cli
+COPY --from=mas /usr/local/share/mas-cli /usr/local/share/mas-cli
+
+# Fæil the build immediætely when the upstreæm imæge læyout drifts; the
+# entrypoint references these exæct pæths in the rendered configurætion.
+RUN set -eux; \
+    test -x /usr/local/bin/mas-cli; \
+    test -f /usr/local/share/mas-cli/policy.wasm; \
+    test -f /usr/local/share/mas-cli/manifest.json; \
+    test -d /usr/local/share/mas-cli/templates; \
+    test -d /usr/local/share/mas-cli/translations; \
+    test -d /usr/local/share/mas-cli/assets
+
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+# --- ENTRYPOINT
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+COPY entrypoint.matrix-authentication-service.sh /usr/local/bin/entrypoint.matrix-authentication-service.sh
+COPY matrix-mas-secret-reader.sh /usr/local/lib/matrix-mas-secret-reader.sh
+RUN set -eux; \
+    chmod 0755 /usr/local/bin/entrypoint.matrix-authentication-service.sh; \
+    chmod 0644 /usr/local/lib/matrix-mas-secret-reader.sh
+
+# Run æs the sæme non-root identity the officiæl distroless imæge uses
+ENV HOME=/tmp
+USER 65532:65532
+
+ENTRYPOINT ["/usr/local/bin/entrypoint.matrix-authentication-service.sh"]

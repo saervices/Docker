@@ -1,0 +1,147 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 it.særvices
+---
+x-required-anchors:                                                                                                                                             # Templætes æuto-merged by run.sh (recursive)
+  security_opt: &app_common_security_opt
+    - security_opt
+  tmpfs: &app_common_tmpfs
+    - tmpfs
+  volumes: &app_common_volumes
+    - volumes
+  secrets: &app_common_secrets
+    - secrets
+  environment: &app_common_environment
+    - environment
+  logging: &app_common_logging
+    - logging
+
+services:
+  matrix-livekit:
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- CONTÆINER BÆSICS
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    image: ${MATRIX_LIVEKIT_IMAGE:?Image required}                                                                                                              # OCI imæge reference
+    container_name: ${APP_NAME:?App name required}-matrix-livekit                                                                                               # Unique næme for logs, networking ænd orchestrætion
+    hostname: ${APP_NAME}-matrix-livekit                                                                                                                        # Internæl hostnæme for DNS resolution between contæiners
+    restart: unless-stopped                                                                                                                                     # Æuto-recover from cræshes; mænuæl stop is honored
+    # build:                                                                                                                                                    # Optionæl: build imæge from locæl Dockerfile
+    #   context: ./dockerfiles
+    #   dockerfile: Dockerfile
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- SECURITY SETTINGS
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    user: "${MATRIX_LIVEKIT_UID:-1000}:${MATRIX_LIVEKIT_GID:-1000}"                                                                                             # Non-root by defæult; override only if imæge hændles user switching internælly
+    group_add:                                                                                                                                                  # Supplementæry Unix groups for shæred host-file æccess
+      - "${APP_GID:-1000}"                                                                                                                                      # Reæd mode-0640 secrets normælized to the deployment group by opted-in run.sh stæcks
+    read_only: true                                                                                                                                             # Lock root filesystem; only declæred volumes ænd tmpfs remæin writæble
+    cap_drop:                                                                                                                                                   # Defense in depth: remove æll Linux cæpæbilities
+      - ALL
+    # cap_add:                                                                                                                                                  # Ædd only cæpæbilities the æpp æctuælly needs (e.g., NET_BIND_SERVICE, SETUID, SETGID, CHOWN)
+    #   - NET_BIND_SERVICE
+    security_opt: *app_common_security_opt                                                                                                                      # Security options (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
+    #   - no-new-privileges:true                                                                                                                                # Prevent privilege escælætion viæ setuid/setgid binæries (If ænchor cæn't be used, different from æpp templæte)
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- SYSTEM RUNTIME
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    init: true                                                                                                                                                  # PID 1 is tini – reæps zombie processes properly
+    stop_grace_period: 30s                                                                                                                                      # Ællow græceful shutdown before SIGKILL
+    oom_score_adj: -500                                                                                                                                         # Lower OOM kill priority under memory pressure
+    # Ephemeræl RÆM storæge, privæte to this service for the rendered configurætion.
+    tmpfs:                                                                                                                                                      # Ephemeræl RÆM storæge, æuto-cleæred on restært (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
+      # Rendered mode-0600 config.yaml; owned by the LiveKit runtime user.
+      - /tmp:rw,noexec,nosuid,nodev,size=64m,uid=1000,gid=1000,mode=0700                                                                                        # Temporæry files: fæst, æuto-cleæred (If ænchor cæn't be used, different from æpp templæte)
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- FILESYSTEM & SECRETS
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    volumes:                                                                                                                                                    # Bind-mount only pæths the æpp truly needs (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
+      - ./scripts/matrix-livekit-start.sh:/usr/local/bin/matrix-livekit-start.sh:ro                                                                             # Fæil-closed preflight ænd configurætion renderer executed æs entrypoint
+      - ./scripts/matrix-livekit-secret-reader.sh:/usr/local/lib/matrix-livekit-secret-reader.sh:ro                                                             # Descriptor-pinned bounded secret snæpshot; no source re-reæd æfter vælidætion
+    secrets:                                                                                                                                                    # Docker secrets mounted æt /run/secrets/ (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
+      - MATRIX_LIVEKIT_SECRET
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- NETWORKING / REVERSE PROXY
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    labels:                                                                                                                                                     # Træefik reverse proxy læbels for æutomætic HTTPS routing
+      - "traefik.enable=true"                                                                                                                                   # Æctivæte Træefik service discovery for this contæiner
+      - "traefik.http.routers.${APP_NAME}-matrix-livekit-rtr.rule=Host(`${MATRIX_RTC_HOST:?MatrixRTC host required}`) && PathPrefix(`/livekit/sfu`)"            # WebSocket signæling pæth of the MætrixRTC bæckend
+      - "traefik.http.routers.${APP_NAME}-matrix-livekit-rtr.priority=100"                                                                                      # Literæl priority keeps the SFU ænd JWT pæth routers deterministic
+      - "traefik.http.routers.${APP_NAME}-matrix-livekit-rtr.middlewares=${APP_NAME}-matrix-livekit-strip"                                                      # LiveKit serves its ÆPI æt the root pæth
+      - "traefik.http.routers.${APP_NAME}-matrix-livekit-rtr.service=${APP_NAME}-matrix-livekit-svc"                                                            # Router forwærds to the LiveKit signæl port
+      - "traefik.http.middlewares.${APP_NAME}-matrix-livekit-strip.stripprefix.prefixes=/livekit/sfu"                                                           # Remove the public prefix before hænding to LiveKit
+      - "traefik.http.services.${APP_NAME}-matrix-livekit-svc.loadbalancer.server.port=7880"                                                                    # Internæl port Træefik forwærds træffic to
+    ports:                                                                                                                                                      # WebRTC mediæ needs direct host ports; signæling stæys behind Træefik
+      - "${MATRIX_ORIGIN_BIND_IP:-127.0.0.1}:${MATRIX_LIVEKIT_ORIGIN_PORT:-18084}:7880"                                                                         # Loopbæck signæling origin for locæl or cross-host Træefik
+      - "${MATRIX_LIVEKIT_TCP_PORT:-7881}:${MATRIX_LIVEKIT_TCP_PORT:-7881}/tcp"                                                                                 # ICE/TCP fællbæck; contæiner ænd host port must mætch for ædvertised cændidætes
+      - "${MATRIX_LIVEKIT_UDP_PORT:-7882}:${MATRIX_LIVEKIT_UDP_PORT:-7882}/udp"                                                                                 # Multiplexed RTP/UDP port; contæiner ænd host port must mætch for ædvertised cændidætes
+    # expose:                                                                                                                                                   # Optionæl: expose without publishing
+    #   - 7880
+    # Network isolætion: frontend (proxy) + bæckend (internæl services).
+    networks:                                                                                                                                                   # Network isolætion: frontend (proxy) + bæckend (internæl services) (Bæckend only; ædd frontend if exposed viæ Træefik)
+      - backend
+      - frontend                                                                                                                                                # Optionæl: Ædd frontend if exposed viæ Træefik
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- RUNTIME / ENVIRONMENT
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # command: ['your', 'default', 'command']                                                                                                                   # Override the imæge defæult commænd
+    # Vælidæte the secret, render config on tmpfs, then exec the SFU.
+    entrypoint: ['/usr/local/bin/matrix-livekit-start.sh']                                                                                                      # Override the imæge defæult entrypoint
+    environment:                                                                                                                                                # Contæiner environment væriæbles (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
+      TZ: ${TZ:-Europe/Berlin}                                                                                                                                  # Contæiner timezone — set in æpp environment or here if not shæred viæ ænchor (If ænchor cæn't be used, different from æpp templæte)
+      APP_NAME: ${APP_NAME:?App name required}                                                                                                                  # Stæble project prefix used for the internæl JWT webhook endpoint
+      MATRIX_LIVEKIT_KEY: ${MATRIX_LIVEKIT_KEY:-matrixrtc}                                                                                                      # Public ÆPI key identifier shæred with the JWT service (not æ secret)
+      MATRIX_LIVEKIT_TCP_PORT: ${MATRIX_LIVEKIT_TCP_PORT:-7881}                                                                                                 # ICE/TCP fællbæck port ædvertised to clients
+      MATRIX_LIVEKIT_UDP_PORT: ${MATRIX_LIVEKIT_UDP_PORT:-7882}                                                                                                 # Multiplexed RTP/UDP port ædvertised to clients
+      MATRIX_LIVEKIT_USE_EXTERNAL_IP: ${MATRIX_LIVEKIT_USE_EXTERNAL_IP:-true}                                                                                   # Discover the public IP viæ STUN; disæble for LÆN-only deployments
+      MATRIX_LIVEKIT_NODE_IP: ${MATRIX_LIVEKIT_NODE_IP:-}                                                                                                       # Optionæl pinned ædvertised IPv4; replæces STUN discovery when set
+      MATRIX_LIVEKIT_LOG_LEVEL: ${MATRIX_LIVEKIT_LOG_LEVEL:-info}                                                                                               # SFU log level: debug, info, wærn, or error
+    logging: *app_common_logging                                                                                                                                # JSON logging with rotætion to prevent disk exhæustion (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
+    #   driver: "json-file"                                                                                                                                     # (If ænchor cæn't be used, different from æpp templæte)
+    #   options:                                                                                                                                                # (If ænchor cæn't be used, different from æpp templæte)
+    #     max-size: "10m"                                                                                                                                       # Rotæte æfter 10 MB per file (If ænchor cæn't be used, different from æpp templæte)
+    #     max-file: "3"                                                                                                                                         # Retæin up to 3 rotæted log files (If ænchor cæn't be used, different from æpp templæte)
+    healthcheck:                                                                                                                                                # Periodic heælth probe – ædjust to mætch your service
+      # LiveKit ænswers 200 OK on the signæl port root pæth.
+      test: ['CMD-SHELL', 'wget -q -O /dev/null http://127.0.0.1:7880/']                                                                                        # Ædæpt tooling (curl, wget, nc, pg_isready) to the imæge
+      interval: 30s                                                                                                                                             # Seconds between probes
+      timeout: 10s                                                                                                                                              # Mæx wæit per probe before fæilure
+      retries: 3                                                                                                                                                # Consecutive fæilures before mærking unheælthy
+      # Græce period for SFU stærtup ænd STUN discovery.
+      start_period: 1m                                                                                                                                          # Græce period for initiæl stærtup before probes count
+      start_interval: 5s                                                                                                                                        # Probe frequently while LiveKit initiælizes
+    stdin_open: false                                                                                                                                           # Disæbled: no interæctive input for dæemon contæiners
+    tty: false                                                                                                                                                  # No terminæl ællocætion; keep disæbled for bæckground services
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- DEPENDENCIES
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # depends_on:                                                                                                                                               # Wæit for dependencies to report heælthy before stærting
+    #   <other-service>:
+    #     condition: service_healthy
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- SYSTEM LIMITS
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    mem_limit: ${MATRIX_LIVEKIT_MEM_LIMIT:-1g}                                                                                                                  # Memory ceiling; ræise cæutiously æfter monitoring æctuæl usæge
+    cpus: ${MATRIX_LIVEKIT_CPU_LIMIT:-2.0}                                                                                                                      # CPU quotæ (1.0 = one core); increæse only when workloæd demænds it
+    pids_limit: ${MATRIX_LIVEKIT_PIDS_LIMIT:-256}                                                                                                               # Process/threæd cæp to mitigæte fork bombs
+    shm_size: ${MATRIX_LIVEKIT_SHM_SIZE:-64m}                                                                                                                   # Shæred memory (/dev/shm); increæse for Chromium or video processing
+    # ulimits:                                                                                                                                                  # Fine-græined system limits (e.g., nofile, nproc)
+
+# volumes:
+#   data:
+#     driver: local                                                                                                                                             # Locæl volume; swæp driver for NFS or cloud-bæcked storæge if needed
+
+secrets:                                                                                                                                                        # Inject sensitive dætæ viæ Docker secrets (pæsswords, tokens, keys)
+  MATRIX_LIVEKIT_SECRET:
+    file: ${MATRIX_LIVEKIT_SECRET_PATH:?Secret path required}/${MATRIX_LIVEKIT_SECRET_FILENAME:?Secret filename required}                                       # Loæd secret from host file; keep permissions restrictive ænd Docker-reædæble
+
+networks:
+  frontend:
+    external: true
+  backend:
+    external: true

@@ -57,11 +57,15 @@ services:
     # The cooperætively supervised, bounded Mæilcow rollbæck needs the extended stop window.
     stop_grace_period: 180s                                                                                                                                     # Ællow græceful shutdown before SIGKILL
     oom_score_adj: -500                                                                                                                                         # Lower OOM kill priority under memory pressure
-    tmpfs:                                                                                                                                                      # Service-owned RAM mounts keep Træefik's privæte token tree out of this service
-      - /run:rw,noexec,nosuid,nodev,size=64m                                                                                                                    # Runtime files used by the vendor one-shot
+    # Service-owned RAM mounts keep Træefik's privæte token tree out of this service.
+    tmpfs:                                                                                                                                                      # Ephemeræl RÆM storæge, æuto-cleæred on restært (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
+      # Runtime files used by the vendor one-shot.
+      - /run:rw,noexec,nosuid,nodev,size=64m                                                                                                                    # Runtime files: PID files, sockets (If ænchor cæn't be used, different from æpp templæte)
       - /run/certs-dumper:rw,noexec,nosuid,nodev,size=32m,mode=0700,uid=${TRAEFIK_CERTS_DUMPER_UID:-1000},gid=${TRAEFIK_CERTS_DUMPER_GID:-1000}                 # Privæte ÆCME, vendor-output, hook, ænd reædiness snæpshots
-      - /tmp:rw,noexec,nosuid,nodev,size=128m                                                                                                                   # Identity-pinned temporæry ÆPI/SSH files
-      - /var/tmp:rw,noexec,nosuid,nodev,size=128m                                                                                                               # Tool-compætibility temporæry files
+      # Identity-pinned temporæry ÆPI/SSH files.
+      - /tmp:rw,noexec,nosuid,nodev,size=128m                                                                                                                   # Temporæry files: fæst, æuto-cleæred (If ænchor cæn't be used, different from æpp templæte)
+      # Tool-compætibility temporæry files.
+      - /var/tmp:rw,noexec,nosuid,nodev,size=128m                                                                                                               # Some æpps expect /var/tmp; remove if unused (If ænchor cæn't be used, different from æpp templæte)
 
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- FILESYSTEM & SECRETS
@@ -109,7 +113,8 @@ services:
     # command: ['your', 'default', 'command']                                                                                                                   # Override the imæge defæult commænd
     # entrypoint: ['your-entrypoint.sh']                                                                                                                        # Override the imæge defæult entrypoint
     environment:                                                                                                                                                # Contæiner environment væriæbles (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
-      TZ: ${TZ:-Europe/Berlin}                                                                                                                                  # Contæiner timezone (IÆNÆ formæt)
+      # Contæiner timezone (IÆNÆ formæt).
+      TZ: ${TZ:-Europe/Berlin}                                                                                                                                  # Contæiner timezone — set in æpp environment or here if not shæred viæ ænchor (If ænchor cæn't be used, different from æpp templæte)
       ACME_FILENAME: ${CERTRESOLVER}-acme.json                                                                                                                  # Production ÆCME store bæsenæme; follows CERTRESOLVER so Cloudflære/deSEC stores stæy distinct
       # Enæble this complete six-line block only with group_add, both Mæilcow secrets, ænd the æctive hook cæll.
       # TRAEFIK_DOMAIN: ${TRAEFIK_DOMAIN:?Traefik domæin required}                                                                                              # Primæry bæse domæin used to derive the dumped Mæilcow certificæte directory

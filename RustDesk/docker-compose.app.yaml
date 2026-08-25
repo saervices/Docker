@@ -21,7 +21,7 @@ services:
       pull: true
       no_cache: true
       args:
-        GO_IMAGE: ${RUSTDESK_GO_IMAGE:-docker.io/library/golang:1}
+        GO_IMAGE: ${RUSTDESK_GO_IMAGE:-docker.io/library/golang:alpine}
         RUSTDESK_BASE_IMAGE: ${RUSTDESK_BASE_IMAGE:-docker.io/rustdesk/rustdesk-server:1}
 
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
@@ -84,7 +84,8 @@ services:
     command: ['hbbs']                                                                                                                                           # Override the imæge defæult commænd
     # entrypoint: ['your-entrypoint.sh']                                                                                                                        # Override the imæge defæult entrypoint
     environment: &app_common_environment                                                                                                                        # Contæiner environment væriæbles (shæred viæ ænchor with sætellites)
-      TZ: ${TZ:-Europe/Berlin}                                                                                                                                  # Contæiner timezone (IÆNÆ formæt)
+      # Contæiner timezone (IÆNÆ formæt).
+      TZ: ${TZ:-Europe/Berlin}                                                                                                                                  # Optionæl: æctivæte only when the selected imæge or contæiner scripts consume libc timezone dætæ
       ALWAYS_USE_RELAY: ${RUSTDESK_ALWAYS_USE_RELAY:-N}                                                                                                         # Force relæy mode when direct NÆT træversæl should be disæbled
       RUSTDESK_APP_IMAGE_REFERENCE: ${APP_IMAGE:?App image required}                                                                                            # Runtime cross-service inværiænt input; never contæins credentiæls
       RUSTDESK_RELAY_IMAGE_REFERENCE: ${RUSTDESK_RELAY_IMAGE:?Relay image required}                                                                             # Must exæctly mætch the hbbs locæl output imæge

@@ -244,7 +244,7 @@ for file in "${staged_files[@]}"; do
       ;;
   esac
   case "$file" in
-    Kimai/.env|Kimai/docker-compose*.yaml|Kimai/dockerfiles/*|Kimai/scripts/*)
+    Kimai/.env|Kimai/docker-compose*.yaml|Kimai/dockerfiles/Dockerfile|Kimai/dockerfiles/Dockerfile.*|Kimai/dockerfiles/dockerfile|Kimai/dockerfiles/dockerfile.*|Kimai/dockerfiles/*.sh|Kimai/scripts/*)
       kimai_wrapper_regressions_required=true
       ;;
   esac
@@ -292,16 +292,29 @@ for file in "${staged_files[@]}"; do
       template_rest="${file#templates/}"
       template_name="${template_rest%%/*}"
       template_root="templates/${template_name}"
-      if [[ -f "${template_root}/docker-compose.${template_name}.yaml" ]] \
-        || [[ -f "${template_root}/docker-compose.template.yaml" ]]; then
-        compliance_targets["$template_root"]=1
-      fi
+      template_relative="${template_rest#*/}"
+      case "$template_relative" in
+        .env|README.md|docker-compose*.yaml|docker-compose*.yml)
+          if [[ -f "${template_root}/docker-compose.${template_name}.yaml" ]] \
+            || [[ -f "${template_root}/docker-compose.template.yaml" ]]; then
+            compliance_targets["$template_root"]=1
+          fi
+          ;;
+      esac
       ;;
     */*)
       app_root="${file%%/*}"
-      if [[ -f "${app_root}/docker-compose.app.yaml" ]]; then
+      app_relative="${file#*/}"
+      case "$app_relative" in
+        .env|README.md|docker-compose.app.yaml)
+          if [[ -f "${app_root}/docker-compose.app.yaml" ]]; then
+            compliance_targets["$app_root"]=1
+          fi
+          ;;
+      esac
+      if [[ "$app_relative" == docker-compose.app.yaml ]] \
+        && [[ -f "${app_root}/docker-compose.app.yaml" ]]; then
         app_dirs["$app_root"]=1
-        compliance_targets["$app_root"]=1
       fi
       ;;
   esac

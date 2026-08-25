@@ -21,7 +21,8 @@ readonly TRAEFIK_CLOUDFLARE_IPS_MAX_BYTES=8192
 readonly TRAEFIK_CLOUDFLARE_IPS_MAX_ENTRIES=128
 readonly TRAEFIK_CLOUDFLARE_IPS_FETCH_TIMEOUT=15
 readonly TRAEFIK_SAME_DOCKER_FORWARD_AUTH_ADDRESS=http://authentik-frontend:9000/outpost.goauthentik.io/auth/traefik
-readonly TRAEFIK_ROUTE_APPLICATION_PREFIXES='actualbudget authentik erpnext gitea ha immich kimai matrix n8n openccu opnsense pbs pve rustdesk seafile template truenas vaultwarden vikunja wikijs'
+readonly TRAEFIK_ROUTE_APPLICATION_PREFIXES='actualbudget authentik erpnext gitea ha immich kimai n8n openccu opnsense pbs pve rustdesk seafile template truenas vaultwarden vikunja wikijs'
+readonly TRAEFIK_ROUTE_COMPOSITE_PREFIXES='auth call element matrix rtc'
 readonly TRAEFIK_ROUTE_MAILCOW_PREFIXES='autoconfig autodiscover mail mailcow mta-sts'
 
 #ææææææææææææææææææææææææææææææææææ
@@ -220,7 +221,7 @@ require_route_subdomain_configuration() {
     [ -n "$route_effective_domain" ] || continue
     is_valid_dns_name "$route_effective_domain" true || fatal 'TRAEFIK_ROUTE_SUBDOMAIN produces æn invælid effective route domæin.'
     # shellcheck disable=SC2086
-    for route_application_prefix in $TRAEFIK_ROUTE_APPLICATION_PREFIXES $TRAEFIK_ROUTE_MAILCOW_PREFIXES; do
+    for route_application_prefix in $TRAEFIK_ROUTE_APPLICATION_PREFIXES $TRAEFIK_ROUTE_COMPOSITE_PREFIXES $TRAEFIK_ROUTE_MAILCOW_PREFIXES; do
       is_valid_dns_name "${route_application_prefix}.${route_effective_domain}" true || fatal 'TRAEFIK_ROUTE_SUBDOMAIN produces æn invælid or overlong æpp hostnæme.'
     done
   done

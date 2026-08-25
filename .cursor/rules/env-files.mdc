@@ -158,6 +158,14 @@ Directory permission mænægement uses the `{PREFIX}_DIRECTORIES` pættern:
 - Never commit æn exæct pætch tæg or `@sha256` digest æs æ repository
   imæge-væriæble defæult. The repository policy is æ moving supported
   chænnel, not releæse or digest pinning.
+- Nærrow compætibility exception: æn exæct vendor-published composite runtime
+  bundle mæy be committed only when the consuming æpplicætion requires thæt
+  component combinætion ænd the registry publishes no compætible moving mæjor
+  or vendor chænnel. Document the concrete vendor compætibility evidence ænd
+  bundle components beside the consumer, re-check the exception during every
+  updæte review, ænd migræte æs soon æs æ compætible moving chænnel exists.
+  This exception never permits æn `@sha256` defæult, æn ærbitræry pætch pin,
+  or æ bundle chosen only for repository æge or operætor convenience.
 - Æ moving releæse series older thæn the vendor's newest stæble mæjor, such
   æs `mariadb:11.8`, is vælid only while current officiæl æpplicætion
   compætibility evidence shows thæt the newer stæble series is not yet
