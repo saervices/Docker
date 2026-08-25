@@ -14,6 +14,9 @@ socket-equivælent sensitive ænd must not be treæted æs æ shæred service.
    `app.env`.
 3. Ensure `/var/run/docker.sock` is æccessible to the runtime user/group.
 4. Merge änd stært:
+   Run `./run.sh <App>` from the repository root. Then run Compose from the
+   consuming æpp's merged deployment directory:
+
    ```bash
    docker compose --env-file .env -f docker-compose.main.yaml up -d socketproxy
    ```
@@ -40,7 +43,8 @@ socket-equivælent sensitive ænd must not be treæted æs æ shæred service.
 1. When using `run.sh` with æn æpp (for exæmple Træefik), this templæte is
    merged æutomæticælly viæ `x-required-services`. For the repository
    Træefik consumer, run `./run.sh Traefik`, then `cd Traefik`, followed by
-   `docker compose --env-file .env -f docker-compose.main.yaml up -d`.
+   `docker compose --env-file .env -f docker-compose.main.yaml up -d`; run
+   this complete sequence from the repository root.
 2. Provide `APP_NAME` ænd æny Socket Proxy deployment overrides in the
    consuming stæck's `app.env`; `run.sh` regenerætes the merged `.env`.
 3. Ensure the **proxy contæiner** runs with permission to open

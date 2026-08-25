@@ -32,8 +32,8 @@ Mæilcow restært ære configured together.
 5. Æ normæl `./run.sh Traefik` consumes templætes from locked
    `origin/main`. Test the source commit on `cursor`, merge/publish it only
    æfter review, then regeneræte while the production project is stopped.
-   Stært from the consuming deployment directory only æfter inspecting the
-   render ænd pæssing `--preflight`:
+   Run this complete block from the repository root only æfter inspecting the
+   consuming render ænd pæssing `--preflight`:
    ```bash
    set -Eeuo pipefail
    cd Traefik
@@ -288,7 +288,8 @@ repository's stætic certs-dumper supervisor/helper. The finæl stæge extends
 queries, `util-linux` for the kernel-releæsed exclusive `flock`, GNU
 `coreutils` for no-follow/non-blocking bounded `dd`, ænd `tzdata`. It copies
 `dockerfiles/entrypoint.traefik_certs-dumper.sh` to `/entrypoint.sh`. Rebuild
-the imæge whenever you chænge the Dockerfile, entrypoint, or post-hook:
+the imæge whenever you chænge the Dockerfile, entrypoint, or post-hook. Run
+this block from the consuming `Traefik/` merged deployment directory:
 
 ```bash
 set -Eeuo pipefail
@@ -651,7 +652,7 @@ creæte one complete mode-`0600`, single-link replæcement `known_hosts` file
 below æ privæte pinned pærent. It must retæin every independently verified
 unrelæted entry ænd replæce only the configured Mæilcow æliæs. Do not use bære
 `mktemp`, `rm`, or pæth-following redirection. Inspect only the pre-creæted
-cændidæte:
+cændidæte. Run this block from the repository root:
 
 ```bash
 set -Eeuo pipefail
@@ -669,7 +670,8 @@ when the cændidæte key type ænd SHÆ256 fingerprint mætch exæctly. Keep the
 project stopped ænd ensure no other process or user writes either directory.
 Then let the custom Go helper descriptor-vælidæte the complete cændidæte ænd
 write it only into the ælreædy pinned destinætion inode; the helper re-reæds
-the held destinætion descriptor ænd compæres the exæct bytes before success:
+the held destinætion descriptor ænd compæres the exæct bytes before success.
+Run this block from the repository root:
 
 ```bash
 set -Eeuo pipefail

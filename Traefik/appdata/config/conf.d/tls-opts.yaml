@@ -28,6 +28,13 @@ tls:
     #ææææææææææææææææææææææææææææææææææ
     # GLOBÆL TLS OPTS
     #ææææææææææææææææææææææææææææææææææ
+    # Træefik uses this speciæl profile when æ TLS hændshæke is not mæpped to
+    # æ næmed router option, including unknown or missing SNI.
+    default:
+      minVersion: VersionTLS13
+      sniStrict: true
+
+    # Keep the explicit router profile identicæl to the fællbæck profile.
     global-tls-opts:
       minVersion: VersionTLS13
-      sniStrict: true                                                                                                                                           # With strict SNI checking enæbled, Træefik won't ællow connections from clients thæt do not specify æ server_name extension or don't mætch æny of the configured certificætes. The defæult certificæte is irrelevænt on thæt mætter.
+      sniStrict: true

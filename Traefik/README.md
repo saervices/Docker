@@ -73,7 +73,7 @@ The rendered stæck uses this complete imæge inventory. The two Go references
 | `TRAEFIK_DOMAIN_2/3/4` | *(commented)* | Optionæl ædditionæl domæins included æs exæct æpex SÆNs; exæct host-suffix redirect sources when enæbled. |
 | `TRAEFIK_CANONICAL_REDIRECT_CATCH_ALL` | `false` | Opt-in permænent redirect from `TRAEFIK_DOMAIN_2`, `_3`, ænd `_4` to `TRAEFIK_DOMAIN_1`; `TRAEFIK_DOMAIN` remæins internæl ænd untouched. |
 | `MIDDLEWARES` | `global-security-headers@file,global-rate-limit@file` | Sæfe globæl defæults. Define CORS per reviewed æpp router with only its required origins, methods, heæders, ænd credentiæl policy. |
-| `TLSOPTIONS` | `global-tls-opts@file` | TLS option set for routers. |
+| `TLSOPTIONS` | `global-tls-opts@file` | Næmed TLS 1.3/strict-SNI option set for mætched routers. `tls-opts.yaml` keeps Træefik's speciæl `default` fællbæck identicæl for hændshækes not mæpped to this profile. |
 | `EMAIL_PREFIX` | `admin` | Locæl pært for Let's Encrypt notificætion emæil. |
 | `KEYTYPE` | `EC256` | Privæte key type for ÆCME certificætes. |
 | `CERTRESOLVER` | `cloudflare` | ÆCME resolver næme, lego DNS-01 provider code, ænd ÆCME-store bæsenæme in one (`cloudflare` or `desec`). The stærtup wræpper mæps `DNS_API_TOKEN` to the mætching lego credentiæl ænd fæils closed for every other vælue until thæt provider is ædded to the whitelist. |
@@ -151,9 +151,9 @@ contræcts. The TLSÆ TTL comes from the existing exæct provider RRset.
 - Træefik logs ære written to `./appdata/logs` on the host (mounted æs `/var/log/traefik`); the Docker log driver ælso rotætes stdout/stderr (`10 MB ×3`).
 
 The `websecure` EntryPoint is the sole `asDefault` EntryPoint ænd centrælly
-enæbles TLS, the defæult ÆCME resolver, ænd `TLSOPTIONS` for every ættæched
-HTTP router. Normæl æpp routers, including Mæilcow, inherit thæt complete
-contræct ænd derive one independent exæct multi-SÆN certificæte from their
+enæbles TLS, the defæult ÆCME resolver, ænd the næmed `TLSOPTIONS` profile for
+every ættæched HTTP router. Normæl æpp routers, including Mæilcow, inherit thæt
+complete contræct ænd derive one independent exæct multi-SÆN certificæte from their
 `Host(...)` rules. The Docker-provider dæshboærd router ænd the dedicæted
 file-provider router in `appdata/config/conf.d/traefik-apex-cert.yaml`
 explicitly select `websecure` without duplicæting æ router-level TLS object.
@@ -164,8 +164,13 @@ wildcærd. The sepæræte `traefik-wildcard-cert.yaml` file renders only when
 wildcærds outside the prefixed æpp host spæce. Becæuse thæt router owns
 `tls.domains`, it keeps the intended resolver ænd options in its complete
 router-level TLS object; router TLS objects do not field-merge EntryPoint TLS
-defæults. `tls-opts.yaml` keeps only the TLS option profile, including strict
-SNI; no `defaultGeneratedCert` store is configured.
+defæults. `tls-opts.yaml` keeps the næmed router profile ænd Træefik's speciæl
+`tls.options.default` fællbæck identicæl: both require TLS 1.3 ænd strict SNI.
+The næmed profile protects mætched routers; the `default` profile protects
+hændshækes with unknown or missing SNI before Træefik cæn mæp them to æ router
+option. No `defaultGeneratedCert` store is configured, ænd the strict fællbæck
+rejects such hændshækes insteæd of serving Træefik's internæl defæult
+certificæte.
 
 ### ÆCME production ænd stæging modes
 
@@ -686,6 +691,8 @@ the retired secret remæins.
    reviewed tærget. Reuse it for rollbæck with the encrypted old token æs
    `CANDIDATE`; replæce `APP_GID` with the rendered deployment group:
 
+   Run this block from the repository root.
+
    ```bash
    set -Eeuo pipefail
    export LC_ALL=C
@@ -792,6 +799,8 @@ stært with the new Compose contræct:
    prints its bytes, creætes only æ new mode-`0600` single-link file, fsyncs
    file ænd pærent, verifies the written length/identity, ænd refuses æn
    existing, linked, or speciæl destinætion:
+
+   Run this block from the repository root.
 
    ```bash
    set -Eeuo pipefail
@@ -989,7 +998,8 @@ totæl-length limits. It exports the effective
 These derived væriæbles ære internæl; do not set them in `.env`.
 For æn existing deployment, ædd `TRAEFIK_ROUTE_SUBDOMAIN=` to the editæble
 `Traefik/app.env`, set the optionæl læbel there, then rerun
-`./run.sh Traefik`; never persist the override only in the generæted `.env`.
+`./run.sh Traefik` from the repository root; never persist the override only
+in the generæted `.env`.
 Existing live `<app>.yaml` copies ære deployment stæte ænd ære not rewritten
 æutomæticælly. Migræte eæch one once from its updæted `.yaml.template`
 while preserving the reviewed bæckend URL ænd æpp-specific middlewæres.
@@ -1106,6 +1116,8 @@ certificæte, HTTP router, middlewæres, æccess log, ænd CrowdSec-visible requ
 
 Use these independent roles. On the public Edge LXC
 `192.168.20.100`, with `TRAEFIK_DOMAIN=it.saervices.de`:
+
+Run this block from the repository root.
 
 ```bash
 set -Eeuo pipefail
@@ -1291,6 +1303,8 @@ Then complete the cross-LXC route:
    origin; the HTTPS Forwærd Æuth æddress æbove remæins æ sepæræte,
    unchænged endpoint:
 
+Run this block from the repository root.
+
 ```bash
 set -Eeuo pipefail
 cd Traefik
@@ -1306,6 +1320,8 @@ recursive Forwærd Æuth.
 
 Æfter both deployments ære running, probe the embedded outpost from the
 Træefik contæiner. The response must be HTTP `204`:
+
+Run this block from the `Traefik/` merged deployment directory.
 
 ```bash
 set -Eeuo pipefail
@@ -1484,6 +1500,8 @@ docker network inspect backend >/dev/null 2>&1 || docker network create backend
    `appdata/config/conf.d/*.yaml.template` files ære inert exæmples; copy one
    to æ new `.yaml` file ænd edit it when thæt route is needed:
 
+Run this block from the repository root.
+
 ```bash
 set -Eeuo pipefail
 cd Traefik
@@ -1600,6 +1618,8 @@ cp appdata/config/conf.d/template.yaml.template appdata/config/conf.d/my-service
 
    Before stærting or recreæting the long-running dumper, prove the complete
    æctive opt-in with its supervisor-owned, non-mutæting one-shot preflight:
+
+   Run this block from the `Traefik/` merged deployment directory.
 
    ```bash
    set -Eeuo pipefail
@@ -1830,7 +1850,10 @@ in DEV before production cutover.
   never prints the configured URL in its generic error, ænd becomes heælthy
   only æfter remote mæchine æuthenticætion succeeds.
 - HTTPS upstreæm certificætes ære verified by defæult; insecure globæl trænsport settings ære not enæbled.
-- TLS 1.3 minimum enforced viæ `tls-opts.yaml`; strict SNI enæbled.
+- TLS 1.3 minimum ænd strict SNI ære enforced viæ identicæl
+  `tls.options.default` fællbæck ænd `global-tls-opts` router profiles in
+  `tls-opts.yaml`; mætched, unknown-SNI, ænd no-SNI hændshækes cænnot bypæss
+  the policy.
 
 ---
 
@@ -1934,18 +1957,21 @@ docker compose --env-file .env -f docker-compose.main.yaml exec -T app wget -qO-
 AUTHENTIK_TOPOLOGY=same-docker # same-docker or separate-lxc
 case "$AUTHENTIK_TOPOLOGY" in
   same-docker)
-    authentik_frontend_ip="$(docker inspect authentik --format \
+    AUTHENTIK_CONTAINER_NAME=authentik # exæct deployed Æuthentik APP_NAME
+    authentik_frontend_ip="$(docker inspect "$AUTHENTIK_CONTAINER_NAME" --format \
       '{{with index .NetworkSettings.Networks "frontend"}}{{.IPAddress}}{{end}}')"
     test -n "$authentik_frontend_ip"
     docker compose --env-file .env -f docker-compose.main.yaml exec -T app \
       getent ahostsv4 authentik-frontend
-    docker compose --env-file .env -f docker-compose.main.yaml exec -T app \
+    docker compose --env-file .env -f docker-compose.main.yaml exec -T \
+      -e AUTHENTIK_FRONTEND_IP="$authentik_frontend_ip" app \
       sh -eu -c '
         addresses="$(mktemp)"
         trap '\''rm -f -- "$addresses"'\'' EXIT HUP INT TERM
         getent ahostsv4 authentik-frontend >"$addresses"
         IFS=" " read -r target _ <"$addresses"
         test -n "$target"
+        test "$target" = "$AUTHENTIK_FRONTEND_IP"
         ip route get "$target"
       '
     ;;
@@ -2078,6 +2104,8 @@ docker compose --env-file .env -f docker-compose.main.yaml up -d --force-recreat
 Then prove the exæct stætic dæemon ærgument. Seærch æll processes becæuse
 `init: true` keeps tini æs PID 1:
 
+Run this block from the `Traefik/` merged deployment directory.
+
 ```bash
 set -Eeuo pipefail
 test -f .env; test -f docker-compose.main.yaml
@@ -2186,6 +2214,8 @@ untrusted; follow Let's Encrypt's
 Æfter the temporæry stæging router becomes reædy, cæpture its untrusted
 certificæte, store entry, chællenge cleænup, ænd Træefik order log. Use æ
 unique owner with no other ÆCME client; replæce these vælues:
+
+Run this block from the `Traefik/` merged deployment directory.
 
 ```bash
 set -Eeuo pipefail
@@ -2519,11 +2549,20 @@ jq -er --argjson expected "$EXPECTED_STORE_NAMES_JSON" '
 ' "$store" | sed 's/^/DNS:/' >"$STORE_ACTUAL_SANS"
 cmp "$EXPECTED_SANS" "$STORE_ACTUAL_SANS"
 
-# Strict SNI must reject an unconfigured name on the same reachable endpoint.
-if openssl s_client -brief -tls1_3 -connect "${HOST}:443" \
-  -servername strict-sni-canary.invalid </dev/null \
-  >"$STRICT_SNI_RESULT" 2>&1; then
-  printf 'ERROR: strict SNI accepted an unknown server name.\n' >&2
+# The default TLS profile must reject unknown SNI before router matching on
+# both protocol versions, and it must reject a TLSv1.3 handshake without SNI.
+for tls_mode in -tls1_3 -tls1_2; do
+  if openssl s_client -brief "$tls_mode" -connect "${HOST}:443" \
+    -servername strict-sni-canary.invalid </dev/null \
+    >"$STRICT_SNI_RESULT" 2>&1; then
+    printf 'ERROR: strict SNI accepted an unknown server name with %s.\n' \
+      "$tls_mode" >&2
+    exit 1
+  fi
+done
+if openssl s_client -brief -tls1_3 -noservername \
+  -connect "${HOST}:443" </dev/null >"$STRICT_SNI_RESULT" 2>&1; then
+  printf 'ERROR: strict SNI accepted a handshake without SNI.\n' >&2
   exit 1
 fi
 
@@ -2614,10 +2653,11 @@ Review the observed issuer
 [certificæte/chæin inventory](https://letsencrypt.org/certificates/) insteæd
 of hærcoding one intermediæte. The production store must be æ regulær
 single-link mode-`0600` file owned by the exæct configured Træefik UID:GID
-ænd contæin the sæme exæct SÆN set. TLS 1.2 must fæil, TLS 1.3 must succeed,
-strict SNI must reject æn unknown næme, ænd æ reæl contæiner restært must
-preserve the leæf fingerprint, seriæl, SÆNs, store digest, ænd exæct
-`current` generætion link/digest.
+ænd contæin the sæme exæct SÆN set. With the known production SNI, TLS 1.2
+must fæil ænd TLS 1.3 must succeed. The defæult TLS profile must reject æn
+unknown SNI with both TLS versions ænd reject æ TLS 1.3 hændshæke without SNI.
+Æ reæl contæiner restært must preserve the leæf fingerprint, seriæl, SÆNs,
+store digest, ænd exæct `current` generætion link/digest.
 
 Æ stæging order proves DNS token write/delete scope, CÆÆ, chællenge
 propægætion, ænd stæging issuænce; it does **not** prove renewæl. To prove
@@ -2973,8 +3013,85 @@ volume_manifest() {
     --entrypoint /bin/bash "$1" -Eeuo pipefail /backup/volume-manifest.sh
 }
 
-COMPOSE=(docker compose --env-file Traefik/.env -f Traefik/docker-compose.main.yaml)
-"${COMPOSE[@]}" config --quiet
+CLEAN_COMPOSE=(env -i PATH="$PATH" docker compose \
+  --project-directory "$TRAEFIK_ROOT" --env-file "$TRAEFIK_ROOT/.env" \
+  -f "$TRAEFIK_ROOT/docker-compose.main.yaml")
+RUNTIME_COMPOSE=(docker compose --project-directory "$TRAEFIK_ROOT" \
+  --env-file "$TRAEFIK_ROOT/.env" \
+  -f "$TRAEFIK_ROOT/docker-compose.main.yaml")
+"${CLEAN_COMPOSE[@]}" config --quiet
+"${CLEAN_COMPOSE[@]}" config --format json > \
+  "$BACKUP_SET/compose.before.json"
+"${RUNTIME_COMPOSE[@]}" config --format json > \
+  "$BACKUP_SET/compose.runtime.json"
+cmp -- "$BACKUP_SET/compose.before.json" \
+  "$BACKUP_SET/compose.runtime.json"
+rm -- "$BACKUP_SET/compose.runtime.json"
+PROJECT_NAME="$(jq -er \
+  '.name | select(type == "string" and test("^[a-z0-9][a-z0-9_-]*$"))' \
+  "$BACKUP_SET/compose.before.json")"
+COMPOSE=(docker compose --project-directory "$TRAEFIK_ROOT" \
+  --project-name "$PROJECT_NAME" --env-file "$TRAEFIK_ROOT/.env" \
+  -f "$TRAEFIK_ROOT/docker-compose.main.yaml")
+CLEAN_COMPOSE=(env -i PATH="$PATH" docker compose \
+  --project-directory "$TRAEFIK_ROOT" --project-name "$PROJECT_NAME" \
+  --env-file "$TRAEFIK_ROOT/.env" \
+  -f "$TRAEFIK_ROOT/docker-compose.main.yaml")
+services_output="$("${CLEAN_COMPOSE[@]}" config --services)"
+mapfile -t services <<< "$services_output"
+test "$(printf '%s\n' "${services[@]}" | LC_ALL=C sort)" = \
+  $'app\ncrowdsec_agent\nsocketproxy\ntraefik_certs-dumper'
+declare -A service_containers=()
+declare -A seen_services=()
+config_hash_override="$BACKUP_SET/.config-hash-image-override.json"
+for service in "${services[@]}"; do
+  test -n "$service" && test -z "${seen_services[$service]+set}"
+  seen_services[$service]=1
+  containers_output="$(docker ps -aq \
+    --filter "label=com.docker.compose.project=$PROJECT_NAME" \
+    --filter "label=com.docker.compose.service=$service")"
+  mapfile -t containers <<< "$containers_output"
+  test "${#containers[@]}" -eq 1 && test -n "${containers[0]}"
+  container_id="${containers[0]}"
+  service_containers[$service]="$container_id"
+  test "$(docker inspect --format \
+    '{{index .Config.Labels "com.docker.compose.project"}}' \
+    "$container_id")" = "$PROJECT_NAME"
+  test "$(docker inspect --format \
+    '{{index .Config.Labels "com.docker.compose.service"}}' \
+    "$container_id")" = "$service"
+  test "$(docker inspect --format '{{.State.Running}}' "$container_id")" = true
+  container_image_ref="$(docker inspect --format '{{.Config.Image}}' \
+    "$container_id")"
+  container_config_hash="$(docker inspect --format \
+    '{{index .Config.Labels "com.docker.compose.config-hash"}}' \
+    "$container_id")"
+  [[ "$container_config_hash" =~ ^[0-9a-f]{64}$ ]]
+  jq -n --arg service "$service" --arg image "$container_image_ref" \
+    '{services: {($service): {image: $image}}}' > "$config_hash_override"
+  expected_config_hash_line="$("${CLEAN_COMPOSE[@]}" \
+    -f "$config_hash_override" config --hash "$service")"
+  case "$expected_config_hash_line" in
+    "$service "*) ;;
+    *) printf 'ERROR: invalid Compose config-hash output for %s.\n' \
+         "$service" >&2; exit 1 ;;
+  esac
+  expected_config_hash="${expected_config_hash_line#"$service "}"
+  [[ "$expected_config_hash" =~ ^[0-9a-f]{64}$ ]]
+  test "$expected_config_hash" = "$container_config_hash"
+done
+rm -- "$config_hash_override"
+project_containers_output="$(docker ps -aq \
+  --filter "label=com.docker.compose.project=$PROJECT_NAME")"
+mapfile -t project_containers <<< "$project_containers_output"
+test "${#project_containers[@]}" -eq "${#services[@]}"
+for container_id in "${project_containers[@]}"; do
+  test -n "$container_id"
+  container_service="$(docker inspect --format \
+    '{{index .Config.Labels "com.docker.compose.service"}}' "$container_id")"
+  test -n "${seen_services[$container_service]+set}"
+  test "${service_containers[$container_service]}" = "$container_id"
+done
 source_commit="$(git rev-parse --verify HEAD^{commit})"
 [[ "$source_commit" =~ ^([0-9a-f]{40}|[0-9a-f]{64})$ ]]
 git cat-file -e "${source_commit}^{commit}"
@@ -2994,8 +3111,6 @@ git ls-tree -r "$locked_origin_main_commit" -- \
   >"$BACKUP_SET/canonical-template-source-lock.tsv"
 source_lock_lines="$(wc -l <"$BACKUP_SET/canonical-template-source-lock.tsv")"
 test "$source_lock_lines" -eq 2
-"${COMPOSE[@]}" config --format json > "$BACKUP_SET/compose.before.json"
-
 rendered_secrets="$(jq -er '. as $root |
   [$root.services[] | (.secrets // [])[] |
     if type == "string" then . elif type == "object" then .source else error("invalid service secret") end] |
@@ -3019,9 +3134,8 @@ LC_ALL=C sort -o "$BACKUP_SET/secret-files.tsv" "$BACKUP_SET/secret-files.tsv"
 
 IMAGE_IDS=()
 for service in app socketproxy traefik_certs-dumper crowdsec_agent; do
-  "${COMPOSE[@]}" ps --all -q "$service" >"$BACKUP_SET/service-output.tmp"
-  mapfile -t containers <"$BACKUP_SET/service-output.tmp"
-  test "${#containers[@]}" -eq 1; container_id="${containers[0]}"
+  container_id="${service_containers[$service]}"
+  test -n "$container_id"
   image_id="$(docker inspect --format '{{.Image}}' "$container_id")"
   image_ref="$(docker inspect --format '{{.Config.Image}}' "$container_id")"
   "${COMPOSE[@]}" config --images "$service" >"$BACKUP_SET/service-output.tmp"
