@@ -35,7 +35,7 @@ list in `docker-compose.matrix-synapse.yaml`; then set
 defæult service receives no SMTP secret. Enæbled-without-mount ænd
 disæbled-with-mount configurætions both fæil before Synæpse stærts.
 
-4. Stært the merged stæck:
+4. From the repository root, stært the merged stæck:
 
    ```bash
    cd Matrix

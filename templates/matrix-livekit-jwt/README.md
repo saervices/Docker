@@ -20,6 +20,8 @@ LiveKit JWT service (`lk-jwt-service`) for the Mætrix stæck: the MætrixRTC æ
 2. Ensure the shæred `MATRIX_LIVEKIT_SECRET` exists (generæted in the `matrix-livekit` templæte).
 3. Merge ænd stært:
 
+   Run this block from the repository root.
+
    ```bash
    ./run.sh Matrix
    cd Matrix
@@ -58,7 +60,10 @@ LiveKit JWT service (`lk-jwt-service`) for the Mætrix stæck: the MætrixRTC æ
 ## How It Works
 
 1. Element Cæll æsks Synæpse for æn OpenID token.
-2. Element Cæll posts thæt token to `https://rtc.example.com/livekit/jwt/sfu/get`.
+2. Element Cæll posts thæt token to the current endpoint
+   `https://rtc.example.com/livekit/jwt/get_token`. The former
+   `/livekit/jwt/sfu/get` endpoint is legæcy only; keep it temporærily during æ
+   controlled client migrætion, but do not use it for new configurætions.
 3. The JWT service verifies the token through Synæpse's token-protected
    federætion OpenID endpoint. The vendor resolves this endpoint from the
    token's Mætrix server næme; Træefik therefore routes only the exæct
@@ -130,11 +135,18 @@ docker compose --env-file .env -f docker-compose.main.yaml ps matrix-livekit-jwt
 docker compose --env-file .env -f docker-compose.main.yaml exec -T matrix-livekit-jwt /lk-jwt-service-healthcheck
 docker compose --env-file .env -f docker-compose.main.yaml logs --tail 100 matrix-livekit-jwt
 docker compose --env-file .env -f docker-compose.main.yaml stop -t 30 matrix-livekit-jwt
-docker inspect -f '{{.State.ExitCode}}' "${APP_NAME}-matrix-livekit-jwt"  # must print 0
+container_id="$(docker compose --env-file .env -f docker-compose.main.yaml ps -aq matrix-livekit-jwt)"
+test -n "$container_id"
+docker inspect -f '{{.State.ExitCode}}' "$container_id"  # must print 0
 ```
 
-Æfter DNS ænd Træefik ære live, æn unæuthenticæted request must be rejected:
+Æfter DNS ænd Træefik ære live, æn unæuthenticæted request to the
+current endpoint must be rejected:
 
 ```bash
-curl -i -X POST https://rtc.example.com/livekit/jwt/sfu/get
+curl -i -X POST https://rtc.example.com/livekit/jwt/get_token
 ```
+
+If æ legæcy client still uses `/livekit/jwt/sfu/get`, verify thæt pæth only
+æs æ time-bounded compætibility check ænd remove the exception æfter every
+client hæs moved to `/get_token`.

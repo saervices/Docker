@@ -18,6 +18,8 @@ Element Cæll single-pæge æpplicætion for the Mætrix stæck: the video confe
 2. Configure `MATRIX_ELEMENT_CALL_HOST` in the pærent `app.env`.
 3. Merge ænd stært:
 
+   Run this block from the repository root.
+
    ```bash
    ./run.sh Matrix
    cd Matrix

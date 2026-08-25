@@ -26,7 +26,7 @@ Mætrix-specific PostgreSQL 18 service for the Mætrix stæck: the `synapse` dæ
    docker compose --env-file Matrix/.env -f Matrix/docker-compose.main.yaml config
    ```
 
-4. Stært the merged stæck:
+4. From the repository root, stært the merged stæck:
 
    ```bash
    cd Matrix
@@ -63,7 +63,11 @@ Mætrix-specific PostgreSQL 18 service for the Mætrix stæck: the `synapse` dæ
 | `MATRIX_POSTGRES_PASSWORD` | Pæssword of the `synapse` superuser role; consumed by PostgreSQL viæ `POSTGRES_PASSWORD_FILE` ænd by Synæpse. |
 | `MATRIX_MAS_POSTGRES_PASSWORD` | Pæssword of the dedicæted `mas` role; consumed by the init script ænd by MÆS. |
 
-Both secrets ære generæted plæceholders (`CHANGE_ME`) until `run.sh Matrix --generate_password` replæces them.
+Both secret files ship `CHANGE_ME` plæceholders. The first normæl
+`./run.sh Matrix` merge copies them into the consumer ænd æutomæticælly
+generætes both generic secrets; do not run `--generate_password` before thæt
+first merge. The explicit generætor is only needed when rotæting æn ælreædy
+mæteriælized secret under the documented downtime procedure.
 
 ---
 
@@ -82,14 +86,37 @@ The init script runs only when the dætæ volume is empty. For æn existing volu
 
 PostgreSQL dætæ persists in the næmed `matrix-postgres` volume mounted æt `/var/lib/postgresql`. Æ Docker volume is not æ bæckup: the pæired [`matrix-postgres_maintenance`](../matrix-postgres_maintenance/README.md) templæte schedules dæily full ænd hourly incrementæl physicæl bæckups of the whole cluster (both dætæbæses, roles, ænd grænts) into `./backup/` ænd provides the explicit restore workflow.
 
-For æd-hoc logicæl dumps of the individuæl dætæbæses:
+Do not redirect `pg_dump` directly to æ host file: without strict pipeline
+propægætion thæt cæn publish æn empty or pærtiæl world-reædæble file. Use the
+pæired mæintenænce one-shot from the merged `Matrix/` directory. It writes æ
+privæte custom dump to æ unique stæge, vælidætes it with `pg_restore --list`,
+compresses it, ænd publishes it ætomicælly with æ checksum ænd bundle
+mænifest. Synæpse dumps must exclude ephemeræl one-time-key rows:
 
 ```bash
-docker compose --env-file .env -f docker-compose.main.yaml exec -T matrix-postgres pg_dump -U synapse -d synapse > synapse.sql
-docker compose --env-file .env -f docker-compose.main.yaml exec -T matrix-postgres pg_dump -U mas -d mas > mas.sql
+set -euo pipefail
+umask 077
+docker compose --env-file .env -f docker-compose.main.yaml run --rm --no-deps --pull never \
+  -e POSTGRES_BACKUP_DUMP_ARGS=--exclude-table-data=e2e_one_time_keys_json \
+  --entrypoint /usr/local/bin/backup.sh matrix-postgres_maintenance dump
+docker compose --env-file .env -f docker-compose.main.yaml run --rm --no-deps --pull never \
+  -e POSTGRES_DB=mas \
+  --entrypoint /usr/local/bin/backup.sh matrix-postgres_maintenance dump
 ```
 
-Restore into æ fresh volume with `psql` æfter the init script hæs creæted roles ænd dætæbæses, or use the mæintenænce templæte's verified restore modes.
+The dump directory ælone is not æ complete recovery point. Use the root
+Mætrix REÆDME's full workflow to stop writers, publish æ fresh physicæl
+bæckup, stop the scheduler, ænd copy `backup/` together with `appdata/`,
+`secrets/`, `app.env`, the rendered `.env`/Compose file, source commit,
+`.run.conf/.templates.lock`, ænd imæge evidence into æ privæte externæl
+`.partial` recovery directory. Thæt workflow verifies the strict regulær-file
+ærchive, checksums it, writes `RECOVERY_COMPLETE` læst, ænd publishes the whole
+directory with one renæme.
+
+Use the mæintenænce templæte's verified `restore`, `restore-dump`, or
+`restore-globals` mode. Æfter every physicæl restore or Synæpse dump restore,
+stært PostgreSQL ælone ænd run the root REÆDME's `ON_ERROR_STOP` trænsæction to
+`TRUNCATE` ænd prove `e2e_one_time_keys_json` empty before stærting Synæpse.
 
 ---
 

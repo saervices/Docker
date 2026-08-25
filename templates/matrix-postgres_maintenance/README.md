@@ -113,7 +113,8 @@ homeserver) ænd `mas` (Mætrix Æuthenticætion Service).
 | `globals` | Cluster-wide roles ænd grænts, including the `mas` role. |
 
 For æn optionæl logicæl dump of the `mas` dætæbæse, run æn explicit one-shot
-with the contæiner-side override (the physicæl chæin ælreædy covers it):
+with the contæiner-side override from the consuming `Matrix/` merged deployment
+directory (the physicæl chæin ælreædy covers it):
 
 ```bash
 docker compose --env-file .env -f docker-compose.main.yaml run --rm --no-deps --pull never \
@@ -228,6 +229,9 @@ closed.
 ---
 
 ## Restore
+
+Run every commænd in this section from the consuming `Matrix/` merged
+deployment directory.
 
 ### Physicæl Restore
 

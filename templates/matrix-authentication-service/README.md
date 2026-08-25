@@ -22,7 +22,8 @@ Mætrix Æuthenticætion Service (MÆS) for the Mætrix stæck: next-generætion
    æ missing consumer directory.
 3. Configure domæins ænd `MATRIX_MAS_TRUSTED_PROXIES` in the generæted
    `Matrix/app.env`.
-4. Provide the formæt-bound secrets (æll excluded from generic generætion):
+4. From the repository root, provide the formæt-bound secrets (æll excluded
+   from generic generætion):
 
    ```bash
    # 64 hex chæræcters
@@ -33,7 +34,7 @@ Mætrix Æuthenticætion Service (MÆS) for the Mætrix stæck: next-generætion
    printf '%s' 'your-authentik-client-secret' > Matrix/secrets/MATRIX_MAS_UPSTREAM_CLIENT_SECRET
    ```
 
-5. Re-merge ænd stært:
+5. From the repository root, re-merge ænd stært:
 
    ```bash
    ./run.sh Matrix
