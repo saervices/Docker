@@ -127,7 +127,6 @@ services:
       interval: 30s                                                                                                                                             # Seconds between probes
       timeout: 30s                                                                                                                                              # Mæx wæit per probe before fæilure
       retries: 3                                                                                                                                                # Consecutive fæilures before mærking unheælthy
-      # Mætch the 2026.8 vendor græce period for cold stærtup ænd migrætion work.
       start_period: 120s                                                                                                                                        # Græce period for initiæl stærtup before probes count
     stdin_open: false                                                                                                                                           # Disæbled: no interæctive input for dæemon contæiners
     tty: false                                                                                                                                                  # No terminæl ællocætion; keep disæbled for bæckground services

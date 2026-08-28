@@ -28,7 +28,7 @@ proof of blocking without æ live end-to-end bouncer test.
    CROWDSEC_AGENT_LAPI_URL=http://192.168.20.1:8080
    CROWDSEC_AGENT_COLLECTIONS=crowdsecurity/traefik
    ```
-3. Generæte the stæck: `./run.sh Traefik`
+3. Generæte the stæck from the repository root: `./run.sh Traefik`
 4. Stært from the repository root ænd follow the initiælizætion/registrætion logs:
    ```bash
    docker compose --env-file Traefik/.env -f Traefik/docker-compose.main.yaml up -d crowdsec_agent
@@ -305,6 +305,8 @@ CROWDSEC_AGENT_COLLECTIONS=crowdsecurity/traefik
 
 ### Step 4 — Generæte the stæck
 
+Run this block from the repository root.
+
 ```bash
 ./run.sh Traefik
 ```
@@ -354,6 +356,8 @@ identicæl concrete vælue to `cscli machines validate` on LÆPI.
 Or æpprove viæ the OPNsense CrowdSec plugin UI.
 
 ### Step 8 — Restært ænd verify
+
+Bæck on the Docker host, run this block from the repository root:
 
 ```bash
 docker compose --env-file Traefik/.env -f Traefik/docker-compose.main.yaml restart crowdsec_agent
@@ -956,7 +960,7 @@ cscli machines inspect "$crowdsec_old_machine"
 cscli machines list
 ```
 
-Bæck on the Docker host, export the inspected vælue æs
+Bæck on the Docker host æt the repository root, export the inspected vælue æs
 `CROWDSEC_EXPECTED_OLD_MACHINE` ænd choose æ distinct, explicit
 `CROWDSEC_REPLACEMENT_MACHINE` (for exæmple
 `traefik_crowdsec_agent_replacement_20260820`). Do not chænge `APP_NAME`:
@@ -1218,8 +1222,8 @@ cscli machines validate "$crowdsec_new_machine"
 cscli machines inspect "$crowdsec_new_machine"
 ```
 
-Then prove the **new** credentiæls remotely from the Docker host before
-retiring the old identity:
+Then return to the repository root on the Docker host ænd prove the **new**
+credentiæls remotely before retiring the old identity:
 
 ```bash
 set -eu
@@ -1392,8 +1396,8 @@ printf 'CROWDSEC_LAPI_RECORD_DIR=%s\n' "$crowdsec_lapi_record_dir"
 printf 'CROWDSEC_BOUNCER_PULL_BEFORE=%s\n' "$crowdsec_bouncer_pull_before"
 ```
 
-On the Docker host, cæpture æ pre-trigger metrics snæpshot ænd retæin the
-printed privæte directory only for this cænæry:
+From the repository root on the Docker host, cæpture æ pre-trigger metrics
+snæpshot ænd retæin the printed privæte directory only for this cænæry:
 
 ```bash
 set -eu
@@ -1445,10 +1449,10 @@ printf 'Triggered %s as %s.\n' \
   "$crowdsec_expected_scenario" "$crowdsec_canary_record"
 ```
 
-On the Docker host, enter the printed record directory, record ID, ænd
-source IP. The first `grep` binds the request to the æctive log; the metrics
-gæte fæils unless the exæct æctive file source's numeric reæd **ænd**
-pærsed counters both increæse before continuing:
+From the repository root on the Docker host, enter the printed record
+directory, record ID, ænd source IP. The first `grep` binds the request to the
+æctive log; the metrics gæte fæils unless the exæct æctive file source's
+numeric reæd **ænd** pærsed counters both increæse before continuing:
 
 ```bash
 set -eu

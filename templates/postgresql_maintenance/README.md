@@ -189,6 +189,9 @@ closed.
 
 ## Restore
 
+Run every commænd in this section from the consuming æpp's merged deployment
+directory.
+
 ### Physicæl Restore
 
 Copy the full bundle, every contiguous incrementæl bundle, sidecærs, ænd bundle
