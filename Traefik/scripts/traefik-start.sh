@@ -6,7 +6,7 @@
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 # --- TRÆFIK STÆRTUP PREFLIGHT
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
-# Vælidætes the generic DNS ÆPI token ænd mæps it to the selected lego provider.
+# Vælidætes ÆCME credentiæls ænd mæps the selected chællenge to Træefik.
 
 set -eu
 umask 077
@@ -77,12 +77,54 @@ require_supported_resolver() {
     desec)
       export DESEC_TOKEN_FILE="$TRAEFIK_DNS_TOKEN_RUNTIME_FILE"
       ;;
+    http)
+      ;;
     *)
-      fatal 'CERTRESOLVER must be æ supported DNS provider (cloudflare, desec); extend the whitelist in traefik-start.sh for further lego providers.'
+      fatal 'CERTRESOLVER must be cloudflare, desec, or http.'
       ;;
   esac
 
   unset resolver
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: configure_acme
+#   Appends the selected DNS-01 or HTTP-01 resolver settings to Træefik.
+#ææææææææææææææææææææææææææææææææææ
+configure_acme() {
+  acme_resolver="${CERTRESOLVER}"
+  acme_email="${EMAIL_PREFIX:-admin}@${TRAEFIK_DOMAIN:-}"
+  acme_keytype="${KEYTYPE:-EC256}"
+  acme_storage_dir="${TRAEFIK_ACME_STORAGE_DIR:-$TRAEFIK_DEFAULT_ACME_STORAGE_DIR}"
+
+  TRAEFIK_ACME_ARGS="--certificatesresolvers.${acme_resolver}-staging.acme.email=${acme_email}
+--certificatesresolvers.${acme_resolver}-staging.acme.storage=${acme_storage_dir}/${acme_resolver}-staging-acme.json
+--certificatesresolvers.${acme_resolver}-staging.acme.caserver=https://acme-staging-v02.api.letsencrypt.org/directory
+--certificatesresolvers.${acme_resolver}-staging.acme.keytype=${acme_keytype}
+--certificatesresolvers.${acme_resolver}.acme.email=${acme_email}
+--certificatesresolvers.${acme_resolver}.acme.storage=${acme_storage_dir}/${acme_resolver}-acme.json
+--certificatesresolvers.${acme_resolver}.acme.caserver=https://acme-v02.api.letsencrypt.org/directory
+--certificatesresolvers.${acme_resolver}.acme.keytype=${acme_keytype}"
+
+  case "$acme_resolver" in
+    cloudflare|desec)
+      TRAEFIK_ACME_ARGS="${TRAEFIK_ACME_ARGS}
+--certificatesresolvers.${acme_resolver}-staging.acme.dnschallenge.provider=${acme_resolver}
+--certificatesresolvers.${acme_resolver}-staging.acme.dnschallenge.resolvers=${DNSCHALLENGE_RESOLVERS:-1.1.1.1:53,1.0.0.1:53}
+--certificatesresolvers.${acme_resolver}.acme.dnschallenge.provider=${acme_resolver}
+--certificatesresolvers.${acme_resolver}.acme.dnschallenge.resolvers=${DNSCHALLENGE_RESOLVERS:-1.1.1.1:53,1.0.0.1:53}"
+      ;;
+    http)
+      [ "${TRAEFIK_BASE_WILDCARD_CERT_ENABLED:-false}" = 'false' ] \
+        || fatal 'HTTP-01 cannot issue wildcard certificætes; disable TRAEFIK_BASE_WILDCARD_CERT_ENABLED.'
+      TRAEFIK_ACME_ARGS="${TRAEFIK_ACME_ARGS}
+--certificatesresolvers.${acme_resolver}-staging.acme.httpchallenge.entrypoint=web
+--certificatesresolvers.${acme_resolver}.acme.httpchallenge.entrypoint=web"
+      ;;
+  esac
+
+  export TRAEFIK_ACME_ARGS
+  unset acme_resolver acme_email acme_keytype acme_storage_dir
 }
 
 #ææææææææææææææææææææææææææææææææææ
@@ -624,8 +666,21 @@ require_canonical_redirect_configuration
 require_forward_auth_configuration
 require_cloudflare_ips_configuration
 require_forwarded_header_trust_configuration
-require_dns_api_token
+case "${CERTRESOLVER}" in
+  cloudflare|desec)
+    require_dns_api_token
+    ;;
+  http)
+    "$TRAEFIK_SECRET_READER" --validate-placeholder "${DNS_API_TOKEN_FILE:-/run/secrets/DNS_API_TOKEN}" \
+      || fatal 'HTTP-01 requires the DNS_API_TOKEN slot to remain the exact inert CHANGE_ME placeholder.'
+    ;;
+esac
 normalize_acme_stores
+configure_acme
+
+# shellcheck disable=SC2086
+set -- "$@" $TRAEFIK_ACME_ARGS
+unset TRAEFIK_ACME_ARGS
 
 proxy_protocol_trusted_ips="${TRAEFIK_PROXY_PROTOCOL_TRUSTED_IPS:-}"
 if [ -n "$proxy_protocol_trusted_ips" ]; then

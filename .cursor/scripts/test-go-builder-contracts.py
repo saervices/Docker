@@ -584,29 +584,29 @@ def validate_contract(root: Path, contract: Contract) -> list[Finding]:
                     contract.compose_path,
                     f"{contract.build_arg} must equæl {expected_arg}",
                 )
-            if service.get("pull_policy") != "build":
+            if "pull_policy" in service:
                 add_finding(
                     findings,
                     "compose-pull-policy",
                     contract,
                     contract.compose_path,
-                    "pull_policy must be build",
+                    "normal Compose up must not select an implicit build policy",
                 )
-            if build.get("pull") is not True:
+            if "pull" in build:
                 add_finding(
                     findings,
                     "compose-build-pull",
                     contract,
                     contract.compose_path,
-                    "build.pull must be true",
+                    "build.pull must be omitted; run.sh --update supplies --pull explicitly",
                 )
-            if build.get("no_cache") is not True:
+            if "no_cache" in build:
                 add_finding(
                     findings,
                     "compose-no-cache",
                     contract,
                     contract.compose_path,
-                    "build.no_cache must be true",
+                    "build.no_cache must be omitted; run.sh --update supplies --no-cache explicitly",
                 )
             runtime_environment = service.get("environment")
             runtime_environment_invalid = (
@@ -995,12 +995,9 @@ def write_synthetic_fixture(root: Path) -> None:
         compose_document = {
             "services": {
                 contract.service_name: {
-                    "pull_policy": "build",
                     "build": {
                         "context": contract.compose_context,
                         "dockerfile": contract.compose_dockerfile,
-                        "pull": True,
-                        "no_cache": True,
                         "args": {
                             contract.build_arg: (
                                 f"${{{contract.env_key}:-{contract.expected_image}}}"
@@ -1219,17 +1216,17 @@ def run_synthetic_regressions() -> int:
             (
                 "pull-policy",
                 "compose-pull-policy",
-                lambda service, _build: service.__setitem__("pull_policy", "always"),
+                lambda service, _build: service.__setitem__("pull_policy", "build"),
             ),
             (
                 "build-pull",
                 "compose-build-pull",
-                lambda _service, build: build.__setitem__("pull", False),
+                lambda _service, build: build.__setitem__("pull", True),
             ),
             (
                 "no-cache",
                 "compose-no-cache",
-                lambda _service, build: build.__setitem__("no_cache", False),
+                lambda _service, build: build.__setitem__("no_cache", True),
             ),
             (
                 "runtime-env",

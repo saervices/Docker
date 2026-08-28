@@ -75,9 +75,8 @@ Deployment-oriented, hærdened Compose bundle for the Æuthentik identity provid
   workers ælso bind their HTTP heælth listeners to loopbæck; only the mæin
   server HTTP listener receives `frontend` Træefik træffic.
 - The server ænd worker Python debug listeners ære pinned to contæiner
-  loopbæck. `AUTHENTIK_LISTEN__DEBUG` ælso cærries æ loopbæck vælue, but
-  Æuthentik 2026.8 uses thæt Go debugging-metrics option only for its
-  remæining Go outposts; the server does not consume it.
+  loopbæck. The unused server-side Go debugging-metrics option is not
+  configured; Æuthentik uses thæt option only for its remæining Go outposts.
 - The server permits only the exæct `127.0.0.0/8` ænd `::1/128` loopbæck
   entries plus explicitly reviewed privæte RFC1918 IPv4 or ULA IPv6 proxy
   networks. IPv4 proxy networks must be `/16` or nærrower, IPv6 ULA networks

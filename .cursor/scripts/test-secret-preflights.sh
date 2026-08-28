@@ -174,7 +174,7 @@ if len(sys.argv) == 3 and sys.argv[1] == "--validate-forwarded-source":
         raise SystemExit(1)
     raise SystemExit(0)
 
-if len(sys.argv) != 3 or sys.argv[1] not in ("--source", "--acme-store") or not sys.argv[2]:
+if len(sys.argv) != 3 or sys.argv[1] not in ("--source", "--validate-placeholder", "--acme-store") or not sys.argv[2]:
     raise SystemExit(2)
 if sys.argv[1] == "--acme-store":
     path = sys.argv[2]
@@ -322,13 +322,17 @@ try:
 finally:
     os.close(descriptor)
 
-if len(content) != opened.st_size or content == b"CHANGE_ME":
+if len(content) != opened.st_size:
     raise SystemExit(1)
 try:
     content.decode("utf-8")
 except UnicodeDecodeError:
     raise SystemExit(1)
 if any(character < 0x21 or character > 0x7e for character in content):
+    raise SystemExit(1)
+if sys.argv[1] == "--validate-placeholder":
+    raise SystemExit(0 if content == b"CHANGE_ME" else 1)
+if content == b"CHANGE_ME":
     raise SystemExit(1)
 
 runtime_file = source.split("/secrets/", 1)[0] + "/runtime/DNS_API_TOKEN"
@@ -2690,6 +2694,39 @@ case_traefik_desec_dns_mapping() {
   [[ -f "${fixture}/acme/desec-staging-acme.json" ]]
 }
 
+case_traefik_http_challenge_mapping() {
+  local fixture="${TEST_ROOT}/traefik-http-challenge-mapping"
+  prepare_traefik "$fixture"
+  printf 'CHANGE_ME' >"${fixture}/secrets/DNS_API_TOKEN"
+  rm -f -- "${fixture}/acme/cloudflare-acme.json" "${fixture}/acme/cloudflare-staging-acme.json"
+  PATH="${TEST_BIN}:${PATH}" TRAEFIK_MARKER="${fixture}/traefik-started" \
+    TRAEFIK_ACME_STORAGE_DIR="${fixture}/acme" \
+    TRAEFIK_DYNAMIC_CONFIG_DIR="${fixture}/dynamic" \
+    CERTRESOLVER=http DNS_API_TOKEN_FILE="${fixture}/secrets/DNS_API_TOKEN" \
+    TRAEFIK_ROUTE_SUBDOMAIN= TRAEFIK_DOMAIN=example.com \
+    TRAEFIK_BASE_WILDCARD_CERT_ENABLED=false \
+    TRAEFIK_DOMAIN_1= TRAEFIK_DOMAIN_2= TRAEFIK_DOMAIN_3= TRAEFIK_DOMAIN_4= \
+    /bin/sh "$TRAEFIK_SCRIPT" --version
+  grep -qx -- '--version' "${fixture}/traefik-started"
+  grep -qx -- '--certificatesresolvers.http-staging.acme.httpchallenge.entrypoint=web' "${fixture}/traefik-started"
+  grep -qx -- '--certificatesresolvers.http.acme.httpchallenge.entrypoint=web' "${fixture}/traefik-started"
+  ! grep -q -- 'dnschallenge' "${fixture}/traefik-started"
+  [[ ! -e "${fixture}/runtime/DNS_API_TOKEN" ]]
+  [[ -f "${fixture}/acme/http-acme.json" ]]
+  [[ -f "${fixture}/acme/http-staging-acme.json" ]]
+}
+
+case_traefik_http_challenge_rejects_wildcard() {
+  local fixture="${TEST_ROOT}/traefik-http-challenge-wildcard"
+  prepare_traefik "$fixture"
+  printf 'CHANGE_ME' >"${fixture}/secrets/DNS_API_TOKEN"
+  CERTRESOLVER=http DNS_API_TOKEN_FILE="${fixture}/secrets/DNS_API_TOKEN" \
+    TRAEFIK_ACME_STORAGE_DIR="${fixture}/acme" TRAEFIK_DYNAMIC_CONFIG_DIR="${fixture}/dynamic" \
+    TRAEFIK_ROUTE_SUBDOMAIN=it TRAEFIK_DOMAIN=example.com TRAEFIK_BASE_WILDCARD_CERT_ENABLED=true \
+    TRAEFIK_DOMAIN_1= TRAEFIK_DOMAIN_2= TRAEFIK_DOMAIN_3= TRAEFIK_DOMAIN_4= \
+    PATH="${TEST_BIN}:${PATH}" /bin/sh "$TRAEFIK_SCRIPT" --version
+}
+
 case_traefik_unsupported_resolver() {
   local fixture="${TEST_ROOT}/traefik-unsupported-resolver"
   run_traefik_resolver_mapping "$fixture" route53
@@ -3892,6 +3929,8 @@ expect_failure traefik-token-path-race case_traefik_dns_token_path_race
 expect_success traefik-token-private-copy case_traefik_dns_token_private_copy
 expect_success traefik-cloudflare-dns-mapping case_traefik_cloudflare_dns_mapping
 expect_success traefik-desec-dns-mapping case_traefik_desec_dns_mapping
+expect_success traefik-http-challenge-mapping case_traefik_http_challenge_mapping
+expect_failure traefik-http-challenge-wildcard case_traefik_http_challenge_rejects_wildcard
 expect_failure traefik-unsupported-resolver case_traefik_unsupported_resolver
 expect_failure traefik-unsafe-resolver case_traefik_unsafe_resolver
 expect_failure traefik-acme-symlink case_traefik_acme_symlink
@@ -4897,7 +4936,6 @@ if authentik_app.get("environment", {}).get("AUTHENTIK_ERROR_REPORTING__ENABLED"
     raise SystemExit(f"{authentik_path}: error reporting must default to false")
 expected_server_private_listeners = {
     "AUTHENTIK_LISTEN__METRICS": "127.0.0.1:9300",
-    "AUTHENTIK_LISTEN__DEBUG": "127.0.0.1:9900",
     "AUTHENTIK_LISTEN__DEBUG_PY": "127.0.0.1:9901",
 }
 for key, expected_value in expected_server_private_listeners.items():

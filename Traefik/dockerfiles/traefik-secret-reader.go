@@ -88,14 +88,14 @@ func validateSourceSnapshot(current fileSnapshot) error {
 	return nil
 }
 
-func validateSecretContent(secret []byte) error {
+func validateSecretContent(secret []byte, allowPlaceholder bool) error {
 	if len(secret) < 1 || len(secret) > maximumSecretBytes {
 		return errors.New("secret length is outside the accepted range")
 	}
 	if !utf8.Valid(secret) {
 		return errors.New("secret is not valid UTF-8")
 	}
-	if string(secret) == "CHANGE_ME" {
+	if string(secret) == "CHANGE_ME" && !allowPlaceholder {
 		return errors.New("secret is still the placeholder")
 	}
 	for _, character := range secret {
@@ -124,7 +124,7 @@ func validateForwardedHeaderSource(candidate string) error {
 	return nil
 }
 
-func readSecretWithHook(path string, afterOpen func()) ([]byte, error) {
+func readSecretWithHook(path string, afterOpen func(), allowPlaceholder bool) ([]byte, error) {
 	pathBefore, err := statPathNoFollow(path)
 	if err != nil {
 		return nil, fmt.Errorf("inspect source path: %w", err)
@@ -172,14 +172,25 @@ func readSecretWithHook(path string, afterOpen func()) ([]byte, error) {
 	if int64(len(secret)) != descriptorBefore.size {
 		return nil, errors.New("source length changed while it was read")
 	}
-	if err := validateSecretContent(secret); err != nil {
+	if err := validateSecretContent(secret, allowPlaceholder); err != nil {
 		return nil, err
 	}
 	return secret, nil
 }
 
 func readSecret(path string) ([]byte, error) {
-	return readSecretWithHook(path, nil)
+	return readSecretWithHook(path, nil, false)
+}
+
+func validatePlaceholder(path string) error {
+	secret, err := readSecretWithHook(path, nil, true)
+	if err != nil {
+		return err
+	}
+	if string(secret) != "CHANGE_ME" {
+		return errors.New("secret is not the exact placeholder")
+	}
+	return nil
 }
 
 func validateACMEStoreSnapshot(current fileSnapshot) error {
@@ -537,6 +548,7 @@ func run(arguments []string) error {
 	flags := flag.NewFlagSet("traefik-secret-reader", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	source := flags.String("source", "", "Docker secret source path")
+	placeholder := flags.String("validate-placeholder", "", "validate an exact CHANGE_ME placeholder")
 	acmeStore := flags.String("acme-store", "", "ACME store path to create or harden")
 	forwardedSource := flags.String("validate-forwarded-source", "", "validate one canonical forwarded-header address or CIDR")
 	copyDestination := flags.String("copy-secret-to", "", "exclusive verified migration destination for the validated source")
@@ -544,7 +556,7 @@ func run(arguments []string) error {
 		return errors.New("invalid arguments")
 	}
 	selected := 0
-	for _, value := range []string{*source, *acmeStore, *forwardedSource} {
+	for _, value := range []string{*source, *acmeStore, *forwardedSource, *placeholder} {
 		if value != "" {
 			selected++
 		}
@@ -554,6 +566,9 @@ func run(arguments []string) error {
 	}
 	if *forwardedSource != "" {
 		return validateForwardedHeaderSource(*forwardedSource)
+	}
+	if *placeholder != "" {
+		return validatePlaceholder(*placeholder)
 	}
 	if *acmeStore != "" {
 		return hardenACMEStore(*acmeStore)

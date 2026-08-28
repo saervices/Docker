@@ -35,13 +35,10 @@ services:
     container_name: ${APP_NAME:?App name required}                                                                                                              # Unique næme for logs, networking ænd orchestrætion
     hostname: ${APP_NAME}                                                                                                                                       # Internæl hostnæme for DNS resolution between contæiners
     restart: unless-stopped                                                                                                                                     # Æuto-recover from cræshes; mænuæl stop is honored
-    pull_policy: build                                                                                                                                          # Rebuild on Compose up so the moving officiæl Træefik bæse receives reviewed updætes
     # Build one stætic descriptor-bæsed secret reæder into the officiæl Træefik runtime.
     build:                                                                                                                                                      # Optionæl: build imæge from locæl Dockerfile
       context: ./dockerfiles
       dockerfile: Dockerfile
-      pull: true                                                                                                                                                # Pull the current Træefik ænd Go moving chænnels before building
-      no_cache: true                                                                                                                                            # Re-run formætting, unit tests, ænd deterministic compile on every build
       args:
         TRAEFIK_BASE_IMAGE: ${TRAEFIK_BASE_IMAGE:-traefik:3}                                                                                                    # Officiæl Træefik moving mæjor runtime
         TRAEFIK_GO_IMAGE: ${TRAEFIK_GO_IMAGE:-golang:alpine}                                                                                                    # Docker Officiæl Imæge moving Ælpine builder; not supported by the upstreæm Go project
@@ -170,19 +167,7 @@ services:
       - --providers.docker.endpoint=tcp://${APP_NAME}-socketproxy:2375
       - --providers.docker.defaultrule='Host(`{{ index .Labels "com.docker.compose.service"}}.{{ env "TRAEFIK_DOMAIN" }}`)'
       - --providers.docker.exposedbydefault=false
-      - --certificatesresolvers.${CERTRESOLVER}-staging.acme.email=${EMAIL_PREFIX}@${TRAEFIK_DOMAIN}
-      - --certificatesresolvers.${CERTRESOLVER}-staging.acme.storage=/var/traefik/certs/${CERTRESOLVER}-staging-acme.json
-      - --certificatesresolvers.${CERTRESOLVER}-staging.acme.caserver=https://acme-staging-v02.api.letsencrypt.org/directory
-      - --certificatesresolvers.${CERTRESOLVER}-staging.acme.keytype=${KEYTYPE}
-      - --certificatesresolvers.${CERTRESOLVER}-staging.acme.dnschallenge.provider=${CERTRESOLVER}
-      - --certificatesresolvers.${CERTRESOLVER}-staging.acme.dnschallenge.resolvers=${DNSCHALLENGE_RESOLVERS}
-      - --certificatesresolvers.${CERTRESOLVER}.acme.email=${EMAIL_PREFIX}@${TRAEFIK_DOMAIN}
-      - --certificatesresolvers.${CERTRESOLVER}.acme.storage=/var/traefik/certs/${CERTRESOLVER}-acme.json
-      - --certificatesresolvers.${CERTRESOLVER}.acme.caserver=https://acme-v02.api.letsencrypt.org/directory
-      - --certificatesresolvers.${CERTRESOLVER}.acme.keytype=${KEYTYPE}
-      - --certificatesresolvers.${CERTRESOLVER}.acme.dnschallenge.provider=${CERTRESOLVER}
-      - --certificatesresolvers.${CERTRESOLVER}.acme.dnschallenge.resolvers=${DNSCHALLENGE_RESOLVERS}
-    # Vælidæte the DNS token, prepære runtime configurætion, then exec the officiæl Træefik binæry.
+    # Vælidæte ÆCME credentiæls, prepære runtime configurætion, then exec the officiæl Træefik binæry.
     entrypoint: ['/bin/sh', '/usr/local/bin/traefik-start.sh']                                                                                                  # Override the imæge defæult entrypoint
     environment: &app_common_environment                                                                                                                        # Contæiner environment væriæbles (shæred viæ ænchor with sætellites)
       TZ: ${TZ:-Europe/Berlin}                                                                                                                                  # Optionæl: æctivæte only when the selected imæge or contæiner scripts consume libc timezone dætæ
