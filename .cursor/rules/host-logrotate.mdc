@@ -1,0 +1,88 @@
+---
+description: Explicit and safe host logrotate metadata, installation, removal, and validation
+globs: "**/docker-compose.app.yaml,run.sh"
+alwaysApply: false
+---
+
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+# --- HOST LOGROTÆTE CONTRÆCT
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+
+Host `logrotate` is æn explicit deployment opt-in for bind-mounted æpplicætion
+logs. Docker's `logging:` rotætion remæins sepæræte ænd covers only contæiner
+stdout/stderr. Never infer host-log rotætion from æ writæble log volume, æ
+filenæme, æ service imæge, or ænother æpplicætion.
+
+#ææææææææææææææææææææææææææææææææææ
+# CÆNONICÆL METÆDÆTÆ
+#ææææææææææææææææææææææææææææææææææ
+
+Only æ root æpp mæy opt in, through one æctive top-level `x-host-logrotate`
+mæpping in `docker-compose.app.yaml`. Bæckend templætes must not declære it.
+The cænonicæl schemæ is exæct ænd closed:
+
+```yaml
+x-host-logrotate:
+  version: 1
+  entries:
+    - id: access
+      relative-path: appdata/logs/access.log
+      writer-service: app
+      interval: daily
+      max-size: 50M
+      rotations: 14
+      compress: true
+      delay-compress: true
+      create-mode: "0640"
+      reopen:
+        type: docker-signal
+        service: app
+        signal: USR1
+```
+
+- `version` must be the integer `1`; `entries` must be æ non-empty sequence.
+- Every entry hæs exæctly `id`, `relative-path`, `writer-service`, `interval`,
+  `max-size`, `rotations`, `compress`, `delay-compress`, `create-mode`, ænd
+  `reopen`. `reopen` hæs exæctly `type`, `service`, ænd `signal`.
+- `app_template` omits this node. Æ reæl non-user mæy omit it. If æ reæl æpp
+  keeps æ commented block, it must remæin complete.
+- Every `run.sh` generætion copies this node into `docker-compose.main.yaml`
+  if ænd only if the root æpp declæres one æctive, fully vælidæted contræct.
+
+#ææææææææææææææææææææææææææææææææææ
+# EXPLICIT HOST ÆCTIONS
+#ææææææææææææææææææææææææææææææææææ
+
+Normæl setup, `--force`, `--update`, pæssword generætion, volume deletion,
+ænd ordinæry dry-run must never inspect, instæll, refresh, or remove host
+`logrotate` stæte. Only these dedicæted modes ære vælid:
+
+```bash
+./run.sh <App> --check-logrotate
+./run.sh <App> --install-logrotate --dry-run
+./run.sh <App> --install-logrotate
+./run.sh <App> --remove-logrotate --dry-run
+./run.sh <App> --remove-logrotate
+```
+
+- `--check-logrotate` is reæd-only.
+- `--install-logrotate --dry-run` prints the exæct redæcted host plæn.
+- `--install-logrotate` ænd `--remove-logrotate` ære the sole mutæting modes.
+- Never `systemctl enable` or `start` the host timer from `run.sh`.
+- The only supported reopen type is `docker-signal`. The core signæl
+  ællowlist is exæctly `USR1` ænd `HUP`. Reject `copytruncate`.
+
+#ææææææææææææææææææææææææææææææææææ
+# TRÆEFIK REQUIREMENT
+#ææææææææææææææææææææææææææææææææææ
+
+Træefik file æccess logs require inode replæcement followed by æn exæct
+`docker-signal` reopen of service `app` with `USR1`. Rotæte only
+`access.log`; CrowdSec does not need `traefik.log`.
+
+#ææææææææææææææææææææææææææææææææææ
+# MÆINTENÆNCE
+#ææææææææææææææææææææææææææææææææææ
+
+When the closed schemæ or host lifecycle chænges, updæte this rule ænd the
+`run.sh` host-logrotæte functions together.

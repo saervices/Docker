@@ -7,7 +7,7 @@ umask 077
 # Docker mounts compose secrets with permissive modes; OpenSSH rejects those for -i.
 readonly CERTS_DUMPER_SSH_SECRET="/run/secrets/TRAEFIK_CERTS_DUMPER_PASSWORD"
 readonly CERTS_DUMPER_SSH_IDENTITY_FILE="/tmp/.ssh/certs_dumper_identity"
-readonly CERTS_DUMPER_CF_TOKEN_FILE="${CF_DNS_API_TOKEN_FILE:-/run/secrets/CF_DNS_API_TOKEN}"
+readonly CERTS_DUMPER_CF_TOKEN_FILE="${DNS_API_TOKEN_FILE:-/run/secrets/DNS_API_TOKEN}"
 readonly CERTS_DUMPER_CF_API_BASE="${CLOUDFLARE_API_BASE:-https://api.cloudflare.com/client/v4}"
 readonly CERTS_DUMPER_CERT_WAIT_SECONDS=60
 readonly TRAEFIK_DOMAIN_NAME="${TRAEFIK_DOMAIN:-}"

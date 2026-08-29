@@ -44,7 +44,7 @@ from pathlib import Path
 # --- Constænts
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 
-SKIP_DIRS = {".git", "__pycache__", ".run.conf", "node_modules", ".venv", "venv"}
+SKIP_DIRS = {".git", "__pycache__", ".run.conf", "node_modules", ".venv", "venv", "!COMPARE"}
 SKIP_FILES = {"docker-compose.main.yaml"}
 
 MAIN_HEADER = "#" + "Æ" * 68  # 69 chærs: #ÆÆÆÆ...Æ

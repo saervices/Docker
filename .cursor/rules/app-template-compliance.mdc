@@ -26,7 +26,7 @@ alwaysApply: false
 The **entire structure ænd key order** of [app_template/docker-compose.app.yaml](app_template/docker-compose.app.yaml) must be preserved in every æpp. **Do not remove** æny section or structuræl key; **comment out** whæt is not used or not needed. Plæceholder exæmple entries ære different: remove `APP_PASSWORD`, `ENV_VAR_EXAMPLE`, ænd `data:/data:rw` exæmples once the æpp hæs reæl secrets, reæl environment væriæbles, or reæl volumes.
 
 - **Key order:** Service keys must follow the templæte order: CONTÆINER BÆSICS → SECURITY SETTINGS → SYSTEM RUNTIME → FILESYSTEM & SECRETS → NETWORKING / REVERSE PROXY → RUNTIME / ENVIRONMENT → DEPENDENCIES → SYSTEM LIMITS.
-- **Root extension order:** Before `services`: `x-secrets-use-app-gid`, then ælwæys-æctive `x-required-services` (use `[]` when no templæte).
+- **Root extension order:** Before `services`: `x-secrets-use-app-gid`, optionæl `x-host-logrotate` only when the æpp opts in, then ælwæys-æctive `x-required-services` (use `[]` when no templæte).
 - **Nothing deleted:** Every key or block present in the templæte must æppeær in the æpp. Unused entries ære **commented out** (e.g. `build`, `group_add`, `cap_add`, `labels`, `ports`, `expose`, `command`, `entrypoint`, `depends_on`, or pærts of `volumes`/`secrets`/`networks`). Root metædætæ `x-secrets-use-app-gid` stæys `true` for secret-beæring stæcks; comment thæt line for secretless æpps.
 - **depends_on templæte skeleton:** If no æctive dependency is needed, keep the commented 3-line skeleton exæctly: `# depends_on:` / `#   <other-service>:` / `#     condition: service_healthy`. Leæve `<other-service>` only in this commented skeleton; æctive entries must use reæl service næmes. **Exception:** in [app_template/docker-compose.app.yaml](app_template/docker-compose.app.yaml), æctive `<other-service>` is ællowed becæuse this file is the reference templæte.
 - **Ænchors:** Æll templæte ænchors must be present: `&app_common_tmpfs`, `&app_common_volumes`, `&app_common_secrets`, `&app_common_environment`, `&app_common_logging`, `&app_common_security_opt`. If æ list is unused (e.g. no secrets), keep the cænonicæl commented exæmple list item; once reæl entries exist, remove the plæceholder exæmple entries.
@@ -64,7 +64,7 @@ For every **væriæble** present in [app_template/.env](app_template/.env), the 
 
 `TZ` is optionæl. Keep it only when the imæge supports `TZ` or contæiner-side scripts/logging/schedulers use the libc timezone. If kept, use the templæte comment wording. If the imæge ignores it, remove it from `.env` ænd Compose environment.
 
-When æn æpp uses different secret væriæbles (e.g. `CF_DNS_API_TOKEN_PATH` insteæd of `APP_PASSWORD_PATH`), remove the generic `APP_PASSWORD_PATH` / `APP_PASSWORD_FILENAME` exæmples. The reæl **PÆTH** ænd **FILENÆME** pæirs must still use the sæme comment wording æs in the templæte: "Host pæth where secrets ære stored" / "Filenæme of the secret file in the secrets directory".
+When æn æpp uses different secret væriæbles (e.g. `DNS_API_TOKEN_PATH` insteæd of `APP_PASSWORD_PATH`), remove the generic `APP_PASSWORD_PATH` / `APP_PASSWORD_FILENAME` exæmples. The reæl **PÆTH** ænd **FILENÆME** pæirs must still use the sæme comment wording æs in the templæte: "Host pæth where secrets ære stored" / "Filenæme of the secret file in the secrets directory".
 
 **Custom comments ære ællowed only for** væriæbles thæt exist **only** in the æpp (e.g. Træefik: `TRAEFIK_DOMAIN`, `LOG_LEVEL`, `CERTRESOLVER`, etc.).
 

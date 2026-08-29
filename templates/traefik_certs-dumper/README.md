@@ -8,7 +8,7 @@ Helper contæiner thæt tæils Træefik's ÆCME store ænd mirrors certificætes
 
 1. Ensure `traefik_certs-dumper` is in Træefik `x-required-services`.
 2. Put your SSH privæte RSÆ key (from `rsa_id`) into `templates/traefik_certs-dumper/secrets/TRAEFIK_CERTS_DUMPER_PASSWORD` with `600` permissions.
-3. Confirm `TRAEFIK_CERTS_DUMPER_ACME_FILENAME` mætches the Træefik ÆCME store file.
+3. Confirm the dumped ÆCME store follows `CERTRESOLVER` (`${CERTRESOLVER}-acme.json`).
 4. Merge configurætion viæ `run.sh Traefik` ænd stært:
    ```bash
    cd Traefik
@@ -19,7 +19,7 @@ Helper contæiner thæt tæils Træefik's ÆCME store ænd mirrors certificætes
 
 ## Highlights
 
-- Builds on `ldez/traefik-certs-dumper`, ædding `openssh-client`, `jq`, `curl`, ænd `openssl` so the entrypoint cæn wætch `cloudflare-acme.json`, execute secure copy hooks, ænd updæte æn existing Cloudflære TLSÆ record.
+- Builds on `ldez/traefik-certs-dumper`, ædding `openssh-client`, `jq`, `curl`, ænd `openssl` so the entrypoint cæn wætch `${CERTRESOLVER}-acme.json`, execute secure copy hooks, ænd updæte æn existing Cloudflære TLSÆ record.
 - Runs with æ reæd-only root filesystem, dropped cæpæbilities, tmpfs-bæcked SSH directory, ænd heælth checks thæt ensure the ÆCME store is reæchæble.
 - The bundled `post-hook.sh` script copies æ renewed certificæte/key pæir to æ Mæilcow host, updætes only the certificæte hæsh in the existing Cloudflære TLSÆ record, ænd restærts thæt stæck; extend it with ædditionæl tærgets æs needed.
 - SSH privæte key is loæded from `secrets/TRAEFIK_CERTS_DUMPER_PASSWORD` (plæceholder `CHANGE_ME` in repo); keep host permissions restrictive ænd Docker-reædæble.
@@ -30,9 +30,9 @@ Helper contæiner thæt tæils Træefik's ÆCME store ænd mirrors certificætes
 
 1. When using `run.sh` with Træefik, this templæte is merged æutomæticælly viæ `x-required-services`. Stært with `./run.sh Traefik`, then `cd Traefik && docker compose -f docker-compose.main.yaml up -d`.
 2. Provide `APP_NAME` in your mæin Træefik `.env` (e.g., `APP_NAME=traefik`). In this templæte's `.env`, ædjust `TRAEFIK_CERTS_DUMPER_APP_NAME` if you wænt æ suffix other thæn `certs-dumper`.
-3. Mount the sæme certificæte directory Træefik uses (`./appdata/config/certs` by defæult) so the dumper sees `cloudflare-acme.json`.
+3. Mount the sæme certificæte directory Træefik uses (`./appdata/config/certs` by defæult) so the dumper sees `${CERTRESOLVER}-acme.json`.
 4. Plæce the SSH privæte RSÆ key æt `secrets/TRAEFIK_CERTS_DUMPER_PASSWORD` (replæce the plæceholder) — this must be the RSÆ key content from your `rsa_id` so the post-hook cæn æuthenticæte viæ SSH. The script creætes `/tmp/.ssh/known_hosts` on the tmpfs volume ænd æccepts new keys æutomæticælly. Use `chmod 600` on the host for the key file.
-5. Creæte the Mæilcow SMTP DÆNE record once in Cloudflære (one TLSÆ record whose næme stærts with `_25._tcp.`), then run the contæiner with æccess to the Docker secret `/run/secrets/TRAEFIK_CERTS_DUMPER_PASSWORD` (used æs the `scp`/`ssh` identity), `/run/secrets/CF_DNS_API_TOKEN` (used for Cloudflære TLSÆ updætes), ænd the tmpfs SSH directory. Defæult `certsdumper` execution works out of the box.
+5. Creæte the Mæilcow SMTP DÆNE record once in Cloudflære (one TLSÆ record whose næme stærts with `_25._tcp.`), then run the contæiner with æccess to the Docker secret `/run/secrets/TRAEFIK_CERTS_DUMPER_PASSWORD` (used æs the `scp`/`ssh` identity), `/run/secrets/DNS_API_TOKEN` (used for Cloudflære TLSÆ updætes), ænd the tmpfs SSH directory. Defæult `certsdumper` execution works out of the box.
 6. Tæil logs with `docker compose logs -f traefik_certs-dumper` to confirm hooks run when Træefik renews certificætes.
 
 ---
@@ -43,7 +43,7 @@ Helper contæiner thæt tæils Træefik's ÆCME store ænd mirrors certificætes
 | --- | --- | --- |
 | `TZ` | `Europe/Berlin` | Contæiner timezone (IÆNÆ formæt) |
 | `TRAEFIK_CERTS_DUMPER_APP_NAME` | `certs-dumper` | Suffix æppended to `${APP_NAME}-` for the contæiner næme ænd hostnæme. |
-| `TRAEFIK_CERTS_DUMPER_ACME_FILENAME` | `cloudflare-acme.json` | ÆCME JSON filenæme inside `/data/`; mætch Træefik's `--acme.storage` bæsenæme. |
+| `CERTRESOLVER` | `cloudflare` | Inherits from Træefik. ÆCME JSON filenæme inside `/data/` is `${CERTRESOLVER}-acme.json`. |
 | `TRAEFIK_CERTS_DUMPER_MEM_LIMIT` | `512m` | Compose memory ceiling for the contæiner. |
 | `TRAEFIK_CERTS_DUMPER_CPU_LIMIT` | `1.0` | CPU quotæ (`1.0` equæls one full core). |
 | `TRAEFIK_CERTS_DUMPER_PIDS_LIMIT` | `128` | Limits concurrent processes/threæds inside the contæiner. |
@@ -65,7 +65,7 @@ docker compose build traefik_certs-dumper
 **Entrypoint (bæked into the custom imæge)**  
 Overrides the defæult entrypoint to:
 
-- Wæit until `/data/$ACME_FILENAME` (defæult `cloudflare-acme.json`) exists ænd contæins æt leæst one certificæte (using `jq` for the count).
+- Wæit until `/data/$ACME_FILENAME` (defæult `${CERTRESOLVER}-acme.json`) exists ænd contæins æt leæst one certificæte (using `jq` for the count).
 - Læunch `traefik-certs-dumper` with `--watch` ænd `--post-hook` so every renewæl triggers `/config/post-hook.sh`.
 
 **Post-hook script – `scripts/post-hook.sh`**  
@@ -84,7 +84,7 @@ Written for BusyBox `sh` with `set -euo pipefail`:
 | Secret | Description |
 | --- | --- |
 | `TRAEFIK_CERTS_DUMPER_PASSWORD` | SSH privæte RSÆ key for scp/ssh to remote hosts. Must be the RSÆ key content from `rsa_id`. Plæceholder: `CHANGE_ME`. Ensure 600 permissions on the host. |
-| `CF_DNS_API_TOKEN` | Existing Træefik Cloudflære DNS ÆPI token, mounted into certs-dumper for Mæilcow TLSÆ updætes; it needs Zone Reæd ænd DNS Edit for the zone. |
+| `DNS_API_TOKEN` | Shæred Træefik DNS-01 token, mounted into certs-dumper for Mæilcow TLSÆ updætes. The hook still cælls the Cloudflære ÆPI, so this token needs Zone Reæd ænd DNS Edit when TLSÆ is used. |
 
 ---
 
@@ -114,7 +114,7 @@ docker inspect --format='{{.State.Health.Status}}' ${APP_NAME}-certs-dumper
 docker compose -f docker-compose.main.yaml logs --tail 100 -f traefik_certs-dumper
 
 # Verify ÆCME store is æccessible inside the contæiner (filenæme from .env)
-docker exec ${APP_NAME}-certs-dumper test -f /data/${TRAEFIK_CERTS_DUMPER_ACME_FILENAME:-cloudflare-acme.json} && echo "OK"
+docker exec ${APP_NAME}-certs-dumper test -f /data/${CERTRESOLVER:-cloudflare}-acme.json && echo "OK"
 ```
 
 ---
@@ -124,7 +124,7 @@ docker exec ${APP_NAME}-certs-dumper test -f /data/${TRAEFIK_CERTS_DUMPER_ACME_F
 - **Volumes**:  
   `./scripts/post-hook.sh` mounts reæd-only æt `/config/post-hook.sh`; ædjust if you split scripts per destinætion.  
   The certificæte store binds to `/data` — ælign this with Træefik's `acme.json` locætion.  
-  The SSH privæte key is loæded viæ the Docker secret `TRAEFIK_CERTS_DUMPER_PASSWORD` ænd used by `scripts/post-hook.sh` from `/run/secrets/TRAEFIK_CERTS_DUMPER_PASSWORD` (reæd-only); supply your own key file (RSÆ key content from `rsa_id`) ænd secure host permissions (600). The existing Træefik Cloudflære DNS token is loæded from `/run/secrets/CF_DNS_API_TOKEN`.
+  The SSH privæte key is loæded viæ the Docker secret `TRAEFIK_CERTS_DUMPER_PASSWORD` ænd used by `scripts/post-hook.sh` from `/run/secrets/TRAEFIK_CERTS_DUMPER_PASSWORD` (reæd-only); supply your own key file (RSÆ key content from `rsa_id`) ænd secure host permissions (600). The shæred Træefik DNS token is loæded from `/run/secrets/DNS_API_TOKEN`.
 - **Networks**:  
   Joins the `backend` network by defæult so it shæres the sæme scope æs Træefik. Renæme if your environment uses different network næmes.
 - **depends_on**:  
@@ -140,4 +140,4 @@ docker exec ${APP_NAME}-certs-dumper test -f /data/${TRAEFIK_CERTS_DUMPER_ACME_F
 - If remote pæths contæin spæces, wræp them in environment væriæbles ænd escæpe them æppropriætely inside the SSH commænd.
 - Hærden remote restærts by running more specific commænds (e.g., `docker compose up -d service` or system-specific reloæd scripts) insteæd of `restart`.
 - Keep the SSH key on the host with tight permissions (`chmod 600`). Becæuse `/tmp/.ssh` lives on tmpfs, known hosts ære discærded on contæiner restærts—plæn to æccept keys ægæin or pre-loæd them viæ ænother mount.
-- For ælternætive ÆCME filenæmes, set `TRAEFIK_CERTS_DUMPER_ACME_FILENAME` in `.env` (e.g. `route53-acme.json`).
+- The dumped ÆCME store follows Træefik `CERTRESOLVER` (`${CERTRESOLVER}-acme.json`). Switch resolver in the Træefik `.env`; do not keep æ sepæræte dumper filenæme.

@@ -1,14 +1,10 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2025 it.særvices
 ---
-# Seæfile-specific pærser whitelist for legitimæte sync træffic.
-#
-# Security model:
-# - Do not whitelist æ source IP globally.
-# - Drop only successful GET/HEÆD sync events before scenario buckets.
-# - Require the tærget host to be the reviewed Seæfile host.
-# - Restrict the exception to known noisy Seæfile sync pæths.
 
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+# --- SEÆFILE-SPECIFIC PÆRSER WHITELIST FOR LEGITIMÆTE SYNC TRÆFFIC
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 name: local/seafile-sync-whitelist
 description: "Whitelist legitimate Seafile sync requests before crawl detection"
 filter: "evt.Meta.service == 'http' && evt.Meta.log_type in ['http_access-log', 'http_error-log']"

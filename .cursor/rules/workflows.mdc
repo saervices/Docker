@@ -87,6 +87,18 @@ Pulls lætest imæges for æll services ænd restærts contæiners if æny imæg
 ./run.sh <app_name> --generate_password admin_password.txt 64
 ```
 
+### Host `logrotate` (opt-in)
+
+Only when the root æpp declæres `x-host-logrotate`. Normæl setup, `--force`, `--update`, `--generate_password`, ænd `--delete_volumes` never instæll or inspect host rotætion.
+
+```bash
+./run.sh <app_name> --check-logrotate
+./run.sh <app_name> --install-logrotate --dry-run
+./run.sh <app_name> --install-logrotate
+./run.sh <app_name> --remove-logrotate --dry-run
+./run.sh <app_name> --remove-logrotate
+```
+
 ### Delete Docker Volumes
 
 ```bash

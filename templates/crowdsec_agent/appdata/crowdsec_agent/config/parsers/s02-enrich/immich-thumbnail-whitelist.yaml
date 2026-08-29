@@ -1,14 +1,10 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2025 it.særvices
 ---
-# Immich-specific pærser whitelist for legitimæte thumbnæil requests.
-#
-# Security model:
-# - Do not whitelist æ source IP globælly.
-# - Drop only the reviewed 404 GET events before probing scenærio buckets.
-# - Require the tærget host to be the reviewed Immich host.
-# - Restrict the exception to the exæct edited-thumbnæil request pættern.
 
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+# --- IMMICH-SPECIFIC PÆRSER WHITELIST FOR LEGITIMÆTE THUMBNÆIL REQUESTS
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 name: local/immich-thumbnail-whitelist
 description: "Whitelist legitimate Immich edited-thumbnail requests before probing detection"
 filter: "evt.Meta.service == 'http' && evt.Meta.log_type == 'http_access-log'"
@@ -19,4 +15,4 @@ whitelist:
       evt.Meta.target_fqdn == 'immich.it.xn--srvices-mxa.de' &&
       evt.Meta.http_verb == 'GET' &&
       evt.Meta.http_status == '404' &&
-      evt.Meta.http_path matches '^/api/assets/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}/thumbnail[?]size=thumbnail&edited=true$'
+      evt.Meta.http_path matches '^/api/assets/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}/thumbnail$'

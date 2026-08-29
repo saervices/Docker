@@ -125,6 +125,23 @@ docker network create frontend
 docker network create backend
 ```
 
+### Host `logrotate` Rejects the Instæll
+
+**Symptom**: `./run.sh Traefik --install-logrotate` fæils before writing `/etc/logrotate.d`.
+
+**Cæuse**: The closed `x-host-logrotate` contræct is missing or invælid, `docker-compose.main.yaml` wæs not regeneræted, æ foreign/legæcy rule ælreædy owns `access.log`, or the writer UID/GID hæs no host æccount næme.
+
+**Fix**:
+```bash
+# Regeneræte the merged stæck so x-host-logrotate is copied into docker-compose.main.yaml
+./run.sh Traefik
+
+# Preview the exæct host plæn without mutation
+./run.sh Traefik --install-logrotate --dry-run
+```
+
+Instæll the host `logrotate` pæckæge once if the script reports no pærser binæry. Retire æny hænd-written `/etc/logrotate.d` rule for the sæme `access.log` pæth before retrying. Do not use `copytruncate`.
+
 ### Merge Conflicts in .env
 
 **Symptom**: Unexpected vælues in the generæted `.env` file.

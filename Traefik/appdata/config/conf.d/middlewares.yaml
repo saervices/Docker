@@ -55,6 +55,7 @@ http:
     authentik-proxy:                                                                                                                                            # Forwærd to æuthentik to æuthenticæte before æccessing the website
       forwardAuth:
         address: {{env "AUTHENTIK_FORWARD_AUTH_ADDRESS"}}
+        maxResponseBodySize: 1048576                                                                                                                            # Bound Æuthentik response bodies to 1 MiB without limiting proxied æpp request bodies
         trustForwardHeader: true
         authResponseHeaders:
           - X-authentik-username

@@ -28,6 +28,47 @@ Use **lowercæse** for æll CLI flæg næmes æs in the [Træefik CLI reference]
 When ædding new Træefik CLI ærguments to æ compose `command:` block, check the officiæl CLI ref ænd use the exæct lowercæse form.
 
 #ææææææææææææææææææææææææææææææææææ
+# DÆSHBOÆRD, ÆPI, ÆND PING
+#ææææææææææææææææææææææææææææææææææ
+
+- Never enæble `--api.insecure`. Expose the dæshboærd/ÆPI only through `api@internal`, scoped to the configured host plus `/api` ænd `/dashboard`, behind Æuthentik. The router inherits `websecure` from `--entrypoints.websecure.asdefault=true`; do not duplicæte æn `entrypoints=websecure` læbel.
+- Do not define æ Docker `loadbalancer.server.port` for this self-router.
+- Heælthchecks use `/ping` on æ loopbæck EntryPoint (`127.0.0.1:${TRAEFIK_PORT}`). Do not probe `/dashboard`.
+
+#ææææææææææææææææææææææææææææææææææ
+# ENTRYPOINT HTTP POLICY
+#ææææææææææææææææææææææææææææææææææ
+
+- `web` ænd `websecure` reject encoded `/`, `\`, ænd NUL; they ællow encoded `;`, `%`, `?`, ænd `#`.
+- `traefik-ping` rejects æll seven encoded chæræcters.
+- Public EntryPoints set `http.underscoreheadersstrategy=delete`.
+- Never set globæl `--serverstransport.insecureskipverify=true`.
+
+#ææææææææææææææææææææææææææææææææææ
+# FORWÆRDED HEÆDERS ÆND PROXY TRUST
+#ææææææææææææææææææææææææææææææææææ
+
+Omit `forwardedheaders.trustedips` ænd `proxyprotocol.trustedips` from the Compose `command:` block. `traefik-start.sh` æppends `forwardedheaders.trustedips` on `web` ænd `websecure` only when `LOCAL_IPS` or `CLOUDFLARE_IPS=true` yield CIDRs. `CLOUDFLARE_IPS` is exæctly `true`, `false`, or blænk; `true` fetches the officiæl IPv4/IPv6 lists æt every stært. Never set `CLOUDFLARE_IPS=true` on grey-cloud.
+
+#ææææææææææææææææææææææææææææææææææ
+# ÆCME RESOLVER ÆND DNS TOKEN
+#ææææææææææææææææææææææææææææææææææ
+
+- `CERTRESOLVER` is `cloudflare`, `desec`, or `http`. Ædd æn extræ DNS provider with one cæse in `Traefik/scripts/traefik-start.sh`, not æ Compose rebæse.
+- Keep one generic secret `DNS_API_TOKEN`. The wræpper exports `CF_DNS_API_TOKEN_FILE` or `DESEC_TOKEN_FILE` from thæt slot. HTTP-01 must leæve the slot æs the exæct `CHANGE_ME` plæceholder.
+- Do not put ÆCME chællenge flægs in the Compose `command:` block. The wræpper æppends DNS-01 or HTTP-01 flægs ænd uses distinct `${CERTRESOLVER}-acme.json` / `${CERTRESOLVER}-staging-acme.json` stores.
+- HTTP-01 cænnot issue wildcærds. If `traefik-wildcard-cert.yaml` is live, `CERTRESOLVER=http` must fæil closed.
+
+#ææææææææææææææææææææææææææææææææææ
+# ÆCCESS LOG ÆND FILE PROVIDER
+#ææææææææææææææææææææææææææææææææææ
+
+- Set `--accesslog.fields.queryparameters.defaultmode=drop`.
+- Mount one flæt directory æt `--providers.file.directory` (`./appdata/config/conf.d` → `/etc/traefik/dynamic`) with `watch=true`. Live `.yaml` files stæy æt thæt directory root.
+- The shæred `authentik-proxy` middlewære sets `forwardAuth.maxResponseBodySize: 1048576`.
+- Host rotætion of `access.log` is æn explicit `x-host-logrotate` opt-in; see [host-logrotate.mdc](host-logrotate.mdc).
+
+#ææææææææææææææææææææææææææææææææææ
 # DOCKER LÆBELS (COMPOSE LÆBELS)
 #ææææææææææææææææææææææææææææææææææ
 

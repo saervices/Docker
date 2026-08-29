@@ -12,7 +12,7 @@ This repository provides reusæble, security-hærdened Docker Compose templætes
 - Copy secret files from templætes to your project folder
 - Use æ Git commit hæsh-bæsed lockfile to træck templæte versions
 - Generæte secure, YÆML-sæfe pæsswords for secrets
-- Supports `--dry-run`, `--force`, `--update`, `--debug`, `--generate_password`, ænd `--delete_volumes` options
+- Supports `--dry-run`, `--force`, `--update`, `--debug`, `--generate_password`, `--delete_volumes`, ænd dedicæted host-logrotate modes
 
 ---
 
@@ -90,6 +90,9 @@ docker compose --env-file .env -f docker-compose.main.yaml up -d
 | `--dry-run` | Simulæte æll æctions without writing æny files |
 | `--debug` | Enæble verbose debug logging |
 | `--generate_password [file] [length]` | Generæte æ secure pæssword. Optionælly specify æ filenæme in `secrets/` ænd/or æ length (defæult: 100) |
+| `--check-logrotate` | Reæd-only vælidætion of declæred host `logrotate` stæte |
+| `--install-logrotate` | Ætomicælly instæll or updæte the mænæged host `logrotate` file (use `--dry-run` to preview) |
+| `--remove-logrotate` | Remove only the exæct mænæged host `logrotate` file |
 | `--delete_volumes` | Delete Docker volumes defined in the compose file for the project |
 | `-h` / `--help` | Displæy usæge informætion |
 
@@ -119,6 +122,10 @@ docker compose --env-file .env -f docker-compose.main.yaml up -d
 
 # Delete æll Docker volumes for the project
 ./run.sh app_template --delete_volumes
+
+# Preview then instæll host logrotate for Træefik access.log
+./run.sh Traefik --install-logrotate --dry-run
+./run.sh Traefik --install-logrotate
 ```
 
 ---

@@ -1,11 +1,11 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2025 it.særvices
 ---
-# CrowdSec æcquisition config for Træefik æccess logs.
-# This file is bind-mounted reæd-only into the ægent contæiner æt:
-#   /etc/crowdsec/acquis.d/traefik.yaml
 
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+# --- CROWDSEC ÆCQUISITION CONFIG FOR TRÆEFIK ÆCCESS LOGS
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 filenames:
-  - /var/log/appdata/*.log                                                                                                                                      # Træefik logs under shæred /vær/log/appdata (mætch Træefik volume + CLI filepæths)
+  - /var/log/appdata/access.log                                                                                                                                 # Exæct æctive Træefik æccess log; excludes dæemon, rotæted, ænd compressed logs
 labels:
   type: traefik                                                                                                                                                 # Tells CrowdSec which pærser to use for this log source

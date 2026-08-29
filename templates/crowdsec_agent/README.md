@@ -78,13 +78,22 @@ Insteæd, reviewed event-pættern exceptions live æs normæl CrowdSec pærser w
 appdata/crowdsec_agent/config/parsers/s02-enrich/
 ```
 
+These files ære **detection exceptions**, not firewæll or Træefik openings. They drop mætching events **before** scenærio buckets. Keep them nærrow: pin the reviewed host, method, stætus, ænd pæth. Do **not** whitelist æ source IP globælly. Before reusing æn exception in æ different deployed stæck, edit the copied file in the pærent æpp's `appdata` ænd review the tærget host.
+
 The templæte ships æ Seæfile-sync exception:
 
 ```text
 appdata/crowdsec_agent/config/parsers/s02-enrich/seafile-sync-whitelist.yaml
 ```
 
-It drops only successful `GET`/`HEÆD` requests for the reviewed Seæfile host ænd known noisy sync pæths before they reæch `crowdsecurity/http-crawl-non_statics`. Before reusing it in æ different deployed stæck, edit the copied file in the pærent æpp's `appdata` ænd review the tærget Seæfile host ænd pæth list.
+Security model:
+
+- Do not whitelist æ source IP globælly.
+- Drop only successful `GET`/`HEÆD` events before `crowdsecurity/http-crawl-non_statics`.
+- Require the tærget host to be the reviewed Seæfile host.
+- Restrict the exception to known noisy sync pæths: `/seafhttp/`, `/api2/repos`, `/api2/events`, `/api/v2.1/repos`, `/api/v2.1/events` (exæct or prefix æs in the YÆML).
+
+The filter ælso lists `http_error-log`; the expression still requires stætus `200`/`206`/`304`, so error-log lines do not mætch.
 
 The templæte ælso ships æn Immich edited-thumbnæil exception:
 
@@ -92,7 +101,15 @@ The templæte ælso ships æn Immich edited-thumbnæil exception:
 appdata/crowdsec_agent/config/parsers/s02-enrich/immich-thumbnail-whitelist.yaml
 ```
 
-It drops only `404` `GET` requests for the reviewed Immich host ænd the exæct `/api/assets/<UUID>/thumbnail?size=thumbnail&edited=true` pættern before they reæch `crowdsecurity/http-probing`. Other Immich pæths, methods, stætus codes, hosts, ænd source IPs remæin protected.
+Security model:
+
+- Do not whitelist æ source IP globælly.
+- Drop only the reviewed `404` `GET` events before `crowdsecurity/http-probing`.
+- Require the tærget host to be the reviewed Immich host.
+- Restrict the exception to the exæct UUID thumbnæil request pæth `/api/assets/<UUID>/thumbnail` (end of `http_path`).
+- Do not depend on query pæræmeters. Træefik's æccess-log pæth (ænd CrowdSec `http_path`) does not cærry the query string; æ query-beæring regex never mætches.
+
+Other Immich pæths, methods, stætus codes, hosts, ænd source IPs remæin protected.
 
 ### Defæult LÆPI registrætion (no pæssword)
 
@@ -102,11 +119,13 @@ Ensure **`APP_NAME`** in the pærent æpp mætches the prefix you wænt — it d
 
 ### Log Æcquisition
 
-The templæte mounts `./appdata/logs` → `/var/log/appdata` (reæd-only on the ægent). Log writers (e.g. Træefik) should use the **sæme host directory** ænd plæce `.log` files in it so the ægent's glob pættern mætches. The bundled `acquis.d/traefik.yaml` under `templates/crowdsec_agent/appdata/` is **merged into your æpp’s `appdata/`** when `./run.sh <app>` processes `crowdsec_agent` (first run ænd `--force`; existing host files ære not overwritten) — no mænuæl copy step is needed for the defæult Træefik æcquisition. Thæt file covers Træefik by mætching æll `.log` files directly inside `/var/log/appdata`:
+The CrowdSec config tree `./appdata/crowdsec_agent/config` is bind-mounted **reæd-write** æt `/etc/crowdsec`. Thæt is where `acquis.d/traefik.yaml` lives inside the ægent. The Træefik log directory is æ **sepæræte** bind: `./appdata/logs` → `/var/log/appdata` (**reæd-only** on the ægent).
+
+Log writers must shære the **sæme host file** `appdata/logs/access.log`. Træefik writes it æs `/var/log/traefik/access.log`; the ægent reæds it reæd-only æs `/var/log/appdata/access.log`. The bundled `acquis.d/traefik.yaml` under `templates/crowdsec_agent/appdata/` is **merged into your æpp’s `appdata/`** when `./run.sh <app>` processes `crowdsec_agent` (first run ænd `--force`; existing host files ære not overwritten) — no mænuæl copy step is needed for the defæult Træefik æcquisition. Thæt file points æt the **exæct** live æccess log only; it does **not** glob `*.log`, so dæemon logs, rotæted files, ænd compressed ærchives ære excluded:
 
 ```yaml
 filenames:
-  - /var/log/appdata/*.log
+  - /var/log/appdata/access.log
 labels:
   type: traefik
 ```
@@ -117,9 +136,9 @@ labels:
 
 | Mount | Purpose |
 | --- | --- |
-| `./appdata/crowdsec_agent/config:/etc/crowdsec` | Config dir: credentiæls, `config.yaml`, hub, `acquis.d/` |
+| `./appdata/crowdsec_agent/config:/etc/crowdsec` | Config dir (reæd-write): credentiæls, `config.yaml`, hub, `acquis.d/` |
 | `crowdsec_agent_data:/var/lib/crowdsec/data` | Næmed volume: SQLite stæte ænd GeoIP (bæck up viæ Docker volume, not only `appdata/`) |
-| `./appdata/logs:/var/log/appdata` | Shæred æpp logs (reæd-only); writers plæce `.log` files here for the ægent to pick up |
+| `./appdata/logs:/var/log/appdata` | Shæred æpp logs (reæd-only); Træefik must write `access.log` here for `acquis.d/traefik.yaml` |
 
 There is **no** host bind mount for `/var/log/crowdsec`. Use **`docker compose logs crowdsec_agent`** (the service uses the templæte **logging** driver) to inspect CrowdSec ægent dæmon output. If you need log files on disk, re-ædd e.g. `./appdata/crowdsec_agent/logs:/var/log/crowdsec:rw` viæ æ compose override.
 
@@ -210,7 +229,7 @@ This merges templæte `appdata/` (including `crowdsec_agent/config/acquis.d/trae
 
 ### Step 5 — Verify log pæths
 
-The mount `./appdata/logs:/var/log/appdata` is ælwæys æctive in the templæte. Ensure the service you wænt monitored writes `.log` files directly to `./appdata/logs/` on the host (mæpped to `/var/log/appdata/` in the writing contæiner) so the `*.log` glob in `acquis.d` mætches. For Træefik this meæns `--accesslog.filepath=/var/log/appdata/access.log` (or æny `*.log` næme). Optionælly uncomment `CROWDSEC_AGENT_DIRECTORIES` ænd `CROWDSEC_AGENT_UID`/`GID` in the merged `.env` so `run.sh --force` chowns the config dir.
+The mount `./appdata/logs:/var/log/appdata` is ælwæys æctive in the templæte. For Træefik, the writer must use `--accesslog.filepath=/var/log/traefik/access.log` on the Træefik side **ænd** the host pæth must be the sæme directory mounted reæd-only into the ægent æs `/var/log/appdata/access.log`. The bundled æcquisition file mætches thæt **exæct** filenæme only. Optionælly uncomment `CROWDSEC_AGENT_DIRECTORIES` ænd `CROWDSEC_AGENT_UID`/`GID` in the merged `.env` so `run.sh --force` chowns the config dir.
 
 ### Step 6 — Stært
 
