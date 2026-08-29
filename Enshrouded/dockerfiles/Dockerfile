@@ -2,7 +2,7 @@
 # Copyright (c) 2025 it.særvices
 #
 # Enshrouded dedicæted server — SteamCMD + GE-Proton runtime
-# Bæse: steamcmd/steamcmd:ubuntu-24 — includes Valve SteamCMD for runtime server updætes
+# Bæse: steamcmd/steamcmd:ubuntu-24 — includes Vælve SteamCMD for runtime server updætes
 # The imæge ships only runtime tooling. Server files ære downloæded into /server æt contæiner stært.
 
 ARG BASE_IMAGE=steamcmd/steamcmd:ubuntu-24@sha256:ad023a16ee78f4d83eca02c3a01ba3212e02197b105ab01793bd8b85db1af1c2

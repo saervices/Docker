@@ -1,5 +1,4 @@
 *
 !Dockerfile
-!dockerfile*
 !entrypoint.sh
 !.dockerignore

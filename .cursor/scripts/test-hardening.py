@@ -186,6 +186,106 @@ def main() -> None:
     checker = load_checker()
     compliance = load_compliance_checker()
 
+    moving_build = {
+        "image": "local/reviewed:current",
+        "pull_policy": "build",
+        "build": {
+            "context": "./dockerfiles",
+            "pull": True,
+            "no_cache": True,
+        },
+    }
+    require(
+        not checker.check_moving_build_refresh_contract(
+            "Fixture/docker-compose.app.yaml",
+            "builder",
+            copy.deepcopy(moving_build),
+        ),
+        "æ moving custom build with literæl pull ænd no-cache booleæns must pæss",
+    )
+    for field in ("pull", "no_cache"):
+        for label, value in (("missing", None), ("false", False), ("string", "true")):
+            invalid = copy.deepcopy(moving_build)
+            if label == "missing":
+                del invalid["build"][field]
+            else:
+                invalid["build"][field] = value
+            errors = checker.check_moving_build_refresh_contract(
+                "Fixture/docker-compose.app.yaml",
+                "builder",
+                invalid,
+            )
+            require(
+                any(f"build.{field}: true" in error for error in errors),
+                f"pull_policy: build must reject {label} build.{field}",
+            )
+
+    shorthand_errors = checker.check_moving_build_refresh_contract(
+        "Fixture/docker-compose.app.yaml",
+        "builder",
+        {"pull_policy": "build", "build": "./dockerfiles"},
+    )
+    require(
+        len(shorthand_errors) == 2
+        and any("build.pull: true" in error for error in shorthand_errors)
+        and any("build.no_cache: true" in error for error in shorthand_errors),
+        "short-form moving builds must fæil both explicit refresh booleæns",
+    )
+
+    digest_image = "vendor/example@sha256:" + ("a" * 64)
+    for label, service in (
+        ("digest-only", {"image": digest_image, "pull_policy": "build"}),
+        ("no-build", {"image": "vendor/example:current"}),
+        (
+            "non-build-policy",
+            {
+                "pull_policy": "always",
+                "build": {"context": ".", "pull": False, "no_cache": "true"},
+            },
+        ),
+        ("empty-build", {"pull_policy": "build", "build": ""}),
+    ):
+        require(
+            not checker.check_moving_build_refresh_contract(
+                "Fixture/docker-compose.app.yaml",
+                label,
+                service,
+            ),
+            f"{label} must not be misclæssified æs æn æctive moving build contræct",
+        )
+
+    tls_options = checker.load_yaml(
+        REPO_ROOT / "Traefik/appdata/config/conf.d/tls-opts.yaml"
+    )
+    tls_root = tls_options.get("tls", {})
+    require(
+        isinstance(tls_root, dict),
+        "Træefik TLS configurætion must be æ mæpping",
+    )
+    option_profiles = tls_root.get("options", {})
+    require(
+        isinstance(option_profiles, dict),
+        "Træefik TLS options must be æ mæpping",
+    )
+    for profile_name in ("default", "global-tls-opts"):
+        profile = option_profiles.get(profile_name, {})
+        require(
+            isinstance(profile, dict),
+            f"Træefik TLS profile '{profile_name}' must be æ mæpping",
+        )
+        require(
+            profile.get("minVersion") == "VersionTLS13",
+            f"Træefik TLS profile '{profile_name}' must require TLS 1.3",
+        )
+        require(
+            profile.get("sniStrict") is True,
+            f"Træefik TLS profile '{profile_name}' must enforce strict SNI",
+        )
+    require(
+        option_profiles["default"] == option_profiles["global-tls-opts"],
+        "Træefik's defæult ænd næmed TLS profiles must remæin identicæl",
+    )
+
     with tempfile.TemporaryDirectory(prefix="hardening-targets.", dir="/tmp") as raw_root:
         fixture_root = Path(raw_root)
         (fixture_root / "empty").mkdir()
@@ -197,6 +297,19 @@ def main() -> None:
         outside = fixture_root.parent / f"{fixture_root.name}-outside"
         outside.write_text("services: {}\n", encoding="utf-8")
         (fixture_root / "escaping-link").symlink_to(outside)
+        (fixture_root / "docker-compose.alias.yaml").symlink_to(
+            "docker-compose.valid.yaml"
+        )
+        nested_real = fixture_root / "nested-real"
+        nested_real.mkdir()
+        (nested_real / "docker-compose.nested.yaml").write_text(
+            "services: {}\n",
+            encoding="utf-8",
+        )
+        (fixture_root / "nested-link").symlink_to(
+            "nested-real",
+            target_is_directory=True,
+        )
         previous_root = checker.REPO_ROOT
         checker.REPO_ROOT = fixture_root
         try:
@@ -211,12 +324,499 @@ def main() -> None:
                 ("Dockerfile", "not a Docker Compose YAML file"),
                 ("empty", "contains no Docker Compose YAML files"),
                 ("escaping-link", "escapes the repository"),
+                ("docker-compose.alias.yaml", "must not be a symbolic link"),
+                (
+                    "nested-link/docker-compose.nested.yaml",
+                    "must not traverse a symbolic-link path component",
+                ),
             ):
                 files, errors = checker.find_compose_files([target])
                 require(
                     not files and any(expected in error for error in errors),
                     f"explicit checker target '{target}' must fail closed",
                 )
+
+            moving_path = fixture_root / "docker-compose.moving.yaml"
+            moving_fixture = {"services": {"builder": copy.deepcopy(moving_build)}}
+            del moving_fixture["services"]["builder"]["build"]["no_cache"]
+            moving_path.write_text(
+                checker.yaml.safe_dump(moving_fixture, sort_keys=True),
+                encoding="utf-8",
+            )
+            moving_errors, _moving_warnings = checker.check_file(moving_path)
+            require(
+                any(
+                    "pull_policy: build requires build.no_cache: true" in error
+                    for error in moving_errors
+                ),
+                "the file-scænner must wire the moving-build no-cæche contræct",
+            )
+
+            moving_fixture["services"]["builder"]["build"]["no_cache"] = True
+            moving_path.write_text(
+                checker.yaml.safe_dump(moving_fixture, sort_keys=True),
+                encoding="utf-8",
+            )
+            moving_errors, _moving_warnings = checker.check_file(moving_path)
+            require(
+                not any(
+                    "pull_policy: build requires" in error
+                    for error in moving_errors
+                ),
+                "the file-scænner must æccept the complete moving-build contræct",
+            )
+
+            completion_path = fixture_root / "docker-compose.completion.yaml"
+
+            def completion_errors(source: str) -> list[str]:
+                completion_path.write_text(source, encoding="utf-8")
+                found, _warnings = checker.check_file(completion_path)
+                return [
+                    error
+                    for error in found
+                    if any(
+                        marker in error
+                        for marker in (
+                            "post-start completion",
+                            "completion timeout",
+                            "reserved completion",
+                            "restart_policy",
+                            "labelled post-start",
+                        )
+                    )
+                ]
+
+            valid_completion = """services:
+  job:
+    image: local/job:1
+    restart: "no"
+    labels:
+      de.saervices.run.completion-timeout-seconds: "3"
+"""
+            require(
+                not completion_errors(valid_completion),
+                "the strict mapping-form consumerless completion contract must pass",
+            )
+            raw_mutations = {
+                "unquoted-timeout": valid_completion.replace(': "3"', ": 3"),
+                "explicit-string-tag": valid_completion.replace(
+                    ': "3"', ": !!str 3"
+                ),
+                "block-scalar": valid_completion.replace(
+                    ': "3"', ": |-\n        3"
+                ),
+                "list-form": valid_completion.replace(
+                    "    labels:\n      de.saervices.run.completion-timeout-seconds: \"3\"",
+                    "    labels:\n      - de.saervices.run.completion-timeout-seconds=3",
+                ),
+                "duplicate-list": valid_completion.replace(
+                    "    labels:\n      de.saervices.run.completion-timeout-seconds: \"3\"",
+                    "    labels:\n      - de.saervices.run.completion-timeout-seconds=3\n      - de.saervices.run.completion-timeout-seconds=4",
+                ),
+                "duplicate-mapping": valid_completion.replace(
+                    '      de.saervices.run.completion-timeout-seconds: "3"',
+                    '      de.saervices.run.completion-timeout-seconds: "3"\n      de.saervices.run.completion-timeout-seconds: "4"',
+                ),
+                "reserved-alias": valid_completion.replace(
+                    "completion-timeout-seconds", "completion-shadow"
+                ),
+                "merged-label": """x-completion-labels: &completion-labels
+  de.saervices.run.completion-timeout-seconds: "3"
+services:
+  job:
+    image: local/job:1
+    restart: "no"
+    labels:
+      <<: *completion-labels
+""",
+                "aliased-timeout": """x-completion-timeout: &completion-timeout "3"
+services:
+  job:
+    image: local/job:1
+    restart: "no"
+    labels:
+      de.saervices.run.completion-timeout-seconds: *completion-timeout
+""",
+                "aliased-labels": """x-completion-labels: &completion-labels
+  de.saervices.run.completion-timeout-seconds: "3"
+services:
+  job:
+    image: local/job:1
+    restart: "no"
+    labels: *completion-labels
+""",
+                "aliased-service": """x-completion-job: &completion-job
+  image: local/job:1
+  restart: "no"
+  labels:
+    de.saervices.run.completion-timeout-seconds: "3"
+services:
+  job: *completion-job
+""",
+                "aliased-services": """x-completion-services: &completion-services
+  job:
+    image: local/job:1
+    restart: "no"
+    labels:
+      de.saervices.run.completion-timeout-seconds: "3"
+services: *completion-services
+""",
+                "aliased-label-key": """x-completion-label-key: &completion-label-key de.saervices.run.completion-timeout-seconds
+services:
+  job:
+    image: local/job:1
+    restart: "no"
+    labels:
+      *completion-label-key: "3"
+""",
+                "conflicting-label-merge": """x-completion-labels: &completion-labels
+  de.saervices.run.completion-timeout-seconds: "601"
+services:
+  job:
+    image: local/job:1
+    restart: "no"
+    labels:
+      <<: *completion-labels
+      de.saervices.run.completion-timeout-seconds: "3"
+""",
+            }
+            for label, source in raw_mutations.items():
+                require(
+                    bool(completion_errors(source)),
+                    f"raw Compose {label} completion metadata must fail before normalization",
+                )
+
+            semantic_mutations = {
+                "zero-timeout": valid_completion.replace(': "3"', ': "0"'),
+                "overlong-timeout": valid_completion.replace(': "3"', ': "3601"'),
+                "restart": valid_completion.replace('restart: "no"', 'restart: "always"'),
+                "restart-policy": valid_completion
+                + "    deploy:\n      restart_policy:\n        condition: any\n",
+                "scale": valid_completion + "    scale: 2\n",
+                "replicas": valid_completion + "    deploy:\n      replicas: 2\n",
+                "consumer": valid_completion
+                + "  app:\n    image: local/app:1\n    depends_on:\n      job:\n        condition: service_started\n",
+                "links-consumer": valid_completion
+                + "  app:\n    image: local/app:1\n    links:\n      - job:completion\n",
+                "volumes-from-consumer": valid_completion
+                + "  app:\n    image: local/app:1\n    volumes_from:\n      - job:ro\n",
+                "network-mode-consumer": valid_completion
+                + "  app:\n    image: local/app:1\n    network_mode: service:job\n",
+                "ipc-consumer": valid_completion
+                + "  app:\n    image: local/app:1\n    ipc: service:job\n",
+                "pid-consumer": valid_completion
+                + "  app:\n    image: local/app:1\n    pid: service:job\n",
+                "dynamic-depends-on": valid_completion
+                + "  app:\n    image: local/app:1\n    depends_on:\n      - ${COMPLETION_JOB:-job}\n",
+                "dynamic-links": valid_completion
+                + "  app:\n    image: local/app:1\n    links:\n      - ${COMPLETION_JOB:-job}:completion\n",
+                "dynamic-volumes-from": valid_completion
+                + "  app:\n    image: local/app:1\n    volumes_from:\n      - ${COMPLETION_JOB:-job}:ro\n",
+                "dynamic-network-mode": valid_completion
+                + "  app:\n    image: local/app:1\n    network_mode: ${COMPLETION_MODE:-service:job}\n",
+                "dynamic-ipc": valid_completion
+                + "  app:\n    image: local/app:1\n    ipc: ${COMPLETION_IPC:-service:job}\n",
+                "dynamic-pid": valid_completion
+                + "  app:\n    image: local/app:1\n    pid: ${COMPLETION_PID:-service:job}\n",
+                "extends": valid_completion
+                + "  app:\n    image: local/app:1\n    extends:\n      file: inherited.yaml\n      service: inherited\n",
+                "include": "include:\n  - inherited.yaml\n" + valid_completion,
+                "container-volumes-from": valid_completion
+                + "  app:\n    image: local/app:1\n    volumes_from:\n      - container:completion-job:ro\n",
+                "container-network-mode": valid_completion
+                + "  app:\n    image: local/app:1\n    network_mode: container:completion-job\n",
+                "container-ipc": valid_completion
+                + "  app:\n    image: local/app:1\n    ipc: container:completion-job\n",
+                "container-pid": valid_completion
+                + "  app:\n    image: local/app:1\n    pid: container:completion-job\n",
+                "external-links": valid_completion
+                + "  app:\n    image: local/app:1\n    external_links:\n      - completion-job:completion\n",
+            }
+            for label, source in semantic_mutations.items():
+                require(
+                    bool(completion_errors(source)),
+                    f"completion contract mutation '{label}' must fail closed",
+                )
+
+            gitea_app = fixture_root / checker.GITEA_COMPLETION_APP_COMPOSE
+            gitea_template = (
+                fixture_root / checker.GITEA_COMPLETION_TEMPLATE_COMPOSE
+            )
+            gitea_app.parent.mkdir(parents=True, exist_ok=True)
+            gitea_template.parent.mkdir(parents=True, exist_ok=True)
+            valid_gitea_app = """x-required-services:
+  - gitea-oidc
+services:
+  app:
+    image: local/gitea:1
+"""
+            valid_gitea_template = """services:
+  gitea-oidc:
+    image: local/gitea:1
+    restart: "no"
+    labels:
+      de.saervices.run.completion-timeout-seconds: "600"
+    depends_on:
+      app:
+        condition: service_healthy
+"""
+
+            def gitea_closure_errors(
+                app_source: str = valid_gitea_app,
+                template_source: str = valid_gitea_template,
+            ) -> list[str]:
+                gitea_app.write_text(app_source, encoding="utf-8")
+                gitea_template.write_text(template_source, encoding="utf-8")
+                return checker.check_gitea_completion_closure()
+
+            require(
+                not gitea_closure_errors(),
+                "the exact Gitea root/template completion closure must pass",
+            )
+            require(
+                bool(
+                    gitea_closure_errors(
+                        valid_gitea_app.replace("  - gitea-oidc\n", "")
+                    )
+                ),
+                "Gitea must retain the gitea-oidc required service",
+            )
+            require(
+                bool(
+                    gitea_closure_errors(
+                        valid_gitea_app.replace(
+                            "    image: local/gitea:1\n",
+                            "    image: local/gitea:1\n    depends_on:\n      gitea-oidc:\n        condition: service_started\n",
+                        )
+                    )
+                ),
+                "Gitea must not add a cross-file consumer for the post-start job",
+            )
+            require(
+                bool(
+                    gitea_closure_errors(
+                        template_source=valid_gitea_template.replace(
+                            ': "600"', ': "601"'
+                        )
+                    )
+                ),
+                "Gitea must retain the reviewed exact 600-second timeout",
+            )
+            require(
+                bool(
+                    gitea_closure_errors(
+                        template_source=valid_gitea_template.replace(
+                            "  gitea-oidc:\n",
+                            "  gitea-oidc:\n    image: local/ignored:1\n  gitea-oidc:\n",
+                            1,
+                        )
+                    )
+                ),
+                "Gitea must reject a duplicate gitea-oidc service key before Compose",
+            )
+            require(
+                bool(
+                    gitea_closure_errors(
+                        template_source=valid_gitea_template.replace(
+                            "services:\n",
+                            "services:\n  ignored:\n    image: local/ignored:1\nservices:\n",
+                            1,
+                        )
+                    )
+                ),
+                "Gitea must reject duplicate services mappings before Compose",
+            )
+            require(
+                bool(
+                    gitea_closure_errors(
+                        template_source=valid_gitea_template.replace(
+                            '    labels:\n      de.saervices.run.completion-timeout-seconds: "600"',
+                            '    labels:\n      unrelated: "value"\n    labels:\n      de.saervices.run.completion-timeout-seconds: "600"',
+                        )
+                    )
+                ),
+                "Gitea must reject duplicate labels mappings before Compose",
+            )
+            require(
+                bool(
+                    gitea_closure_errors(
+                        template_source=valid_gitea_template.replace(
+                            ': "600"', ': !!str 600'
+                        )
+                    )
+                ),
+                "Gitea must retain a directly double-quoted timeout source",
+            )
+            require(
+                bool(
+                    gitea_closure_errors(
+                        template_source="""x-gitea-labels: &gitea-labels
+  de.saervices.run.completion-timeout-seconds: "600"
+services:
+  gitea-oidc:
+    image: local/gitea:1
+    restart: "no"
+    labels:
+      <<: *gitea-labels
+    depends_on:
+      app:
+        condition: service_healthy
+"""
+                    )
+                ),
+                "Gitea must reject completion metadata inherited through a YAML merge",
+            )
+            gitea_reference_fields = {
+                "links": "    links:\n      - gitea-oidc:completion\n",
+                "volumes_from": "    volumes_from:\n      - gitea-oidc:ro\n",
+                "network_mode": "    network_mode: service:gitea-oidc\n",
+                "ipc": "    ipc: service:gitea-oidc\n",
+                "pid": "    pid: service:gitea-oidc\n",
+            }
+            for field, source in gitea_reference_fields.items():
+                require(
+                    bool(
+                        gitea_closure_errors(
+                            valid_gitea_app.replace(
+                                "    image: local/gitea:1\n",
+                                "    image: local/gitea:1\n" + source,
+                            )
+                        )
+                    ),
+                    f"Gitea must reject a cross-file {field} consumer of gitea-oidc",
+                )
+            gitea_dynamic_reference_fields = {
+                "depends_on": "    depends_on:\n      - ${OIDC_JOB:-gitea-oidc}\n",
+                "links": "    links:\n      - ${OIDC_JOB:-gitea-oidc}:completion\n",
+                "volumes_from": "    volumes_from:\n      - ${OIDC_JOB:-gitea-oidc}:ro\n",
+                "network_mode": "    network_mode: ${OIDC_MODE:-service:gitea-oidc}\n",
+                "ipc": "    ipc: ${OIDC_IPC:-service:gitea-oidc}\n",
+                "pid": "    pid: ${OIDC_PID:-service:gitea-oidc}\n",
+            }
+            for field, source in gitea_dynamic_reference_fields.items():
+                require(
+                    bool(
+                        gitea_closure_errors(
+                            valid_gitea_app.replace(
+                                "    image: local/gitea:1\n",
+                                "    image: local/gitea:1\n" + source,
+                            )
+                        )
+                    ),
+                    f"Gitea must reject interpolated {field} service references",
+                )
+            require(
+                bool(
+                    gitea_closure_errors(
+                        "include:\n  - observer.yaml\n" + valid_gitea_app
+                    )
+                ),
+                "Gitea root app must reject top-level Compose include",
+            )
+            require(
+                bool(
+                    gitea_closure_errors(
+                        template_source="include:\n  - observer.yaml\n"
+                        + valid_gitea_template
+                    )
+                ),
+                "Gitea OIDC template must reject top-level Compose include",
+            )
+            require(
+                bool(
+                    gitea_closure_errors(
+                        valid_gitea_app.replace(
+                            "    image: local/gitea:1\n",
+                            "    image: local/gitea:1\n    extends:\n      file: observer.yaml\n      service: observer\n",
+                        )
+                    )
+                ),
+                "Gitea completion closure must reject service extends",
+            )
+            require(
+                bool(
+                    gitea_closure_errors(
+                        template_source="""x-gitea-job: &gitea-job
+  image: local/gitea:1
+  restart: "no"
+  labels:
+    de.saervices.run.completion-timeout-seconds: "600"
+  depends_on:
+    app:
+      condition: service_healthy
+services:
+  gitea-oidc: *gitea-job
+"""
+                    )
+                ),
+                "Gitea must reject an aliased gitea-oidc service mapping",
+            )
+            observer_dir = fixture_root / "templates/observer"
+            observer_dir.mkdir(parents=True, exist_ok=True)
+            observer_path = observer_dir / "docker-compose.observer.yaml"
+            observer_path.write_text(
+                """services:
+  observer:
+    image: local/observer:1
+    depends_on:
+      gitea-oidc:
+        condition: service_started
+""",
+                encoding="utf-8",
+            )
+            app_with_observer = valid_gitea_app.replace(
+                "  - gitea-oidc\n",
+                "  - gitea-oidc\n  - observer\n",
+            )
+            require(
+                bool(gitea_closure_errors(app_with_observer)),
+                "Gitea must inspect a newly required template for completion consumers",
+            )
+
+            observer_child_dir = fixture_root / "templates/observer-child"
+            observer_child_dir.mkdir(parents=True, exist_ok=True)
+            observer_child_path = (
+                observer_child_dir / "docker-compose.observer-child.yaml"
+            )
+            observer_path.write_text(
+                """x-required-services:
+  - observer-child
+services:
+  observer:
+    image: local/observer:1
+""",
+                encoding="utf-8",
+            )
+            observer_child_path.write_text(
+                """services:
+  observer-child:
+    image: local/observer-child:1
+    network_mode: service:gitea-oidc
+""",
+                encoding="utf-8",
+            )
+            require(
+                bool(gitea_closure_errors(app_with_observer)),
+                "Gitea must recursively inspect nested required templates for completion consumers",
+            )
+            linked_target = fixture_root / "templates/linked-target"
+            linked_target.mkdir(parents=True, exist_ok=True)
+            (linked_target / "docker-compose.linked-observer.yaml").write_text(
+                "services:\n  linked-observer:\n    image: local/observer:1\n",
+                encoding="utf-8",
+            )
+            (fixture_root / "templates/linked-observer").symlink_to(
+                "linked-target",
+                target_is_directory=True,
+            )
+            app_with_linked_observer = valid_gitea_app.replace(
+                "  - gitea-oidc\n",
+                "  - gitea-oidc\n  - linked-observer\n",
+            )
+            require(
+                bool(gitea_closure_errors(app_with_linked_observer)),
+                "Gitea must reject required Compose files below a symlinked template directory",
+            )
         finally:
             checker.REPO_ROOT = previous_root
             outside.unlink()

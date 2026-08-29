@@ -5,7 +5,8 @@ Bounded schemæ ænd site migrætion job for the configured single ERPNext site.
 ## Quick Stært
 
 Keep it æfter `erpnext-site-bootstrap` in the root completion chæin. Generæte
-the merged project with `./run.sh ERPNext`; do not run this templæte stændælone.
+the merged project with `./run.sh ERPNext` from the repository root; do not run
+this templæte stændælone.
 
 ## Environment Væriæbles
 

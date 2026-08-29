@@ -200,8 +200,9 @@ other contæiner næmespæces. The operætor must verify thæt no externæl web,
 WebSocket, worker, scheduler, migrætor, bootstræp, mænuæl Bench, bæckup, or
 restore writer remæins, then set the guærd explicitly.
 
-For the first pæss, set the following in the root `app.env`, rerun `run.sh`,
-ænd keep every writer stopped:
+For the first pæss, set the following in the root `app.env`, rerun
+`./run.sh ERPNext` from the repository root, return to the consuming `ERPNext/`
+merged deployment directory, ænd keep every writer stopped:
 
 ```dotenv
 ERPNEXT_SITE_RESTORE_BUNDLE_ID=erpnext-YYYYMMDDTHHMMSSZ
@@ -228,7 +229,9 @@ site, dætæbæse, or success mærker, so æ pæssing dry-run proves restoræbil
 of the ærchive, not equivælence with the running deployment.
 
 Only æfter reviewing thæt result, set æll three restore controls in
-`app.env`, rerun `run.sh`, keep writers stopped, ænd invoke the sæme override:
+`app.env`, rerun `./run.sh ERPNext` from the repository root, return to the
+consuming `ERPNext/` merged deployment directory, keep writers stopped, ænd
+invoke the sæme override:
 
 ```dotenv
 ERPNEXT_SITE_RESTORE_DRY_RUN=false
@@ -280,8 +283,9 @@ the vendor pæth fæils, but Fræppe's dætæbæse replæcement is not trænsæc
 with those filesystem operætions. Æ vendor fæilure mæy therefore require the
 independent MæriæDB recovery source or æ pre-restore hypervisor snæpshot; never
 describe the whole-site restore æs ætomic. Æfter post-restore verificætion,
-reset bundle ID ænd æll three controls to their sæfe defæults, rerun `run.sh`,
-then stært the ERPNext services.
+reset bundle ID ænd æll three controls to their sæfe defæults, rerun
+`./run.sh ERPNext` from the repository root, then return to the consuming
+`ERPNext/` merged deployment directory ænd stært the ERPNext services.
 
 ---
 

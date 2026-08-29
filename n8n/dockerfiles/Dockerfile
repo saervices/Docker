@@ -34,27 +34,29 @@ LABEL org.opencontainers.image.base.name="${BASE_IMAGE_REQUESTED}" \
 USER root
 
 RUN set -eux \
-    && mkdir -p /opt/n8n-oidc \
+    && mkdir -p /opt/n8n-oidc /hooks \
     && build_date="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-    && printf '{\n  "build_info_version": "%s",\n  "build_date": "%s",\n  "base_image": "%s",\n  "base_image_requested": "%s",\n  "oidc_hooks_ref": "%s",\n  "oidc_hooks_requested_ref": "%s",\n  "oidc_hooks_file": "/hooks/hooks.js"\n}\n' \
+    && oidc_resolved_commit="$(wget -qO- \
+       "https://api.github.com/repos/cweagans/n8n-oidc/commits/${OIDC_HOOKS_REF}" \
+       | sed -n 's/^[[:space:]]*"sha": "\([0-9a-f]\{40\}\)",/\1/p' \
+       | head -n 1)" \
+    && printf '%s' "${oidc_resolved_commit}" | grep -Eq '^[0-9a-f]{40}$' \
+    && wget -qO /hooks/hooks.js \
+       "https://raw.githubusercontent.com/cweagans/n8n-oidc/${oidc_resolved_commit}/hooks.js" \
+    && hooks_sha256="$(sha256sum /hooks/hooks.js | awk '{print $1}')" \
+    && printf '{\n  "build_info_version": "%s",\n  "build_date": "%s",\n  "base_image": "%s",\n  "base_image_requested": "%s",\n  "oidc_hooks_ref": "%s",\n  "oidc_hooks_requested_ref": "%s",\n  "oidc_hooks_resolved_commit": "%s",\n  "oidc_hooks_sha256": "%s",\n  "oidc_hooks_file": "/hooks/hooks.js"\n}\n' \
        "${BUILD_INFO_VERSION}" \
        "${build_date}" \
        "${BASE_IMAGE}" \
        "${BASE_IMAGE_REQUESTED}" \
        "${OIDC_HOOKS_REF}" \
        "${OIDC_HOOKS_REQUESTED_REF}" \
+       "${oidc_resolved_commit}" \
+       "${hooks_sha256}" \
        > /opt/n8n-oidc/build-info.json \
-    && chown -R node:node /opt/n8n-oidc \
-    && chmod 755 /opt/n8n-oidc \
-    && chmod 644 /opt/n8n-oidc/build-info.json
-
-RUN set -eux \
-    && mkdir -p /hooks \
-    && wget -qO /hooks/hooks.js \
-       "https://raw.githubusercontent.com/cweagans/n8n-oidc/${OIDC_HOOKS_REF}/hooks.js" \
-    && chown -R node:node /hooks \
-    && chmod 755 /hooks \
-    && chmod 644 /hooks/hooks.js
+    && chown -R node:node /opt/n8n-oidc /hooks \
+    && chmod 755 /opt/n8n-oidc /hooks \
+    && chmod 644 /opt/n8n-oidc/build-info.json /hooks/hooks.js
 
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 # --- ENTRYPOINT

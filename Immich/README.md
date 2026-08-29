@@ -20,6 +20,8 @@ See the [officiæl Immich requirements](https://docs.immich.app/install/requirem
 
 ## Quick Stært
 
+Run every commænd in this Quick Stært from the repository root.
+
 1. Creæte the shæred Docker networks if they do not ælreædy exist:
 
    ```bash
@@ -82,9 +84,8 @@ See the [officiæl Immich requirements](https://docs.immich.app/install/requirem
 5. Stært Immich ænd inspect service heælth:
 
    ```bash
-   cd Immich
-   docker compose --env-file .env -f docker-compose.main.yaml up -d
-   docker compose --env-file .env -f docker-compose.main.yaml ps
+   docker compose --env-file Immich/.env -f Immich/docker-compose.main.yaml up -d
+   docker compose --env-file Immich/.env -f Immich/docker-compose.main.yaml ps
    ```
 
 ---
@@ -347,20 +348,1166 @@ Use æ 3-2-1 bæckup strætegy. Æ complete Immich bæckup contæins the Postgre
 
 Immich's æutomætic dætæbæse dumps live under `BACKUP_LOCATION`, but those dumps contæin metædætæ only. They do not contæin photos or videos ænd do not replæce æn externæl bæckup. For æ minimæl recoveræble set, the dætæbæse, `UPLOAD_LOCATION`, ænd `PROFILE_LOCATION` ære criticæl. Thumbnæils ænd trænscoded videos cæn be regeneræted, but bæcking them up sæves substæntiæl processing time.
 
-For æ consistent mænuæl snæpshot, stop the server while dumping PostgreSQL ænd copying the configured storæge pæths:
+For æ consistent mænuæl recovery point, use æn externæl operætor-owned
+directory, stop the only dætæbæse/mediæ writer, ænd bind the PostgreSQL custom
+ærchive, exæctly five storæge ærchives, deployment inputs, source/template
+locks, rendered Compose, ænd recoveræble imæge bytes to one completion mærker.
+The procedure does not require `.git` in the deployment directory:
+
+Run this block from the repository root.
 
 ```bash
-docker compose --env-file Immich/.env -f Immich/docker-compose.main.yaml stop app
-docker compose --env-file Immich/.env -f Immich/docker-compose.main.yaml exec -T immich-postgres sh -c \
-  'pg_dump --clean --if-exists --dbname="$POSTGRES_DB" --username="$POSTGRES_USER"' \
-  | gzip > /path/to/backup/immich-database.sql.gz
-# Back up every configured *_LOCATION host directory with your backup tool.
-docker compose --env-file Immich/.env -f Immich/docker-compose.main.yaml start app
+set -euo pipefail
+umask 077
+cd Immich
+IMMICH_BACKUP_ROOT=/srv/backups/immich
+IMMICH_PROJECT_ROOT="$(pwd -P)"
+test "$PWD" = "$IMMICH_PROJECT_ROOT"
+test -d "$IMMICH_PROJECT_ROOT" && test ! -L "$IMMICH_PROJECT_ROOT"
+test -n "$IMMICH_BACKUP_ROOT" \
+  && test "${IMMICH_BACKUP_ROOT#/}" != "$IMMICH_BACKUP_ROOT"
+test "$(realpath -m -- "$IMMICH_BACKUP_ROOT")" = "$IMMICH_BACKUP_ROOT"
+case "$IMMICH_BACKUP_ROOT/" in "$IMMICH_PROJECT_ROOT/"* ) exit 1 ;; esac
+case "$IMMICH_PROJECT_ROOT/" in "$IMMICH_BACKUP_ROOT/"* ) exit 1 ;; esac
+IMMICH_BACKUP_STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
+IMMICH_BACKUP_DIR="${IMMICH_BACKUP_ROOT}/${IMMICH_BACKUP_STAMP}"
+install -d -m 0700 "$IMMICH_BACKUP_ROOT"
+mkdir -m 0700 "$IMMICH_BACKUP_DIR"
+test ! -L "$IMMICH_BACKUP_ROOT" && test -d "$IMMICH_BACKUP_ROOT"
+test "$(realpath -e -- "$IMMICH_BACKUP_ROOT")" = "$IMMICH_BACKUP_ROOT"
+test "$(stat -Lc %u -- "$IMMICH_BACKUP_ROOT")" = "$(id -u)"
+test "$(stat -Lc %a -- "$IMMICH_BACKUP_ROOT")" = 700
+IMMICH_PROJECT_ID="$(stat -Lc '%d:%i' -- "$IMMICH_PROJECT_ROOT")"
+exec {project_root_fd}<"$IMMICH_PROJECT_ROOT"
+test "$(readlink -e -- "/proc/${BASHPID}/fd/${project_root_fd}")" = \
+  "$IMMICH_PROJECT_ROOT"
+test "$(stat -Lc '%d:%i' -- "/proc/${BASHPID}/fd/${project_root_fd}")" = \
+  "$IMMICH_PROJECT_ID"
+flock -n -x "$project_root_fd"
+test "$(stat -Lc '%d:%i' -- "$IMMICH_PROJECT_ROOT")" = "$IMMICH_PROJECT_ID"
+test -d .run.conf && test ! -L .run.conf
+IMMICH_RUN_CONF_ID="$(stat -Lc '%d:%i' -- .run.conf)"
+exec {project_lock_fd}<.run.conf
+test "$(stat -Lc '%d:%i' -- "/proc/${BASHPID}/fd/${project_lock_fd}")" = \
+  "$IMMICH_RUN_CONF_ID"
+flock -n -x "$project_lock_fd"
+test ! -L .run.conf
+test "$(stat -Lc '%d:%i' -- .run.conf)" = "$IMMICH_RUN_CONF_ID"
+printf '%s\n' "$IMMICH_PROJECT_ROOT" > "$IMMICH_BACKUP_DIR/project-root.txt"
+
+test -f .run.conf/.templates.lock && test ! -L .run.conf/.templates.lock
+grep -Eq '^([0-9a-f]{40}|[0-9a-f]{64})$' .run.conf/.templates.lock
+test "$(wc -l < .run.conf/.templates.lock)" -eq 1
+install -m 0600 .run.conf/.templates.lock \
+  "$IMMICH_BACKUP_DIR/templates.lock"
+if [[ -e .run.conf/.source.lock || -L .run.conf/.source.lock ]]; then
+  test -f .run.conf/.source.lock && test ! -L .run.conf/.source.lock
+  python3 - .run.conf/.source.lock <<'PY'
+import re
+import sys
+
+lines = open(sys.argv[1], encoding='ascii').read().splitlines()
+if len(lines) != 3 or lines[0] != 'version=1':
+    raise SystemExit('malformed source lock')
+for key, line in zip(('commit', 'tree'), lines[1:]):
+    if not re.fullmatch(fr'{key}=([0-9a-f]{{40}}|[0-9a-f]{{64}})', line):
+        raise SystemExit('malformed source lock')
+PY
+  install -m 0600 .run.conf/.source.lock "$IMMICH_BACKUP_DIR/source.lock"
+  printf '%s\n' 'mode=source-lock' > "$IMMICH_BACKUP_DIR/source-evidence.txt"
+else
+  printf '%s\n' 'mode=deployment-inputs-only' \
+    > "$IMMICH_BACKUP_DIR/source-evidence.txt"
+fi
+
+env -i PATH="$PATH" docker compose --env-file .env \
+  -f docker-compose.main.yaml config \
+  > "$IMMICH_BACKUP_DIR/rendered-compose.yaml"
+env -i PATH="$PATH" docker compose --env-file .env \
+  -f docker-compose.main.yaml config --format json \
+  > "$IMMICH_BACKUP_DIR/rendered-compose.json"
+rendered_project_name="$(python3 - \
+  "$IMMICH_BACKUP_DIR/rendered-compose.json" <<'PY'
+import json
+import sys
+
+name = json.load(open(sys.argv[1], encoding='utf-8')).get('name')
+if not isinstance(name, str) or not name or any(char in name for char in '\t\r\n'):
+    raise SystemExit('rendered Compose project name is invalid')
+print(name)
+PY
+)"
+clean_compose=(env -i PATH="$PATH" docker compose \
+  --project-directory "$IMMICH_PROJECT_ROOT" \
+  --project-name "$rendered_project_name" \
+  --env-file "$IMMICH_PROJECT_ROOT/.env" \
+  -f "$IMMICH_PROJECT_ROOT/docker-compose.main.yaml")
+compose=(docker compose --project-directory "$IMMICH_PROJECT_ROOT" \
+  --project-name "$rendered_project_name" \
+  --env-file "$IMMICH_PROJECT_ROOT/.env" \
+  -f "$IMMICH_PROJECT_ROOT/docker-compose.main.yaml")
+python3 - "$IMMICH_BACKUP_DIR/rendered-compose.json" \
+  "$IMMICH_PROJECT_ROOT" "$IMMICH_BACKUP_ROOT" \
+  > "$IMMICH_BACKUP_DIR/media-paths.tsv" <<'PY'
+import json
+import os
+from pathlib import Path
+import stat
+import sys
+
+wanted = {
+    '/data': 'upload',
+    '/data/thumbs': 'thumbs',
+    '/data/encoded-video': 'encoded-video',
+    '/data/profile': 'profile',
+    '/data/backups': 'backups',
+}
+document = json.load(open(sys.argv[1], encoding='utf-8'))
+project_root = os.path.realpath(sys.argv[2])
+backup_root = os.path.realpath(sys.argv[3])
+protected = [os.path.realpath(path) for path in (
+    'scripts', 'secrets', '.run.conf', 'app.env', '.env',
+    'docker-compose.main.yaml', 'docker-compose.app.yaml',
+) if os.path.lexists(path)]
+volumes = document['services']['app']['volumes']
+selected = {}
+for volume in volumes:
+    target = volume.get('target')
+    if target not in wanted:
+        continue
+    if target in selected or volume.get('type') != 'bind':
+        raise SystemExit(f'invalid or duplicate media mount: {target!r}')
+    source = volume.get('source', '')
+    if not os.path.isabs(source) or any(char in source for char in '\t\r\n'):
+        raise SystemExit(f'non-canonical media source: {source!r}')
+    if '..' in source.split(os.sep) or os.path.normpath(source) != source:
+        raise SystemExit(f'non-canonical media source: {source!r}')
+    absolute = os.path.abspath(source)
+    canonical = os.path.realpath(source)
+    if absolute != canonical:
+        raise SystemExit(f'media source traverses a symlink: {source!r}')
+    if canonical == project_root \
+            or os.path.commonpath((canonical, project_root)) == canonical:
+        raise SystemExit(f'media source contains the project root: {source!r}')
+    if os.path.commonpath((canonical, backup_root)) in (canonical, backup_root):
+        raise SystemExit(f'media source overlaps the recovery root: {source!r}')
+    for deployment_path in protected:
+        if os.path.commonpath((canonical, deployment_path)) in \
+                (canonical, deployment_path):
+            raise SystemExit(
+                f'media source overlaps deployment input: {source!r}')
+    info = os.lstat(source)
+    if not stat.S_ISDIR(info.st_mode):
+        raise SystemExit(f'media source is not a directory: {source!r}')
+    marker_path = Path(source) / '.immich'
+    marker = os.lstat(marker_path)
+    if not stat.S_ISREG(marker.st_mode) or marker.st_nlink != 1:
+        raise SystemExit(f'invalid .immich marker: {marker_path!s}')
+    selected[target] = (canonical, info, marker)
+if set(selected) != set(wanted):
+    raise SystemExit(f'expected exactly five media mounts, got {sorted(selected)}')
+paths = [selected[target][0] for target in wanted]
+identities = [(selected[target][1].st_dev, selected[target][1].st_ino)
+              for target in wanted]
+if len(set(paths)) != 5 or len(set(identities)) != 5:
+    raise SystemExit('media sources must be canonical and unique')
+for index, first in enumerate(paths):
+    for second in paths[index + 1:]:
+        if os.path.commonpath((first, second)) in (first, second):
+            raise SystemExit('media sources must not be ancestors or descendants')
+for target, label in wanted.items():
+    source, info, marker = selected[target]
+    print(label, target, source, info.st_dev, info.st_ino,
+          marker.st_dev, marker.st_ino, sep='\t')
+PY
+
+services_output="$("${clean_compose[@]}" config --services)"
+mapfile -t services <<< "$services_output"
+test "${#services[@]}" -gt 0
+declare -A seen_services=()
+declare -A service_containers=()
+declare -a image_refs=()
+: > "$IMMICH_BACKUP_DIR/image-map.tsv.partial"
+for service in "${services[@]}"; do
+  test -n "$service" && test -z "${seen_services[$service]+set}"
+  seen_services[$service]=1
+  containers_output="$(docker ps -aq \
+    --filter "label=com.docker.compose.project=$rendered_project_name" \
+    --filter "label=com.docker.compose.service=$service")"
+  mapfile -t containers <<< "$containers_output"
+  test "${#containers[@]}" -eq 1
+  test -n "${containers[0]}"
+  service_containers[$service]="${containers[0]}"
+  test "$(docker inspect -f \
+    '{{index .Config.Labels "com.docker.compose.project"}}' \
+    "${containers[0]}")" = "$rendered_project_name"
+  test "$(docker inspect -f \
+    '{{index .Config.Labels "com.docker.compose.service"}}' \
+    "${containers[0]}")" = "$service"
+  image_ref="$(docker inspect -f '{{.Config.Image}}' "${containers[0]}")"
+  image_id="$(docker inspect -f '{{.Image}}' "${containers[0]}")"
+  container_config_hash="$(docker inspect -f \
+    '{{index .Config.Labels "com.docker.compose.config-hash"}}' \
+    "${containers[0]}")"
+  [[ "$container_config_hash" =~ ^[0-9a-f]{64}$ ]]
+  config_hash_override="$IMMICH_BACKUP_DIR/.config-hash-image-override.json"
+  python3 - "$service" "$image_ref" "$config_hash_override" <<'PY'
+import json
+import sys
+
+with open(sys.argv[3], 'w', encoding='utf-8') as stream:
+    json.dump({'services': {sys.argv[1]: {'image': sys.argv[2]}}}, stream)
+PY
+  expected_config_hash_line="$("${clean_compose[@]}" \
+    -f "$config_hash_override" config --hash "$service")"
+  case "$expected_config_hash_line" in
+    "$service "*) ;;
+    *) printf 'invalid Compose config-hash output for %s\n' "$service" >&2
+       exit 1 ;;
+  esac
+  expected_config_hash="${expected_config_hash_line#"$service "}"
+  [[ "$expected_config_hash" =~ ^[0-9a-f]{64}$ ]]
+  test "$expected_config_hash" = "$container_config_hash"
+  rm -- "$config_hash_override"
+  test "$(docker image inspect -f '{{.Id}}' "$image_ref")" = "$image_id"
+  printf '%s\t%s\t%s\n' "$service" "$image_ref" "$image_id" \
+    >> "$IMMICH_BACKUP_DIR/image-map.tsv.partial"
+  image_refs+=("$image_ref")
+done
+project_containers_output="$(docker ps -aq \
+  --filter "label=com.docker.compose.project=$rendered_project_name")"
+mapfile -t project_containers <<< "$project_containers_output"
+test "${#project_containers[@]}" -eq "${#services[@]}"
+for container_id in "${project_containers[@]}"; do
+  test -n "$container_id"
+  container_service="$(docker inspect -f \
+    '{{index .Config.Labels "com.docker.compose.service"}}' "$container_id")"
+  test -n "${seen_services[$container_service]+set}"
+  test "${service_containers[$container_service]}" = "$container_id"
+done
+runtime_yaml="$IMMICH_BACKUP_DIR/.runtime-compose.yaml"
+runtime_json="$IMMICH_BACKUP_DIR/.runtime-compose.json"
+"${compose[@]}" config > "$runtime_yaml"
+"${compose[@]}" config --format json > "$runtime_json"
+cmp -- "$IMMICH_BACKUP_DIR/rendered-compose.yaml" "$runtime_yaml"
+cmp -- "$IMMICH_BACKUP_DIR/rendered-compose.json" "$runtime_json"
+rm -- "$runtime_yaml" "$runtime_json"
+docker network inspect frontend backend \
+  > "$IMMICH_BACKUP_DIR/.network-inspect.json"
+python3 - "$IMMICH_BACKUP_DIR/rendered-compose.json" \
+  "$IMMICH_BACKUP_DIR/.network-inspect.json" frontend backend \
+  > "$IMMICH_BACKUP_DIR/network-evidence.tsv.partial" <<'PY'
+import ipaddress
+import json
+import sys
+
+compose = json.load(open(sys.argv[1], encoding='utf-8'))
+inspected = json.load(open(sys.argv[2], encoding='utf-8'))
+expected = sys.argv[3:]
+networks = compose.get('networks', {})
+if set(networks) != set(expected) or len(expected) != len(set(expected)):
+    raise SystemExit('rendered external-network closure differs')
+by_name = {item.get('Name'): item for item in inspected}
+if set(by_name) != set(expected) or len(inspected) != len(by_name):
+    raise SystemExit('inspected external-network closure differs')
+for key in expected:
+    definition = networks[key]
+    if definition.get('external') is not True or definition.get('name') != key:
+        raise SystemExit(f'external network key/name drift: {key!r}')
+    item = by_name[key]
+    if item.get('Driver') != 'bridge' or item.get('Scope') != 'local':
+        raise SystemExit(f'unsupported external network driver/scope: {key!r}')
+    if any(item.get(field) for field in
+           ('Internal', 'Attachable', 'Ingress', 'ConfigOnly', 'EnableIPv6')):
+        raise SystemExit(f'unsupported external network mode: {key!r}')
+    if item.get('Options') not in ({}, None):
+        raise SystemExit(f'unsupported external network options: {key!r}')
+    ipam = item.get('IPAM', {})
+    if ipam.get('Driver') != 'default' or ipam.get('Options') not in ({}, None):
+        raise SystemExit(f'unsupported external network IPAM: {key!r}')
+    configs = ipam.get('Config', [])
+    if len(configs) != 1:
+        raise SystemExit(f'external network needs exactly one subnet: {key!r}')
+    config = configs[0]
+    if config.get('IPRange') not in (None, '') \
+            or config.get('AuxiliaryAddresses') not in (None, {}):
+        raise SystemExit(f'unsupported external network IPAM detail: {key!r}')
+    subnet = ipaddress.ip_network(config.get('Subnet', ''), strict=True)
+    gateway = ipaddress.ip_address(config.get('Gateway', ''))
+    if gateway.version != subnet.version or gateway not in subnet:
+        raise SystemExit(f'external network gateway is outside subnet: {key!r}')
+    print(key, key, 'bridge', subnet, gateway, sep='\t')
+PY
+rm -- "$IMMICH_BACKUP_DIR/.network-inspect.json"
+mv "$IMMICH_BACKUP_DIR/network-evidence.tsv.partial" \
+  "$IMMICH_BACKUP_DIR/network-evidence.tsv"
+docker version --format '{{.Server.Os}}\t{{.Server.Arch}}' \
+  > "$IMMICH_BACKUP_DIR/engine-platform.tsv.partial"
+test "$(wc -l < "$IMMICH_BACKUP_DIR/engine-platform.tsv.partial")" -eq 1
+case "$(<"$IMMICH_BACKUP_DIR/engine-platform.tsv.partial")" in
+  $'linux\tamd64'|$'linux\tarm64') ;;
+  *) exit 1 ;;
+esac
+mv "$IMMICH_BACKUP_DIR/engine-platform.tsv.partial" \
+  "$IMMICH_BACKUP_DIR/engine-platform.tsv"
+
+"${compose[@]}" stop app
+"${compose[@]}" exec -T \
+  immich-postgres sh -ec \
+  'exec pg_dump --format=custom --clean --if-exists --dbname="$POSTGRES_DB" --username="$POSTGRES_USER"' \
+  > "$IMMICH_BACKUP_DIR/immich-database.dump.partial"
+"${compose[@]}" exec -T \
+  immich-postgres pg_restore --list \
+  < "$IMMICH_BACKUP_DIR/immich-database.dump.partial" >/dev/null
+mv "$IMMICH_BACKUP_DIR/immich-database.dump.partial" \
+  "$IMMICH_BACKUP_DIR/immich-database.dump"
+
+image_refs_output="$(printf '%s\n' "${image_refs[@]}" | LC_ALL=C sort -u)"
+mapfile -t image_refs <<< "$image_refs_output"
+docker image save --output "$IMMICH_BACKUP_DIR/images.tar.partial" \
+  "${image_refs[@]}"
+while IFS=$'\t' read -r service image_ref image_id; do
+  test "$(docker image inspect -f '{{.Id}}' "$image_ref")" = "$image_id"
+  test "$(docker inspect -f '{{.Image}}' \
+    "${service_containers[$service]}")" = "$image_id"
+done < "$IMMICH_BACKUP_DIR/image-map.tsv.partial"
+
+python3 - "$IMMICH_BACKUP_DIR/rendered-compose.json" <<'PY'
+import json
+import os
+import sys
+
+document = json.load(open(sys.argv[1], encoding='utf-8'))
+for service, definition in document['services'].items():
+    build = definition.get('build')
+    if build:
+        raise SystemExit(f'unarchived local build context for {service}: {build!r}')
+PY
+tar --acls --xattrs --numeric-owner \
+  -cpf "$IMMICH_BACKUP_DIR/deployment-inputs.tar.partial" \
+  app.env .env docker-compose.main.yaml docker-compose.app.yaml \
+  scripts secrets
+python3 - "$IMMICH_BACKUP_DIR/deployment-inputs.tar.partial" <<'PY'
+from pathlib import PurePosixPath
+import sys
+import tarfile
+
+allowed = {
+    'app.env', '.env', 'docker-compose.main.yaml',
+    'docker-compose.app.yaml', 'scripts', 'secrets',
+}
+seen = set()
+found = set()
+with tarfile.open(sys.argv[1], 'r:') as archive:
+    for member in archive:
+        path = PurePosixPath(member.name)
+        if path.is_absolute() or not path.parts or '..' in path.parts:
+            raise SystemExit(f'unsafe deployment path: {member.name!r}')
+        normalized = path.as_posix().rstrip('/')
+        if normalized in seen:
+            raise SystemExit(f'duplicate deployment member: {member.name!r}')
+        seen.add(normalized)
+        root = path.parts[0]
+        if root not in allowed:
+            raise SystemExit(f'unexpected deployment root: {member.name!r}')
+        if not (member.isfile() or member.isdir()):
+            raise SystemExit(f'unsafe deployment member type: {member.name!r}')
+        found.add(root)
+if found != allowed:
+    raise SystemExit(f'incomplete deployment roots: {sorted(allowed - found)}')
+PY
+
+: > "$IMMICH_BACKUP_DIR/media-manifest.tsv.partial"
+findmnt --json --output TARGET > "$IMMICH_BACKUP_DIR/host-mounts.json"
+python3 - "$IMMICH_BACKUP_DIR/host-mounts.json" \
+  "$IMMICH_BACKUP_DIR/media-paths.tsv" <<'PY'
+import json
+import os
+import sys
+
+document = json.load(open(sys.argv[1], encoding='utf-8'))
+sources = [line.split('\t')[2] for line in
+           open(sys.argv[2], encoding='utf-8').read().splitlines()]
+stack = list(document.get('filesystems', []))
+targets = []
+while stack:
+    node = stack.pop()
+    stack.extend(node.get('children', []))
+    target = node.get('target')
+    if target and os.path.isabs(target):
+        targets.append(os.path.realpath(target))
+for source in sources:
+    for target in targets:
+        if target != source and os.path.commonpath((source, target)) == source:
+            raise SystemExit(f'nested mount below Immich media path: {target!r}')
+PY
+while IFS=$'\t' read -r label target source source_dev source_ino \
+    marker_dev marker_ino; do
+  test "$(realpath -e -- "$source")" = "$source"
+  test ! -L "$source" && test -d "$source"
+  test "$(stat -Lc '%d:%i' -- "$source")" = "${source_dev}:${source_ino}"
+  test -f "$source/.immich" && test ! -L "$source/.immich"
+  test "$(stat -Lc '%d:%i' -- "$source/.immich")" = \
+    "${marker_dev}:${marker_ino}"
+  test "$(stat -Lc '%h' -- "$source/.immich")" -eq 1
+  media_archive="media-${label}.tar"
+  tar --acls --xattrs --numeric-owner \
+    -cpf "$IMMICH_BACKUP_DIR/${media_archive}.partial" -C "$source" .
+  python3 - "$IMMICH_BACKUP_DIR/${media_archive}.partial" <<'PY'
+import posixpath
+import sys
+import tarfile
+
+seen = set()
+marker = False
+with tarfile.open(sys.argv[1], 'r:') as archive:
+    for member in archive:
+        raw = member.name
+        if raw == '.':
+            normalized = '.'
+        elif raw.startswith('./'):
+            relative = raw[2:]
+            if any(part in ('', '.', '..') for part in relative.split('/')):
+                raise SystemExit(f'non-canonical media path: {raw!r}')
+            normalized = posixpath.normpath(relative)
+        else:
+            raise SystemExit(f'non-staged media path: {raw!r}')
+        if normalized == '..' or normalized.startswith('../') \
+                or posixpath.isabs(normalized):
+            raise SystemExit(f'unsafe media path: {raw!r}')
+        if normalized in seen:
+            raise SystemExit(f'duplicate media member: {raw!r}')
+        seen.add(normalized)
+        if not (member.isfile() or member.isdir()):
+            raise SystemExit(f'unsafe media member type: {raw!r}')
+        if normalized == '.immich':
+            if not member.isfile():
+                raise SystemExit('.immich marker is not a regular file')
+            marker = True
+if not marker:
+    raise SystemExit('media archive lacks .immich marker')
+PY
+  sync "$IMMICH_BACKUP_DIR/${media_archive}.partial"
+  mv "$IMMICH_BACKUP_DIR/${media_archive}.partial" \
+    "$IMMICH_BACKUP_DIR/$media_archive"
+  archive_sha="$(sha256sum "$IMMICH_BACKUP_DIR/$media_archive")"
+  archive_sha="${archive_sha%% *}"
+  printf '%s\t%s\t%s\t%s\t%s\t%s\n' \
+    "$label" "$target" "$source" "$source_dev:$source_ino" \
+    "$media_archive" "$archive_sha" \
+    >> "$IMMICH_BACKUP_DIR/media-manifest.tsv.partial"
+done < "$IMMICH_BACKUP_DIR/media-paths.tsv"
+test "$(wc -l < "$IMMICH_BACKUP_DIR/media-manifest.tsv.partial")" -eq 5
+
+sync "$IMMICH_BACKUP_DIR/deployment-inputs.tar.partial" \
+  "$IMMICH_BACKUP_DIR/images.tar.partial"
+mv "$IMMICH_BACKUP_DIR/deployment-inputs.tar.partial" \
+  "$IMMICH_BACKUP_DIR/deployment-inputs.tar"
+mv "$IMMICH_BACKUP_DIR/images.tar.partial" "$IMMICH_BACKUP_DIR/images.tar"
+mv "$IMMICH_BACKUP_DIR/image-map.tsv.partial" \
+  "$IMMICH_BACKUP_DIR/image-map.tsv"
+mv "$IMMICH_BACKUP_DIR/media-manifest.tsv.partial" \
+  "$IMMICH_BACKUP_DIR/media-manifest.tsv"
+(cd "$IMMICH_BACKUP_DIR" && sha256sum \
+  immich-database.dump deployment-inputs.tar images.tar image-map.tsv \
+  rendered-compose.yaml rendered-compose.json media-paths.tsv host-mounts.json \
+  media-manifest.tsv network-evidence.tsv engine-platform.tsv \
+  project-root.txt source-evidence.txt templates.lock \
+  > recovery-manifest.sha256.partial)
+if [[ -f "$IMMICH_BACKUP_DIR/source.lock" ]]; then
+  (cd "$IMMICH_BACKUP_DIR" && sha256sum source.lock \
+    >> recovery-manifest.sha256.partial)
+fi
+while IFS=$'\t' read -r label target source source_identity \
+    media_archive archive_sha; do
+  test "$(sha256sum "$IMMICH_BACKUP_DIR/$media_archive" | cut -d' ' -f1)" = \
+    "$archive_sha"
+done < "$IMMICH_BACKUP_DIR/media-manifest.tsv"
+mv "$IMMICH_BACKUP_DIR/recovery-manifest.sha256.partial" \
+  "$IMMICH_BACKUP_DIR/recovery-manifest.sha256"
+python3 - "$IMMICH_BACKUP_DIR" "$IMMICH_BACKUP_ROOT" <<'PY'
+import os
+import stat
+import sys
+
+for root, directories, files in os.walk(sys.argv[1], topdown=False, followlinks=False):
+    for name in files:
+        path = os.path.join(root, name)
+        descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+        try:
+            if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+                raise SystemExit(f'non-regular recovery artifact: {path!r}')
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
+    descriptor = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+descriptor = os.open(sys.argv[2], os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+try:
+    os.fsync(descriptor)
+finally:
+    os.close(descriptor)
+PY
+(cd "$IMMICH_BACKUP_DIR" && sha256sum recovery-manifest.sha256 \
+  > recovery-point.complete.partial)
+mv "$IMMICH_BACKUP_DIR/recovery-point.complete.partial" \
+  "$IMMICH_BACKUP_DIR/recovery-point.complete"
+python3 - "$IMMICH_BACKUP_DIR/recovery-point.complete" \
+  "$IMMICH_BACKUP_DIR" "$IMMICH_BACKUP_ROOT" <<'PY'
+import os
+import sys
+
+for path in sys.argv[1:]:
+    flags = os.O_RDONLY | os.O_NOFOLLOW
+    if os.path.isdir(path):
+        flags |= os.O_DIRECTORY
+    descriptor = os.open(path, flags)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+PY
+
+# Only after the complete recovery directory is verified off-host:
+"${compose[@]}" up -d \
+  --no-build --pull never --wait --wait-timeout 300 app
 ```
 
-If the server cænnot be stopped, dump PostgreSQL first ænd copy æll five storæge locætions second. This ordering prevents the restored dætæbæse from referencing mediæ thæt is missing from the filesystem bæckup.
+The five mænifest rows correspond exæctly to `/data`, `/data/thumbs`,
+`/data/encoded-video`, `/data/profile`, ænd `/data/backups`. Cænonicæl-pæth,
+directory, uniqueness, inode, non-symlink, ænd regulær single-link `.immich`
+checks run before ænd æfter the writer stops. Every newly creæted pærtiæl tær
+is rejected before completion if it contæins æ duplicæte, link, device, FIFO,
+socket, unexpected pæth, or no mærker. If the server cænnot be stopped, there
+is no equivælent ætomic recovery point; læbel such æ copy cræsh-consistent
+only. The recovery-only externæl-network override keeps the checksummed
+frontend/backend subnets required by the trusted-proxy policy, uses new
+no-clobber næmes, ænd proves the exæct restored service-member closure.
+The OCI ærchive is plætform-specific: `engine-platform.tsv` requires the sæme
+Linux Docker-server ærchitecture, ænd `amd64` recovery still requires
+Immich's documented `x86-64-v2` CPU level; `arm64` is the other supported
+ærchitecture.
+ænd do not use it æs releæse evidence.
 
-For restore, repopulæte æll configured storæge locætions, including their `.immich` mærker files, verify the mounts ænd ownership, deploy æ compætible Immich version, then use **Ædministrætion → Mæintenænce → Restore dætæbæse bæckup**. The web workflow is preferred; use the [officiæl bæckup ænd restore guide](https://docs.immich.app/administration/backup-and-restore/) for fresh-instæll or commænd-line recovery. Never treæt the PostgreSQL volume or æn æutomætic SQL dump ælone æs æ complete bæckup.
+This runbook intentionælly supports only æ **fresh isolæted recovery host**.
+It refuses æn existing project directory or configured mediæ pæth, ænd the
+selected dedicæted Docker context must contæin no contæiner, imæge, or volume.
+Therefore æ pærtiæl imæge loæd or fæiled dætæbæse/media recovery cænnot mutæte
+æn æctive tæg or expose æ mixed generætion to production: the whole isolæted
+host is discærded before retry. Æn in-plæce restore needs æ sepærætely tested
+dætæbæse-clone plus five-pæth duræble rollbæck trænsæction; this document does
+not clæim one. Network creætion intentionælly precedes the Compose `ERR` træp:
+æ pærtiæl recovery-network set is not reconciled ænd requires immediæte host
+discærd.
+
+Restore the ærchived project æt the exæct cænonicæl pæth recorded by the
+bæckup so æ cleæn render cæn compære byte-for-byte with sæved Compose. Vælidæte
+the deployment tær first, creæte the æbsent project directory, extræct there,
+instæll the ærchived locks, ænd æcquire the sæme project locks æs `run.sh`:
+
+```bash
+set -euo pipefail
+umask 077
+IMMICH_BACKUP_DIR=/srv/backups/immich/YYYYMMDDTHHMMSSZ
+IMMICH_BACKUP_DIR="$(realpath -e -- "$IMMICH_BACKUP_DIR")"
+test -d "$IMMICH_BACKUP_DIR" && test ! -L "$IMMICH_BACKUP_DIR"
+test "$(stat -Lc %u -- "$IMMICH_BACKUP_DIR")" = "$(id -u)"
+test "$(stat -Lc %a -- "$IMMICH_BACKUP_DIR")" = 700
+exec {recovery_lock_fd}<"$IMMICH_BACKUP_DIR"
+flock -n -s "$recovery_lock_fd"
+test -f "$IMMICH_BACKUP_DIR/recovery-point.complete"
+(cd "$IMMICH_BACKUP_DIR" && sha256sum -c recovery-point.complete)
+(cd "$IMMICH_BACKUP_DIR" && sha256sum -c recovery-manifest.sha256)
+saved_engine_platform="$(<"$IMMICH_BACKUP_DIR/engine-platform.tsv")"
+case "$saved_engine_platform" in
+  $'linux\tamd64'|$'linux\tarm64') ;;
+  *) exit 1 ;;
+esac
+test "$(docker version --format '{{.Server.Os}}\t{{.Server.Arch}}')" = \
+  "$saved_engine_platform"
+source_mode="$(<"$IMMICH_BACKUP_DIR/source-evidence.txt")"
+case "$source_mode" in
+  mode=source-lock)
+    test -f "$IMMICH_BACKUP_DIR/source.lock" \
+      && test ! -L "$IMMICH_BACKUP_DIR/source.lock"
+    test "$(grep -Fxc '  source.lock' \
+      "$IMMICH_BACKUP_DIR/recovery-manifest.sha256")" -eq 1
+    ;;
+  mode=deployment-inputs-only)
+    test ! -e "$IMMICH_BACKUP_DIR/source.lock" \
+      && test ! -L "$IMMICH_BACKUP_DIR/source.lock"
+    test "$(grep -Fc '  source.lock' \
+      "$IMMICH_BACKUP_DIR/recovery-manifest.sha256")" -eq 0
+    ;;
+  *) exit 1 ;;
+esac
+python3 - "$IMMICH_BACKUP_DIR/rendered-compose.json" \
+  "$IMMICH_BACKUP_DIR/image-map.tsv" <<'PY'
+import json
+import re
+import sys
+
+services = set(json.load(open(sys.argv[1], encoding='utf-8'))['services'])
+rows = [line.split('\t') for line in
+        open(sys.argv[2], encoding='utf-8').read().splitlines()]
+if len(rows) != len(services) or any(len(row) != 3 for row in rows):
+    raise SystemExit('image map is not an exact service closure')
+mapped = [row[0] for row in rows]
+if set(mapped) != services or len(set(mapped)) != len(mapped):
+    raise SystemExit('image map services are missing, extra, or duplicated')
+references = {}
+for service, reference, image_id in rows:
+    if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.-]*', service):
+        raise SystemExit(f'unsafe service in image map: {service!r}')
+    if not reference or any(char.isspace() or ord(char) < 32 for char in reference):
+        raise SystemExit(f'unsafe reference in image map: {reference!r}')
+    if not re.fullmatch(r'sha256:[0-9a-f]{64}', image_id):
+        raise SystemExit(f'invalid image ID for {service!r}')
+    previous = references.setdefault(reference, image_id)
+    if previous != image_id:
+        raise SystemExit(f'one image reference maps to multiple IDs: {reference!r}')
+PY
+python3 - "$IMMICH_BACKUP_DIR/deployment-inputs.tar" <<'PY'
+from pathlib import PurePosixPath
+import sys
+import tarfile
+
+allowed = {
+    'app.env', '.env', 'docker-compose.main.yaml',
+    'docker-compose.app.yaml', 'scripts', 'secrets',
+}
+seen = set()
+found = set()
+with tarfile.open(sys.argv[1], 'r:') as archive:
+    for member in archive:
+        path = PurePosixPath(member.name)
+        if path.is_absolute() or not path.parts or '..' in path.parts:
+            raise SystemExit(f'unsafe deployment path: {member.name!r}')
+        normalized = path.as_posix().rstrip('/')
+        if normalized in seen:
+            raise SystemExit(f'duplicate deployment member: {member.name!r}')
+        seen.add(normalized)
+        root = path.parts[0]
+        if root not in allowed:
+            raise SystemExit(f'unexpected deployment root: {member.name!r}')
+        if not (member.isfile() or member.isdir()):
+            raise SystemExit(f'unsafe deployment member type: {member.name!r}')
+        found.add(root)
+if found != allowed:
+    raise SystemExit(f'incomplete deployment roots: {sorted(allowed - found)}')
+PY
+IMMICH_PROJECT_ROOT="$(<"$IMMICH_BACKUP_DIR/project-root.txt")"
+test -n "$IMMICH_PROJECT_ROOT" && test "${IMMICH_PROJECT_ROOT#/}" != \
+  "$IMMICH_PROJECT_ROOT"
+test "$(realpath -m -- "$IMMICH_PROJECT_ROOT")" = "$IMMICH_PROJECT_ROOT"
+case "$IMMICH_BACKUP_DIR/" in "$IMMICH_PROJECT_ROOT/"* ) exit 1 ;; esac
+case "$IMMICH_PROJECT_ROOT/" in "$IMMICH_BACKUP_DIR/"* ) exit 1 ;; esac
+test ! -e "$IMMICH_PROJECT_ROOT" && test ! -L "$IMMICH_PROJECT_ROOT"
+IMMICH_PROJECT_PARENT="$(dirname -- "$IMMICH_PROJECT_ROOT")"
+test -d "$IMMICH_PROJECT_PARENT" && test ! -L "$IMMICH_PROJECT_PARENT"
+test "$(realpath -e -- "$IMMICH_PROJECT_PARENT")" = "$IMMICH_PROJECT_PARENT"
+
+# This fresh-host boundary runs before project, image, volume, or media mutation.
+container_inventory="$(docker ps -aq)"
+image_inventory="$(docker image ls -aq)"
+volume_inventory="$(docker volume ls -q)"
+test -z "$container_inventory"
+test -z "$image_inventory"
+test -z "$volume_inventory"
+python3 - "$IMMICH_BACKUP_DIR/media-manifest.tsv" \
+  "$IMMICH_PROJECT_ROOT" "$IMMICH_BACKUP_DIR" <<'PY'
+import os
+import re
+import sys
+
+rows = [line.split('\t') for line in
+        open(sys.argv[1], encoding='utf-8').read().splitlines()]
+project_root = sys.argv[2]
+recovery_point = sys.argv[3]
+expected = {
+    ('upload', '/data'), ('thumbs', '/data/thumbs'),
+    ('encoded-video', '/data/encoded-video'), ('profile', '/data/profile'),
+    ('backups', '/data/backups'),
+}
+if len(rows) != 5 or {tuple(row[:2]) for row in rows} != expected:
+    raise SystemExit('media manifest is not the exact five-path contract')
+if any(len(row) != 6 or not re.fullmatch(r'[0-9a-f]{64}', row[5])
+       for row in rows):
+    raise SystemExit('malformed media manifest row')
+paths = [row[2] for row in rows]
+if len(set(paths)) != 5 or len({row[3] for row in rows}) != 5:
+    raise SystemExit('media manifest paths or identities are not unique')
+protected = [
+    os.path.join(project_root, item) for item in
+    ('scripts', 'secrets', '.run.conf', 'app.env', '.env',
+     'docker-compose.main.yaml', 'docker-compose.app.yaml')
+]
+for path in paths:
+    if not os.path.isabs(path) or any(char in path for char in '\t\r\n'):
+        raise SystemExit('unsafe media target path')
+    if os.path.normpath(path) != path or '..' in path.split(os.sep):
+        raise SystemExit('non-canonical media target path')
+    if os.path.lexists(path):
+        raise SystemExit(f'media target already exists: {path!r}')
+    if path == project_root or os.path.commonpath((path, project_root)) == path:
+        raise SystemExit('media target contains the project root')
+    if os.path.commonpath((path, recovery_point)) in (path, recovery_point):
+        raise SystemExit('media target overlaps the recovery point')
+    for deployment_path in protected:
+        if os.path.commonpath((path, deployment_path)) in \
+                (path, deployment_path):
+            raise SystemExit('media target overlaps deployment input')
+for index, first in enumerate(paths):
+    for second in paths[index + 1:]:
+        if os.path.commonpath((first, second)) in (first, second):
+            raise SystemExit('media target paths overlap')
+PY
+mkdir -m 0700 "$IMMICH_PROJECT_ROOT"
+tar --acls --xattrs --numeric-owner -xpf \
+  "$IMMICH_BACKUP_DIR/deployment-inputs.tar" -C "$IMMICH_PROJECT_ROOT"
+cd "$IMMICH_PROJECT_ROOT"
+mkdir -m 0700 .run.conf
+install -m 0600 "$IMMICH_BACKUP_DIR/templates.lock" \
+  .run.conf/.templates.lock
+if [[ -f "$IMMICH_BACKUP_DIR/source.lock" ]]; then
+  install -m 0600 "$IMMICH_BACKUP_DIR/source.lock" .run.conf/.source.lock
+fi
+
+IMMICH_PROJECT_ID="$(stat -Lc '%d:%i' -- "$IMMICH_PROJECT_ROOT")"
+exec {project_root_fd}<"$IMMICH_PROJECT_ROOT"
+test "$(readlink -e -- "/proc/${BASHPID}/fd/${project_root_fd}")" = \
+  "$IMMICH_PROJECT_ROOT"
+test "$(stat -Lc '%d:%i' -- "/proc/${BASHPID}/fd/${project_root_fd}")" = \
+  "$IMMICH_PROJECT_ID"
+flock -n -x "$project_root_fd"
+test "$(stat -Lc '%d:%i' -- "$IMMICH_PROJECT_ROOT")" = "$IMMICH_PROJECT_ID"
+IMMICH_RUN_CONF_ID="$(stat -Lc '%d:%i' -- .run.conf)"
+exec {project_lock_fd}<.run.conf
+test "$(stat -Lc '%d:%i' -- "/proc/${BASHPID}/fd/${project_lock_fd}")" = \
+  "$IMMICH_RUN_CONF_ID"
+flock -n -x "$project_lock_fd"
+test ! -L .run.conf
+test "$(stat -Lc '%d:%i' -- .run.conf)" = "$IMMICH_RUN_CONF_ID"
+
+clean_rendered_yaml="$(mktemp .run.conf/immich-rendered.XXXXXX.yaml)"
+clean_rendered_json="$(mktemp .run.conf/immich-rendered.XXXXXX.json)"
+env -i PATH="$PATH" docker compose --env-file .env \
+  -f docker-compose.main.yaml config > "$clean_rendered_yaml"
+env -i PATH="$PATH" docker compose --env-file .env \
+  -f docker-compose.main.yaml config --format json > "$clean_rendered_json"
+cmp -- "$IMMICH_BACKUP_DIR/rendered-compose.yaml" "$clean_rendered_yaml"
+cmp -- "$IMMICH_BACKUP_DIR/rendered-compose.json" "$clean_rendered_json"
+rendered_project_name="$(python3 - "$clean_rendered_json" <<'PY'
+import json
+import sys
+
+name = json.load(open(sys.argv[1], encoding='utf-8')).get('name')
+if not isinstance(name, str) or not name or any(char in name for char in '\t\r\n'):
+    raise SystemExit('rendered Compose project name is invalid')
+print(name)
+PY
+)"
+runtime_compose=(docker compose --project-directory "$IMMICH_PROJECT_ROOT" \
+  --project-name "$rendered_project_name" \
+  --env-file "$IMMICH_PROJECT_ROOT/.env" \
+  -f "$IMMICH_PROJECT_ROOT/docker-compose.main.yaml")
+runtime_yaml="$(mktemp .run.conf/immich-runtime.XXXXXX.yaml)"
+runtime_json="$(mktemp .run.conf/immich-runtime.XXXXXX.json)"
+"${runtime_compose[@]}" config > "$runtime_yaml"
+"${runtime_compose[@]}" config --format json > "$runtime_json"
+cmp -- "$clean_rendered_yaml" "$runtime_yaml"
+cmp -- "$clean_rendered_json" "$runtime_json"
+rm -- "$runtime_yaml" "$runtime_json"
+
+python3 - "$IMMICH_PROJECT_ROOT" "$IMMICH_PROJECT_PARENT" <<'PY'
+import os
+import stat
+import sys
+
+for root, directories, files in os.walk(sys.argv[1], topdown=False,
+                                        followlinks=False):
+    for name in files:
+        path = os.path.join(root, name)
+        descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+        try:
+            if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+                raise SystemExit(f'non-regular project artifact: {path!r}')
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
+    descriptor = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+descriptor = os.open(sys.argv[2], os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+try:
+    os.fsync(descriptor)
+finally:
+    os.close(descriptor)
+PY
+
+IMMICH_RESTORE_STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
+IMMICH_MEDIA_JOURNAL=".run.conf/immich-media.${IMMICH_RESTORE_STAMP}.journal"
+test ! -e "$IMMICH_MEDIA_JOURNAL" && test ! -L "$IMMICH_MEDIA_JOURNAL"
+printf '%s\n' 'version=1' 'state=staging' > "$IMMICH_MEDIA_JOURNAL"
+fsync_recovery_metadata() {
+  python3 - "$@" .run.conf <<'PY'
+import os
+import sys
+
+for path in sys.argv[1:]:
+    flags = os.O_RDONLY | os.O_NOFOLLOW
+    if os.path.isdir(path):
+        flags |= os.O_DIRECTORY
+    descriptor = os.open(path, flags)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+PY
+}
+fsync_recovery_metadata "$IMMICH_MEDIA_JOURNAL"
+while IFS=$'\t' read -r label target source source_identity \
+    media_archive archive_sha; do
+  test "$(sha256sum "$IMMICH_BACKUP_DIR/$media_archive" | cut -d' ' -f1)" = \
+    "$archive_sha"
+  python3 - "$IMMICH_BACKUP_DIR/$media_archive" <<'PY'
+import posixpath
+import sys
+import tarfile
+
+seen = set()
+marker = False
+with tarfile.open(sys.argv[1], 'r:') as archive:
+    for member in archive:
+        raw = member.name
+        if raw == '.':
+            normalized = '.'
+        elif raw.startswith('./'):
+            relative = raw[2:]
+            if any(part in ('', '.', '..') for part in relative.split('/')):
+                raise SystemExit(f'non-canonical media path: {raw!r}')
+            normalized = posixpath.normpath(relative)
+        else:
+            raise SystemExit(f'non-staged media path: {raw!r}')
+        if normalized == '..' or normalized.startswith('../') \
+                or posixpath.isabs(normalized) or normalized in seen:
+            raise SystemExit(f'unsafe or duplicate media member: {raw!r}')
+        seen.add(normalized)
+        if not (member.isfile() or member.isdir()):
+            raise SystemExit(f'unsafe media member type: {raw!r}')
+        if normalized == '.immich':
+            if not member.isfile():
+                raise SystemExit('.immich marker is not a regular file')
+            marker = True
+if not marker:
+    raise SystemExit('media archive lacks .immich marker')
+PY
+  test "$(realpath -m -- "$source")" = "$source"
+  test ! -e "$source" && test ! -L "$source"
+  media_parent="$(dirname -- "$source")"
+  if [[ ! -e "$media_parent" && ! -L "$media_parent" ]]; then
+    media_grandparent="$(dirname -- "$media_parent")"
+    test -d "$media_grandparent" && test ! -L "$media_grandparent"
+    mkdir -m 0700 "$media_parent"
+    python3 - "$media_parent" "$media_grandparent" <<'PY'
+import os
+import sys
+
+for path in sys.argv[1:]:
+    descriptor = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+PY
+  fi
+  test -d "$media_parent"
+  test ! -L "$media_parent"
+  test "$(realpath -e -- "$media_parent")" = "$media_parent"
+  stage="${source}.immich-restore-${IMMICH_RESTORE_STAMP}"
+  test ! -e "$stage" && test ! -L "$stage"
+  mkdir -m 0700 "$stage"
+  tar --acls --xattrs --numeric-owner -xpf \
+    "$IMMICH_BACKUP_DIR/$media_archive" -C "$stage"
+  test -f "$stage/.immich" && test ! -L "$stage/.immich"
+  test "$(stat -Lc %h -- "$stage/.immich")" -eq 1
+  stage_id="$(stat -Lc '%d:%i' -- "$stage")"
+  printf 'staged\t%s\t%s\t%s\t%s\n' "$label" "$source" "$stage" \
+    "$stage_id" >> "$IMMICH_MEDIA_JOURNAL"
+done < "$IMMICH_BACKUP_DIR/media-manifest.tsv"
+test "$(grep -c '^staged' "$IMMICH_MEDIA_JOURNAL")" -eq 5
+fsync_recovery_metadata "$IMMICH_MEDIA_JOURNAL"
+
+python3 - "$IMMICH_MEDIA_JOURNAL" <<'PY'
+import os
+import stat
+import sys
+
+for line in open(sys.argv[1], encoding='utf-8'):
+    if not line.startswith('staged\t'):
+        continue
+    _, label, target, stage, identity = line.rstrip('\n').split('\t')
+    for root, directories, files in os.walk(stage, topdown=False, followlinks=False):
+        for name in files:
+            path = os.path.join(root, name)
+            descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+            try:
+                if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+                    raise SystemExit(f'non-regular staged media node: {path!r}')
+                os.fsync(descriptor)
+            finally:
+                os.close(descriptor)
+        descriptor = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        try:
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
+    descriptor = os.open(os.path.dirname(stage), os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+PY
+
+# The dedicated Docker context was proven empty. A partial load makes this host
+# disposable; it can never alter an active tag. Recovery still uses aliases.
+IMMICH_IMAGE_JOURNAL=".run.conf/immich-images.${IMMICH_RESTORE_STAMP}.journal"
+printf '%s\n' 'version=1' 'state=empty-docker-context' \
+  > "$IMMICH_IMAGE_JOURNAL"
+fsync_recovery_metadata "$IMMICH_IMAGE_JOURNAL"
+printf '%s\n' 'state=image-load-starting' >> "$IMMICH_IMAGE_JOURNAL"
+fsync_recovery_metadata "$IMMICH_IMAGE_JOURNAL"
+docker image load --input "$IMMICH_BACKUP_DIR/images.tar"
+printf '%s\n' 'state=loaded' >> "$IMMICH_IMAGE_JOURNAL"
+fsync_recovery_metadata "$IMMICH_IMAGE_JOURNAL"
+IMMICH_IMAGE_OVERRIDE=".run.conf/recovery-images.${IMMICH_RESTORE_STAMP}.yaml"
+printf '%s\n' 'services:' > "$IMMICH_IMAGE_OVERRIDE"
+while IFS=$'\t' read -r service image_ref image_id; do
+  recovery_ref="localhost/immich-recovery-${IMMICH_RESTORE_STAMP}-${service}:locked"
+  docker image tag "$image_id" "$recovery_ref"
+  test "$(docker image inspect -f '{{.Id}}' "$recovery_ref")" = "$image_id"
+  printf '  %s:\n    image: %s\n    pull_policy: never\n    build: null\n' \
+    "$service" "$recovery_ref" >> "$IMMICH_IMAGE_OVERRIDE"
+done < "$IMMICH_BACKUP_DIR/image-map.tsv"
+printf '%s\n' 'state=images-aliased' >> "$IMMICH_IMAGE_JOURNAL"
+fsync_recovery_metadata "$IMMICH_IMAGE_JOURNAL" "$IMMICH_IMAGE_OVERRIDE"
+
+# Publish five absent paths with true RENAME_NOREPLACE and durable progress.
+stage_records_output="$(grep '^staged' "$IMMICH_MEDIA_JOURNAL")"
+mapfile -t stage_records <<< "$stage_records_output"
+test "${#stage_records[@]}" -eq 5
+for stage_record in "${stage_records[@]}"; do
+  IFS=$'\t' read -r record label target stage stage_id <<< "$stage_record"
+  printf 'publishing\t%s\n' "$label" >> "$IMMICH_MEDIA_JOURNAL"
+  fsync_recovery_metadata "$IMMICH_MEDIA_JOURNAL"
+  python3 - "$stage" "$target" <<'PY'
+import ctypes
+import os
+import sys
+
+libc = ctypes.CDLL(None, use_errno=True)
+renameat2 = libc.renameat2
+renameat2.argtypes = [ctypes.c_int, ctypes.c_char_p,
+                      ctypes.c_int, ctypes.c_char_p, ctypes.c_uint]
+renameat2.restype = ctypes.c_int
+if renameat2(-100, os.fsencode(sys.argv[1]), -100, os.fsencode(sys.argv[2]), 1):
+    error = ctypes.get_errno()
+    raise OSError(error, os.strerror(error))
+directory = os.open(os.path.dirname(sys.argv[2]), os.O_RDONLY | os.O_DIRECTORY)
+try:
+    os.fsync(directory)
+finally:
+    os.close(directory)
+PY
+  test ! -e "$stage" && test ! -L "$stage"
+  test "$(stat -Lc '%d:%i' -- "$target")" = "$stage_id"
+  printf 'published\t%s\t%s\n' "$label" "$stage_id" \
+    >> "$IMMICH_MEDIA_JOURNAL"
+  fsync_recovery_metadata "$IMMICH_MEDIA_JOURNAL"
+done
+test "$(grep -c '^published' "$IMMICH_MEDIA_JOURNAL")" -eq 5
+
+IMMICH_NETWORK_OVERRIDE=\
+".run.conf/recovery-networks.${IMMICH_RESTORE_STAMP}.json"
+IMMICH_NETWORK_INVENTORY=\
+".run.conf/recovery-networks.${IMMICH_RESTORE_STAMP}.tsv"
+python3 - "$IMMICH_BACKUP_DIR/network-evidence.tsv" immich \
+  "$IMMICH_RESTORE_STAMP" "$IMMICH_NETWORK_OVERRIDE" \
+  "$IMMICH_NETWORK_INVENTORY" frontend backend <<'PY'
+import ipaddress
+import json
+import os
+import re
+import subprocess
+import sys
+
+evidence, app, stamp, override, inventory, *expected = sys.argv[1:]
+rows = [line.split('\t') for line in
+        open(evidence, encoding='utf-8').read().splitlines()]
+if len(rows) != len(expected) or any(len(row) != 5 for row in rows):
+    raise SystemExit('external-network evidence closure differs')
+if [row[0] for row in rows] != expected or len(set(expected)) != len(expected):
+    raise SystemExit('external-network keys differ')
+owner = f'{app}-{stamp}'
+for path in (override, inventory):
+    if os.path.lexists(path):
+        raise SystemExit(f'recovery network artifact already exists: {path!r}')
+definitions = {}
+created = []
+for key, source_name, driver, subnet_text, gateway_text in rows:
+    if source_name != key or driver != 'bridge' \
+            or not re.fullmatch(r'[a-z0-9][a-z0-9_.-]*', key):
+        raise SystemExit(f'unsupported external-network evidence: {key!r}')
+    subnet = ipaddress.ip_network(subnet_text, strict=True)
+    gateway = ipaddress.ip_address(gateway_text)
+    if gateway.version != subnet.version or gateway not in subnet:
+        raise SystemExit(f'invalid external-network IPAM: {key!r}')
+    name = f'{app}-recovery-{stamp}-{key}'
+    if subprocess.run(['docker', 'network', 'inspect', name],
+                      stdout=subprocess.DEVNULL,
+                      stderr=subprocess.DEVNULL).returncode == 0:
+        raise SystemExit(f'recovery network already exists: {name!r}')
+    network_id = subprocess.check_output([
+        'docker', 'network', 'create', '--driver', 'bridge',
+        '--subnet', str(subnet), '--gateway', str(gateway),
+        '--label', f'io.it-saervices.recovery-owner={owner}', name,
+    ], text=True).strip()
+    if not re.fullmatch(r'[0-9a-f]{64}', network_id):
+        raise SystemExit(f'invalid created network ID: {network_id!r}')
+    result = json.loads(subprocess.check_output(
+        ['docker', 'network', 'inspect', network_id], text=True))
+    if len(result) != 1:
+        raise SystemExit('created network identity is ambiguous')
+    item = result[0]
+    config = item.get('IPAM', {}).get('Config', [])
+    if item.get('Id') != network_id or item.get('Name') != name \
+            or item.get('Driver') != 'bridge' or item.get('Scope') != 'local' \
+            or any(item.get(field) for field in
+                   ('Internal', 'Attachable', 'Ingress', 'ConfigOnly',
+                    'EnableIPv6')) \
+            or item.get('Options') not in ({}, None) or len(config) != 1 \
+            or config[0].get('Subnet') != str(subnet) \
+            or config[0].get('Gateway') != str(gateway) \
+            or item.get('Labels') != {
+                'io.it-saervices.recovery-owner': owner}:
+        raise SystemExit(f'created network differs from evidence: {name!r}')
+    definitions[key] = {'name': name, 'external': True}
+    created.append((key, name, network_id, str(subnet), str(gateway)))
+for path, payload in (
+    (override, json.dumps({'networks': definitions}, sort_keys=True) + '\n'),
+    (inventory, ''.join('\t'.join(row) + '\n' for row in created)),
+):
+    temporary = path + '.partial'
+    descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    try:
+        os.write(descriptor, payload.encode())
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+    os.rename(temporary, path)
+    directory = os.open(os.path.dirname(path), os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        os.fsync(directory)
+    finally:
+        os.close(directory)
+PY
+fsync_recovery_metadata "$IMMICH_NETWORK_OVERRIDE" \
+  "$IMMICH_NETWORK_INVENTORY"
+RECOVERY_COMPOSE=("${runtime_compose[@]}" -f "$IMMICH_IMAGE_OVERRIDE" \
+  -f "$IMMICH_NETWORK_OVERRIDE")
+keep_isolated_stopped() {
+  trap - ERR INT TERM
+  set +e
+  "${RECOVERY_COMPOSE[@]}" down
+  exit 1
+}
+trap keep_isolated_stopped ERR INT TERM
+"${RECOVERY_COMPOSE[@]}" up -d --no-build --pull never --wait \
+  --wait-timeout 180 immich-postgres
+"${RECOVERY_COMPOSE[@]}" exec -T immich-postgres pg_restore --list \
+  < "$IMMICH_BACKUP_DIR/immich-database.dump" >/dev/null
+"${RECOVERY_COMPOSE[@]}" exec -T immich-postgres sh -ec \
+  'exec pg_restore --clean --if-exists --exit-on-error --single-transaction --no-owner --dbname="$POSTGRES_DB" --username="$POSTGRES_USER"' \
+  < "$IMMICH_BACKUP_DIR/immich-database.dump"
+"${RECOVERY_COMPOSE[@]}" up -d --no-build --pull never --wait \
+  --wait-timeout 300
+python3 - "$IMMICH_NETWORK_INVENTORY" "$clean_rendered_json" \
+  "$rendered_project_name" <<'PY'
+import json
+import subprocess
+import sys
+
+inventory, compose_path, project = sys.argv[1:]
+compose = json.load(open(compose_path, encoding='utf-8'))
+for row in open(inventory, encoding='utf-8'):
+    key, name, network_id, subnet, gateway = row.rstrip('\n').split('\t')
+    result = json.loads(subprocess.check_output(
+        ['docker', 'network', 'inspect', network_id], text=True))
+    if len(result) != 1 or result[0].get('Name') != name:
+        raise SystemExit(f'recovery network identity drift: {name!r}')
+    expected = {service for service, definition in compose['services'].items()
+                if key in definition.get('networks', {})}
+    actual = set()
+    containers = result[0].get('Containers') or {}
+    for container_id in containers:
+        detail = json.loads(subprocess.check_output(
+            ['docker', 'inspect', container_id], text=True))
+        if len(detail) != 1:
+            raise SystemExit('recovery network member identity is ambiguous')
+        labels = detail[0].get('Config', {}).get('Labels', {})
+        if labels.get('com.docker.compose.project') != project:
+            raise SystemExit(f'foreign recovery network member: {container_id!r}')
+        service = labels.get('com.docker.compose.service', '')
+        if not service or service in actual:
+            raise SystemExit(f'duplicate recovery network service: {service!r}')
+        actual.add(service)
+    if actual != expected:
+        raise SystemExit(
+            f'recovery network member closure differs for {key!r}: '
+            f'{sorted(actual ^ expected)}')
+PY
+printf '%s\n' 'state=complete' >> "$IMMICH_MEDIA_JOURNAL"
+printf '%s\n' 'state=complete' >> "$IMMICH_IMAGE_JOURNAL"
+fsync_recovery_metadata "$IMMICH_MEDIA_JOURNAL" "$IMMICH_IMAGE_JOURNAL"
+for completed_journal in "$IMMICH_MEDIA_JOURNAL" "$IMMICH_IMAGE_JOURNAL"; do
+  completed_marker="${completed_journal%.journal}.complete"
+  test ! -e "$completed_marker" && test ! -L "$completed_marker"
+  completed_id="$(stat -Lc '%d:%i' -- "$completed_journal")"
+  python3 - "$completed_journal" "$completed_marker" <<'PY'
+import os
+import sys
+
+os.rename(sys.argv[1], sys.argv[2])
+directory = os.open(os.path.dirname(sys.argv[2]), os.O_RDONLY | os.O_DIRECTORY)
+try:
+    os.fsync(directory)
+finally:
+    os.close(directory)
+PY
+  test ! -e "$completed_journal" && test ! -L "$completed_journal"
+  test "$(stat -Lc '%d:%i' -- "$completed_marker")" = "$completed_id"
+done
+trap - ERR INT TERM
+```
+
+The bæckup is PostgreSQL custom formæt. It is intentionælly **not** compætible
+with **Ædministrætion → Mæintenænce → Restore dætæbæse bæckup**, which
+expects Immich's supported SQL bæckup workflow. Do not feed this `.dump` to
+the web UI ænd do not use æ host-version `pg_restore`; the list check ænd full
+`--clean --if-exists --exit-on-error --single-transaction` restore both run
+inside the ærchived, mætching PostgreSQL contæiner. If `ERR`, `INT`, `TERM`,
+`SIGKILL`, or host loss leæves æ `.journal`, the executæble preconditions for
+æ new run remæin fælse: do not reconcile it in plæce or reuse thæt Docker
+dæmon, discærd the whole isolæted host, then retry on æ new empty host. Before
+cutover, verify æsset counts, uploæd/download,
+thumbnæils, video plæybæck/transcoding, profile imæges, æutomætic bæckups,
+jobs, mobile sync, ænd restært persistence. Never treæt the PostgreSQL dump or
+æny subset of the five mediæ trees æs æ complete bæckup.
 
 ---
 
@@ -371,12 +1518,13 @@ For restore, repopulæte æll configured storæge locætions, including their `.
 1. Creæte änd verify æ current dætæbæse-plus-mediæ bæckup.
 2. Reæd the Immich releæse notes ænd æny breæking-chænge notices. Upgræde mobile clients before the server when moving to æ new mæjor version.
 3. Keep `APP_IMAGE` ænd `IMMICH_MACHINE_LEARNING_IMAGE` on the sæme Immich chænnel. This stæck uses the floæting `v3` tæg for both, the PostgreSQL 18 compætibility tæg without æ digest, ænd the floæting Vælkey `9` tæg.
-4. Rebuild the merged stæck ænd redeploy:
+4. Resolve/build exæctly once through the cænonicæl updæte trænsæction. If the
+   project wæs stopped before the updæte, stært only those recorded bytes.
+   Run this block from the repository root:
 
    ```bash
-   ./run.sh Immich
-   docker compose --env-file Immich/.env -f Immich/docker-compose.main.yaml pull
-   docker compose --env-file Immich/.env -f Immich/docker-compose.main.yaml up -d
+   ./run.sh Immich --update
+   docker compose --env-file Immich/.env -f Immich/docker-compose.main.yaml up -d --no-build --pull never
    docker compose --env-file Immich/.env -f Immich/docker-compose.main.yaml ps
    ```
 
@@ -582,6 +1730,7 @@ docker run --rm --user 0 --entrypoint sh \
     test "$(cat /target/PG_VERSION)" = 14
     create_manifest /target > /tmp/target.manifest
     cmp -s /tmp/source.manifest /tmp/target.manifest
+    diff --recursive --brief --no-dereference /source /target
   '
 
 printf '%s\n' "$PG14_ROLLBACK_VOLUME" \
@@ -925,6 +2074,7 @@ docker run --rm --user 0 --entrypoint sh \
     test "$(cat /target/PG_VERSION)" = 14
     create_manifest /target > /tmp/target.manifest
     cmp -s /tmp/source.manifest /tmp/target.manifest
+    diff --recursive --brief --no-dereference /source /target
   '
 
 "${PG14[@]}" up \
@@ -987,7 +2137,7 @@ The non-secret trænsformed files remæin in their privæte per-stært directory
 the contæiner's `/run` tmpfs discærds them on stop. The supervisor does not
 delete through æ dæemon-writæble pæth.
 
-If æn existing deployment wæs initiælized through `sudo` ænd the secrets ære `root:root 0640`, æ regulær user cænnot chænge their group. `run.sh` then stops with the exæct repæir commænd. Repæir only the group ænd mode; do not generæte new pæsswords for æn initiælized dætæbæse:
+If æn existing deployment wæs initiælized through `sudo` ænd the secrets ære `root:root 0640`, æ regulær user cænnot chænge their group. `run.sh` then stops with the exæct repæir commænd. Repæir only the group ænd mode; do not generæte new pæsswords for æn initiælized dætæbæse. Run both blocks below from the repository root:
 
 ```bash
 sudo chgrp 1000 Immich/secrets/IMMICH_POSTGRES_PASSWORD Immich/secrets/IMMICH_VALKEY_PASSWORD
@@ -1063,6 +2213,9 @@ docker compose --env-file .env -f docker-compose.main.yaml exec -T immich-machin
 
 ## Verificætion
 
+Run the repository checks, merge commænds, ænd pæth-quælified Compose
+vælidætion from the repository root:
+
 ```bash
 python3 .cursor/scripts/enforce-branding.py --check Immich templates/immich-postgres templates/immich-valkey templates/immich-machine-learning
 python3 .cursor/scripts/enforce-app-template-compliance.py --check Immich templates/immich-postgres templates/immich-valkey templates/immich-machine-learning
@@ -1077,8 +2230,7 @@ docker compose --env-file Immich/.env -f Immich/docker-compose.main.yaml config
 Æfter stærtup:
 
 ```bash
-cd Immich
-docker compose --env-file .env -f docker-compose.main.yaml ps
-docker compose --env-file .env -f docker-compose.main.yaml logs --tail 100 app immich-postgres immich-valkey immich-machine-learning
-docker compose --env-file .env -f docker-compose.main.yaml exec -T immich-postgres /usr/local/bin/healthcheck.sh
+docker compose --env-file Immich/.env -f Immich/docker-compose.main.yaml ps
+docker compose --env-file Immich/.env -f Immich/docker-compose.main.yaml logs --tail 100 app immich-postgres immich-valkey immich-machine-learning
+docker compose --env-file Immich/.env -f Immich/docker-compose.main.yaml exec -T immich-postgres /usr/local/bin/healthcheck.sh
 ```

@@ -16,6 +16,7 @@ umask 077
 
 readonly VENDOR_DAEMON_BIN="${ESPOCRM_VENDOR_DAEMON_BIN:-docker-daemon.sh}"
 readonly DRAIN_TIMEOUT_SECONDS="${ESPOCRM_DAEMON_DRAIN_TIMEOUT:-50}"
+readonly RUNTIME_LOCK_HELPER="${ESPOCRM_RUNTIME_LOCK_HELPER:-/usr/local/lib/espocrm-runtime-lock.sh}"
 
 CHILD_PID=""
 TERM_RECEIVED=0
@@ -57,8 +58,24 @@ forward_term() {
 
 trap forward_term TERM INT
 
+[[ -f "${RUNTIME_LOCK_HELPER}" && ! -L "${RUNTIME_LOCK_HELPER}" ]] || {
+    printf '[espocrm-daemon] ERROR: Runtime lock helper is missing or unsafe.\n' >&2
+    exit 1
+}
+# shellcheck source=/dev/null
+source "${RUNTIME_LOCK_HELPER}"
+acquire_espocrm_runtime_lock shared
+
+if (( TERM_RECEIVED )); then
+    log_ok "Shutdown arrived before dæmon spawn; no vendor process was started."
+    exit 0
+fi
+
 "${VENDOR_DAEMON_BIN}" &
 CHILD_PID=$!
+if (( TERM_RECEIVED )); then
+    kill -TERM "${CHILD_PID}" 2>/dev/null || true
+fi
 
 exit_status=0
 while true; do

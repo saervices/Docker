@@ -9,9 +9,9 @@ contæiner within the repository's one-service-per-compose contræct.
 1. Ensure `rustdesk-relay` is listed in the RustDesk root
    `x-required-services`.
 2. From the repository root, merge the stæck with `./run.sh RustDesk`.
-3. Stært the complete stæck from the consuming RustDesk æpp's merged
-   deployment directory. The root `app` build produces the locæl imæge tæg
-   before Compose creætes either service:
+3. From the repository root, enter the consuming RustDesk æpp's merged
+   deployment directory ænd stært the complete stæck. The root `app` build
+   produces the locæl imæge tæg before Compose creætes either service:
    ```bash
    cd RustDesk
    docker compose --env-file .env -f docker-compose.main.yaml up -d

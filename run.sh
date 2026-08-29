@@ -30,6 +30,10 @@ readonly HOST_LOGROTATE_ROOT_TEE_BIN="/usr/bin/tee"
 readonly HOST_LOGROTATE_ROOT_CHMOD_BIN="/usr/bin/chmod"
 readonly HOST_LOGROTATE_ROOT_MV_BIN="/usr/bin/mv"
 readonly HOST_LOGROTATE_ROOT_RM_BIN="/usr/bin/rm"
+readonly POST_START_COMPLETION_LABEL="de.saervices.run.completion-timeout-seconds"
+readonly POST_START_COMPLETION_LABEL_PREFIX="de.saervices.run.completion-"
+readonly POST_START_COMPLETION_MAX_TIMEOUT_SECONDS=3600
+readonly UPDATE_FINAL_RECONCILIATION_TIMEOUT_SECONDS=60
 
 # Per-secret generætor lengths loæded from the root Compose metædætæ.
 declare -A SECRET_GENERATION_LENGTHS=()
@@ -4958,20 +4962,348 @@ set_permissions() {
 }
 
 #ææææææææææææææææææææææææææææææææææ
-# FUNCTION: inspect_project_activity
-#   Cæptures whether æny Compose-mænæged contæiner is running before pulls or
-#   builds. Æ fully stopped project must remæin stopped æfter --update.
-#   Ærguments:
-#     $1 - pæth to merged compose YÆML file
-#     $2 - pæth to Compose env file
-#     $3 - rendered Compose JSON
-#     $4 - output booleæn væriæble næme
+# FUNCTION: capture_update_file_contract
+#   Cæptures one regulær file's exæct identity ænd byte digest without printing
+#   its contents. Privæte snæpshot files additionally require mode 0600.
 #ææææææææææææææææææææææææææææææææææ
-inspect_project_activity() {
+capture_update_file_contract() {
+  local path="$1"
+  local identity_output_name="$2"
+  local hash_output_name="$3"
+  local require_private="${4:-false}"
+  local metadata digest extra
+  local device inode uid mode
+  local -n identity_ref="$identity_output_name"
+  local -n hash_ref="$hash_output_name"
+
+  if [[ ! -f "$path" || -L "$path" ]]; then
+    return 1
+  fi
+  metadata=$(/usr/bin/stat -Lc '%d:%i:%u:%a' -- "$path") || return 1
+  IFS=: read -r device inode uid mode extra <<< "$metadata"
+  if [[ -n "$extra" || ! "${device}:${inode}" =~ ^[0-9]+:[0-9]+$ ]]; then
+    return 1
+  fi
+  if [[ "$require_private" == true && ( "$uid" != "$EUID" || "$mode" != 600 ) ]]; then
+    return 1
+  fi
+  read -r digest extra < <(/usr/bin/sha256sum -- "$path") || return 1
+  if [[ ! "$digest" =~ ^[0-9a-f]{64}$ || -z "$extra" ]]; then
+    return 1
+  fi
+  identity_ref="${device}:${inode}"
+  hash_ref="$digest"
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: prepare_update_snapshot
+#   Pins æ mode-0700 temporæry directory ænd copies the exæct Compose/env bytes
+#   into mode-0600 files before Docker inspects or mutætes deployment stæte.
+#ææææææææææææææææææææææææææææææææææ
+prepare_update_snapshot() {
   local merged_compose_file="$1"
   local env_file="$2"
-  local rendered_compose="$3"
-  local output_name="$4"
+  local created="" metadata="" opened_identity="" extra=""
+  local device inode uid mode
+
+  if [[ -L "$merged_compose_file" || ! -f "$merged_compose_file" || \
+        -L "$env_file" || ! -f "$env_file" ]]; then
+    log_error "Updæte Compose ænd env inputs must be regulær, non-symlink files."
+    return 1
+  fi
+  UPDATE_SOURCE_COMPOSE=$(/usr/bin/realpath -e -- "$merged_compose_file") || return 1
+  UPDATE_SOURCE_ENV=$(/usr/bin/realpath -e -- "$env_file") || return 1
+  UPDATE_PROJECT_DIRECTORY=$(/usr/bin/realpath -e -- "$(dirname -- "$UPDATE_SOURCE_COMPOSE")") || return 1
+  if [[ ! -d "$UPDATE_PROJECT_DIRECTORY" || -L "$UPDATE_PROJECT_DIRECTORY" ]]; then
+    log_error "Updæte project directory must be æ reæl directory."
+    return 1
+  fi
+  UPDATE_PROJECT_DIRECTORY_IDENTITY=$(/usr/bin/stat -Lc '%d:%i' -- "$UPDATE_PROJECT_DIRECTORY") || return 1
+  [[ "$UPDATE_PROJECT_DIRECTORY_IDENTITY" =~ ^[0-9]+:[0-9]+$ ]] || return 1
+  capture_update_file_contract "$UPDATE_SOURCE_COMPOSE" \
+    UPDATE_SOURCE_COMPOSE_IDENTITY UPDATE_SOURCE_COMPOSE_HASH || {
+    log_error "Fæiled to pin the Compose source identity."
+    return 1
+  }
+  capture_update_file_contract "$UPDATE_SOURCE_ENV" \
+    UPDATE_SOURCE_ENV_IDENTITY UPDATE_SOURCE_ENV_HASH || {
+    log_error "Fæiled to pin the Compose env source identity."
+    return 1
+  }
+
+  created=$(/usr/bin/mktemp -d -- /tmp/run-update-snapshot.XXXXXX) || {
+    log_error "Fæiled to creæte æ privæte updæte snæpshot directory."
+    return 1
+  }
+  UPDATE_SNAPSHOT_DIRECTORY="$created"
+  metadata=$(/usr/bin/stat -Lc '%d:%i:%u:%a' -- "$created") || return 1
+  IFS=: read -r device inode uid mode extra <<< "$metadata"
+  if [[ -n "$extra" || "$created" != /tmp/run-update-snapshot.* || \
+        ! "${device}:${inode}" =~ ^[0-9]+:[0-9]+$ || "$uid" != "$EUID" || "$mode" != 700 ]]; then
+    log_error "Updæte snæpshot directory hæs unsæfe identity or permissions."
+    return 1
+  fi
+  UPDATE_SNAPSHOT_DIRECTORY_IDENTITY="${device}:${inode}"
+  exec {UPDATE_SNAPSHOT_FD}<"$created" || {
+    log_error "Fæiled to pin the updæte snæpshot directory."
+    return 1
+  }
+  UPDATE_SNAPSHOT_FD_PATH="/proc/${BASHPID}/fd/${UPDATE_SNAPSHOT_FD}"
+  opened_identity=$(/usr/bin/stat -Lc '%d:%i' -- "$UPDATE_SNAPSHOT_FD_PATH" 2>/dev/null || true)
+  if [[ "$opened_identity" != "$UPDATE_SNAPSHOT_DIRECTORY_IDENTITY" ]]; then
+    log_error "Updæte snæpshot identity drifted during descriptor pinning."
+    return 1
+  fi
+
+  UPDATE_SNAPSHOT_COMPOSE="${UPDATE_SNAPSHOT_FD_PATH}/compose.yaml"
+  UPDATE_SNAPSHOT_ENV="${UPDATE_SNAPSHOT_FD_PATH}/compose.env"
+  /usr/bin/cp -- "$UPDATE_SOURCE_COMPOSE" "$UPDATE_SNAPSHOT_COMPOSE" || return 1
+  /usr/bin/cp -- "$UPDATE_SOURCE_ENV" "$UPDATE_SNAPSHOT_ENV" || return 1
+  /usr/bin/chmod 600 -- "$UPDATE_SNAPSHOT_COMPOSE" "$UPDATE_SNAPSHOT_ENV" || return 1
+  capture_update_file_contract "$UPDATE_SNAPSHOT_COMPOSE" \
+    UPDATE_SNAPSHOT_COMPOSE_IDENTITY UPDATE_SNAPSHOT_COMPOSE_HASH true || return 1
+  capture_update_file_contract "$UPDATE_SNAPSHOT_ENV" \
+    UPDATE_SNAPSHOT_ENV_IDENTITY UPDATE_SNAPSHOT_ENV_HASH true || return 1
+  if [[ "$UPDATE_SNAPSHOT_COMPOSE_HASH" != "$UPDATE_SOURCE_COMPOSE_HASH" || \
+        "$UPDATE_SNAPSHOT_ENV_HASH" != "$UPDATE_SOURCE_ENV_HASH" ]]; then
+    log_error "Updæte snæpshot bytes differ from the pinned sources."
+    return 1
+  fi
+}
+
+cleanup_update_snapshot() {
+  local current_identity="" opened_identity="" fallback_metadata=""
+
+  if [[ -z "${UPDATE_SNAPSHOT_DIRECTORY:-}" ]]; then
+    return 0
+  fi
+  current_identity=$(/usr/bin/stat -Lc '%d:%i' -- "$UPDATE_SNAPSHOT_DIRECTORY" 2>/dev/null || true)
+  if [[ -n "${UPDATE_SNAPSHOT_FD_PATH:-}" ]]; then
+    opened_identity=$(/usr/bin/stat -Lc '%d:%i' -- "$UPDATE_SNAPSHOT_FD_PATH" 2>/dev/null || true)
+  else
+    opened_identity="$current_identity"
+  fi
+  if [[ ! "${UPDATE_SNAPSHOT_DIRECTORY_IDENTITY:-}" =~ ^[0-9]+:[0-9]+$ ]]; then
+    fallback_metadata=$(/usr/bin/stat -Lc '%u:%a' -- "$UPDATE_SNAPSHOT_DIRECTORY" 2>/dev/null || true)
+    if [[ "$UPDATE_SNAPSHOT_DIRECTORY" == /tmp/run-update-snapshot.* && \
+          ! -L "$UPDATE_SNAPSHOT_DIRECTORY" && "$fallback_metadata" == "${EUID}:700" ]]; then
+      /usr/bin/rmdir -- "$UPDATE_SNAPSHOT_DIRECTORY" 2>/dev/null || true
+    fi
+    [[ ! -e "$UPDATE_SNAPSHOT_DIRECTORY" && ! -L "$UPDATE_SNAPSHOT_DIRECTORY" ]]
+    return
+  fi
+  if [[ "$UPDATE_SNAPSHOT_DIRECTORY" != /tmp/run-update-snapshot.* || \
+        ! "${UPDATE_SNAPSHOT_DIRECTORY_IDENTITY:-}" =~ ^[0-9]+:[0-9]+$ || \
+        "$current_identity" != "$UPDATE_SNAPSHOT_DIRECTORY_IDENTITY" || \
+        "$opened_identity" != "$UPDATE_SNAPSHOT_DIRECTORY_IDENTITY" ]]; then
+    log_error "Preserving æn updæte snæpshot whose pæth or identity drifted."
+    return 1
+  fi
+  /usr/bin/rm -rf --one-file-system -- "$UPDATE_SNAPSHOT_DIRECTORY" || return 1
+  [[ ! -e "$UPDATE_SNAPSHOT_DIRECTORY" && ! -L "$UPDATE_SNAPSHOT_DIRECTORY" ]]
+}
+
+update_snapshot_exit_handler() {
+  local status=$?
+  trap - EXIT
+  trap '' HUP INT TERM
+  if ! cleanup_update_snapshot; then
+    status=1
+  fi
+  if [[ -n "${UPDATE_SNAPSHOT_FD:-}" ]]; then
+    exec {UPDATE_SNAPSHOT_FD}<&-
+  fi
+  exit "$status"
+}
+
+validate_update_live_sources() {
+  local identity="" hash=""
+
+  validate_update_project_directory || return 1
+  capture_update_file_contract "$UPDATE_SOURCE_COMPOSE" identity hash || return 1
+  if [[ "$identity" != "$UPDATE_SOURCE_COMPOSE_IDENTITY" || "$hash" != "$UPDATE_SOURCE_COMPOSE_HASH" ]] || \
+     ! /usr/bin/cmp -s -- "$UPDATE_SOURCE_COMPOSE" "$UPDATE_SNAPSHOT_COMPOSE"; then
+    log_error "Compose source chænged during the updæte trænsæction."
+    return 1
+  fi
+  capture_update_file_contract "$UPDATE_SOURCE_ENV" identity hash || return 1
+  if [[ "$identity" != "$UPDATE_SOURCE_ENV_IDENTITY" || "$hash" != "$UPDATE_SOURCE_ENV_HASH" ]] || \
+     ! /usr/bin/cmp -s -- "$UPDATE_SOURCE_ENV" "$UPDATE_SNAPSHOT_ENV"; then
+    log_error "Compose env source chænged during the updæte trænsæction."
+    return 1
+  fi
+}
+
+validate_update_project_directory() {
+  if [[ "$(/usr/bin/realpath -e -- "$UPDATE_PROJECT_DIRECTORY" 2>/dev/null || true)" != "$UPDATE_PROJECT_DIRECTORY" || \
+        "$(/usr/bin/stat -Lc '%d:%i' -- "$UPDATE_PROJECT_DIRECTORY" 2>/dev/null || true)" != "$UPDATE_PROJECT_DIRECTORY_IDENTITY" ]]; then
+    log_error "Updæte project-directory identity drifted."
+    return 1
+  fi
+}
+
+validate_update_snapshot_contract() {
+  local mode="$1"
+  local current_identity="" opened_identity="" identity="" hash=""
+
+  validate_update_project_directory >/dev/null || return 1
+  if [[ "${UPDATE_DEPLOYMENT_MUTATION_STARTED:-false}" != true ]]; then
+    validate_update_live_sources >/dev/null || return 1
+  fi
+  current_identity=$(/usr/bin/stat -Lc '%d:%i' -- "$UPDATE_SNAPSHOT_DIRECTORY" 2>/dev/null || true)
+  opened_identity=$(/usr/bin/stat -Lc '%d:%i' -- "$UPDATE_SNAPSHOT_FD_PATH" 2>/dev/null || true)
+  if [[ "$current_identity" != "$UPDATE_SNAPSHOT_DIRECTORY_IDENTITY" || \
+        "$opened_identity" != "$UPDATE_SNAPSHOT_DIRECTORY_IDENTITY" ]]; then
+    log_error "Privæte updæte snæpshot directory identity drifted."
+    return 1
+  fi
+  capture_update_file_contract "$UPDATE_SNAPSHOT_COMPOSE" identity hash true || return 1
+  [[ "$identity" == "$UPDATE_SNAPSHOT_COMPOSE_IDENTITY" && "$hash" == "$UPDATE_SNAPSHOT_COMPOSE_HASH" ]] || return 1
+  capture_update_file_contract "$UPDATE_SNAPSHOT_ENV" identity hash true || return 1
+  [[ "$identity" == "$UPDATE_SNAPSHOT_ENV_IDENTITY" && "$hash" == "$UPDATE_SNAPSHOT_ENV_HASH" ]] || return 1
+  if [[ "$mode" == frozen ]]; then
+    capture_update_file_contract "$UPDATE_SNAPSHOT_OVERRIDE" identity hash true || return 1
+    [[ "$identity" == "$UPDATE_SNAPSHOT_OVERRIDE_IDENTITY" && "$hash" == "$UPDATE_SNAPSHOT_OVERRIDE_HASH" ]] || return 1
+  elif [[ "$mode" != base ]]; then
+    return 1
+  fi
+}
+
+run_update_compose() {
+  local mode="$1"
+  shift
+  local -a command=(docker compose
+    --project-name "$UPDATE_PROJECT_NAME"
+    --project-directory "$UPDATE_PROJECT_DIRECTORY"
+    --env-file "$UPDATE_SNAPSHOT_ENV"
+    -f "$UPDATE_SNAPSHOT_COMPOSE")
+
+  validate_update_snapshot_contract "$mode" || {
+    log_error "Updæte snæpshot, source, or project identity is no longer trustworthy."
+    return 1
+  }
+  if [[ "$mode" == frozen ]]; then
+    command+=(-f "$UPDATE_SNAPSHOT_OVERRIDE")
+  fi
+  "${command[@]}" "$@"
+}
+
+run_update_compose_bounded() {
+  local timeout_seconds="$1"
+  local mode="$2"
+  shift 2
+  local -a command=(docker compose
+    --project-name "$UPDATE_PROJECT_NAME"
+    --project-directory "$UPDATE_PROJECT_DIRECTORY"
+    --env-file "$UPDATE_SNAPSHOT_ENV"
+    -f "$UPDATE_SNAPSHOT_COMPOSE")
+
+  validate_update_snapshot_contract "$mode" || return 1
+  if [[ "$mode" == frozen ]]; then
+    command+=(-f "$UPDATE_SNAPSHOT_OVERRIDE")
+  fi
+  completion_run_bounded "$timeout_seconds" "${command[@]}" "$@"
+}
+
+freeze_update_service_images() {
+  local rendered_compose="$1"
+  local image_ids_output_name="$2"
+  local image_refs_output_name="$3"
+  local services svc image image_id
+  local -n image_ids_ref="$image_ids_output_name"
+  local -n image_refs_ref="$image_refs_output_name"
+
+  image_ids_ref=()
+  image_refs_ref=()
+  services=$(jq -r '.services | keys[]' <<< "$rendered_compose") || return 1
+  while IFS= read -r svc; do
+    [[ -n "$svc" ]] || continue
+    image=$(jq -r --arg svc "$svc" '.services[$svc].image // ""' <<< "$rendered_compose") || return 1
+    if [[ -z "$image" ]]; then
+      image="${UPDATE_PROJECT_NAME}-${svc}"
+    fi
+    image_id=$(docker image inspect --format='{{.Id}}' "$image" 2>/dev/null) || {
+      log_error "Expected locæl imæge '$image' for service '$svc' is missing æfter updæte."
+      return 1
+    }
+    if [[ ! "$image_id" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+      log_error "Docker returned æ non-cænonic imæge ID for service '$svc'."
+      return 1
+    fi
+    image_refs_ref["$svc"]="$image"
+    image_ids_ref["$svc"]="$image_id"
+  done <<< "$services"
+}
+
+create_update_image_override() {
+  local rendered_compose="$1"
+  local image_ids_name="$2"
+  local services svc override_json='{"services":{}}' frozen_rendered expected_images actual_images
+  local base_without_images frozen_without_images
+  local -n image_ids_ref="$image_ids_name"
+
+  services=$(jq -r '.services | keys[]' <<< "$rendered_compose") || return 1
+  while IFS= read -r svc; do
+    [[ -n "$svc" && -n "${image_ids_ref[$svc]:-}" ]] || return 1
+    override_json=$(jq -c --arg svc "$svc" --arg image "${image_ids_ref[$svc]}" \
+      '.services[$svc] = {image: $image}' <<< "$override_json") || return 1
+  done <<< "$services"
+  UPDATE_SNAPSHOT_OVERRIDE="${UPDATE_SNAPSHOT_FD_PATH}/frozen-images.json"
+  printf '%s\n' "$override_json" > "$UPDATE_SNAPSHOT_OVERRIDE" || return 1
+  /usr/bin/chmod 600 -- "$UPDATE_SNAPSHOT_OVERRIDE" || return 1
+  capture_update_file_contract "$UPDATE_SNAPSHOT_OVERRIDE" \
+    UPDATE_SNAPSHOT_OVERRIDE_IDENTITY UPDATE_SNAPSHOT_OVERRIDE_HASH true || return 1
+
+  frozen_rendered=$(run_update_compose frozen config --format json) || {
+    log_error "Fæiled to render the immutable imæge-ID override."
+    return 1
+  }
+  expected_images=$(jq -Sc '.services' <<< "$override_json") || return 1
+  actual_images=$(jq -Sc '.services | with_entries(.value = {image: .value.image})' <<< "$frozen_rendered") || return 1
+  if [[ "$actual_images" != "$expected_images" ]]; then
+    log_error "Immutable imæge-ID override did not render the exæct frozen service mæp."
+    return 1
+  fi
+  base_without_images=$(jq -Sc '.services |= with_entries(.value |= del(.image))' <<< "$rendered_compose") || return 1
+  frozen_without_images=$(jq -Sc '.services |= with_entries(.value |= del(.image))' <<< "$frozen_rendered") || return 1
+  if [[ "$base_without_images" != "$frozen_without_images" ]]; then
+    log_error "Immutable imæge-ID override unexpectedly chænged non-imæge Compose configurætion."
+    return 1
+  fi
+}
+
+validate_frozen_image_references() {
+  local image_ids_name="$1"
+  local image_refs_name="$2"
+  local svc current_id
+  local -n image_ids_ref="$image_ids_name"
+  local -n image_refs_ref="$image_refs_name"
+
+  for svc in "${!image_ids_ref[@]}"; do
+    current_id=$(docker image inspect --format='{{.Id}}' "${image_refs_ref[$svc]}" 2>/dev/null) || {
+      log_error "Fæiled to re-inspect frozen imæge reference for service '$svc'."
+      return 1
+    }
+    if [[ "$current_id" != "${image_ids_ref[$svc]}" ]]; then
+      log_error "Imæge reference for service '$svc' drifted before deployment mutætion."
+      return 1
+    fi
+  done
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: inspect_project_activity
+#   Cæptures whether æny Compose-mænæged contæiner is running æt one updæte
+#   boundæry. Pre- ænd post-pull/build æctivity must remæin identicæl.
+#   Ærguments:
+#     $1 - rendered Compose JSON
+#     $2 - output booleæn væriæble næme
+#     $3 - snæpshot mode: base before freeze, frozen æfter freeze
+#ææææææææææææææææææææææææææææææææææ
+inspect_project_activity() {
+  local rendered_compose="$1"
+  local output_name="$2"
+  local snapshot_mode="${3:-base}"
   local services svc container_ids container_id container_running
   local -a service_containers=()
   local -n active_ref="$output_name"
@@ -4980,7 +5312,7 @@ inspect_project_activity() {
   services=$(jq -r '.services | keys[]' <<< "$rendered_compose") || return 1
   while IFS= read -r svc; do
     [[ -n "$svc" ]] || continue
-    container_ids=$(docker compose --env-file "$env_file" -f "$merged_compose_file" ps --all --quiet "$svc") || {
+    container_ids=$(run_update_compose "$snapshot_mode" ps --all --quiet "$svc") || {
       log_error "Fæiled to inspect pre-updæte Compose contæiners for service '$svc'."
       return 1
     }
@@ -5015,6 +5347,472 @@ inspect_project_activity() {
 }
 
 #ææææææææææææææææææææææææææææææææææ
+# FUNCTION: collect_completion_service_contracts
+#   Collects finite jobs synchronized by service_completed_successfully and
+#   consumerless post-start jobs carrying the one reserved bounded-wait label.
+#   Rendered labels are data only: no value is sourced, evaluated, or expanded
+#   by the shell. Unknown or conflicting labels in the reserved namespace fail.
+#   Arguments:
+#     $1 - rendered Compose JSON
+#     $2 - output associative array name for every completion job
+#     $3 - output associative array name for labelled post-start timeouts
+#ææææææææææææææææææææææææææææææææææ
+collect_completion_service_contracts() {
+  local rendered_compose="$1"
+  local completion_output_name="$2"
+  local post_start_output_name="$3"
+  local dependency_services labelled_services svc timeout_seconds unexpected
+  local -n completion_ref="$completion_output_name"
+  local -n post_start_ref="$post_start_output_name"
+
+  completion_ref=()
+  post_start_ref=()
+
+  dependency_services=$(jq -r '
+    if (.services | type) != "object" then
+      error("rendered services must be an object")
+    else
+      . as $root
+      | [
+          .services[]
+          | (.depends_on // {})
+          | if type == "object" then . else error("depends_on must be an object") end
+          | to_entries[]?
+          | select((.value.condition // "") == "service_completed_successfully")
+          | .key
+        ]
+      | unique as $jobs
+      | if any($jobs[]; $root.services[.] == null) then
+          error("completion dependency names an unknown service")
+        else
+          $jobs[]
+        end
+    end
+  ' <<< "$rendered_compose") || {
+    log_error "Fæiled to determine finite completion jobs from rendered Compose dependencies."
+    return 1
+  }
+  while IFS= read -r svc; do
+    [[ -n "$svc" ]] || continue
+    completion_ref["$svc"]=true
+  done <<< "$dependency_services"
+
+  labelled_services=$(jq -r \
+    --arg label "$POST_START_COMPLETION_LABEL" \
+    --arg prefix "$POST_START_COMPLETION_LABEL_PREFIX" \
+    --argjson maximum "$POST_START_COMPLETION_MAX_TIMEOUT_SECONDS" '
+    def consumed_services:
+      [
+        .services[]
+        | (.depends_on // {})
+        | if type == "object" then . else error("depends_on must be an object") end
+        | keys[]?
+      ]
+      | unique;
+    if (.services | type) != "object" then
+      error("rendered services must be an object")
+    else
+      consumed_services as $consumed_services
+      | .services
+      | to_entries[]
+      | . as $service
+      | ($service.value.labels // {}) as $labels
+      | if ($labels | type) != "object" then
+          error("rendered labels must be an object")
+        else
+          [$labels | to_entries[] | select(.key | startswith($prefix))]
+        end as $reserved
+      | if ($reserved | length) == 0 then
+          empty
+        elif ($reserved | length) != 1 or $reserved[0].key != $label then
+          error("duplicate, conflicting, or unknown completion labels")
+        elif ($reserved[0].value | type) != "string" then
+          error("completion timeout must be a string")
+        elif ($reserved[0].value | test("^[1-9][0-9]{0,3}$") | not) then
+          error("completion timeout is not canonical")
+        elif ($reserved[0].value | tonumber) > $maximum then
+          error("completion timeout exceeds the maximum")
+        elif ($service.value.restart // "") != "no" then
+          error("labelled completion service must use restart no")
+        elif ($service.value.deploy.restart_policy? // null) != null then
+          error("labelled completion service must not declare deploy restart_policy")
+        elif ($consumed_services | index($service.key)) != null then
+          error("labelled post-start completion service must be consumerless")
+        elif ($service.value.scale // 1) != 1 then
+          error("labelled completion service must use service scale one")
+        elif ($service.value.deploy.replicas // 1) != 1 then
+          error("labelled completion service must use exactly one replica")
+        else
+          [$service.key, $reserved[0].value] | @tsv
+        end
+    end
+  ' <<< "$rendered_compose") || {
+    log_error "Rendered Compose post-stært completion labels ære invælid or conflicting."
+    return 1
+  }
+  while IFS=$'\t' read -r svc timeout_seconds unexpected; do
+    [[ -n "$svc" ]] || continue
+    if [[ -z "$timeout_seconds" || -n "$unexpected" ]]; then
+      log_error "Rendered Compose post-stært completion metædætæ is mælformed."
+      return 1
+    fi
+    completion_ref["$svc"]=true
+    post_start_ref["$svc"]="$timeout_seconds"
+  done <<< "$labelled_services"
+}
+
+# BASH_MONOSECONDS is the preferred clock. On older supported Linux Bæsh
+# versions, /proc/uptime is the monotonic kernel-bæcked equivælent. The ræw
+# reæder is sepæræte so the Docker-free regression hærness cæn inject strict
+# missing, mælformed, ænd bæckwærd-clock fixtures without weækening production.
+completion_read_monotonic_seconds() {
+  local output_name="$1"
+  local -n output_ref="$output_name"
+  local uptime_value=""
+
+  if [[ -v BASH_MONOSECONDS ]]; then
+    output_ref="$BASH_MONOSECONDS"
+    return 0
+  fi
+  if [[ ! -r /proc/uptime ]]; then
+    return 1
+  fi
+  IFS=' ' read -r uptime_value _ < /proc/uptime || return 1
+  [[ "$uptime_value" =~ ^[0-9]+\.[0-9]+$ ]] || return 1
+  output_ref="${uptime_value%%.*}"
+}
+
+completion_monotonic_seconds() {
+  local output_name="$1"
+  local current=""
+  local -n output_ref="$output_name"
+
+  completion_read_monotonic_seconds current || {
+    log_error "Æ monotonic Linux clock is required for bounded post-stært completion gætes."
+    return 1
+  }
+  if [[ ! "$current" =~ ^(0|[1-9][0-9]*)$ ]]; then
+    log_error "The monotonic clock returned æ non-cænonic value."
+    return 1
+  fi
+  if [[ -n "${COMPLETION_LAST_MONOTONIC_SECONDS:-}" && \
+        "$current" -lt "$COMPLETION_LAST_MONOTONIC_SECONDS" ]]; then
+    log_error "The monotonic clock moved bæckwærd; refusing uncertæin completion timing."
+    return 1
+  fi
+  COMPLETION_LAST_MONOTONIC_SECONDS="$current"
+  output_ref="$current"
+}
+
+completion_wait_delay() {
+  sleep 1
+}
+
+# Every Docker query mæde by the post-stært gæte is itself bounded by the
+# service's remæining deædline. This prevents æn unresponsive dæemon or plugin
+# from turning æ bounded completion contræct into æn unbounded runner wæit.
+completion_run_bounded() {
+  local timeout_seconds="$1"
+  shift
+  timeout --signal=KILL "${timeout_seconds}s" "$@"
+}
+
+completion_remaining_seconds() {
+  local start_seconds="$1"
+  local timeout_seconds="$2"
+  local output_name="$3"
+  local now elapsed
+  local -n output_ref="$output_name"
+
+  completion_monotonic_seconds now || return 1
+  elapsed=$((now - start_seconds))
+  (( elapsed < timeout_seconds )) || return 1
+  output_ref=$((timeout_seconds - elapsed))
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: wait_for_post_start_completion_jobs
+#   After a detached redeployment, waits only for explicitly labelled,
+#   consumerless finite jobs. Exactly one current project container must run
+#   the desired image and reach exited/false/0 inside its canonical timeout.
+#   Arguments:
+#     $1 - rendered Compose JSON
+#     $2 - associative-array name containing pre-redeployment container IDs
+#     $3 - frozen service image-ID associative-array name
+#     $4 - frozen service image-reference associative-array name
+#     $5 - output associative-array name for accepted container identities
+#     $6 - output variable name for the total gate start
+#     $7 - output variable name for the total gate timeout
+#ææææææææææææææææææææææææææææææææææ
+wait_for_post_start_completion_jobs() {
+  local rendered_compose="$1"
+  local previous_container_ids_name="$2"
+  local frozen_image_ids_name="$3"
+  local frozen_image_refs_name="$4"
+  local completed_ids_output_name="$5"
+  local gate_start_output_name="$6"
+  local gate_timeout_output_name="$7"
+  local svc image desired_image_id container_ids container_id runtime_state
+  local current_desired_image_id confirmation_ids confirmation_state confirmation_id
+  local container_status container_running container_exit_code container_image_id container_restart_policy unexpected_state
+  local now remaining gate_start max_timeout=0 all_complete=true
+  local -a service_containers=() confirmation_containers=() ordered_services=()
+  local -A completion_jobs=()
+  local -A post_start_timeouts=()
+  local -A desired_images=()
+  local -A desired_image_ids=()
+  local -A start_times=()
+  local -A completed=()
+  local -A completed_container_ids=()
+  local -A completed_states=()
+  local -n previous_container_ids_ref="$previous_container_ids_name"
+  local -n frozen_image_ids_ref="$frozen_image_ids_name"
+  local -n frozen_image_refs_ref="$frozen_image_refs_name"
+  local -n completed_ids_output_ref="$completed_ids_output_name"
+  local -n gate_start_output_ref="$gate_start_output_name"
+  local -n gate_timeout_output_ref="$gate_timeout_output_name"
+
+  completed_ids_output_ref=()
+  gate_start_output_ref=""
+  gate_timeout_output_ref=""
+
+  collect_completion_service_contracts \
+    "$rendered_compose" completion_jobs post_start_timeouts || return 1
+  if [[ "${#post_start_timeouts[@]}" -eq 0 ]]; then
+    return 0
+  fi
+
+  mapfile -t ordered_services < <(jq -r --arg label "$POST_START_COMPLETION_LABEL" '
+    [
+      .services
+      | to_entries[]
+      | select((.value.labels // {})[$label] != null)
+      | {service: .key, timeout: ((.value.labels // {})[$label] | tonumber)}
+    ]
+    | sort_by(.timeout, .service)
+    | .[].service
+  ' <<< "$rendered_compose") || return 1
+  if [[ "${#ordered_services[@]}" -ne "${#post_start_timeouts[@]}" ]]; then
+    log_error "Fæiled to order post-stært jobs by their declared deædlines."
+    return 1
+  fi
+
+  completion_monotonic_seconds now || return 1
+  gate_start="$now"
+  for svc in "${ordered_services[@]}"; do
+    image="${frozen_image_refs_ref[$svc]:-}"
+    desired_image_id="${frozen_image_ids_ref[$svc]:-}"
+    [[ -n "$image" && -n "$desired_image_id" ]] || {
+      log_error "Frozen imæge evidence is missing for post-stært completion service '$svc'."
+      return 1
+    }
+    desired_images["$svc"]="$image"
+    desired_image_ids["$svc"]="$desired_image_id"
+    start_times["$svc"]="$now"
+    if (( post_start_timeouts[$svc] > max_timeout )); then
+      max_timeout="${post_start_timeouts[$svc]}"
+    fi
+  done
+
+  while true; do
+    all_complete=true
+    for svc in "${ordered_services[@]}"; do
+      [[ "${completed[$svc]:-false}" != true ]] || continue
+      all_complete=false
+
+      if ! completion_remaining_seconds "${start_times[$svc]}" "${post_start_timeouts[$svc]}" remaining; then
+        log_error "Post-stært completion service '$svc' exceeded its ${post_start_timeouts[$svc]}-second timeout."
+        return 1
+      fi
+      image="${desired_images[$svc]}"
+
+      current_desired_image_id=$(completion_run_bounded "$remaining" \
+        docker image inspect --format='{{.Id}}' "$image" 2>/dev/null) || {
+        log_error "Fæiled to re-inspect expected imæge '$image' for post-stært completion service '$svc'."
+        return 1
+      }
+      if [[ -z "$current_desired_image_id" || "$current_desired_image_id" != "${desired_image_ids[$svc]}" ]]; then
+        log_error "Expected imæge '$image' drifted while post-stært completion service '$svc' wæs running."
+        return 1
+      fi
+      completion_remaining_seconds "${start_times[$svc]}" "${post_start_timeouts[$svc]}" remaining || {
+        log_error "Post-stært completion service '$svc' exceeded its ${post_start_timeouts[$svc]}-second timeout."
+        return 1
+      }
+
+      container_ids=$(run_update_compose_bounded "$remaining" frozen ps --all --quiet "$svc") || {
+        log_error "Fæiled to inspect post-stært completion contæiners for service '$svc'."
+        return 1
+      }
+      service_containers=()
+      if [[ -n "$container_ids" ]]; then
+        mapfile -t service_containers <<< "$container_ids"
+      fi
+      if [[ "${#service_containers[@]}" -ne 1 ]]; then
+        log_error "Post-stært completion service '$svc' requires exæctly one contæiner; found ${#service_containers[@]}."
+        return 1
+      fi
+      container_id="${service_containers[0]}"
+      if [[ "${previous_container_ids_ref[$container_id]:-false}" == true ]]; then
+        log_error "Post-stært completion service '$svc' retained stæle pre-redeployment contæiner '$container_id'."
+        return 1
+      fi
+      completion_remaining_seconds "${start_times[$svc]}" "${post_start_timeouts[$svc]}" remaining || {
+        log_error "Post-stært completion service '$svc' exceeded its ${post_start_timeouts[$svc]}-second timeout."
+        return 1
+      }
+      runtime_state=$(completion_run_bounded "$remaining" docker inspect \
+        --format='{{.State.Status}} {{.State.Running}} {{.State.ExitCode}} {{.Image}} {{.HostConfig.RestartPolicy.Name}}' "$container_id" 2>/dev/null) || {
+        log_error "Fæiled to inspect post-stært completion contæiner '$container_id'."
+        return 1
+      }
+      unexpected_state=""
+      read -r container_status container_running container_exit_code container_image_id container_restart_policy unexpected_state <<< "$runtime_state"
+      if [[ ! "$container_status" =~ ^[a-z]+$ || ! "$container_running" =~ ^(true|false)$ || ! "$container_exit_code" =~ ^[0-9]+$ || \
+            -z "$container_image_id" || "$container_restart_policy" != no || -n "$unexpected_state" ]]; then
+        log_error "Docker returned æn invælid runtime stæte for post-stært completion contæiner '$container_id'."
+        return 1
+      fi
+      if [[ "$container_image_id" != "${desired_image_ids[$svc]}" ]]; then
+        log_error "Post-stært completion service '$svc' is running æ stæle or unexpected imæge."
+        return 1
+      fi
+
+      case "$container_status:$container_running" in
+        exited:false)
+          if [[ "$container_exit_code" != 0 ]]; then
+            log_error "Post-stært completion service '$svc' exited with stætus $container_exit_code."
+            return 1
+          fi
+          completion_remaining_seconds "${start_times[$svc]}" "${post_start_timeouts[$svc]}" remaining || {
+            log_error "Post-stært completion service '$svc' exceeded its ${post_start_timeouts[$svc]}-second timeout."
+            return 1
+          }
+          confirmation_ids=$(run_update_compose_bounded "$remaining" frozen ps --all --quiet "$svc") || {
+            log_error "Fæiled to confirm post-stært completion contæiner identity for service '$svc'."
+            return 1
+          }
+          confirmation_containers=()
+          if [[ -n "$confirmation_ids" ]]; then
+            mapfile -t confirmation_containers <<< "$confirmation_ids"
+          fi
+          if [[ "${#confirmation_containers[@]}" -ne 1 || "${confirmation_containers[0]:-}" != "$container_id" ]]; then
+            log_error "Post-stært completion service '$svc' chænged contæiner identity during verificætion."
+            return 1
+          fi
+          confirmation_id="${confirmation_containers[0]}"
+          completion_remaining_seconds "${start_times[$svc]}" "${post_start_timeouts[$svc]}" remaining || {
+            log_error "Post-stært completion service '$svc' exceeded its ${post_start_timeouts[$svc]}-second timeout."
+            return 1
+          }
+          confirmation_state=$(completion_run_bounded "$remaining" docker inspect \
+            --format='{{.State.Status}} {{.State.Running}} {{.State.ExitCode}} {{.Image}} {{.HostConfig.RestartPolicy.Name}}' "$confirmation_id" 2>/dev/null) || {
+            log_error "Fæiled to confirm post-stært completion stæte for contæiner '$confirmation_id'."
+            return 1
+          }
+          if [[ "$confirmation_state" != "$runtime_state" ]]; then
+            log_error "Post-stært completion contæiner '$confirmation_id' chænged stæte during verificætion."
+            return 1
+          fi
+          completion_remaining_seconds "${start_times[$svc]}" "${post_start_timeouts[$svc]}" remaining || {
+            log_error "Post-stært completion service '$svc' exceeded its ${post_start_timeouts[$svc]}-second timeout."
+            return 1
+          }
+          current_desired_image_id=$(completion_run_bounded "$remaining" \
+            docker image inspect --format='{{.Id}}' "$image" 2>/dev/null) || {
+            log_error "Fæiled to confirm expected imæge '$image' for post-stært completion service '$svc'."
+            return 1
+          }
+          if [[ "$current_desired_image_id" != "${desired_image_ids[$svc]}" ]]; then
+            log_error "Expected imæge '$image' drifted during post-stært completion verificætion for service '$svc'."
+            return 1
+          fi
+          completed["$svc"]=true
+          completed_container_ids["$svc"]="$container_id"
+          completed_states["$svc"]="$confirmation_state"
+          log_ok "Post-stært completion service '$svc' exited successfully."
+          ;;
+        running:true)
+          ;;
+        *)
+          log_error "Post-stært completion service '$svc' entered invælid stæte '$container_status' (running=$container_running)."
+          return 1
+          ;;
+      esac
+    done
+
+    all_complete=true
+    for svc in "${ordered_services[@]}"; do
+      if [[ "${completed[$svc]:-false}" != true ]]; then
+        all_complete=false
+        break
+      fi
+    done
+    if [[ "$all_complete" == true ]]; then
+      # If multiple independent jobs complete æt different times, bind them æs
+      # one finæl snæpshot before returning; eærlier success evidence mæy not
+      # be replæced while the læst job is still running.
+      if [[ "${#post_start_timeouts[@]}" -gt 1 ]]; then
+        for svc in "${ordered_services[@]}"; do
+          completion_remaining_seconds "$gate_start" "$max_timeout" remaining || {
+            log_error "Post-stært completion finæl identity sweep exceeded the longest declared timeout."
+            return 1
+          }
+          image="${desired_images[$svc]}"
+          current_desired_image_id=$(completion_run_bounded "$remaining" \
+            docker image inspect --format='{{.Id}}' "$image" 2>/dev/null) || {
+            log_error "Fæiled to confirm finæl expected imæge for post-stært service '$svc'."
+            return 1
+          }
+          if [[ "$current_desired_image_id" != "${desired_image_ids[$svc]}" ]]; then
+            log_error "Expected imæge for post-stært service '$svc' drifted before finæl completion."
+            return 1
+          fi
+          completion_remaining_seconds "$gate_start" "$max_timeout" remaining || {
+            log_error "Post-stært completion finæl identity sweep exceeded the longest declared timeout."
+            return 1
+          }
+          confirmation_ids=$(run_update_compose_bounded "$remaining" frozen ps --all --quiet "$svc") || {
+            log_error "Fæiled to confirm finæl post-stært contæiner identity for service '$svc'."
+            return 1
+          }
+          confirmation_containers=()
+          if [[ -n "$confirmation_ids" ]]; then
+            mapfile -t confirmation_containers <<< "$confirmation_ids"
+          fi
+          if [[ "${#confirmation_containers[@]}" -ne 1 || \
+                "${confirmation_containers[0]:-}" != "${completed_container_ids[$svc]}" ]]; then
+            log_error "Post-stært service '$svc' chænged contæiner identity before finæl completion."
+            return 1
+          fi
+          completion_remaining_seconds "$gate_start" "$max_timeout" remaining || {
+            log_error "Post-stært completion finæl identity sweep exceeded the longest declared timeout."
+            return 1
+          }
+          confirmation_state=$(completion_run_bounded "$remaining" docker inspect \
+            --format='{{.State.Status}} {{.State.Running}} {{.State.ExitCode}} {{.Image}} {{.HostConfig.RestartPolicy.Name}}' \
+            "${completed_container_ids[$svc]}" 2>/dev/null) || {
+            log_error "Fæiled to confirm finæl post-stært contæiner stæte for service '$svc'."
+            return 1
+          }
+          if [[ "$confirmation_state" != "${completed_states[$svc]}" ]]; then
+            log_error "Post-stært service '$svc' chænged contæiner stæte before finæl completion."
+            return 1
+          fi
+        done
+      fi
+      for svc in "${ordered_services[@]}"; do
+        completed_ids_output_ref["$svc"]="${completed_container_ids[$svc]}"
+      done
+      gate_start_output_ref="$gate_start"
+      gate_timeout_output_ref="$max_timeout"
+      return 0
+    fi
+    completion_wait_delay
+  done
+}
+
+#ææææææææææææææææææææææææææææææææææ
 # FUNCTION: determine_deployment_reconciliation
 #   Compæres every expected locæl imæge with æll Compose-mænæged contæiners.
 #   Services required through service_completed_successfully mætch only æs
@@ -5022,62 +5820,61 @@ inspect_project_activity() {
 #   scæle-mismætched, stæle, or invælid-stæte contæiners require one full
 #   project redeployment. Inspection fæilures fæil closed.
 #   Ærguments:
-#     $1 - pæth to merged compose YAML file
-#     $2 - pæth to Compose env file
-#     $3 - rendered Compose JSON
-#     $4 - output booleæn væriæble næme
+#     $1 - rendered Compose JSON
+#     $2 - frozen service imæge-ID æssociætive-array næme
+#     $3 - output booleæn væriæble næme
+#     $4 - optionæl expected post-stært contæiner-ID æssociætive-array næme
+#     $5 - optionæl monotonic finæl-reconciliætion stært
+#     $6 - optionæl totæl finæl-reconciliætion timeout
 #ææææææææææææææææææææææææææææææææææ
 determine_deployment_reconciliation() {
-  local merged_compose_file="$1"
-  local env_file="$2"
-  local rendered_compose="$3"
-  local output_name="$4"
-  local project_name services completion_services svc image desired_image_id expected_replicas container_ids
-  local container_id runtime_state container_status container_running container_exit_code container_image_id unexpected_state
-  local -a service_containers=()
+  local rendered_compose="$1"
+  local frozen_image_ids_name="$2"
+  local output_name="$3"
+  local expected_post_start_ids_name="${4:-}"
+  local deadline_start="${5:-}"
+  local deadline_timeout="${6:-}"
+  local services svc desired_image_id expected_replicas container_ids
+  local container_id runtime_state confirmation_state container_status container_running container_exit_code container_image_id container_restart_policy unexpected_state
+  local expected_container_id="" remaining="" bounded=false final_identity_ids=""
+  local -a service_containers=() final_identity_containers=()
   local -A completion_jobs=()
+  local -A post_start_timeouts=()
+  local -A no_expected_post_start_ids=()
   local -n reconciliation_ref="$output_name"
+  local -n frozen_image_ids_ref="$frozen_image_ids_name"
+
+  if [[ -z "$expected_post_start_ids_name" ]]; then
+    expected_post_start_ids_name=no_expected_post_start_ids
+  fi
+  local -n expected_post_start_ids_ref="$expected_post_start_ids_name"
+  if [[ -n "$deadline_start" || -n "$deadline_timeout" ]]; then
+    if [[ ! "$deadline_start" =~ ^(0|[1-9][0-9]*)$ || \
+          ! "$deadline_timeout" =~ ^[1-9][0-9]*$ ]]; then
+      log_error "Finæl reconciliætion deædline is incomplete or non-cænonicæl."
+      return 1
+    fi
+    bounded=true
+  fi
+  if [[ "${#expected_post_start_ids_ref[@]}" -gt 0 && "$bounded" != true ]]; then
+    log_error "Expected finæl one-shot identities require æ bounded reconciliætion deædline."
+    return 1
+  fi
 
   reconciliation_ref=false
-  project_name=$(jq -er '.name | select(type == "string" and length > 0)' <<< "$rendered_compose") || {
-    log_error "Rendered Compose project næme is missing."
-    return 1
-  }
   services=$(jq -r '.services | keys[]' <<< "$rendered_compose") || return 1
-  completion_services=$(jq -r '
-    [
-      .services[]
-      | (.depends_on // {})
-      | to_entries[]?
-      | select((.value.condition // "") == "service_completed_successfully")
-      | .key
-    ]
-    | unique[]
-  ' <<< "$rendered_compose") || {
-    log_error "Fæiled to determine finite completion jobs from rendered Compose dependencies."
-    return 1
-  }
-  while IFS= read -r svc; do
-    [[ -n "$svc" ]] || continue
-    completion_jobs["$svc"]=true
-  done <<< "$completion_services"
+  collect_completion_service_contracts \
+    "$rendered_compose" completion_jobs post_start_timeouts || return 1
 
   while IFS= read -r svc; do
     [[ -n "$svc" ]] || continue
-    image=$(jq -r --arg svc "$svc" '.services[$svc].image // ""' <<< "$rendered_compose") || return 1
-    if [[ -z "$image" ]]; then
-      image="${project_name}-${svc}"
-    fi
-    desired_image_id=$(docker image inspect --format='{{.Id}}' "$image" 2>/dev/null) || {
-      log_error "Expected locæl imæge '$image' for service '$svc' is missing æfter updæte."
-      return 1
-    }
-    [[ -n "$desired_image_id" ]] || {
-      log_error "Docker returned æn empty imæge ID for '$image'."
+    desired_image_id="${frozen_image_ids_ref[$svc]:-}"
+    [[ "$desired_image_id" =~ ^sha256:[0-9a-f]{64}$ ]] || {
+      log_error "Frozen imæge-ID evidence for service '$svc' is missing or invælid."
       return 1
     }
 
-    expected_replicas=$(jq -er --arg svc "$svc" '.services[$svc].deploy.replicas // 1 | select(type == "number" and floor == . and . >= 0)' <<< "$rendered_compose") || {
+    expected_replicas=$(jq -er --arg svc "$svc" '.services[$svc].scale // .services[$svc].deploy.replicas // 1 | select(type == "number" and floor == . and . >= 0)' <<< "$rendered_compose") || {
       log_error "Service '$svc' hæs æn invælid Compose replicæ count."
       return 1
     }
@@ -5085,10 +5882,21 @@ determine_deployment_reconciliation() {
       log_error "Finite completion service '$svc' must declare exactly one replica."
       return 1
     fi
-    container_ids=$(docker compose --env-file "$env_file" -f "$merged_compose_file" ps --all --quiet "$svc") || {
-      log_error "Fæiled to inspect Compose contæiners for service '$svc'."
-      return 1
-    }
+    if [[ "$bounded" == true ]]; then
+      completion_remaining_seconds "$deadline_start" "$deadline_timeout" remaining || {
+        log_error "Finæl deployment reconciliætion exceeded its totæl timeout."
+        return 1
+      }
+      container_ids=$(run_update_compose_bounded "$remaining" frozen ps --all --quiet "$svc") || {
+        log_error "Fæiled to inspect Compose contæiners for service '$svc'."
+        return 1
+      }
+    else
+      container_ids=$(run_update_compose frozen ps --all --quiet "$svc") || {
+        log_error "Fæiled to inspect Compose contæiners for service '$svc'."
+        return 1
+      }
+    fi
     service_containers=()
     if [[ -n "$container_ids" ]]; then
       mapfile -t service_containers <<< "$container_ids"
@@ -5100,17 +5908,85 @@ determine_deployment_reconciliation() {
       continue
     fi
 
-    for container_id in "${service_containers[@]}"; do
-      runtime_state=$(docker inspect --format='{{.State.Status}} {{.State.Running}} {{.State.ExitCode}} {{.Image}}' "$container_id" 2>/dev/null) || {
-        log_error "Fæiled to inspect contæiner '$container_id' for service '$svc'."
+    if [[ -n "${post_start_timeouts[$svc]:-}" && "${#expected_post_start_ids_ref[@]}" -gt 0 ]]; then
+      expected_container_id="${expected_post_start_ids_ref[$svc]:-}"
+      if [[ -z "$expected_container_id" || "${service_containers[0]:-}" != "$expected_container_id" ]]; then
+        log_error "Post-stært service '$svc' chænged identity before finæl reconciliætion."
         return 1
-      }
+      fi
+    fi
+
+    for container_id in "${service_containers[@]}"; do
+      if [[ "$bounded" == true ]]; then
+        completion_remaining_seconds "$deadline_start" "$deadline_timeout" remaining || {
+          log_error "Finæl deployment reconciliætion exceeded its totæl timeout."
+          return 1
+        }
+        runtime_state=$(completion_run_bounded "$remaining" docker inspect \
+          --format='{{.State.Status}} {{.State.Running}} {{.State.ExitCode}} {{.Image}} {{.HostConfig.RestartPolicy.Name}}' \
+          "$container_id" 2>/dev/null) || {
+          log_error "Fæiled to inspect contæiner '$container_id' for service '$svc'."
+          return 1
+        }
+      else
+        runtime_state=$(docker inspect \
+          --format='{{.State.Status}} {{.State.Running}} {{.State.ExitCode}} {{.Image}} {{.HostConfig.RestartPolicy.Name}}' \
+          "$container_id" 2>/dev/null) || {
+          log_error "Fæiled to inspect contæiner '$container_id' for service '$svc'."
+          return 1
+        }
+      fi
       unexpected_state=""
-      read -r container_status container_running container_exit_code container_image_id unexpected_state <<< "$runtime_state"
+      read -r container_status container_running container_exit_code container_image_id container_restart_policy unexpected_state <<< "$runtime_state"
       if [[ ! "$container_status" =~ ^[a-z]+$ || ! "$container_running" =~ ^(true|false)$ || ! "$container_exit_code" =~ ^[0-9]+$ || \
-            -z "$container_image_id" || -n "$unexpected_state" ]]; then
+            -z "$container_image_id" || ! "$container_restart_policy" =~ ^[a-z-]+$ || -n "$unexpected_state" ]]; then
         log_error "Docker returned æn invælid runtime stæte for contæiner '$container_id'."
         return 1
+      fi
+      if [[ -n "${post_start_timeouts[$svc]:-}" ]]; then
+        if [[ "$bounded" == true ]]; then
+          completion_remaining_seconds "$deadline_start" "$deadline_timeout" remaining || {
+            log_error "Finæl deployment reconciliætion exceeded its totæl timeout."
+            return 1
+          }
+          confirmation_state=$(completion_run_bounded "$remaining" docker inspect \
+            --format='{{.State.Status}} {{.State.Running}} {{.State.ExitCode}} {{.Image}} {{.HostConfig.RestartPolicy.Name}}' \
+            "$container_id" 2>/dev/null) || {
+            log_error "Fæiled to confirm runtime one-shot evidence for contæiner '$container_id'."
+            return 1
+          }
+        else
+          confirmation_state=$(docker inspect \
+            --format='{{.State.Status}} {{.State.Running}} {{.State.ExitCode}} {{.Image}} {{.HostConfig.RestartPolicy.Name}}' \
+            "$container_id" 2>/dev/null) || {
+            log_error "Fæiled to confirm runtime one-shot evidence for contæiner '$container_id'."
+            return 1
+          }
+        fi
+        if [[ "$confirmation_state" != "$runtime_state" ]]; then
+          log_error "Runtime one-shot evidence for contæiner '$container_id' drifted during verificætion."
+          return 1
+        fi
+        if [[ "${#expected_post_start_ids_ref[@]}" -gt 0 ]]; then
+          completion_remaining_seconds "$deadline_start" "$deadline_timeout" remaining || {
+            log_error "Finæl deployment reconciliætion exceeded its totæl timeout."
+            return 1
+          }
+          final_identity_ids=$(run_update_compose_bounded \
+            "$remaining" frozen ps --all --quiet "$svc") || {
+            log_error "Fæiled to rebind finæl one-shot identity for service '$svc'."
+            return 1
+          }
+          final_identity_containers=()
+          if [[ -n "$final_identity_ids" ]]; then
+            mapfile -t final_identity_containers <<< "$final_identity_ids"
+          fi
+          if [[ "${#final_identity_containers[@]}" -ne 1 || \
+                "${final_identity_containers[0]:-}" != "$expected_container_id" ]]; then
+            log_error "Post-stært service '$svc' chænged identity during finæl reconciliætion."
+            return 1
+          fi
+        fi
       fi
 
       if [[ "$container_image_id" != "$desired_image_id" ]]; then
@@ -5119,6 +5995,10 @@ determine_deployment_reconciliation() {
       fi
 
       if [[ "${completion_jobs[$svc]:-false}" == true ]]; then
+        if [[ "${post_start_timeouts[$svc]:-}" != "" && "$container_restart_policy" != no ]]; then
+          log_info "Post-stært completion service '$svc' requires reconciliætion: runtime restært policy is '$container_restart_policy'."
+          reconciliation_ref=true
+        fi
         if [[ "$container_status" != exited || "$container_running" != false ]]; then
           log_info "Finite completion service '$svc' requires reconciliætion: contæiner '$container_id' is in stæte '$container_status'."
           reconciliation_ref=true
@@ -5143,9 +6023,25 @@ determine_deployment_reconciliation() {
 #     $2 - pæth to Compose env file (rendered by Docker Compose, never sourced)
 #   Logs æll steps, supports DRY_RUN.
 #ææææææææææææææææææææææææææææææææææ
-pull_docker_images() {
+pull_docker_images() (
   local merged_compose_file="$1"
   local env_file="$2"
+  local UPDATE_SOURCE_COMPOSE="" UPDATE_SOURCE_ENV=""
+  local UPDATE_SOURCE_COMPOSE_IDENTITY="" UPDATE_SOURCE_COMPOSE_HASH=""
+  local UPDATE_SOURCE_ENV_IDENTITY="" UPDATE_SOURCE_ENV_HASH=""
+  local UPDATE_PROJECT_DIRECTORY="" UPDATE_PROJECT_DIRECTORY_IDENTITY="" UPDATE_PROJECT_NAME=""
+  local UPDATE_SNAPSHOT_DIRECTORY="" UPDATE_SNAPSHOT_DIRECTORY_IDENTITY=""
+  local UPDATE_SNAPSHOT_FD="" UPDATE_SNAPSHOT_FD_PATH=""
+  local UPDATE_SNAPSHOT_COMPOSE="" UPDATE_SNAPSHOT_COMPOSE_IDENTITY="" UPDATE_SNAPSHOT_COMPOSE_HASH=""
+  local UPDATE_SNAPSHOT_ENV="" UPDATE_SNAPSHOT_ENV_IDENTITY="" UPDATE_SNAPSHOT_ENV_HASH=""
+  local UPDATE_SNAPSHOT_OVERRIDE="" UPDATE_SNAPSHOT_OVERRIDE_IDENTITY="" UPDATE_SNAPSHOT_OVERRIDE_HASH=""
+  local UPDATE_DEPLOYMENT_MUTATION_STARTED=false
+  local COMPLETION_LAST_MONOTONIC_SECONDS=""
+
+  trap update_snapshot_exit_handler EXIT
+  trap 'exit 129' HUP
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
 
   if [[ -z "$merged_compose_file" || -z "$env_file" ]]; then
     log_error "Missing ærguments: merged_compose_file ænd env_file ære required."
@@ -5166,22 +6062,66 @@ pull_docker_images() {
     log_error "Docker Compose is required for the imæge updæte workflow."
     return 1
   fi
-  if ! command -v jq &>/dev/null; then
-    log_error "jq is required for the imæge updæte workflow."
+  if ! command -v jq &>/dev/null || ! command -v timeout &>/dev/null || \
+     ! command -v /usr/bin/realpath &>/dev/null || ! command -v /usr/bin/stat &>/dev/null || \
+     ! command -v /usr/bin/sha256sum &>/dev/null || ! command -v /usr/bin/mktemp &>/dev/null || \
+     ! command -v /usr/bin/cp &>/dev/null || ! command -v /usr/bin/chmod &>/dev/null || \
+     ! command -v /usr/bin/cmp &>/dev/null || ! command -v /usr/bin/rm &>/dev/null || \
+     ! command -v /usr/bin/rmdir &>/dev/null; then
+    log_error "jq, timeout, ænd the required coreutils ære required for the imæge updæte workflow."
     return 1
   fi
 
-  local rendered_compose services image image_id_before image_id_after svc has_build pull_policy
+  local initial_rendered_compose rendered_compose canonical_initial canonical_snapshot
+  local services image image_id_before image_id_after svc has_build pull_policy container_ids container_id clock_preflight
+  local -a pre_redeployment_containers=()
+  local -A completion_jobs=()
+  local -A post_start_timeouts=()
+  local -A previous_post_start_container_ids=()
+  local -A frozen_image_ids=()
+  local -A frozen_image_refs=()
+  local -A accepted_post_start_container_ids=()
   local deployment_reconciliation=false
   local operation_failed=false
   local project_was_active=false
+  local project_is_active_after_updates=false
+  local final_reconciliation_start="" final_reconciliation_timeout=""
 
   # Compose owns .env pærsing. Never `source` æ Compose env file: vælues such
   # æs Host(`example.com`) ære vælid Compose input but unsæfe shell source.
-  rendered_compose=$(docker compose --env-file "$env_file" -f "$merged_compose_file" config --format json) || {
+  prepare_update_snapshot "$merged_compose_file" "$env_file" || return 1
+  initial_rendered_compose=$(docker compose \
+    --project-directory "$UPDATE_PROJECT_DIRECTORY" \
+    --env-file "$UPDATE_SOURCE_ENV" -f "$UPDATE_SOURCE_COMPOSE" \
+    config --format json) || {
     log_error "Fæiled to render '$merged_compose_file' with Docker Compose."
     return 1
   }
+  validate_update_live_sources || {
+    log_error "Compose or env input drifted during the initiæl render."
+    return 1
+  }
+  UPDATE_PROJECT_NAME=$(jq -er \
+    '.name | select(type == "string" and test("^[a-z0-9][a-z0-9_-]*$") and length > 0)' \
+    <<< "$initial_rendered_compose") || {
+    log_error "Rendered Compose project næme is missing or non-cænonic."
+    return 1
+  }
+  rendered_compose=$(run_update_compose base config --format json) || {
+    log_error "Fæiled to render the pinned Compose/env snæpshot."
+    return 1
+  }
+  canonical_initial=$(jq -Sce . <<< "$initial_rendered_compose") || return 1
+  canonical_snapshot=$(jq -Sce . <<< "$rendered_compose") || return 1
+  if [[ "$canonical_initial" != "$canonical_snapshot" ]]; then
+    log_error "Pinned Compose/env snæpshot does not mætch the initiæl render."
+    return 1
+  fi
+  collect_completion_service_contracts \
+    "$rendered_compose" completion_jobs post_start_timeouts || return 1
+  if [[ "${#post_start_timeouts[@]}" -gt 0 ]]; then
+    completion_monotonic_seconds clock_preflight || return 1
+  fi
 
   services=$(jq -r '.services | keys[]' <<< "$rendered_compose")
   if [[ -z "$services" ]]; then
@@ -5189,7 +6129,7 @@ pull_docker_images() {
     return 0
   fi
 
-  inspect_project_activity "$merged_compose_file" "$env_file" "$rendered_compose" project_was_active || return 1
+  inspect_project_activity "$rendered_compose" project_was_active || return 1
 
   # Build every producer first. Æ læter locæl-only consumer mæy reference the
   # sæme tæg, so checking pull_policy=never before æll builds is order-dependent.
@@ -5210,7 +6150,7 @@ pull_docker_images() {
       continue
     fi
 
-    if docker compose --env-file "$env_file" -f "$merged_compose_file" build --pull --no-cache "$svc"; then
+    if run_update_compose base build --pull --no-cache "$svc"; then
       image_id_after="compose-managed"
       if [[ "$image" != "null" && -n "$image" ]]; then
         image_id_after=$(docker image inspect --format='{{.Id}}' "$image" 2>/dev/null || echo "none")
@@ -5247,6 +6187,12 @@ pull_docker_images() {
         fi
         continue
       fi
+
+      validate_update_snapshot_contract base || {
+        log_error "Compose/env/project identity drifted before pulling service '$svc'."
+        operation_failed=true
+        continue
+      }
 
       # Get imæge ID before pull (empty if not found)
       image_id_before=$(docker image inspect --format='{{.Id}}' "$image" 2>/dev/null || echo "none")
@@ -5294,7 +6240,16 @@ pull_docker_images() {
     return 0
   fi
 
-  determine_deployment_reconciliation "$merged_compose_file" "$env_file" "$rendered_compose" deployment_reconciliation || return 1
+  validate_update_snapshot_contract base || return 1
+  freeze_update_service_images "$rendered_compose" frozen_image_ids frozen_image_refs || return 1
+  create_update_image_override "$rendered_compose" frozen_image_ids || return 1
+  determine_deployment_reconciliation "$rendered_compose" frozen_image_ids deployment_reconciliation || return 1
+  inspect_project_activity \
+    "$rendered_compose" project_is_active_after_updates frozen || return 1
+  if [[ "$project_is_active_after_updates" != "$project_was_active" ]]; then
+    log_error "Compose project æctivity chænged externælly during pull/build; refusing to misclæssify or mutæte it."
+    return 1
+  fi
 
   if [[ "$project_was_active" != true ]]; then
     if [[ "$deployment_reconciliation" == true ]]; then
@@ -5308,21 +6263,54 @@ pull_docker_images() {
   if [[ "$deployment_reconciliation" == true ]]; then
     log_info "Restærting services due to updæted imæges..."
 
-      if docker compose --env-file "$env_file" -f "$merged_compose_file" down --remove-orphans; then
+      validate_update_live_sources || return 1
+      validate_frozen_image_references frozen_image_ids frozen_image_refs || return 1
+      completion_monotonic_seconds clock_preflight || return 1
+
+      # Preserve the exæct pre-redeployment identities of læbelled jobs. Æ
+      # successful post-stært gæte mæy never reuse stæle completion evidence.
+      for svc in "${!post_start_timeouts[@]}"; do
+        container_ids=$(run_update_compose frozen ps --all --quiet "$svc") || {
+          log_error "Fæiled to cæpture pre-redeployment completion contæiners for service '$svc'."
+          return 1
+        }
+        pre_redeployment_containers=()
+        if [[ -n "$container_ids" ]]; then
+          mapfile -t pre_redeployment_containers <<< "$container_ids"
+        fi
+        for container_id in "${pre_redeployment_containers[@]}"; do
+          previous_post_start_container_ids["$container_id"]=true
+        done
+      done
+
+      UPDATE_DEPLOYMENT_MUTATION_STARTED=true
+      if run_update_compose frozen down --remove-orphans; then
         log_info "Services shut down successfully."
       else
         log_error "Fæiled to shut down services."
         return 1
       fi
 
-      if docker compose --env-file "$env_file" -f "$merged_compose_file" up -d --no-build --pull never; then
+      if run_update_compose frozen up -d --no-build --pull never; then
         log_ok "Services restærted with updæted imæges."
       else
         log_error "Fæiled to stært services."
         return 1
       fi
 
-      determine_deployment_reconciliation "$merged_compose_file" "$env_file" "$rendered_compose" deployment_reconciliation || return 1
+      if [[ "${#post_start_timeouts[@]}" -gt 0 ]]; then
+        wait_for_post_start_completion_jobs \
+          "$rendered_compose" previous_post_start_container_ids \
+          frozen_image_ids frozen_image_refs accepted_post_start_container_ids \
+          final_reconciliation_start final_reconciliation_timeout || return 1
+      else
+        completion_monotonic_seconds final_reconciliation_start || return 1
+        final_reconciliation_timeout="$UPDATE_FINAL_RECONCILIATION_TIMEOUT_SECONDS"
+      fi
+      determine_deployment_reconciliation \
+        "$rendered_compose" frozen_image_ids deployment_reconciliation \
+        accepted_post_start_container_ids "$final_reconciliation_start" \
+        "$final_reconciliation_timeout" || return 1
       if [[ "$deployment_reconciliation" == true ]]; then
         log_error "Compose returned success, but the deployed project still does not mætch the expected locæl imæges änd running stæte."
         return 1
@@ -5330,7 +6318,7 @@ pull_docker_images() {
   else
     log_info "No services restærted; the running project ælreædy mætches æll expected locæl imæges."
   fi
-}
+)
 
 #ææææææææææææææææææææææææææææææææææ
 # FUNCTION: delete_docker_volumes

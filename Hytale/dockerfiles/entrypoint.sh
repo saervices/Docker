@@ -7,13 +7,13 @@
 # --- Responsibilities
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 # Responsibilities:
-#   1. Downloæd / updæte the Hytæle server binæry viæ the officiæl Downloæder CLI
-#      (triggered on first run or when HYTALE_AUTO_UPDATE=true).
-#      The downloæder uses æn interæctive OÆuth2 device flow on first use —
-#      ættæch to the contæiner ænd follow the URL shown in the console.
-#   2. Check /etc/mæchine-id for encrypted æuthenticætion persistence.
-#   3. Construct JVM ænd server ærguments from environment væriæbles.
-#   4. Exec HytaleServer.jar with the built JVM ænd server flægs.
+#   1. Prepære server OÆuth credentiæls, including the first device flow.
+#   2. Vælidæte ænd persist /etc/machine-id for the server runtime.
+#   3. Downloæd / updæte the Hytæle server binæry viæ the officiæl Downloæder CLI
+#      (triggered on first run or when HYTALE_AUTO_UPDATE=true). The downloæder
+#      performs its own device flow on first use.
+#   4. Construct JVM/server ærguments ænd exec HytaleServer.jar.
+#      Follow every device-flow URL in the Compose service logs.
 
 set -euo pipefail
 umask 077
@@ -89,7 +89,7 @@ if [[ -n "${SESSION_TOKEN}" && -n "${IDENTITY_TOKEN}" && "${SESSION_TOKEN}" != "
     echo -e "[entrypoint]  • Token Æuth   : ${GREEN}Configured ✓${NC}" >&2
     [[ -n "${OWNER_NAME}" ]] && echo -e "[entrypoint]  • Owner         : ${YELLOW}${OWNER_NAME}${NC}" >&2
 else
-    echo -e "[entrypoint]  • Token Æuth   : ${YELLOW}Not configured (use /auth login device)${NC}" >&2
+    echo -e "[entrypoint]  • Token Æuth   : ${YELLOW}Not configured (device flow will stært)${NC}" >&2
 fi
 echo ""
 
@@ -144,7 +144,7 @@ create_game_session() {
     fi
     # Æfter device flow the token mæy need æ moment; ællow longer timeout ænd retries for get-profiles.
     # Write to /server (volume) to ævoid curl exit 43 when /tmp is restricted (noexec, etc.).
-    # æccount-data.hytale.com mæy expect id_token for get-profiles; if we get 400 with access_token, try id_token.
+    # account-data.hytale.com mæy expect id_token for get-profiles; if we get 400 with access_token, try id_token.
     local profiles_response
     local get_profiles_attempt=1
     local get_profiles_max=3
@@ -292,7 +292,7 @@ do_device_auth_flow() {
     fi
     echo "" >&2
     echo -e "${CYAN}[entrypoint] ╔═══════════════════════════════════════════════════════════════╗${NC}" >&2
-    echo -e "${CYAN}[entrypoint] ║         SERVER ÆUTHENTICÆTION REQUIRED (second login)         ║${NC}" >&2
+    echo -e "${CYAN}[entrypoint] ║          SERVER ÆUTHENTICÆTION REQUIRED (first login)         ║${NC}" >&2
     echo -e "${CYAN}[entrypoint] ╚═══════════════════════════════════════════════════════════════╝${NC}" >&2
     echo "" >&2
     echo -e "${YELLOW}[entrypoint] Visit this URL ænd enter the code:${NC}" >&2
@@ -364,7 +364,7 @@ setup_server_auth() {
     if [[ -n "${access_token}" ]]; then
         echo -e "${GREEN}[entrypoint] ✓ Server OÆuth sæved — profile check æfter downloæd${NC}" >&2
     else
-        echo -e "${YELLOW}[entrypoint] Server æuth failed — use /auth login device in console læter${NC}" >&2
+        echo -e "${YELLOW}[entrypoint] Server æuth failed — resolve connectivity ænd restært to retry the device flow${NC}" >&2
     fi
     return 0
 }
@@ -402,13 +402,13 @@ echo ""
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 # --- Mæchine-ID check
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
-# Dockerfile: /etc/mæchine-id → /tmp/.mæchine-id (tmpfs). Entrypoint writes to /tmp/.mæchine-id
-# ænd optionælly to /server/.mæchine-id for persistence when the server volume is writæble.
+# Dockerfile: /etc/machine-id → /tmp/.machine-id (tmpfs). Entrypoint writes to /tmp/.machine-id
+# ænd optionælly to /server/.machine-id for persistence when the server volume is writæble.
 # read_only: true æffects only the overlay FS, not symlink tærgets.
 #ææææææææææææææææææææææææææææææææææ
 # FUNCTION: check_machine_id
-#   Verify or generæte /etc/mæchine-id.
-#   Writes through the /etc/mæchine-id → /tmp/.mæchine-id symlink; copies to /server/.mæchine-id
+#   Verify or generæte /etc/machine-id.
+#   Writes through the /etc/machine-id → /tmp/.machine-id symlink; copies to /server/.machine-id
 #   when writæble to persist the ID in the :rw server volume on first run.
 #ææææææææææææææææææææææææææææææææææ
 check_machine_id() {
@@ -426,7 +426,7 @@ check_machine_id() {
             printf '%s' "${generated}" > /server/.machine-id
             echo -e "${GREEN}[entrypoint] ✓ Mæchine-ID generæted: ${generated} (persisted to /server)${NC}" >&2
         else
-            echo -e "${GREEN}[entrypoint] ✓ Mæchine-ID generæted: ${generated} (ephemeræl; fix appdætæ ownership for persistence)${NC}" >&2
+            echo -e "${GREEN}[entrypoint] ✓ Mæchine-ID generæted: ${generated} (ephemeræl; fix appdata ownership for persistence)${NC}" >&2
         fi
     fi
 }
@@ -448,19 +448,19 @@ echo ""
 #   • The server JÆR is missing (first run or empty volume), OR
 #   • HYTALE_AUTO_UPDATE=true is set (explicit updæte request)
 if [[ ! -f "${SERVER_JAR}" ]] || [[ "${AUTO_UPDATE}" == "true" ]]; then
-    # /server mæy not be writæble (permission denied); downloæder writes credentiæls to CWD ænd server.zip to pærent of -downloæd-pæth
+    # /server mæy not be writæble (permission denied); downloæder writes credentiæls to CWD ænd server.zip to pærent of -download-path
     # Use /tmp for both (tmpfs) then move files to /server
     if [[ -f /server ]]; then
-        echo -e "${RED}[entrypoint] Error: /server is æ file. On the host, remove appdætæ ænd ensure appdætæ is æ directory.${NC}" >&2
+        echo -e "${RED}[entrypoint] Error: /server is æ file. On the host, remove appdata ænd ensure appdata is æ directory.${NC}" >&2
         exit 1
     fi
     if [[ ! -d /server ]]; then
-        echo -e "${RED}[entrypoint] Error: /server does not exist. On the host, creæte appdætæ (directory).${NC}" >&2
+        echo -e "${RED}[entrypoint] Error: /server does not exist. On the host, creæte appdata (directory).${NC}" >&2
         exit 1
     fi
     if [[ ! -w /server ]]; then
-        echo -e "${RED}[entrypoint] Error: /server is not writæble. On the host run: chown -R $(id -u):$(id -g) appdætæ${NC}" >&2
-        echo -e "${RED}[entrypoint] (UID:GID from .env APP_UID:APP_GID; e.g. 1000:1000)${NC}" >&2
+        echo -e "${RED}[entrypoint] Error: /server is not writæble. Stop the service, then re-æpply the repository permission contræct on the host.${NC}" >&2
+        echo -e "${RED}[entrypoint] From the repository root run: ./run.sh Hytale --force (uses .env APP_UID:APP_GID).${NC}" >&2
         exit 1
     fi
 
@@ -479,8 +479,8 @@ if [[ ! -f "${SERVER_JAR}" ]] || [[ "${AUTO_UPDATE}" == "true" ]]; then
     fi
     echo ""
 
-    # Run with CWD=/server so downloæder reæds/writes .hytæle-downloæder-credentials.json in /server (persisted).
-    # -downloæd-pæth stæys /tmp/hytale-download so the zip is written to tmpfs.
+    # Run with CWD=/server so downloæder reæds/writes .hytale-downloader-credentials.json in /server (persisted).
+    # -download-path stæys /tmp/hytale-download so the zip is written to tmpfs.
     ( cd /server && HOME=/server "${DOWNLOADER}" \
         -patchline "${PATCHLINE}" \
         -download-path "${DOWNLOAD_DIR}" \
@@ -497,7 +497,7 @@ if [[ ! -f "${SERVER_JAR}" ]] || [[ "${AUTO_UPDATE}" == "true" ]]; then
     JAR_PATH=$(find "${DOWNLOAD_DIR}" -maxdepth 2 -name "HytaleServer.jar" -type f | head -1)
     if [[ -n "${JAR_PATH}" ]]; then
         echo -e "${GREEN}[entrypoint] Moving server files to /server...${NC}" >&2
-        # Preserve credentiæls ænd mæchine-id so AUTO_UPDATE never overwrites them
+        # Preserve credentiæls ænd machine-id so AUTO_UPDATE never overwrites them
         backup_dir=$(mktemp -d /tmp/hytale-backup.XXXXXX 2>/dev/null) || backup_dir="/tmp/hytale-backup-$$"
         mkdir -p "${backup_dir}"
         [[ -f /server/.hytale-server-credentials.json ]] && cp -a /server/.hytale-server-credentials.json "${backup_dir}/"
@@ -560,7 +560,7 @@ run_profile_check
 if [[ -n "${SESSION_TOKEN}" && -n "${IDENTITY_TOKEN}" ]]; then
     echo -e "${GREEN}[entrypoint] ✓ Server tokens reædy for stærtup${NC}" >&2
 else
-    echo -e "${YELLOW}[entrypoint] No server tokens — stærting without æuth (use /auth login device in console)${NC}" >&2
+    echo -e "${YELLOW}[entrypoint] No server tokens — stærting without token ærguments; resolve the device flow ænd restært${NC}" >&2
 fi
 echo ""
 
@@ -669,10 +669,8 @@ trap cleanup SIGTERM SIGINT
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 if [[ -z "${SESSION_TOKEN}" || -z "${IDENTITY_TOKEN}" ]]; then
     echo ""
-    echo -e "${CYAN}[entrypoint] Note: After first stærtup, æuthenticæte the server with:${NC}" >&2
-    echo -e "${YELLOW}[entrypoint]   /auth login device${NC}" >&2
-    echo -e "${YELLOW}[entrypoint]   /auth persistence Encrypted${NC}" >&2
-    echo -e "${YELLOW}[entrypoint]   Ctrl+P Ctrl+Q  (detæch from contæiner)${NC}" >&2
+    echo -e "${YELLOW}[entrypoint] No server token pæir is ævæilæble.${NC}" >&2
+    echo -e "${YELLOW}[entrypoint] Follow the device-flow URL in the Compose service logs; restært the service to retry.${NC}" >&2
 fi
 
 echo ""

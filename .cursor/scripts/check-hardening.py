@@ -89,6 +89,21 @@ def rel(path: Path) -> str:
     return path.resolve().relative_to(REPO_ROOT).as_posix()
 
 
+def has_symlink_path_component(path: Path) -> bool:
+    """Return true when æny lexicæl component below REPO_ROOT is æ symlink."""
+    lexical = Path(os.path.abspath(path))
+    try:
+        relative = lexical.relative_to(REPO_ROOT)
+    except ValueError:
+        return True
+    current = REPO_ROOT
+    for component in relative.parts:
+        current /= component
+        if current.is_symlink():
+            return True
+    return False
+
+
 def as_list(value: Any) -> list[Any]:
     if value is None:
         return []
@@ -142,6 +157,14 @@ TRAEFIK_ENCODED_CHARACTER_POLICIES = {
         field: False for field in TRAEFIK_ENCODED_CHARACTER_FIELDS
     },
 }
+POST_START_COMPLETION_LABEL = "de.saervices.run.completion-timeout-seconds"
+POST_START_COMPLETION_LABEL_PREFIX = "de.saervices.run.completion-"
+POST_START_COMPLETION_MAX_TIMEOUT_SECONDS = 3600
+GITEA_COMPLETION_TIMEOUT_SECONDS = "600"
+GITEA_COMPLETION_APP_COMPOSE = "Gitea/docker-compose.app.yaml"
+GITEA_COMPLETION_TEMPLATE_COMPOSE = (
+    "templates/gitea-oidc/docker-compose.gitea-oidc.yaml"
+)
 
 
 def command_tokens(service: dict[str, Any]) -> list[str]:
@@ -1497,13 +1520,20 @@ def find_compose_files(paths: list[str]) -> tuple[list[Path], list[str]]:
     files: list[Path] = []
     errors: list[str] = []
     for raw in paths:
-        path = (REPO_ROOT / raw).resolve()
+        lexical_path = REPO_ROOT / raw
+        path = lexical_path.resolve()
         try:
             path.relative_to(REPO_ROOT)
         except ValueError:
             errors.append(f"explicit target '{raw}' escapes the repository")
             continue
-        if not path.exists():
+        if lexical_path.is_symlink():
+            errors.append(f"explicit target '{raw}' must not be a symbolic link")
+        elif has_symlink_path_component(lexical_path):
+            errors.append(
+                f"explicit target '{raw}' must not traverse a symbolic-link path component"
+            )
+        elif not path.exists():
             errors.append(f"explicit target '{raw}' does not exist")
         elif path.is_file() and path.name.startswith("docker-compose") and path.suffix in {".yaml", ".yml"}:
             files.append(path)
@@ -1586,6 +1616,604 @@ def build_context_value(service: dict[str, Any]) -> str | None:
         raw_context = build.get("context", ".")
         return raw_context if isinstance(raw_context, str) else None
     return None
+
+
+def check_moving_build_refresh_contract(
+    path_rel: str,
+    service_name: str,
+    service: dict[str, Any],
+) -> list[str]:
+    if service.get("pull_policy") != "build":
+        return []
+
+    build = service.get("build")
+    if build in (None, ""):
+        return []
+
+    configured = build if isinstance(build, dict) else {}
+    errors: list[str] = []
+    if configured.get("pull") is not True:
+        errors.append(
+            f"{path_rel}:{service_name}: pull_policy: build requires build.pull: true as a literal boolean"
+        )
+    if configured.get("no_cache") is not True:
+        errors.append(
+            f"{path_rel}:{service_name}: pull_policy: build requires build.no_cache: true as a literal boolean"
+        )
+    return errors
+
+
+def compose_dependency_names(service: dict[str, Any]) -> set[str]:
+    depends_on = service.get("depends_on")
+    if isinstance(depends_on, dict):
+        return {str(name) for name in depends_on}
+    if isinstance(depends_on, list):
+        return {str(name) for name in depends_on}
+    return set()
+
+
+def compose_service_references(service: dict[str, Any]) -> set[str]:
+    """Return runtime service references thæt mæke æ finite job consumer-owned."""
+    references = compose_dependency_names(service)
+    for raw in as_list(service.get("links")):
+        name = str(raw).split(":", 1)[0]
+        if name:
+            references.add(name)
+    for raw in as_list(service.get("volumes_from")):
+        value = str(raw)
+        if value.startswith("container:"):
+            continue
+        name = value.split(":", 1)[0]
+        if name:
+            references.add(name)
+    for field in ("network_mode", "ipc", "pid"):
+        value = service.get(field)
+        if isinstance(value, str) and value.startswith("service:"):
+            name = value.removeprefix("service:")
+            if name:
+                references.add(name)
+    return references
+
+
+def dynamic_compose_service_reference_fields(service: dict[str, Any]) -> set[str]:
+    """Return service-reference fields whose tærget is interpolæted."""
+    dynamic: set[str] = set()
+    depends_on = service.get("depends_on")
+    if isinstance(depends_on, dict):
+        if any("$" in str(name) for name in depends_on):
+            dynamic.add("depends_on")
+    elif any("$" in str(value) for value in as_list(depends_on)):
+        dynamic.add("depends_on")
+    for field in ("links", "volumes_from", "network_mode", "ipc", "pid"):
+        if any("$" in str(value) for value in as_list(service.get(field))):
+            dynamic.add(field)
+    return dynamic
+
+
+def opaque_compose_container_reference_fields(service: dict[str, Any]) -> set[str]:
+    """Return references thæt bypæss the Compose service-næme græph."""
+    opaque: set[str] = set()
+    if as_list(service.get("external_links")):
+        opaque.add("external_links")
+    if any(
+        str(value).startswith("container:")
+        for value in as_list(service.get("volumes_from"))
+    ):
+        opaque.add("volumes_from")
+    for field in ("network_mode", "ipc", "pid"):
+        value = service.get(field)
+        if isinstance(value, str) and value.startswith("container:"):
+            opaque.add(field)
+    return opaque
+
+
+def duplicate_yaml_mapping_key_errors(path_rel: str, text: str) -> list[str]:
+    """Reject source-key duplicætes thæt PyYÆML would silently læst-win."""
+    document = yaml.compose(text)
+    errors: list[str] = []
+    visited: set[int] = set()
+
+    def visit(node: yaml.Node) -> None:
+        identity = id(node)
+        if identity in visited:
+            return
+        visited.add(identity)
+        if isinstance(node, yaml.MappingNode):
+            seen: dict[tuple[str, str], yaml.ScalarNode] = {}
+            for key_node, value_node in node.value:
+                if isinstance(key_node, yaml.ScalarNode):
+                    key = (key_node.tag, key_node.value)
+                    if key in seen:
+                        errors.append(
+                            f"{path_rel}:{key_node.start_mark.line + 1}: duplicate YAML mapping key '{key_node.value}' is not allowed"
+                        )
+                    else:
+                        seen[key] = key_node
+                visit(key_node)
+                visit(value_node)
+        elif isinstance(node, yaml.SequenceNode):
+            for item in node.value:
+                visit(item)
+
+    if document is not None:
+        visit(document)
+    return errors
+
+
+def mapping_node_entries(
+    node: yaml.Node,
+    key: str,
+) -> list[tuple[yaml.ScalarNode, yaml.Node]]:
+    if not isinstance(node, yaml.MappingNode):
+        return []
+    return [
+        (key_node, value_node)
+        for key_node, value_node in node.value
+        if isinstance(key_node, yaml.ScalarNode) and key_node.value == key
+    ]
+
+
+def mapping_node_values(node: yaml.Node, key: str) -> list[yaml.Node]:
+    return [value_node for _key_node, value_node in mapping_node_entries(node, key)]
+
+
+def mapping_pair_is_direct(
+    mapping: yaml.MappingNode,
+    key_node: yaml.Node,
+    value_node: yaml.Node,
+) -> bool:
+    """Distinguish this mæpping occurrence from æn eærlier æliæs node."""
+    previous_end = mapping.start_mark.index
+    for current_key, current_value in mapping.value:
+        if current_key is key_node and current_value is value_node:
+            return (
+                current_key.start_mark.index >= previous_end
+                and current_value.start_mark.index >= current_key.end_mark.index
+            )
+        previous_end = max(
+            previous_end,
+            current_key.end_mark.index,
+            current_value.end_mark.index,
+        )
+    return False
+
+
+def raw_completion_label_entries(
+    text: str,
+) -> dict[str, list[tuple[str, str, yaml.Node | None]]]:
+    """Retæin source form ænd duplicætes thæt Compose/PyYÆML normælize."""
+    document = yaml.compose(text)
+    entries: dict[str, list[tuple[str, str, yaml.Node | None]]] = {}
+    if not isinstance(document, yaml.MappingNode):
+        return entries
+
+    for services_key, services_node in mapping_node_entries(document, "services"):
+        if not isinstance(services_node, yaml.MappingNode):
+            continue
+        services_direct = mapping_pair_is_direct(
+            document,
+            services_key,
+            services_node,
+        )
+        for service_key, service_node in services_node.value:
+            if not isinstance(service_key, yaml.ScalarNode):
+                continue
+            service_name = service_key.value
+            service_direct = mapping_pair_is_direct(
+                services_node,
+                service_key,
+                service_node,
+            )
+            for labels_key, labels_node in mapping_node_entries(
+                service_node,
+                "labels",
+            ):
+                labels_direct = mapping_pair_is_direct(
+                    service_node,
+                    labels_key,
+                    labels_node,
+                )
+                if isinstance(labels_node, yaml.MappingNode):
+                    labels_has_merge = any(
+                        isinstance(key_node, yaml.ScalarNode)
+                        and key_node.value == "<<"
+                        for key_node, _value_node in labels_node.value
+                    )
+                    for label_key, label_value in labels_node.value:
+                        if (
+                            isinstance(label_key, yaml.ScalarNode)
+                            and label_key.value.startswith(
+                                POST_START_COMPLETION_LABEL_PREFIX
+                            )
+                        ):
+                            source_form = "mapping"
+                            if not (
+                                services_direct
+                                and service_direct
+                                and labels_direct
+                                and not labels_has_merge
+                                and mapping_pair_is_direct(
+                                    labels_node,
+                                    label_key,
+                                    label_value,
+                                )
+                            ):
+                                # PyYÆML resolves æn æliæs to its eærlier
+                                # ænchor node; its source mærk therefore
+                                # precedes the direct læbel occurrence.
+                                source_form = "mapping-alias"
+                            entries.setdefault(service_name, []).append(
+                                (source_form, label_key.value, label_value)
+                            )
+                elif isinstance(labels_node, yaml.SequenceNode):
+                    for item in labels_node.value:
+                        if not isinstance(item, yaml.ScalarNode):
+                            continue
+                        label_name = item.value.partition("=")[0]
+                        if label_name.startswith(POST_START_COMPLETION_LABEL_PREFIX):
+                            entries.setdefault(service_name, []).append(
+                                ("list", label_name, item)
+                            )
+                else:
+                    entries.setdefault(service_name, []).append(
+                        ("invalid", "", labels_node)
+                    )
+    return entries
+
+
+def check_post_start_completion_contracts(
+    path_rel: str,
+    data: dict[str, Any],
+    text: str,
+) -> list[str]:
+    """Vælidæte strict source form ænd effective consumerless job semæntics."""
+    errors: list[str] = []
+    services = data.get("services")
+    if not isinstance(services, dict):
+        return errors
+
+    raw_entries = raw_completion_label_entries(text)
+    for service_name, entries in raw_entries.items():
+        if len(entries) != 1:
+            errors.append(
+                f"{path_rel}:{service_name}: post-start completion requires exactly one reserved mapping-form label"
+            )
+            continue
+        source_form, label_name, value_node = entries[0]
+        if source_form != "mapping":
+            errors.append(
+                f"{path_rel}:{service_name}: post-start completion label and value must use direct mapping form, never list or alias form"
+            )
+        if label_name != POST_START_COMPLETION_LABEL:
+            errors.append(
+                f"{path_rel}:{service_name}: unknown or conflicting reserved completion label '{label_name}'"
+            )
+        if (
+            not isinstance(value_node, yaml.ScalarNode)
+            or value_node.tag != "tag:yaml.org,2002:str"
+            or value_node.style not in {"'", '"'}
+        ):
+            errors.append(
+                f"{path_rel}:{service_name}: completion timeout must be a directly quoted YAML string"
+            )
+
+    completion_services: set[str] = set()
+    for raw_name, service in services.items():
+        if not isinstance(service, dict):
+            continue
+        labels = service.get("labels")
+        if isinstance(labels, dict) and any(
+            str(key).startswith(POST_START_COMPLETION_LABEL_PREFIX)
+            for key in labels
+        ):
+            completion_services.add(str(raw_name))
+        elif isinstance(labels, list) and any(
+            str(item).partition("=")[0].startswith(
+                POST_START_COMPLETION_LABEL_PREFIX
+            )
+            for item in labels
+        ):
+            completion_services.add(str(raw_name))
+
+    if completion_services and data.get("include") is not None:
+        errors.append(
+            f"{path_rel}: post-start completion closure may not use top-level Compose include"
+        )
+
+    consumers: set[str] = set()
+    for consumer in services.values():
+        if isinstance(consumer, dict):
+            consumers.update(compose_service_references(consumer))
+            if completion_services and "extends" in consumer:
+                errors.append(
+                    f"{path_rel}: post-start completion closure may not use service extends"
+                )
+            dynamic_fields = dynamic_compose_service_reference_fields(consumer)
+            if completion_services and dynamic_fields:
+                errors.append(
+                    f"{path_rel}: post-start completion closure requires static service references; interpolated field(s): {', '.join(sorted(dynamic_fields))}"
+                )
+            opaque_fields = opaque_compose_container_reference_fields(consumer)
+            if completion_services and opaque_fields:
+                errors.append(
+                    f"{path_rel}: post-start completion closure may not bypass the service graph through field(s): {', '.join(sorted(opaque_fields))}"
+                )
+
+    for raw_name, service in services.items():
+        service_name = str(raw_name)
+        if not isinstance(service, dict):
+            continue
+        labels = service.get("labels")
+        if isinstance(labels, dict):
+            reserved = {
+                str(key): value
+                for key, value in labels.items()
+                if str(key).startswith(POST_START_COMPLETION_LABEL_PREFIX)
+            }
+        elif isinstance(labels, list):
+            reserved = {
+                str(item).partition("=")[0]: str(item).partition("=")[2]
+                for item in labels
+                if str(item).partition("=")[0].startswith(
+                    POST_START_COMPLETION_LABEL_PREFIX
+                )
+            }
+        else:
+            reserved = {}
+        if not reserved:
+            continue
+        if service_name not in raw_entries:
+            errors.append(
+                f"{path_rel}:{service_name}: post-start completion label must be declared directly, never through a YAML merge"
+            )
+        if set(reserved) != {POST_START_COMPLETION_LABEL}:
+            errors.append(
+                f"{path_rel}:{service_name}: reserved completion label namespace is invalid or conflicting"
+            )
+            continue
+
+        timeout_value = reserved[POST_START_COMPLETION_LABEL]
+        if (
+            not isinstance(timeout_value, str)
+            or re.fullmatch(r"[1-9][0-9]{0,3}", timeout_value) is None
+            or int(timeout_value) > POST_START_COMPLETION_MAX_TIMEOUT_SECONDS
+        ):
+            errors.append(
+                f"{path_rel}:{service_name}: completion timeout must be a canonical quoted integer from 1 through {POST_START_COMPLETION_MAX_TIMEOUT_SECONDS}"
+            )
+        if service.get("restart") != "no":
+            errors.append(
+                f"{path_rel}:{service_name}: post-start completion requires restart: \"no\""
+            )
+        deploy = service.get("deploy")
+        if isinstance(deploy, dict) and "restart_policy" in deploy:
+            errors.append(
+                f"{path_rel}:{service_name}: deploy.restart_policy may not override the finite restart contract"
+            )
+        scale = service.get("scale", 1)
+        if type(scale) is not int or scale != 1:
+            errors.append(
+                f"{path_rel}:{service_name}: post-start completion requires service scale 1"
+            )
+        replicas = deploy.get("replicas", 1) if isinstance(deploy, dict) else 1
+        if type(replicas) is not int or replicas != 1:
+            errors.append(
+                f"{path_rel}:{service_name}: post-start completion requires deploy replicas 1"
+            )
+        if service_name in consumers:
+            errors.append(
+                f"{path_rel}:{service_name}: labelled post-start completion service must have no Compose service consumer"
+            )
+    return errors
+
+
+def check_gitea_completion_closure() -> list[str]:
+    """Keep the recursive Giteæ dependency græph ænd completion gæte ætomic."""
+    errors: list[str] = []
+    app_path = REPO_ROOT / GITEA_COMPLETION_APP_COMPOSE
+    template_path = REPO_ROOT / GITEA_COMPLETION_TEMPLATE_COMPOSE
+    if (
+        not app_path.is_file()
+        or has_symlink_path_component(app_path)
+        or not template_path.is_file()
+        or has_symlink_path_component(template_path)
+    ):
+        return [
+            "Gitea completion closure requires regular non-symlink root app and gitea-oidc Compose files"
+        ]
+
+    app_text = app_path.read_text(encoding="utf-8")
+    app_data = load_yaml(app_path)
+    required_services = app_data.get("x-required-services")
+    if (
+        not isinstance(required_services, list)
+        or required_services.count("gitea-oidc") != 1
+    ):
+        errors.append(
+            f"{GITEA_COMPLETION_APP_COMPOSE}: x-required-services must contain gitea-oidc exactly once"
+        )
+
+    records: dict[str, tuple[dict[str, Any], str]] = {
+        GITEA_COMPLETION_APP_COMPOSE: (app_data, app_text)
+    }
+    queue = (
+        [str(name) for name in required_services]
+        if isinstance(required_services, list)
+        else []
+    )
+    queue.append("gitea-oidc")
+    resolved_templates: set[str] = set()
+    while queue:
+        template_name = queue.pop(0)
+        if template_name in resolved_templates:
+            continue
+        resolved_templates.add(template_name)
+        if re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", template_name) is None:
+            errors.append(
+                f"Gitea completion closure has invalid required template name '{template_name}'"
+            )
+            continue
+        relative_path = (
+            f"templates/{template_name}/docker-compose.{template_name}.yaml"
+        )
+        compose_path = REPO_ROOT / relative_path
+        if not compose_path.is_file() or has_symlink_path_component(compose_path):
+            errors.append(
+                f"Gitea completion closure required template '{template_name}' has no regular non-symlink canonical Compose file"
+            )
+            continue
+        source_text = compose_path.read_text(encoding="utf-8")
+        source_data = load_yaml(compose_path)
+        records[relative_path] = (source_data, source_text)
+        nested = source_data.get("x-required-services")
+        if nested is None:
+            nested = []
+        if not isinstance(nested, list):
+            errors.append(
+                f"{relative_path}: x-required-services must be a list when present"
+            )
+            continue
+        nested_names = [str(name) for name in nested]
+        if len(nested_names) != len(set(nested_names)):
+            errors.append(
+                f"{relative_path}: x-required-services must not contain duplicates"
+            )
+        queue.extend(nested_names)
+
+    service_owners: dict[str, str] = {}
+    combined_services: list[dict[str, Any]] = []
+    completion_owners: set[tuple[str, str]] = set()
+    for path_rel, (source_data, source_text) in records.items():
+        errors.extend(duplicate_yaml_mapping_key_errors(path_rel, source_text))
+        errors.extend(
+            check_post_start_completion_contracts(
+                path_rel,
+                source_data,
+                source_text,
+            )
+        )
+        if source_data.get("include") is not None:
+            errors.append(
+                f"{path_rel}: Gitea completion closure may not use top-level Compose include"
+            )
+        source_services = source_data.get("services")
+        if not isinstance(source_services, dict):
+            continue
+        for raw_name, service in source_services.items():
+            service_name = str(raw_name)
+            if service_name in service_owners:
+                errors.append(
+                    f"Gitea completion closure service '{service_name}' is defined by both {service_owners[service_name]} and {path_rel}"
+                )
+            else:
+                service_owners[service_name] = path_rel
+            if not isinstance(service, dict):
+                continue
+            combined_services.append(service)
+            labels = service.get("labels")
+            if isinstance(labels, dict) and any(
+                str(key).startswith(POST_START_COMPLETION_LABEL_PREFIX)
+                for key in labels
+            ):
+                completion_owners.add((path_rel, service_name))
+            elif isinstance(labels, list) and any(
+                str(item).partition("=")[0].startswith(
+                    POST_START_COMPLETION_LABEL_PREFIX
+                )
+                for item in labels
+            ):
+                completion_owners.add((path_rel, service_name))
+
+    template_record = records.get(GITEA_COMPLETION_TEMPLATE_COMPOSE)
+    if template_record is None:
+        errors.append(
+            f"{GITEA_COMPLETION_TEMPLATE_COMPOSE}: exact required template is absent from the resolved closure"
+        )
+        return errors
+    template_data, template_text = template_record
+    template_services = template_data.get("services")
+    oidc_service = (
+        template_services.get("gitea-oidc")
+        if isinstance(template_services, dict)
+        else None
+    )
+    if not isinstance(oidc_service, dict):
+        errors.append(
+            f"{GITEA_COMPLETION_TEMPLATE_COMPOSE}: exact gitea-oidc service is missing"
+        )
+        return errors
+
+    labels = oidc_service.get("labels")
+    raw_oidc_labels = raw_completion_label_entries(template_text).get(
+        "gitea-oidc",
+        [],
+    )
+    if (
+        not isinstance(labels, dict)
+        or labels.get(POST_START_COMPLETION_LABEL)
+        != GITEA_COMPLETION_TIMEOUT_SECONDS
+        or len(
+            [
+                key
+                for key in labels
+                if str(key).startswith(POST_START_COMPLETION_LABEL_PREFIX)
+            ]
+        )
+        != 1
+        or len(raw_oidc_labels) != 1
+        or raw_oidc_labels[0][0] != "mapping"
+        or raw_oidc_labels[0][1] != POST_START_COMPLETION_LABEL
+        or not isinstance(raw_oidc_labels[0][2], yaml.ScalarNode)
+        or raw_oidc_labels[0][2].style != '"'
+        or raw_oidc_labels[0][2].value != GITEA_COMPLETION_TIMEOUT_SECONDS
+    ):
+        errors.append(
+            f"{GITEA_COMPLETION_TEMPLATE_COMPOSE}:gitea-oidc: exact mapping label {POST_START_COMPLETION_LABEL}: \"{GITEA_COMPLETION_TIMEOUT_SECONDS}\" is required"
+        )
+
+    expected_completion_owner = {
+        (GITEA_COMPLETION_TEMPLATE_COMPOSE, "gitea-oidc")
+    }
+    if completion_owners != expected_completion_owner:
+        errors.append(
+            "Gitea completion closure must expose exactly the template-owned gitea-oidc completion job"
+        )
+    if any("extends" in service for service in combined_services):
+        errors.append(
+            "Gitea completion closure may not use service extends"
+        )
+    dynamic_fields = sorted(
+        {
+            field
+            for service in combined_services
+            for field in dynamic_compose_service_reference_fields(service)
+        }
+    )
+    if dynamic_fields:
+        errors.append(
+            "Gitea completion closure requires static service references; "
+            f"interpolated field(s): {', '.join(dynamic_fields)}"
+        )
+    opaque_fields = sorted(
+        {
+            field
+            for service in combined_services
+            for field in opaque_compose_container_reference_fields(service)
+        }
+    )
+    if opaque_fields:
+        errors.append(
+            "Gitea completion closure may not bypass the service graph through "
+            f"field(s): {', '.join(opaque_fields)}"
+        )
+    if any(
+        "gitea-oidc" in compose_service_references(service)
+        for service in combined_services
+    ):
+        errors.append(
+            "Gitea completion closure: gitea-oidc must remain free of all Compose service consumers across root app and template services"
+        )
+    return errors
 
 
 def is_remote_build_context(context: str) -> bool:
@@ -2392,6 +3020,7 @@ def check_file(path: Path) -> tuple[list[str], list[str]]:
     warnings: list[str] = []
     path_rel = rel(path)
     text = path.read_text(encoding="utf-8")
+    errors.extend(duplicate_yaml_mapping_key_errors(path_rel, text))
 
     if "ensure 600 permissions" in text:
         errors.append(f"{path_rel}: uses obsolete fixed secret mode comment")
@@ -2442,6 +3071,7 @@ def check_file(path: Path) -> tuple[list[str], list[str]]:
     services = data.get("services", {})
     if not isinstance(services, dict):
         return errors, warnings
+    errors.extend(check_post_start_completion_contracts(path_rel, data, text))
     errors.extend(check_classic_build_context_allowlists(path_rel, path, services))
 
     for service_name, service in services.items():
@@ -2487,6 +3117,13 @@ def check_file(path: Path) -> tuple[list[str], list[str]]:
             errors.extend(check_traefik_proxy_protocol_security(path_rel, str(service_name), service))
 
         build = service.get("build")
+        errors.extend(
+            check_moving_build_refresh_contract(
+                path_rel,
+                str(service_name),
+                service,
+            )
+        )
         context_value = build_context_value(service)
         context_dir: Path | None = None
         if build not in (None, ""):
@@ -2721,6 +3358,12 @@ def main() -> int:
         errors, warnings = check_file(file)
         all_errors.extend(errors)
         all_warnings.extend(warnings)
+
+    if (
+        (REPO_ROOT / GITEA_COMPLETION_APP_COMPOSE).exists()
+        or (REPO_ROOT / GITEA_COMPLETION_TEMPLATE_COMPOSE).exists()
+    ):
+        all_errors.extend(check_gitea_completion_closure())
 
     if all_errors:
         print("Hardening errors:")

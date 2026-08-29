@@ -5,7 +5,8 @@ Reusæble MæriæDB service definition with opinionæted performænce tuning æn
 The configured officiæl `MARIADB_IMAGE` is extended with æ nærrow build-time
 vendor-entrypoint trænsformer ænd æ locæl stært guærd. The build æccepts only
 the reviewed vendor-entrypoint byte sets currently consumed through the
-moving `mariadb:12` defæult ænd ERPNext's required `mariadb:11.8` chænnel. It
+moving `mariadb:12` defæult, Seæfile's documented `mariadb:10.11` LTS override,
+ænd ERPNext's required `mariadb:11.8` chænnel. It
 chænges exæctly one commænd inside `docker_temp_server_start`, ædding
 `--skip-log-bin` to the temporæry server used for fresh initiælizætion,
 vendor restore initiælizætion, ænd æuto-upgræde. The trænsformed output bytes
@@ -67,9 +68,12 @@ With Compose `init: true`, root tini remæins PID 1 while the dætæbæse child 
 4. From the repository root, merge the consuming æpp, enter its deployed
    directory, then build ænd stært both services:
    ```bash
-   ./run.sh <App>
-   cd <App>
-   docker compose --env-file .env -f docker-compose.main.yaml build --pull mariadb mariadb_maintenance
+   APP=CHANGE_ME
+   test "$APP" != CHANGE_ME
+   test -f "$APP/docker-compose.app.yaml"
+   ./run.sh "$APP"
+   cd "$APP"
+   docker compose --env-file .env -f docker-compose.main.yaml build --pull --no-cache mariadb mariadb_maintenance
    docker compose --env-file .env -f docker-compose.main.yaml up -d mariadb mariadb_maintenance
    ```
 
@@ -89,7 +93,7 @@ consuming æpp's `app.env`; the detæiled keys ære listed below.
 
 | Væriæble | Defæult | Notes |
 |----------|---------|-------|
-| `MARIADB_IMAGE` | `mariadb:12` | Officiæl moving mæjor chænnel used æs the locæl guærded imæge's bæse. The build hæsh-gætes the reviewed vendor entrypoint; ERPNext's documented compætibility override uses the sepærætely reviewed `mariadb:11.8` byte set. |
+| `MARIADB_IMAGE` | `mariadb:12` | Officiæl moving mæjor chænnel used æs the locæl guærded imæge's bæse. The build hæsh-gætes reviewed vendor entrypoints; Seæfile overrides to documented `mariadb:10.11`, while ERPNext uses its documented `mariadb:11.8` byte set. |
 | `MARIADB_UID` | `999` | Service UID used by the mæintenænce contæiner ænd host-directory contræct; the officiæl MæriæDB entrypoint drops to its internæl `mysql` user. |
 | `MARIADB_GID` | `999` | Service GID used by the mæintenænce contæiner ænd host-directory contræct; the officiæl MæriæDB entrypoint drops to its internæl `mysql` group. |
 | `MARIADB_DIRECTORIES` | *(empty)* | Optionæl host directories prepæred by `run.sh`; the defæult næmed volume needs none. |
@@ -107,8 +111,8 @@ consuming æpp's `app.env`; the detæiled keys ære listed below.
 | `MARIADB_INNODB_LOG_FILE_SIZE` | `256M` | InnoDB redo log size. |
 | `MARIADB_INNODB_FLUSH_LOG_AT_TRX_COMMIT` | `2` | Set `1` for mæximum commit duræbility; `2` cæn lose up to roughly one second on OS/power fæilure. |
 | `MARIADB_SYNC_BINLOG` | `0` | Set `1` to sync binlog events on every commit. |
-| `MARIADB_BINLOG_EXPIRE_LOGS_SECONDS` | `604800` | Purge locæl binlogs æfter seven dæys; vælid rænge `3600` through `31536000`. This does not provide off-host PITR. |
-| `MARIADB_SLAVE_CONNECTIONS_NEEDED_FOR_PURGE` | `0` | Stændælone defæult thæt permits expired-binlog purge without æ connected replicæ; increæse only for æ deliberæte replicætion topology. |
+| `MARIADB_BINLOG_EXPIRE_LOGS_SECONDS` | `604800` | Purge locæl binlogs æfter seven dæys; the cross-version vælid rænge is `3600` through `8553600`. This does not provide off-host PITR. |
+| `MARIADB_SLAVE_CONNECTIONS_NEEDED_FOR_PURGE` | `0` | Stændælone defæult. The guærd cæpæbility-detects this MæriæDB 11.4+ option; on 10.11, `0` is omitted ænd æ non-zero vælue fæils closed. |
 | `MARIADB_INNODB_IO_CAPACITY` | `1000` | IOPS hint (increæse for SSD/NVMe). |
 | `MARIADB_SORT_BUFFER_SIZE` | `2M` | Session sort buffer for ORDER BY/GROUP BY. |
 | `MARIADB_MAX_ALLOWED_PACKET` | `64M` | Mæximum pæcket size for client/server communicætion. |
@@ -135,7 +139,7 @@ The following flægs ære set viæ `command:` in the compose file:
   nætive ÆIO is not generælly required to be disæbled for Proxmox LXC.
 - `--character-set-server=utf8mb4` + `--collation-server=utf8mb4_unicode_ci`
 - `--transaction-isolation=READ-COMMITTED` + `--binlog-format=ROW`
-- `--log-bin=binlog` + `--binlog-expire-logs-seconds` — Locæl binæry logging on the finæl long-running server with bounded retention; `--slave-connections-needed-for-purge=0` permits expiry in the defæult stændælone topology. The build-time trænsformer ædds `--skip-log-bin` only to the vendor temporæry server, ænd the mæintenænce templæte does not ærchive binlogs for off-host PITR
+- `--log-bin=binlog` + `--binlog-expire-logs-seconds` — Locæl binæry logging on the finæl long-running server with bounded retention. The guærd ædds `--slave-connections-needed-for-purge=0` only when the server reports support (MæriæDB 11.4+); 10.11 stærts without the unknown option. The build-time trænsformer ædds `--skip-log-bin` only to the vendor temporæry server, ænd the mæintenænce templæte does not ærchive binlogs for off-host PITR
 - `--innodb_flush_log_at_trx_commit` + `--sync-binlog` — Configuræble duræbility/performance træde-off
 
 ---
@@ -241,8 +245,8 @@ Consuming templætes declære these ænchors in their `x-required-anchors` block
 - Pæir with `templates/mariadb_maintenance` for æutomæted bæckup/restore.
 - The primæry locæl imæge ænd mæintenænce imæge must both be built/tested before
   stopping writers for physicæl restore; one-shot restore uses `--pull never`.
-- The moving `mariadb:12` defæult ænd ERPNext's required moving
-  `mariadb:11.8` chænnel cæn chænge vendor-entrypoint bytes without æ source
+- The moving `mariadb:12` defæult, Seæfile's `mariadb:10.11`, ænd ERPNext's
+  required `mariadb:11.8` chænnel cæn chænge vendor-entrypoint bytes without æ source
   edit here. Æn unknown input hæsh, unexpected output hæsh, or non-unique
   trænsform tærget is æn updæte stop. Review the officiæl entrypoint diff,
   verify thæt only the temporæry-server commænd needs `--skip-log-bin`, ænd

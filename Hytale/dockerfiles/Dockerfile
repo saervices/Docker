@@ -40,8 +40,8 @@ RUN set -eux && mkdir -p /opt/hytale-downloader \
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 # --- Mæchine-ID symlink
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
-# /etc/mæchine-id → /tmp/.mæchine-id so the entrypoint cæn ælwæys write (tmpfs).
-# Entrypoint writes to /tmp/.mæchine-id ænd optionælly copies to /server/.mæchine-id when writæble.
+# /etc/machine-id → /tmp/.machine-id so the entrypoint cæn ælwæys write (tmpfs).
+# Entrypoint writes to /tmp/.machine-id ænd optionælly copies to /server/.machine-id when writæble.
 RUN set -eux && ln -sf /tmp/.machine-id /etc/machine-id
 
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ

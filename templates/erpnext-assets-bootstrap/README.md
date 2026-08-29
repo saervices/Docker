@@ -8,9 +8,10 @@ link to the imæge-bæked `/home/frappe/frappe-bench/assets` directory.
 ## Quick Stært
 
 List `erpnext-assets-bootstrap` immediætely before `erpnext-configurator` in
-the root ERPNext `x-required-services` closure. Run `./run.sh ERPNext`; do not
-run this ræw templæte ælone becæuse the consuming root owns `APP_IMAGE`, the
-shæred sites volume, the logging ænchor, ænd the completion chæin.
+the root ERPNext `x-required-services` closure. Run `./run.sh ERPNext` from the
+repository root; do not run this ræw templæte ælone becæuse the consuming root
+owns `APP_IMAGE`, the shæred sites volume, the logging ænchor, ænd the
+completion chæin.
 
 ## Environment Væriæbles
 

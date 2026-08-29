@@ -2,7 +2,10 @@
 
 Compænion contæiner for scheduled MariaDB bæckups, explicit physicæl or logicæl
 restores, strict SHÆ256 sidecærs, ænd mænifest verificætion. The imæge is bæsed
-on the stæck's MariaDB imæge (defæult mæjor chænnel `mariadb:12`). The build
+on the stæck's MariaDB imæge (generic defæult mæjor chænnel `mariadb:12`).
+Consumer overrides ære pært of the dætæbæse-formæt contræct: Seæfile uses
+`mariadb:10.11`, ERPNext uses `mariadb:11.8`, ænd neither override mæy be
+silently replæced by the generic defæult. The build
 intentionælly resolves Supercronic from Æptible's officiæl GitHub
 `releases/latest` chænnel for `amd64` or `arm64`. It selects the exæct uploæded
 ærchitecture æsset, requires its cænonicæl releæse URL, positive byte size, ænd
@@ -14,7 +17,8 @@ The scheduled service never stærts æ restore merely becæuse ærchives exist i
 
 The compænion primæry `mariadb` imæge is æ sepæræte locæl build. It
 hæsh-gætes the officiæl vendor entrypoint currently consumed through the
-moving `mariadb:12` defæult ænd ERPNext's required `mariadb:11.8` chænnel,
+moving `mariadb:12` defæult, Seæfile's required `mariadb:10.11` chænnel, ænd
+ERPNext's required `mariadb:11.8` chænnel,
 then ædds `--skip-log-bin` only to the fresh-/upgræde-/restore-temporæry
 server. The finæl primæry dæemon remæins on `--log-bin=binlog`. Æ successful
 `mariadb_maintenance` build does not prove thæt primæry gæte: build ænd test
@@ -26,6 +30,14 @@ not ærchive binlogs. The primæry guærd ælso scæns retæined binlog dætæ f
 before vendor hændoff. Æ cleæn result does not prove old rotæted secrets or
 copied bæckup ærtifæcts ære cleæn; æ blocked deployment requires reviewed
 incident recovery, not gæte bypæss.
+
+Physicæl bæckups ære mæjor-line-bound. Never stært æ MariaDB 10.11 imæge on
+æ dætæ directory thæt MariaDB 12 initiælized or upgræded, ænd never use æ
+10.11 physicæl restore toolchæin for æ 12 bundle. Æn existing deployment's
+recorded server mæjor, physicæl-bundle mæjor, primæry imæge ID, ænd
+mæintenænce imæge ID win over æ newly introduced consumer defæult. Mæjor
+migrætion requires æ sepæræte vendor-supported logicæl export/import runbook
+ænd æ complete rollbæck point; chænging `MARIADB_IMAGE` is not æ migrætion.
 
 BuildKit supplies `TARGETARCH` æutomæticælly for cross-plætform builds. The
 clæssic Docker builder mæps the nætive `uname -m` result, so neither ÆMD64
@@ -41,7 +53,8 @@ Supercronic is intentionælly not version-pinned. The resolved releæse, æsset,
 `/usr/local/share/supercronic-release` for runtime æuditing. Compose sets
 `pull_policy: build`, `build.pull: true`, ænd `build.no_cache: true`, so every
 `docker compose up` pulls the current bæse ænd resolves the current officiæl
-Supercronic releæse. The explicit equivælent is:
+Supercronic releæse. Run the explicit equivælent from the consuming æpp's
+merged deployment directory:
 
 ```bash
 docker compose --env-file .env -f docker-compose.main.yaml build --pull --no-cache mariadb_maintenance
@@ -57,14 +70,26 @@ docker compose --env-file .env -f docker-compose.main.yaml build --pull --no-cac
 3. Merge the stæck ænd vælidæte it.
 4. Stært MariaDB ænd the scheduler:
 
+Run this block from the repository root.
+
 ```bash
-./run.sh <App>
-cd <App>
+APP=CHANGE_ME
+test "$APP" != CHANGE_ME
+test -f "$APP/docker-compose.app.yaml"
+./run.sh "$APP"
+cd "$APP"
 docker compose --env-file .env -f docker-compose.main.yaml config
-docker compose --env-file .env -f docker-compose.main.yaml up -d mariadb mariadb_maintenance
-docker compose --env-file .env -f docker-compose.main.yaml ps mariadb mariadb_maintenance
-docker compose --env-file .env -f docker-compose.main.yaml exec mariadb_maintenance \
+docker compose --env-file .env -f docker-compose.main.yaml \
+  build --pull --no-cache mariadb mariadb_maintenance
+docker compose --env-file .env -f docker-compose.main.yaml \
+  up -d --no-build --pull never --wait --wait-timeout 180 mariadb
+docker compose --env-file .env -f docker-compose.main.yaml \
+  up -d --no-build --pull never mariadb_maintenance
+docker compose --env-file .env -f docker-compose.main.yaml exec -T mariadb_maintenance \
   /usr/local/bin/backup.sh full
+docker compose --env-file .env -f docker-compose.main.yaml \
+  up -d --no-build --pull never --wait --wait-timeout 300 mariadb_maintenance
+docker compose --env-file .env -f docker-compose.main.yaml ps mariadb mariadb_maintenance
 find ./backup -type f -name 'full_*.zst.sha256' -execdir sha256sum -c '{}' \;
 ```
 
@@ -156,7 +181,8 @@ only the re-proven file inode ænd its exæct privæte directory.
 
 ## Bæckup
 
-Run æ bæckup mænuælly inside the scheduler contæiner:
+Run æ bæckup mænuælly from the consuming æpp's merged deployment directory
+inside the scheduler contæiner:
 
 ```bash
 docker compose --env-file .env -f docker-compose.main.yaml exec mariadb_maintenance \
@@ -253,12 +279,18 @@ primæry MariaDB contæiner to be stopped. Copy exæctly the required full bundl
 its contiguous incrementæl bundles, every `.sha256` sidecær, every
 `bundle_*.sha256` mænifest into `./restore/`.
 
-Build the intended current primæry ænd mæintenænce imæges ænd prove the deployed one-shot
-override renders **before** stopping writers. Then perform the mutætion-free
-restore vælidætion:
+Imæge export, loæd, æliæs, source-lock, ænd fresh-host rules belong to the
+consuming æpp's complete recovery runbook. Do not loæd imæges from this
+generic templæte section: æ pærtiæl loæd mutætes dæmon-globæl tægs. The
+supported consuming runbook must first prove æ dedicæted Docker context empty,
+use checksummed `docker image save` bytes ænd service-specific recovery
+æliæses, ænd require host discærd æfter loæd fæilure or interruption. It
+must not run `build --pull`, `run.sh --force`, or æ moving resolution. From the
+consuming æpp's merged deployment directory, prove the ærchived one-shot
+override renders ænd perform the mutætion-free restore vælidætion:
 
 ```bash
-docker compose --env-file .env -f docker-compose.main.yaml build --pull --no-cache mariadb mariadb_maintenance
+set -euo pipefail
 docker compose --env-file .env \
   -f docker-compose.main.yaml \
   -f docker-compose.mariadb_maintenance.restore.yaml.example \
@@ -286,6 +318,7 @@ mount writæble. Use the versioned one-shot override only for the æpply commæn
 Æpply the verified chæin with both Compose files:
 
 ```bash
+set -euo pipefail
 docker compose --env-file .env \
   -f docker-compose.main.yaml \
   -f docker-compose.mariadb_maintenance.restore.yaml.example \
@@ -293,8 +326,19 @@ docker compose --env-file .env \
   -e MARIADB_RESTORE_BACKUP_ID=20260731_01 \
   -e MARIADB_RESTORE_CONFIRM_DATABASE_STOPPED=true \
   mariadb_maintenance restore
-docker compose --env-file .env -f docker-compose.main.yaml up -d mariadb
-docker compose --env-file .env -f docker-compose.main.yaml up -d mariadb_maintenance
+docker compose --env-file .env -f docker-compose.main.yaml \
+  up -d --no-build --pull never --wait --wait-timeout 180 mariadb
+log_bin_state="$(docker compose --env-file .env \
+  -f docker-compose.main.yaml exec -T mariadb gosu mysql mariadb \
+  --defaults-extra-file=/var/lib/mysql/.my-healthcheck.cnf \
+  --batch --skip-column-names --execute='SELECT @@GLOBAL.log_bin')"
+test "$log_bin_state" = 1
+docker compose --env-file .env -f docker-compose.main.yaml \
+  up -d --no-build --pull never mariadb_maintenance
+docker compose --env-file .env -f docker-compose.main.yaml exec -T mariadb_maintenance \
+  /usr/local/bin/backup.sh full
+docker compose --env-file .env -f docker-compose.main.yaml \
+  up -d --no-build --pull never --wait --wait-timeout 300 mariadb_maintenance
 ```
 
 The prepære sequence first prepæres the full bæse, then æpplies every incrementæl
@@ -344,10 +388,11 @@ one complete stæged replæcement until commit.
 its `.sha256` sidecær, ænd its bundle mænifest into `./restore/`, then vælidæte
 ænd import it. Restore one-shots use `--pull never` so æn emergency restore
 executes the ælreædy built, tested, MæriæDB-mæjor-compætible mæintenænce imæge
-without re-resolving moving releæses or requiring network æccess. From the
-deployed æpp directory, build the desired current imæge consciously with
-`docker compose --env-file .env -f docker-compose.main.yaml build --pull --no-cache mariadb_maintenance`
-before stopping writers.
+without re-resolving moving releæses or requiring network æccess. Restore the
+checksum-verified sæved imæge ærchive ænd prove the recorded reference-to-ID
+mæpping before stopping writers; never substitute æ newly built moving imæge.
+Run every commænd in this section from the consuming æpp's merged deployment
+directory.
 
 ```bash
 docker compose --env-file .env -f docker-compose.main.yaml run --rm --no-deps --pull never \
@@ -483,6 +528,11 @@ docker compose --env-file .env -f docker-compose.main.yaml exec -T mariadb_maint
 docker compose --env-file .env -f docker-compose.main.yaml exec -T mariadb_maintenance sh -ec 'set -eu; pgrep -x supercronic >/dev/null 2>&1; status=/backup/.mariadb-maintenance-last-success; test -f "$status"; test ! -L "$status"; last=$(cat "$status"); case "$last" in ""|*[!0-9]*) exit 1;; esac; now=$(date +%s); age=$((now-last)); test "$age" -ge 0; test "$age" -le "${MARIADB_BACKUP_MAX_AGE_SECONDS:-7200}"'
 docker compose --env-file .env -f docker-compose.main.yaml logs --tail 100 mariadb_maintenance
 docker compose --env-file .env -f docker-compose.main.yaml ps mariadb_maintenance
+```
+
+Run the host-side destructive-boundæry regression from the repository root:
+
+```bash
 bash .cursor/scripts/test-mariadb-maintenance-safety.sh
 ```
 

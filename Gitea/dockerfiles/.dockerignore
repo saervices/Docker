@@ -1,4 +1,7 @@
 *
+!Dockerfile
+!gitea-secret-reader.go
+!gitea-secret-reader_test.go
 !dockerfile.postgresql
 !dockerfile.supercronic.postgresql
 !init_extensions.postgresql.sh

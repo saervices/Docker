@@ -62,6 +62,23 @@
     "max_gathering_unit_groups": 30,
     "max_unit_group_size": 200
   },
+  "steering":
+  {
+    "default":
+    {
+      "radius": 1.2,
+      "separation_force": 0.005,
+      "separation_factor": 1.2,
+      "force_unit_fuzzy_goto_behavior": false
+    },
+    "moving":
+    {
+      "radius": 3,
+      "separation_force": 0.01,
+      "separation_factor": 3,
+      "force_unit_fuzzy_goto_behavior": false
+    }
+  },
   "path_finder":
   {
     "fwd2bwd_ratio": 5,

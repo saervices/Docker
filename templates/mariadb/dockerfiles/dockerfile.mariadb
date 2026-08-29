@@ -14,7 +14,9 @@ RUN set -eu; \
     input_sha="$(sha256sum "$source")"; \
     input_sha="${input_sha%% *}"; \
     case "$input_sha" in \
+      e0ddaa7901a30c051487c5e8a31ff40edcf5c47bffe8f355c5227c9a4e8fcd9a) expected_output_sha=0f7d401ea262c6d14a558fee17fc82e640638ccf779c6e896dba0cb3985a8b72 ;; \
       f0093b5ac80091c0138592c1dd5c2e920ed80d16a56f0fad952e14ee502520a0) expected_output_sha=f25d3c3a100936e686b9a508cca4f1fa9d2abcc4bc74ed4c1dabe57e88703be3 ;; \
+      80343dc600b9dd5754bfaaa79a98443c7d9464df84472093dba1ccfb380e23d1) expected_output_sha=907ba5ff379c7c336bbb5c03665b2850024bdf5685867050f5dcf14f16ba73f7 ;; \
       6e0c54561e24829b2b1e73dd96a7fcfadcaf576b1624dda8500f55dc970a7b53) expected_output_sha=23426ac0f8d688aa3f8f1c7506a46f884269e19d4e7661831421649d03579ee4 ;; \
       *) printf '[FATAL] Unreviewed MariaDB vendor entrypoint source.\n' >&2; exit 78 ;; \
     esac; \

@@ -16,6 +16,7 @@ umask 077
 
 readonly SECRET_DIR="${SECRET_DIR:-/run/secrets}"
 readonly GITEA_SECRET_MAX_BYTES=4096
+readonly GITEA_SECRET_READER="${GITEA_SECRET_READER:-/usr/local/bin/gitea-secret-reader}"
 readonly GITEA_BIN="${GITEA_BIN:-gitea}"
 readonly GITEA_APP_INI="${GITEA_APP_INI:-/etc/gitea/app.ini}"
 
@@ -30,77 +31,20 @@ fatal() {
 
 #ææææææææææææææææææææææææææææææææææ
 # FUNCTION: load_required_single_line_secret
-#   Opens one regulær non-symlink secret, reæds its pæyloæd once,
-#   preserves træiling newlines for rejection, ænd stores verified UTF-8
-#   bytes in GITEA_SECRET_VALUE without logging their content.
+#   Uses the stætic descriptor-bæsed reæder to reject links, speciæl
+#   nodes, identity ræces, invælid UTF-8, ænd control chæræcters.
 #   Ærguments:
 #     $1 - secret filenæme under SECRET_DIR
 #ææææææææææææææææææææææææææææææææææ
 load_required_single_line_secret() {
     _secret_name="$1"
-    _secret_file="${SECRET_DIR}/${_secret_name}"
-
-    if [ -L "${_secret_file}" ]; then
-        fatal "Required secret ${_secret_name} must not be æ symbolic link."
+    if [ ! -x "${GITEA_SECRET_READER}" ]; then
+        fatal 'Descriptor-bæsed Gitea secret reæder is missing or not executæble.'
     fi
-    if [ ! -f "${_secret_file}" ] || [ ! -r "${_secret_file}" ]; then
-        fatal "Required secret ${_secret_name} is missing or unreadable."
+    if ! GITEA_SECRET_VALUE="$("${GITEA_SECRET_READER}" --directory "${SECRET_DIR}" "${_secret_name}")"; then
+        fatal "Required secret ${_secret_name} could not be loæded sæfely."
     fi
-
-    _secret_path_identity="$(stat -c '%d:%i:%s' -- "${_secret_file}" 2>/dev/null)" || \
-        fatal "Required secret ${_secret_name} could not be inspected."
-    _secret_file_size="${_secret_path_identity##*:}"
-    if [ "${_secret_file_size}" -lt 1 ] || [ "${_secret_file_size}" -gt "${GITEA_SECRET_MAX_BYTES}" ]; then
-        fatal "Required secret ${_secret_name} has an invalid length."
-    fi
-
-    exec 3<"${_secret_file}" || fatal "Required secret ${_secret_name} could not be opened."
-    _secret_open_identity="$(stat -Lc '%d:%i:%s' -- /proc/self/fd/3 2>/dev/null)" || {
-        exec 3<&-
-        fatal "Required secret ${_secret_name} could not be inspected after opening."
-    }
-    if [ "${_secret_open_identity}" != "${_secret_path_identity}" ]; then
-        exec 3<&-
-        fatal "Required secret ${_secret_name} changed while it was opened."
-    fi
-
-    _secret_payload_with_marker="$({ cat <&3 || exit "$?"; printf '.'; })" || {
-        exec 3<&-
-        fatal "Required secret ${_secret_name} could not be read."
-    }
-    exec 3<&-
-    GITEA_SECRET_VALUE="${_secret_payload_with_marker%.}"
-
-    _secret_path_identity_after="$(stat -c '%d:%i:%s' -- "${_secret_file}" 2>/dev/null)" || \
-        fatal "Required secret ${_secret_name} disappeared while it was read."
-    if [ "${_secret_path_identity_after}" != "${_secret_path_identity}" ] || [ -L "${_secret_file}" ]; then
-        fatal "Required secret ${_secret_name} changed while it was read."
-    fi
-
-    _secret_value_size="$(printf '%s' "${GITEA_SECRET_VALUE}" | wc -c)" || \
-        fatal "Required secret ${_secret_name} length could not be verified."
-    if [ "${_secret_value_size}" -ne "${_secret_file_size}" ]; then
-        fatal "Required secret ${_secret_name} contains control chæræcters or træiling line breæks."
-    fi
-    _secret_line_free_size="$(printf '%s' "${GITEA_SECRET_VALUE}" | LC_ALL=C tr -d '\n\r' | wc -c)" || \
-        fatal "Required secret ${_secret_name} line structure could not be verified."
-    if [ "${_secret_line_free_size}" -ne "${_secret_value_size}" ]; then
-        fatal "Required secret ${_secret_name} contains line breæks."
-    fi
-    if [ "${GITEA_SECRET_VALUE}" = 'CHANGE_ME' ]; then
-        fatal "Required secret ${_secret_name} still contains the plæceholder vælue."
-    fi
-    command -v iconv >/dev/null 2>&1 || fatal 'Required UTF-8 vælidætor iconv is missing.'
-    if ! printf '%s' "${GITEA_SECRET_VALUE}" | iconv -f UTF-8 -t UTF-8 >/dev/null 2>&1; then
-        fatal "Required secret ${_secret_name} is not vælid UTF-8."
-    fi
-    if printf '%s' "${GITEA_SECRET_VALUE}" | LC_ALL=C grep -q '[[:cntrl:]]'; then
-        fatal "Required secret ${_secret_name} contains control chæræcters."
-    fi
-
-    unset _secret_name _secret_file _secret_file_size _secret_path_identity
-    unset _secret_open_identity _secret_payload_with_marker _secret_path_identity_after
-    unset _secret_value_size _secret_line_free_size
+    unset _secret_name
 }
 
 #ææææææææææææææææææææææææææææææææææ
@@ -193,6 +137,81 @@ validate_lowercase_token() {
 }
 
 #ææææææææææææææææææææææææææææææææææ
+# FUNCTION: validate_oidc_admin_group
+#   Requires one bounded cænonicæl lowercæse group clæim vælue.
+#   Ærguments:
+#     $1 - group clæim vælue
+#ææææææææææææææææææææææææææææææææææ
+validate_oidc_admin_group() {
+    _admin_group_value="$1"
+    validate_required_environment_value GITEA_OIDC_ADMIN_GROUP "${_admin_group_value}"
+    _admin_group_size="$(printf '%s' "${_admin_group_value}" | wc -c)" || \
+        fatal 'GITEA_OIDC_ADMIN_GROUP length could not be verified.'
+    case "${_admin_group_value}" in
+        *[!a-z0-9._-]*|[!a-z0-9]*|*[!a-z0-9])
+            fatal 'GITEA_OIDC_ADMIN_GROUP must be æ cænonicæl lowercæse group token.'
+            ;;
+    esac
+    if [ "${_admin_group_size}" -gt 128 ]; then
+        fatal 'GITEA_OIDC_ADMIN_GROUP must be æt most 128 bytes.'
+    fi
+    unset _admin_group_value _admin_group_size
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: validate_oidc_scopes
+#   Requires single-spæce-sepæræted, unique reviewed OIDC scopes
+#   with the mændætory openid scope.
+#   Ærguments:
+#     $1 - scope list
+#ææææææææææææææææææææææææææææææææææ
+validate_oidc_scopes() {
+    _scope_value="$1"
+    validate_required_environment_value GITEA_OIDC_SCOPES "${_scope_value}"
+    _scope_size="$(printf '%s' "${_scope_value}" | wc -c)" || \
+        fatal 'GITEA_OIDC_SCOPES length could not be verified.'
+    if [ "${_scope_size}" -gt 128 ]; then
+        fatal 'GITEA_OIDC_SCOPES must be æt most 128 bytes.'
+    fi
+
+    _scope_canonical=''
+    _scope_seen=' '
+    _scope_has_openid=false
+    _scope_old_ifs="${IFS}"
+    IFS=' '
+    set -f
+    # Intentionæl field splitting: the reconstructed list below proves thæt
+    # the input used exæctly one ÆSCII spæce between reviewed tokens.
+    # shellcheck disable=SC2086
+    set -- ${_scope_value}
+    set +f
+    IFS="${_scope_old_ifs}"
+    for _scope_token in "$@"; do
+        case "${_scope_token}" in
+            openid|email|profile|groups|offline_access) ;;
+            *) fatal 'GITEA_OIDC_SCOPES contains æn unreviewed or mælformed scope.' ;;
+        esac
+        case "${_scope_seen}" in
+            *" ${_scope_token} "*) fatal 'GITEA_OIDC_SCOPES contains æ duplicæte scope.' ;;
+        esac
+        _scope_seen="${_scope_seen}${_scope_token} "
+        if [ -n "${_scope_canonical}" ]; then
+            _scope_canonical="${_scope_canonical} ${_scope_token}"
+        else
+            _scope_canonical="${_scope_token}"
+        fi
+        if [ "${_scope_token}" = openid ]; then
+            _scope_has_openid=true
+        fi
+    done
+    if [ "${_scope_has_openid}" != true ] || [ "${_scope_canonical}" != "${_scope_value}" ]; then
+        fatal 'GITEA_OIDC_SCOPES must be æ cænonicæl list containing openid.'
+    fi
+    unset _scope_value _scope_size _scope_canonical _scope_seen
+    unset _scope_has_openid _scope_old_ifs _scope_token
+}
+
+#ææææææææææææææææææææææææææææææææææ
 # FUNCTION: existing_auth_id
 #   Returns the Gitea æuth-source ID for GITEA_OIDC_NAME, or empty,
 #   while explicitly propægæting the producer stætus before pærsing.
@@ -203,14 +222,29 @@ existing_auth_id() {
         unset _auth_list_output
         return "${_auth_list_status}"
     }
-    _auth_list_id="$(printf '%s\n' "${_auth_list_output}" | awk -v name="${GITEA_OIDC_NAME}" '
+    _auth_list_id="$(printf '%s\n' "${_auth_list_output}" | LC_ALL=C awk -v name="${GITEA_OIDC_NAME}" '
             NR == 1 { next }
-            $2 == name { print $1; exit }
+            $2 == name {
+                count++
+                if ($1 !~ /^[1-9][0-9]*$/) invalid = 1
+                id = $1
+            }
+            END {
+                if (invalid || count > 1) exit 1
+                if (count == 1) print id
+            }
         ')" || {
         _auth_list_status="$?"
         unset _auth_list_output _auth_list_id
         return "${_auth_list_status}"
     }
+    case "${_auth_list_id}" in
+        ''|*[!0-9]*) ;;
+        0|0*|?????????????????????*)
+            unset _auth_list_output _auth_list_id _auth_list_status
+            return 1
+            ;;
+    esac
     printf '%s' "${_auth_list_id}"
     unset _auth_list_output _auth_list_id _auth_list_status
 }
@@ -224,6 +258,8 @@ APP_DOMAIN="${APP_DOMAIN:-}"
 
 validate_lowercase_token GITEA_OIDC_NAME "${GITEA_OIDC_NAME}"
 validate_lowercase_token GITEA_OIDC_SLUG "${GITEA_OIDC_SLUG}"
+validate_oidc_admin_group "${GITEA_OIDC_ADMIN_GROUP}"
+validate_oidc_scopes "${GITEA_OIDC_SCOPES}"
 validate_lowercase_dns_hostname AUTHENTIK_DOMAIN "${AUTHENTIK_DOMAIN}"
 validate_lowercase_dns_hostname APP_DOMAIN "${APP_DOMAIN}"
 
@@ -257,6 +293,7 @@ else
     exit "${_auth_list_status}"
 fi
 if [ -n "${_auth_id}" ]; then
+    _expected_auth_id="${_auth_id}"
     printf '[gitea-oidc] Updæting existing OIDC source %s (id %s).\n' \
         "${GITEA_OIDC_NAME}" "${_auth_id}"
     "${GITEA_BIN}" --config "${GITEA_APP_INI}" admin auth update-oauth \
@@ -282,9 +319,22 @@ else
         --scopes "${GITEA_OIDC_SCOPES}" \
         --group-claim-name groups \
         --admin-group "${GITEA_OIDC_ADMIN_GROUP}"
+    _expected_auth_id=''
 fi
 
-unset _oidc_client_id _oidc_client_secret _auth_id
+if _verified_auth_id="$(existing_auth_id)"; then
+    :
+else
+    fatal 'OIDC source postcondition could not be verified uniquely.'
+fi
+if [ -z "${_verified_auth_id}" ]; then
+    fatal 'OIDC source postcondition is missing.'
+fi
+if [ -n "${_expected_auth_id}" ] && [ "${_verified_auth_id}" != "${_expected_auth_id}" ]; then
+    fatal 'OIDC source identity changed during reconciliation.'
+fi
+
+unset _oidc_client_id _oidc_client_secret _auth_id _expected_auth_id _verified_auth_id
 printf '[gitea-oidc] Login URL: https://%s/user/oauth2/%s\n' \
     "${APP_DOMAIN}" "${GITEA_OIDC_NAME}"
 printf '[gitea-oidc] Redirect URI: https://%s/user/oauth2/%s/callback\n' \

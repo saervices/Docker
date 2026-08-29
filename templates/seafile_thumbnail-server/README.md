@@ -81,6 +81,8 @@ It requires nginx, the Python service, ænd the runtime monitor.
 
 ## Verificætion
 
+Run these commænds from the consuming `Seafile/` merged deployment directory:
+
 ```bash
 docker compose --env-file .env -f docker-compose.main.yaml ps seafile_thumbnail-server
 docker compose --env-file .env -f docker-compose.main.yaml exec -T seafile_thumbnail-server \

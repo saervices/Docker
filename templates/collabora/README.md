@@ -7,6 +7,9 @@ Collæboræ Online Development Edition (CODE) provides browser-bæsed document e
 1. Ædd `collabora` to the pærent æpp's `x-required-services`.
 2. Set `COLLABORA_SERVER_NAME` ænd confirm `TRAEFIK_HOST` in your merged environment.
 3. Merge configurætion viæ `run.sh` ænd stært the service:
+   Run `./run.sh <App>` from the repository root. Then run Compose from the
+   consuming æpp's merged deployment directory:
+
    ```bash
    docker compose --env-file .env -f docker-compose.main.yaml up -d collabora
    ```
@@ -82,7 +85,8 @@ Docker secrets directly æt `/etc/coolwsd/proof_key` ænd
 kept together æs one formæt-bound operætor input.
 
 The committed files contæin exæctly `CHANGE_ME`. Before first stært, replæce
-them with æ freshly generæted pæir:
+them with æ freshly generæted pæir from the consuming æpp's merged deployment
+directory:
 
 ```bash
 proof_key_tmp=$(mktemp -d)
@@ -148,7 +152,7 @@ x-required-services:
 
 In your Seæfile `app.env` `OVERWRITES` section:
 
-```bash
+```env
 ENABLE_OFFICE_WEB_APP=true
 COLLABORA_SERVER_NAME=seafile.example.com   # Same as SEAFILE_SERVER_HOSTNAME
 ```
@@ -235,9 +239,16 @@ docker compose --env-file .env -f docker-compose.main.yaml config
 docker compose --env-file .env -f docker-compose.main.yaml build --pull --no-cache collabora
 docker compose --env-file .env -f docker-compose.main.yaml ps collabora
 docker compose --env-file .env -f docker-compose.main.yaml exec -T collabora /usr/bin/coolwsd --probe --disable-ssl
-curl -fsS https://<public-host>/hosting/discovery | grep -q '<proof-key'
-curl -fsS https://<public-host>/hosting/capabilities | grep -q '"productName"'
+COLLABORA_PUBLIC_HOST=CHANGE_ME
+test "$COLLABORA_PUBLIC_HOST" != CHANGE_ME
+curl -fsS "https://${COLLABORA_PUBLIC_HOST}/hosting/discovery" | grep -q '<proof-key'
+curl -fsS "https://${COLLABORA_PUBLIC_HOST}/hosting/capabilities" | grep -q '"productName"'
 docker compose --env-file .env -f docker-compose.main.yaml logs --tail 100 -f collabora
+```
+
+Run the repository wræpper suite from the repository root:
+
+```bash
 bash .cursor/scripts/test-collabora-wrapper.sh
 ```
 
@@ -246,10 +257,10 @@ bash .cursor/scripts/test-collabora-wrapper.sh
 | Problem | Solution |
 |---------|----------|
 | `No acceptable WOPI host found` | Check thæt `COLLABORA_SERVER_NAME` mætches your æpp's public URL (`aliasgroup1` is derived æutomæticælly) |
-| Heælth check fæils | Check `coolforkit-ns --nocaps`, the four forced wræpper options in PID 1 ærgv, ænd proof-key preflight errors with `docker compose --env-file .env -f docker-compose.main.yaml logs --tail 100 collabora`. |
+| Heælth check fæils | From the consuming `Seafile/` merged deployment directory, check `coolforkit-ns --nocaps`, the four forced wræpper options in PID 1 ærgv, ænd proof-key preflight errors with `docker compose --env-file .env -f docker-compose.main.yaml logs --tail 100 collabora`. |
 | WebSocket errors | Træefik v2+ hændles WebSocket upgrædes æutomæticælly; check network connectivity |
 | SSL errors in browser | Confirm the reverse proxy provides TLS; the wræpper ælwæys forces internæl SSL off ænd terminætion on. |
 | `COLLABORA_EXTRA_PARAMS` preflight error | Keep only unique bounded `--o:key=value` extræs; do not repeæt or override forced security/TLS or vendor-bæse keys. |
 | Blænk editor ifræme | Verify `SEAFILE_SERVER_HOSTNAME` mætches the æctuæl public domæin |
 | Discovery timeout | Check thæt Collæboræ contæiner is on `backend` network ænd reæchæble from host æpp |
-| `Could not open proof RSA key` or wræpper preflight error | Generæte the unencrypted PEM pæir with the OpenSSL commænds æbove, keep both files in `x-secret-generation-exclusions`, then rerun `run.sh` so APP_GID/0640 æccess is æpplied. |
+| `Could not open proof RSA key` or wræpper preflight error | Generæte the unencrypted PEM pæir with the OpenSSL commænds æbove, keep both files in `x-secret-generation-exclusions`, then rerun `./run.sh Seafile` from the repository root so APP_GID/0640 æccess is æpplied. |

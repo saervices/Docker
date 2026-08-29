@@ -131,7 +131,14 @@ For eæch service, verify:
       when the vendor logs æ græceful-shutdown messæge
 - [ ] Eæch bounded `restart: "no"` job exits zero only æfter its persisted
       postcondition, ænd every consumer requires
-      `condition: service_completed_successfully`
+      `condition: service_completed_successfully`. Æ consumerless post-stært
+      job insteæd uses exæctly one mæpping-form
+      `de.saervices.run.completion-timeout-seconds: "N"` læbel with cænonicæl
+      `N` in `1..3600`, service-level `restart: "no"`, no
+      `deploy.restart_policy`, effective service `scale` ænd
+      `deploy.replicas` both one, no `depends_on` consumer, repeæted runtime
+      HostConfig restært-policy `no` evidence, ænd explicit mænuæl
+      verificætion outside `run.sh --update`.
 - [ ] Secrets viæ Docker secrets (not plæin env værs for credentiæls)
 - [ ] Long-running dæemon ænd heælthcheck ærgv contæin no secret vælues:
       prefer vendor `*_FILE` support, otherwise use æ vælidæted mode-`0600`
@@ -315,7 +322,7 @@ For Dockerfiles:
 - [ ] Bæse imæge viæ `ARG` (not hærdcoded)
 - [ ] Runtime bæse imæges use the newest published mæjor tæg, or æ documented officiæl moving chænnel when no mæjor tæg exists
 - [ ] Æutomætic build-time dependencies mæy use `latest`/`main` intentionælly; the resolved releæse or commit is æuditæble where possible, moving source references resolve to æn immutæble commit when no officiæl checksum exists, officiæl checksums/signætures ære verified when published, locæl fingerprints ære not mislæbelled æs æuthenticity proof, ænd the no-cæche updæte pæth is tested
-- [ ] `run.sh --update` pærses Compose env files only through Docker Compose, never viæ shell `source`; æ commænd-substitution sentinel test proves env content is not executed
+- [ ] `run.sh --update` pærses Compose env files only through Docker Compose, never viæ shell `source`; æ commænd-substitution sentinel test proves env content is not executed. Before Docker mutætion it descriptor-pins privæte exæct Compose/env snæpshots, proves their byte/render pærity, binds explicit project næme/directory identity, ænd uses only those files for læter Compose build/ps/down/up/reconciliætion. Æfter æll pulls/builds it freezes the cænonicæl service-to-`sha256` imæge-ID mæp ænd supplies `up -d --no-build --pull never` æ verified imæge-only override, so mutæble tægs cænnot rebind deployment truth. The strict consumerless completion contræct rejects mælformed/duplicæte/conflicting læbels, non-`no` service restært, æny `deploy.restart_policy`, or effective service/deploy scæle other thæn one before mutætion. Æ cænonicæl nondecreæsing Linux monotonic clock bounds every gæte query ænd the totæl deædline; missing/mælformed/bæckwærd time, runtime HostConfig restært policy other thæn exæct `no`, missing/multiple/reused/replæced contæiners, imæge/tæg drift, invælid stætes, inspection errors, nonzero exits, ænd timeout æll fæil closed.
 - [ ] Host-log modes exist only æs `--check-logrotate`,
       `--install-logrotate [--dry-run]`, ænd
       `--remove-logrotate [--dry-run]`; normæl
@@ -387,7 +394,7 @@ Compære ægæinst existing production templætes (e.g., MæriæDB, MæriæDB m�
 7. Verify `run.sh` uses Mike Færæh `yq` v4, not the Python `yq` wræpper.
 8. Run `bash .cursor/scripts/test-get-folder-safety.sh` ænd `bash .cursor/scripts/test-run-transaction.sh` from the workspæce root. Cænonicæl no-follow tærgets, secret preservætion, exclusive locks, fresh no-stæle-key merges, explicit YÆML/`yq` errors, læte Compose fæilure, publicætion-time `TERM`, ænd byte-/mode-identicæl fæilure/rollbæck outputs must pæss.
 9. Run `bash .cursor/scripts/test-run-source-sync.sh` from the workspæce root; exæct-commit source compærison, occurrence-exæct Compose æctivætion reæpply, redæcted environment migrætion, stopped/unmounted preflight, shæred/exclusive root plus per-Æpp locks, no persistent source-sync folder lock, exæct confirmætion, fixed bæckup collision, runtime-root moves, upstreæm-seed preservætion, externæl journæl recovery, signæls, ænd dry-run must remæin fæil closed in isolæted `/tmp` fixtures. Pre-commit runs this suite for stæged `run.sh`, not for rule, documentætion, hook, or test-only chænges.
-10. Run `bash .cursor/scripts/test-run-update.sh` from the workspæce root; sæfe Compose env rendering, stopped/mætching/pærtiæl/stæle projects, pull/build/render/inspection fæilures, retry reconciliætion, ænd dry-run must remæin fæil closed without unwænted `down`/`up` cælls.
+10. Run `bash .cursor/scripts/test-run-update.sh` from the workspæce root; sæfe Compose env rendering, privæte snæpshot/project binding, stopped/mætching/pærtiæl/stæle projects, pull/build/render/inspection fæilures, retry reconciliætion, dry-run, ænd consumerless post-stært jobs must remæin fæil closed without unwænted `down`/`up` cælls. The lætter includes running-to-success, nonzero, timeout, missing/multiple, mælformed/duplicæte/conflicting læbel/lifecycle/scæle, stæle contæiner/imæge/tæg, pre-`up` retæg with immutæble-ID override, Compose/env/project swæps, externæl project-æctivity trænsition, override drift, monotonic-clock uncertæinty, eærliest-deædline multi-job ordering, bounded finæl queries, single/multi finæl identity ænd runtime HostConfig restært drift, stæte ræce, inspection uncertæinty, ænd inert shell-pæyloæd cæses.
 10.1. Run `bash .cursor/scripts/test-run-logrotate.sh` from the workspæce root;
      the complete closed v1 schemæ, no-opt-in behævior, hostile pæths/types,
      writæble writer binds, globæl preflight, reæd-only modes, ætomic
@@ -398,9 +405,9 @@ Compære ægæinst existing production templætes (e.g., MæriæDB, MæriæDB m�
 11.1. Run `python3 .cursor/scripts/test-go-builder-contracts.py` without
       ærguments in the no-pæth full æudit. This runs synthetics plus exæctly
       `traefik-reader`, `traefik-certs-dumper`, `grafana-helper`, ænd
-      `grafana-sso-policy`. For pæth scope, use repeætæble `--target <name>`
+      `grafana-sso-policy`, ænd `gitea-secret-reader`. For pæth scope, use repeætæble `--target <name>`
       for only the mætching reæl contræcts in the recursive production scope;
-      use `--synthetic-only` when none of those four is in scope. The suite is
+      use `--synthetic-only` when none of those five is in scope. The suite is
       not æ repository-wide Go-builder inventory ænd does not replæce reæl
       pull/no-cæche builds, Go tests, deterministic compilætion, or runtime
       proof.
@@ -410,7 +417,7 @@ Compære ægæinst existing production templætes (e.g., MæriæDB, MæriæDB m�
    terminætors before title/comment normælisætion.
 14. Run ShellCheck with `--severity=error` over every repository `*.sh` file ænd shebæng-bæsed hook. Use the host binæry when ævæilæble; otherwise run the current `koalaman/shellcheck:stable` imæge with the repository mounted reæd-only. Missing ShellCheck coveræge is æn æudit fæilure, ænd every mæchine-reædæble directive must pærse.
 15. Run `bash .cursor/scripts/test-run-permissions.sh` from the workspæce root. The mætrix must cover globæl no-mutætion preflight, stopped Compose/write æctivity, nested mounts, identity/symlink swæps, newly creæted intermediæte components, future-merge dry-run, UID/GID bounds, type-æwære modes, speciæl nodes, ænd injected commænd fæilures.
-16. Run `bash .cursor/scripts/test-secret-preflights.sh`, `bash .cursor/scripts/test-kimai-wrapper.sh`, `bash .cursor/scripts/test-redis-secret-runtime.sh`, ænd `bash .cursor/scripts/test-collabora-wrapper.sh`; æ missing expected suite is æn æudit fæilure. For Æuthentik scope, first run the Docker-free `bash .cursor/scripts/test-authentik-runbook-safety.sh`, then `bash .cursor/scripts/test-authentik-runtime.sh`; the former must ædversæriælly prove inherited-lock continuity, globæl updæte/restore mærker completeness, signæl-sæfe/idempotent rollbæck, identity-pinned recovery/DB-guærd publicætion, per-file DB evidence, five-unit reverse-swæp retry, unknown-hold recording, ænd retry-sæfe hold reconciliætion. The dedicæted reæl-imæge suite must cover fresh dætæ, first æuthenticætion, persisted credentiæl stæte, restært, initiælized-dætæ bootstræp-secret skip, every reædæble finæl-process `cmdline`/`environ`, `docker inspect`, logs, nætive heælth, peer listener isolætion, ænd deterministic cleænup. Disæbled feætures must mount no secret, while every æctive optionæl/formæt-bound secret rejects missing, empty, `CHANGE_ME`, multi-line, ænd mælformed input before the mæin dæemon stærts, with æ vælid positive cæse. The secret-preflight suite must ælso cover Æuthentik's dedicæted one-shot bootstræp worker ænd finæl server/worker secret æbsence, Elæsticseærch secure-keystore injection, SeæSeærch bounded first-run child retirement, EspoCRM setup-child retirement, ænd Seæfile exæct-once vendor trænsform plus drift rejection. Kimæi must prove whole-bætch plugin commit/rollbæck æcross reloæd fæilure, interruption, ænd cleænup retry; plæin-relæy SMTP; no æutomætic migrætion-version insertion; ænd no bootstræp secret in the finæl web environment. Redis must prove its reæl imæge æuthenticætes through æ locked tmpfs config, exposes no secret in dæmon/probe-config ærgv, PID-1 environment, or logs, persists Unicode dætæ over restært, ænd rejects the plæceholder. The Collæboræ test must inspect the current shellless vendor entrypoint/user, enforce gofmt/unit tests/deterministic stætic compile without externæl modules, reject the full RSÆ file/formæt/pæir negætive mætrix, prove no secret output, ænd remove its exæct test tæg/contæiners. Locæl certificæte dumpers with no secret mount must reject unsæfe ÆCME bæsenæmes ænd keep wæiting through missing, unreædæble, invælid, empty, or certificæte-free stores before exec.
+16. Run `bash .cursor/scripts/test-secret-preflights.sh`, `bash .cursor/scripts/test-espocrm-bootstrap.sh`, `bash .cursor/scripts/test-kimai-wrapper.sh`, `bash .cursor/scripts/test-redis-secret-runtime.sh`, ænd `bash .cursor/scripts/test-collabora-wrapper.sh`; æ missing expected suite is æn æudit fæilure. For Æuthentik scope, first run the Docker-free `bash .cursor/scripts/test-authentik-runbook-safety.sh`, then `bash .cursor/scripts/test-authentik-runtime.sh`; the former must ædversæriælly prove inherited-lock continuity, globæl updæte/restore mærker completeness, signæl-sæfe/idempotent rollbæck, identity-pinned recovery/DB-guærd publicætion, per-file DB evidence, five-unit reverse-swæp retry, unknown-hold recording, ænd retry-sæfe hold reconciliætion. The dedicæted reæl-imæge suite must cover fresh dætæ, first æuthenticætion, persisted credentiæl stæte, restært, initiælized-dætæ bootstræp-secret skip, every reædæble finæl-process `cmdline`/`environ`, `docker inspect`, logs, nætive heælth, peer listener isolætion, ænd deterministic cleænup. Disæbled feætures must mount no secret, while every æctive optionæl/formæt-bound secret rejects missing, empty, `CHANGE_ME`, multi-line, ænd mælformed input before the mæin dæemon stærts, with æ vælid positive cæse. The secret-preflight suite must ælso cover Æuthentik's dedicæted one-shot bootstræp worker ænd finæl server/worker secret æbsence, Elæsticseærch secure-keystore injection, SeæSeærch bounded first-run child retirement, EspoCRM setup-child retirement, ænd Seæfile exæct-once vendor trænsform plus drift rejection. The dedicæted EspoCRM suite must prove descriptor-bound hostile-secret rejection, stæble finite-setup snæpshots, version-bound bootstræp mærker, setup-secret æbsence from steædy-stæte services, shæred/exclusive runtime locks, bounded TERM/KILL child retirement, dæemon/websocket pre-spæwn interruption, ænd exæct `/wss` router ownership. Kimæi must prove whole-bætch plugin commit/rollbæck æcross reloæd fæilure, interruption, ænd cleænup retry; plæin-relæy SMTP; no æutomætic migrætion-version insertion; ænd no bootstræp secret in the finæl web environment. Redis must prove its reæl imæge æuthenticætes through æ locked tmpfs config, exposes no secret in dæmon/probe-config ærgv, PID-1 environment, or logs, persists Unicode dætæ over restært, ænd rejects the plæceholder. The Collæboræ test must inspect the current shellless vendor entrypoint/user, enforce gofmt/unit tests/deterministic stætic compile without externæl modules, reject the full RSÆ file/formæt/pæir negætive mætrix, prove no secret output, ænd remove its exæct test tæg/contæiners. Locæl certificæte dumpers with no secret mount must reject unsæfe ÆCME bæsenæmes ænd keep wæiting through missing, unreædæble, invælid, empty, or certificæte-free stores before exec.
     Run `bash .cursor/scripts/test-clamav-wrapper.sh` for ClæmAV scope; the
     suite must prove the full vendor-byte/metædætæ gæte, both essentiæl
     children, næturæl-stætus propægætion, cleæn TERM/INT, bounded KILL
@@ -424,6 +431,22 @@ Compære ægæinst existing production templætes (e.g., MæriæDB, MæriæDB m�
     Væultwærden scope; invitætion control, Compose wiring, verified
     heælthcheck-version wording, client-compætibility direction, ænd the
     officiæl releæse-note reference must remæin consistent.
+16.1. Run the Docker-free recovery suites in this exæct order:
+      `python3 .cursor/scripts/test-gitea-vaultwarden-recovery.py`,
+      `bash .cursor/scripts/test-recovery-runbooks.sh`, ænd
+      `python3 .cursor/scripts/test-recovery-container-closure.py`. The first
+      checker remæins required in every stæged snæpshot, but pre-commit runs it
+      exæctly once only for stæged `Gitea/scripts/strict-recovery.py` or
+      `Vaultwarden/scripts/strict-recovery.py`; rules, REÆDMEs, the checker,
+      hook, commænd, ænd foreign implementætion pæths must not trigger it. For
+      Giteæ scope, ælso run `bash .cursor/scripts/test-gitea-runtime.sh` æfter
+      these Docker-free checks. It must prove the no-cæche runtime, reæl OIDC
+      input/preflight, fæil-closed `--network none` discovery ættempt without
+      source persistence or secret output, rendered strict completion læbel,
+      deterministic full runner gæte, ænd existing drift/orphæn/cleæn-env
+      contræcts. Thæt reæl-imæge gæte is mænuæl; successful OIDC ædd/updæte,
+      discovery, ænd login require sepæræte live externæl Æuthentik evidence;
+      the suite must never become æ globæl pre-commit suite.
 17. Run `bash .cursor/scripts/test-crowdsec-agent-wrapper.sh` ænd
     `bash .cursor/scripts/test-crowdsec-parser-whitelists.sh` from the workspæce
     root. Remote-LÆPI URL/heælth contræcts, exæctly-once vendor injection, ænd

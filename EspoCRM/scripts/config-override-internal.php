@@ -120,6 +120,35 @@ if (
     throw new RuntimeException('ESPOCRM_CONFIG_WEB_SOCKET_URL must be wss://APP_DOMAIN/wss without port, credentials, query, or fragment.');
 }
 
+$siteUrl = trim((string) getenv('ESPOCRM_CONFIG_SITE_URL'));
+
+if ($siteUrl !== "https://{$appDomain}") {
+    throw new RuntimeException('ESPOCRM_CONFIG_SITE_URL must exactly match https://APP_DOMAIN.');
+}
+
+$runtimeHost = trim((string) getenv('ESPOCRM_RUNTIME_HOST'));
+
+if (preg_match('/^[a-z0-9][a-z0-9_-]*$/', $runtimeHost) !== 1) {
+    throw new RuntimeException('ESPOCRM_RUNTIME_HOST is invalid.');
+}
+
+$subscriberDsn = trim((string) getenv('ESPOCRM_CONFIG_WEB_SOCKET_ZERO_M_Q_SUBSCRIBER_DSN'));
+$submissionDsn = trim((string) getenv('ESPOCRM_CONFIG_WEB_SOCKET_ZERO_M_Q_SUBMISSION_DSN'));
+
+if ($subscriberDsn !== 'tcp://*:7777') {
+    throw new RuntimeException('The EspoCRM WebSocket subscriber DSN must remain tcp://*:7777.');
+}
+
+if ($submissionDsn !== "tcp://{$runtimeHost}-websocket:7777") {
+    throw new RuntimeException('The EspoCRM WebSocket submission DSN does not match the project runtime host.');
+}
+
+$loggerLevel = strtoupper(trim((string) getenv('ESPOCRM_CONFIG_LOGGER__LEVEL')));
+
+if (!in_array($loggerLevel, ['DEBUG', 'INFO', 'NOTICE', 'WARNING', 'ERROR', 'CRITICAL', 'ALERT', 'EMERGENCY'], true)) {
+    throw new RuntimeException('ESPOCRM_CONFIG_LOGGER__LEVEL is invalid.');
+}
+
 $authentikDomain = trim((string) getenv('AUTHENTIK_DOMAIN'));
 
 if ($authentikDomain === '') {
@@ -180,6 +209,12 @@ return [
     'adminExtensionUpload' => false,
     'adminUpgradeDisabled' => true,
     'passwordRecoveryForAdminDisabled' => true,
+    'siteUrl' => $siteUrl,
+    'useWebSocket' => true,
+    'webSocketUrl' => $webSocketUrl,
+    'webSocketZeroMQSubscriberDsn' => $subscriberDsn,
+    'webSocketZeroMQSubmissionDsn' => $submissionDsn,
+    'logger' => ['level' => $loggerLevel],
     'authenticationMethod' => 'Oidc',
     'oidcClientId' => $readSecret('ESPOCRM_OIDC_CLIENT_ID'),
     'oidcClientSecret' => $readSecret('ESPOCRM_OIDC_CLIENT_SECRET'),
@@ -190,7 +225,7 @@ return [
     'oidcLogoutUrl' => "{$authentikBase}/application/o/{$oidcSlug}/end-session/",
     'oidcJwtSignatureAlgorithmList' => ['RS256'],
     'oidcScopes' => $oidcScopes,
-    'oidcUsernameClaim' => getenv('ESPOCRM_OIDC_USERNAME_CLAIM') ?: 'preferred_username',
+    'oidcUsernameClaim' => getenv('ESPOCRM_OIDC_USERNAME_CLAIM') ?: 'sub',
     'oidcGroupClaim' => getenv('ESPOCRM_OIDC_GROUP_CLAIM') ?: 'groups',
     'oidcCreateUser' => $readBool('ESPOCRM_OIDC_CREATE_USER', false),
     'oidcSync' => $readBool('ESPOCRM_OIDC_SYNC', true),

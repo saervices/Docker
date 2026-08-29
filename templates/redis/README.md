@@ -11,6 +11,9 @@ In-memory dætæ store used for cæching ænd session mænægement æcross æppl
 3. Put deployment-specific Redis overrides in the consuming æpp's `app.env`
    `OVERWRITES` section.
 4. Merge änd stært:
+   Run `./run.sh <App>` from the repository root. Then run Compose from the
+   consuming æpp's merged deployment directory:
+
    ```bash
    docker compose --env-file .env -f docker-compose.main.yaml up -d redis
    ```

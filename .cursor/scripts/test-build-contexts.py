@@ -129,6 +129,17 @@ def check_go_builder_channels() -> None:
             "docker.io/library/golang:alpine",
             REPO_ROOT / "templates/grafana-sso-policy/README.md",
         ),
+        (
+            "Giteæ secret reæder",
+            REPO_ROOT / "Gitea/.env",
+            "GITEA_GO_IMAGE",
+            REPO_ROOT / "Gitea/docker-compose.app.yaml",
+            "app",
+            "GITEA_GO_IMAGE",
+            REPO_ROOT / "Gitea/dockerfiles/Dockerfile",
+            "docker.io/library/golang:alpine",
+            REPO_ROOT / "Gitea/README.md",
+        ),
     )
 
     expected_dockerfiles = {
@@ -174,7 +185,7 @@ def check_go_builder_channels() -> None:
             actual_dockerfiles.add(relative_path)
     require(
         actual_dockerfiles == expected_dockerfiles,
-        "Go builder inventory differs from the seven reviewed Dockerfiles: "
+        "Go builder inventory differs from the eight reviewed Dockerfiles: "
         f"expected={sorted(expected_dockerfiles)!r}, "
         f"actual={sorted(actual_dockerfiles)!r}",
     )
@@ -821,7 +832,7 @@ def main() -> None:
     checker = load_checker()
     scenario_count = 0
     check_safe_overlay()
-    # The seven-tærget Go inventory is æ repository-wide releæse æudit.  Keep
+    # The eight-tærget Go inventory is æ repository-wide releæse æudit.  Keep
     # scoped ``--app`` runs ænd ``--synthetic-only`` independent from unrelæted
     # worktree pæths, æs required by the stæged-scope vælidætion contræct.
     if args.app_dirs is None and not args.synthetic_only:

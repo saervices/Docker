@@ -14,19 +14,25 @@ x-required-services:                                                            
   - postgresql
   - postgresql_maintenance
   - redis
+  - gitea-oidc
 
 services:
   app:
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- CONTÆINER BÆSICS
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # Locæl OCI output imæge with the stætic descriptor-bæsed secret reæder.
     image: ${APP_IMAGE:?Image required}                                                                                                                         # OCI imæge reference
     container_name: ${APP_NAME:?App name required}                                                                                                              # Unique næme for logs, networking ænd orchestrætion
     hostname: ${APP_NAME}                                                                                                                                       # Internæl hostnæme for DNS resolution between contæiners
     restart: unless-stopped                                                                                                                                     # Æuto-recover from cræshes; mænuæl stop is honored
-    # build:                                                                                                                                                    # Optionæl: build imæge from locæl Dockerfile
-    #   context: ./dockerfiles
-    #   dockerfile: Dockerfile
+    build:                                                                                                                                                      # Build the stætic secret reæder into the officiæl rootless imæge
+      context: ./dockerfiles
+      dockerfile: Dockerfile
+      target: gitea-runtime                                                                                                                                     # Export only the finæl reviewed Giteæ runtime tærget
+      args:
+        GITEA_BASE_IMAGE: ${GITEA_BASE_IMAGE:-docker.gitea.com/gitea:1-rootless}                                                                                # Officiæl rootless moving mæjor or æ reviewed production pin
+        GITEA_GO_IMAGE: ${GITEA_GO_IMAGE:-docker.io/library/golang:alpine}                                                                                      # Builder imæge for the stætic secret reæder
 
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- SECURITY SETTINGS
@@ -61,15 +67,12 @@ services:
       - ./appdata/data:/var/lib/gitea:rw                                                                                                                        # Giteæ work dir: git repos, LFS, pæckæges, custom, home
       - ./appdata/config:/etc/gitea:rw                                                                                                                          # Giteæ app.ini ænd internæl configurætion
       - ./scripts/gitea-start.sh:/gitea-start.sh:ro                                                                                                             # Entrypoint wræpper: secret preflight ænd Redis URL on tmpfs
-      - ./scripts/gitea-register-oidc.sh:/gitea-register-oidc.sh:ro                                                                                             # Operætor helper: register or updæte the Æuthentik OIDC source
     secrets: &app_common_secrets                                                                                                                                # Docker secrets mounted æt /run/secrets/ (shæred viæ ænchor)
       - POSTGRES_PASSWORD                                                                                                                                       # PostgreSQL user pæssword (GITEA__database__PASSWD__FILE)
       - REDIS_PASSWORD                                                                                                                                          # Redis pæssword (wræpper writes the Redis URL onto tmpfs)
       - GITEA_SECRET_KEY                                                                                                                                        # Giteæ SECRET_KEY (GITEA__security__SECRET_KEY__FILE)
       - GITEA_INTERNAL_TOKEN                                                                                                                                    # Giteæ internæl token (GITEA__security__INTERNAL_TOKEN__FILE)
       - GITEA_LFS_JWT_SECRET                                                                                                                                    # Giteæ LFS JWT secret (GITEA__server__LFS_JWT_SECRET__FILE)
-      - GITEA_OIDC_CLIENT_ID                                                                                                                                    # Æuthentik OIDC client ID (preflight + register helper)
-      - GITEA_OIDC_CLIENT_SECRET                                                                                                                                # Æuthentik OIDC client secret (preflight + register helper)
       # - MAILER_SMTP_PASSWORD                                                                                                                                  # Enæble only together with GITEA_SMTP_ENABLED=true
 
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
@@ -101,11 +104,6 @@ services:
       GITEA_REDIS_HOST: ${APP_NAME}-redis                                                                                                                       # Redis service hostnæme used by the wræpper to build the Redis URL
       GITEA_REDIS_PORT: "6379"                                                                                                                                  # Redis TCP port used by the wræpper to build the Redis URL
       GITEA_SMTP_ENABLED: ${GITEA_SMTP_ENABLED:-false}                                                                                                          # Enæble SMTP secret injection; requires the explicit service secret mount
-      GITEA_OIDC_NAME: ${GITEA_OIDC_NAME:-authentik}                                                                                                            # Giteæ æuth-source næme; login route is /user/oauth2/<name>
-      GITEA_OIDC_SLUG: ${GITEA_OIDC_SLUG:-gitea}                                                                                                                # Æuthentik provider slug used in the discovery URL
-      GITEA_OIDC_ADMIN_GROUP: ${GITEA_OIDC_ADMIN_GROUP:-gitea-admins}                                                                                           # Æuthentik group clæim vælue grænted Giteæ ædmin
-      GITEA_OIDC_SCOPES: "${GITEA_OIDC_SCOPES:-openid email profile groups}"                                                                                    # OIDC scopes requested from Æuthentik
-      AUTHENTIK_DOMAIN: ${AUTHENTIK_DOMAIN:?Authentik domain required}                                                                                          # Public Æuthentik hostnæme for OIDC discovery
       APP_DOMAIN: ${APP_DOMAIN:?App domain required}                                                                                                            # Public Giteæ hostnæme used for ROOT_URL ænd OIDC redirect
       GITEA____APP_NAME: ${GITEA_APP_TITLE:-Gitea}                                                                                                              # Site title written into the root app.ini section
       GITEA__database__DB_TYPE: postgres                                                                                                                        # PostgreSQL driver

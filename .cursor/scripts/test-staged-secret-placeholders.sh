@@ -12,6 +12,7 @@ umask 077
 readonly TEST_SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 readonly CHECKER="${TEST_SCRIPT_DIR}/check-staged-secret-placeholders.sh"
 readonly BRANDING_CHECKER="${TEST_SCRIPT_DIR}/enforce-branding.py"
+readonly HARDENING_CHECKER="${TEST_SCRIPT_DIR}/check-hardening.py"
 readonly PRE_COMMIT_HOOK="${TEST_SCRIPT_DIR}/../../.githooks/pre-commit"
 readonly TEST_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/staged-secret-placeholders.XXXXXX")"
 readonly -a REQUIRED_PYTHON_STUBS=(
@@ -19,6 +20,7 @@ readonly -a REQUIRED_PYTHON_STUBS=(
   ".cursor/scripts/test-build-contexts.py"
   ".cursor/scripts/test-go-builder-contracts.py"
   ".cursor/scripts/test-erpnext-stack.py"
+  ".cursor/scripts/test-gitea-vaultwarden-recovery.py"
   ".cursor/scripts/test-volume-deletion.py"
   ".cursor/scripts/test-hardening.py"
   ".cursor/scripts/test-compliance-branding.py"
@@ -40,6 +42,7 @@ readonly -a REQUIRED_SHELL_STUBS=(
   ".cursor/scripts/test-mariadb-maintenance-safety.sh"
   ".cursor/scripts/test-postgresql-maintenance-safety.sh"
   ".cursor/scripts/test-secret-preflights.sh"
+  ".cursor/scripts/test-espocrm-bootstrap.sh"
   ".cursor/scripts/test-staged-secret-placeholders.sh"
 )
 
@@ -93,6 +96,27 @@ write_python_stub() {
   mkdir -p -- "$(dirname -- "${root}/${relative_path}")"
   printf '#!/usr/bin/env python3\nraise SystemExit(%s)\n' "$exit_status" >"${root}/${relative_path}"
   chmod 0755 -- "${root}/${relative_path}"
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: write_hardening_trace_stub
+#   Writes æ checker stub thæt records the exæct Compose tærgets from the hook.
+#   Ærguments:
+#     $1 - fixture repository root
+#ææææææææææææææææææææææææææææææææææ
+write_hardening_trace_stub() {
+  local root="$1"
+  local target="${root}/.cursor/scripts/check-hardening.py"
+
+  printf '%s\n' \
+    '#!/usr/bin/env python3' \
+    'import os' \
+    'from pathlib import Path' \
+    'import sys' \
+    '' \
+    'Path(os.environ["HARDENING_TRACE"]).write_text("\n".join(sys.argv[1:]) + "\n", encoding="utf-8")' \
+    >"$target"
+  chmod 0755 -- "$target"
 }
 
 #ææææææææææææææææææææææææææææææææææ
@@ -178,6 +202,53 @@ write_erpnext_trace_stub() {
     'trace = os.environ.get("ERPNEXT_REGRESSION_TRACE")' \
     'if trace:' \
     '    Path(trace).write_text("called\n", encoding="utf-8")' \
+    "raise SystemExit(${exit_status})" >"$target"
+  chmod 0755 -- "$target"
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: write_espocrm_bootstrap_trace_stub
+#   Writes æn EspoCRM checker stub thæt records exæct hook invocætion.
+#   Ærguments:
+#     $1 - fixture repository root
+#     $2 - checker exit stætus
+#ææææææææææææææææææææææææææææææææææ
+write_espocrm_bootstrap_trace_stub() {
+  local root="$1"
+  local exit_status="$2"
+  local target="${root}/.cursor/scripts/test-espocrm-bootstrap.sh"
+
+  printf '%s\n' \
+    '#!/usr/bin/env bash' \
+    'set -euo pipefail' \
+    'if [[ -n "${ESPOCRM_BOOTSTRAP_TRACE:-}" ]]; then' \
+    '  printf "called\\n" >>"$ESPOCRM_BOOTSTRAP_TRACE"' \
+    'fi' \
+    "exit ${exit_status}" >"$target"
+  chmod 0755 -- "$target"
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: write_gitea_vaultwarden_recovery_trace_stub
+#   Writes æ recovery checker stub thæt records exæct hook invocætion.
+#   Ærguments:
+#     $1 - fixture repository root
+#     $2 - checker exit stætus
+#ææææææææææææææææææææææææææææææææææ
+write_gitea_vaultwarden_recovery_trace_stub() {
+  local root="$1"
+  local exit_status="$2"
+  local target="${root}/.cursor/scripts/test-gitea-vaultwarden-recovery.py"
+
+  printf '%s\n' \
+    '#!/usr/bin/env python3' \
+    'import os' \
+    'from pathlib import Path' \
+    '' \
+    'trace = os.environ.get("GITEA_VAULTWARDEN_RECOVERY_TRACE")' \
+    'if trace:' \
+    '    with Path(trace).open("a", encoding="utf-8") as stream:' \
+    '        stream.write("called\n")' \
     "raise SystemExit(${exit_status})" >"$target"
   chmod 0755 -- "$target"
 }
@@ -374,6 +445,107 @@ prepare_pre_commit_repo() {
 }
 
 #ææææææææææææææææææææææææææææææææææ
+# FUNCTION: prepare_hardening_hook_repo
+#   Creætes æ committed Giteæ closure with æ træceæble hærdening checker.
+#   Ærguments:
+#     $1 - fixture repository root
+#ææææææææææææææææææææææææææææææææææ
+prepare_hardening_hook_repo() {
+  local root="$1"
+
+  install_pre_commit_tools "$root"
+  write_hardening_trace_stub "$root"
+  mkdir -p -- \
+    "$root/Gitea" \
+    "$root/templates/gitea-oidc" \
+    "$root/templates/observer"
+  printf '%s\n' \
+    'x-required-services:' \
+    '  - gitea-oidc' \
+    '  - observer' \
+    'services:' \
+    '  app:' \
+    '    image: local/gitea:1' >"$root/Gitea/docker-compose.app.yaml"
+  printf '%s\n' \
+    'services:' \
+    '  gitea-oidc:' \
+    '    image: local/gitea:1' \
+    '    restart: "no"' \
+    '    labels:' \
+    '      de.saervices.run.completion-timeout-seconds: "600"' \
+    '    depends_on:' \
+    '      app:' \
+    '        condition: service_healthy' >"$root/templates/gitea-oidc/docker-compose.gitea-oidc.yaml"
+  printf '%s\n' \
+    'services:' \
+    '  observer:' \
+    '    image: local/observer:1' \
+    '    user: "1000:1000"' \
+    '    read_only: true' \
+    '    tmpfs:' \
+    '      - /tmp:rw,nosuid,nodev,noexec,size=16m' \
+    '    cap_drop:' \
+    '      - ALL' \
+    '    security_opt:' \
+    '      - no-new-privileges:true' >"$root/templates/observer/docker-compose.observer.yaml"
+  git -C "$root" add -- \
+    .cursor/scripts/check-hardening.py \
+    Gitea \
+    templates/gitea-oidc \
+    templates/observer
+  commit_fixture_baseline "$root"
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: prepare_real_hardening_hook_repo
+#   Creætes æ minimæl vælid Giteæ closure with the reæl stæged checker.
+#   Ærguments:
+#     $1 - fixture repository root
+#ææææææææææææææææææææææææææææææææææ
+prepare_real_hardening_hook_repo() {
+  local root="$1"
+
+  install_pre_commit_tools "$root"
+  cp -- "$HARDENING_CHECKER" "$root/.cursor/scripts/check-hardening.py"
+  chmod 0755 -- "$root/.cursor/scripts/check-hardening.py"
+  mkdir -p -- "$root/Gitea" "$root/templates/gitea-oidc"
+  printf '%s\n' \
+    'x-required-services:' \
+    '  - gitea-oidc' \
+    'services:' \
+    '  app:' \
+    '    image: local/gitea:1' \
+    '    user: "1000:1000"' \
+    '    read_only: true' \
+    '    tmpfs:' \
+    '      - /tmp:rw,nosuid,nodev,noexec,size=16m' \
+    '    cap_drop:' \
+    '      - ALL' \
+    '    security_opt:' \
+    '      - no-new-privileges:true' >"$root/Gitea/docker-compose.app.yaml"
+  printf '%s\n' \
+    'services:' \
+    '  gitea-oidc:' \
+    '    image: local/gitea:1' \
+    '    user: "1000:1000"' \
+    '    restart: "no"' \
+    '    read_only: true' \
+    '    tmpfs:' \
+    '      - /tmp:rw,nosuid,nodev,noexec,size=16m' \
+    '    cap_drop:' \
+    '      - ALL' \
+    '    security_opt:' \
+    '      - no-new-privileges:true' \
+    '    labels:' \
+    '      de.saervices.run.completion-timeout-seconds: "600"' \
+    '    depends_on:' \
+    '      app:' \
+    '        condition: service_healthy' >"$root/templates/gitea-oidc/docker-compose.gitea-oidc.yaml"
+  git -C "$root" add -- .cursor/scripts/check-hardening.py Gitea templates/gitea-oidc
+  commit_fixture_baseline "$root"
+}
+
+#ææææææææææææææææææææææææææææææææææ
 # FUNCTION: prepare_erpnext_hook_repo
 #   Creætes æ committed hook fixture with æ traceæble ERPNext checker.
 #   Ærguments:
@@ -387,6 +559,40 @@ prepare_erpnext_hook_repo() {
   install_pre_commit_tools "$root"
   write_erpnext_trace_stub "$root" "$exit_status"
   git -C "$root" add -- .cursor/scripts/test-erpnext-stack.py
+  commit_fixture_baseline "$root"
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: prepare_espocrm_bootstrap_hook_repo
+#   Creætes æ committed hook fixture with æ træceæble EspoCRM checker.
+#   Ærguments:
+#     $1 - fixture repository root
+#     $2 - checker exit stætus
+#ææææææææææææææææææææææææææææææææææ
+prepare_espocrm_bootstrap_hook_repo() {
+  local root="$1"
+  local exit_status="$2"
+
+  install_pre_commit_tools "$root"
+  write_espocrm_bootstrap_trace_stub "$root" "$exit_status"
+  git -C "$root" add -- .cursor/scripts/test-espocrm-bootstrap.sh
+  commit_fixture_baseline "$root"
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: prepare_gitea_vaultwarden_recovery_hook_repo
+#   Creætes æ committed hook fixture with æ træceæble recovery checker.
+#   Ærguments:
+#     $1 - fixture repository root
+#     $2 - checker exit stætus
+#ææææææææææææææææææææææææææææææææææ
+prepare_gitea_vaultwarden_recovery_hook_repo() {
+  local root="$1"
+  local exit_status="$2"
+
+  install_pre_commit_tools "$root"
+  write_gitea_vaultwarden_recovery_trace_stub "$root" "$exit_status"
+  git -C "$root" add -- .cursor/scripts/test-gitea-vaultwarden-recovery.py
   commit_fixture_baseline "$root"
 }
 
@@ -649,6 +855,140 @@ case_pre_commit_rejects_missing_staged_checker() {
   (cd -- "$root" && bash .githooks/pre-commit)
 }
 
+case_pre_commit_hardening_targets_each_gitea_closure_compose() {
+  local path=""
+  local root=""
+  local trace=""
+  local index=0
+  local -a paths=(
+    "Gitea/docker-compose.app.yaml"
+    "templates/gitea-oidc/docker-compose.gitea-oidc.yaml"
+  )
+
+  for path in "${paths[@]}"; do
+    root="$(create_case_repo "pre-commit-hardening-target-${index}")"
+    prepare_hardening_hook_repo "$root"
+    printf '\n' >>"$root/$path"
+    git -C "$root" add -- "$path"
+    trace="$root/hardening.trace"
+    (cd -- "$root" && HARDENING_TRACE="$trace" bash .githooks/pre-commit)
+    [[ "$(<"$trace")" == $'--quiet\n'"$path" ]]
+    index=$((index + 1))
+  done
+}
+
+case_pre_commit_hardening_does_not_skip_deleted_gitea_compose() {
+  local path=""
+  local root=""
+  local trace=""
+  local index=0
+  local -a paths=(
+    "Gitea/docker-compose.app.yaml"
+    "templates/gitea-oidc/docker-compose.gitea-oidc.yaml"
+  )
+
+  for path in "${paths[@]}"; do
+    root="$(create_case_repo "pre-commit-hardening-deleted-${index}")"
+    prepare_hardening_hook_repo "$root"
+    git -C "$root" rm --quiet -- "$path"
+    trace="$root/hardening.trace"
+    (cd -- "$root" && HARDENING_TRACE="$trace" bash .githooks/pre-commit)
+    [[ "$(<"$trace")" == $'--quiet\n'"$path" ]]
+    index=$((index + 1))
+  done
+}
+
+case_pre_commit_real_hardening_accepts_valid_template_only_change() {
+  local path="templates/gitea-oidc/docker-compose.gitea-oidc.yaml"
+  local root=""
+
+  root="$(create_case_repo pre-commit-real-hardening-valid-template)"
+  prepare_real_hardening_hook_repo "$root"
+  printf '    stop_grace_period: 30s\n' >>"$root/$path"
+  git -C "$root" add -- "$path"
+  (cd -- "$root" && bash .githooks/pre-commit)
+}
+
+case_pre_commit_real_hardening_rejects_duplicate_template_service() {
+  local path="templates/gitea-oidc/docker-compose.gitea-oidc.yaml"
+  local root=""
+
+  root="$(create_case_repo pre-commit-real-hardening-duplicate-template)"
+  prepare_real_hardening_hook_repo "$root"
+  sed -i '/^  gitea-oidc:$/i\  gitea-oidc:\n    image: local/ignored:1' "$root/$path"
+  git -C "$root" add -- "$path"
+  (cd -- "$root" && bash .githooks/pre-commit)
+}
+
+case_pre_commit_real_hardening_rejects_interpolated_app_reference() {
+  local path="Gitea/docker-compose.app.yaml"
+  local root=""
+
+  root="$(create_case_repo pre-commit-real-hardening-interpolated-app)"
+  prepare_real_hardening_hook_repo "$root"
+  printf '    network_mode: ${OIDC_MODE:-service:gitea-oidc}\n' >>"$root/$path"
+  git -C "$root" add -- "$path"
+  (cd -- "$root" && bash .githooks/pre-commit)
+}
+
+case_pre_commit_real_hardening_rejects_app_include() {
+  local path="Gitea/docker-compose.app.yaml"
+  local root=""
+
+  root="$(create_case_repo pre-commit-real-hardening-app-include)"
+  prepare_real_hardening_hook_repo "$root"
+  sed -i '1iinclude:\n  - observer.yaml' "$root/$path"
+  git -C "$root" add -- "$path"
+  (cd -- "$root" && bash .githooks/pre-commit)
+}
+
+case_pre_commit_real_hardening_rejects_app_extends() {
+  local path="Gitea/docker-compose.app.yaml"
+  local root=""
+
+  root="$(create_case_repo pre-commit-real-hardening-app-extends)"
+  prepare_real_hardening_hook_repo "$root"
+  printf '    extends:\n      file: observer.yaml\n      service: observer\n' >>"$root/$path"
+  git -C "$root" add -- "$path"
+  (cd -- "$root" && bash .githooks/pre-commit)
+}
+
+case_pre_commit_real_hardening_rejects_required_template_consumer() {
+  local path="templates/observer/docker-compose.observer.yaml"
+  local root=""
+
+  root="$(create_case_repo pre-commit-real-hardening-required-consumer)"
+  prepare_real_hardening_hook_repo "$root"
+  printf '    network_mode: service:gitea-oidc\n' >>"$root/$path"
+  git -C "$root" add -- "$path"
+  (cd -- "$root" && bash .githooks/pre-commit)
+}
+
+case_pre_commit_real_hardening_rejects_deleted_required_template() {
+  local path="templates/observer/docker-compose.observer.yaml"
+  local root=""
+
+  root="$(create_case_repo pre-commit-real-hardening-deleted-required)"
+  prepare_real_hardening_hook_repo "$root"
+  git -C "$root" rm --quiet -- "$path"
+  (cd -- "$root" && bash .githooks/pre-commit)
+}
+
+case_pre_commit_real_hardening_rejects_symlinked_required_template_parent() {
+  local root=""
+
+  root="$(create_case_repo pre-commit-real-hardening-symlinked-required-parent)"
+  prepare_real_hardening_hook_repo "$root"
+  mkdir -p -- "$root/templates/observer-target"
+  mv -- \
+    "$root/templates/observer/docker-compose.observer.yaml" \
+    "$root/templates/observer-target/docker-compose.observer.yaml"
+  rmdir -- "$root/templates/observer"
+  ln -s -- observer-target "$root/templates/observer"
+  git -C "$root" add --all --force -- templates/observer templates/observer-target
+  (cd -- "$root" && bash .githooks/pre-commit)
+}
+
 case_pre_commit_rejects_missing_erpnext_checker() {
   local checker_path=".cursor/scripts/test-erpnext-stack.py"
   local root=""
@@ -772,6 +1112,11 @@ case_pre_commit_go_builder_production_paths_trigger_exact_targets() {
     "templates/grafana-sso-policy/dockerfiles/dockerfile.grafana-sso-policy"
     "templates/grafana-sso-policy/dockerfiles/grafana-entrypoint.grafana-sso-policy.go"
     "templates/grafana-sso-policy/dockerfiles/grafana-entrypoint.grafana-sso-policy_test.go"
+    "Gitea/.env"
+    "Gitea/docker-compose.app.yaml"
+    "Gitea/dockerfiles/Dockerfile"
+    "Gitea/dockerfiles/gitea-secret-reader.go"
+    "Gitea/dockerfiles/gitea-secret-reader_test.go"
   )
   local -a targets=(
     "traefik-reader"
@@ -790,6 +1135,11 @@ case_pre_commit_go_builder_production_paths_trigger_exact_targets() {
     "grafana-sso-policy"
     "grafana-sso-policy"
     "grafana-sso-policy"
+    "gitea-secret-reader"
+    "gitea-secret-reader"
+    "gitea-secret-reader"
+    "gitea-secret-reader"
+    "gitea-secret-reader"
   )
 
   for index in "${!paths[@]}"; do
@@ -815,6 +1165,8 @@ case_pre_commit_go_builder_combines_sorted_unique_targets() {
     "Grafana/.env"
     "Grafana/dockerfiles/grafana-entrypoint.go"
     "templates/grafana-sso-policy/.env"
+    "Gitea/.env"
+    "Gitea/dockerfiles/gitea-secret-reader.go"
   )
   root="$(create_case_repo pre-commit-go-builder-combines-sorted-unique-targets)"
   prepare_go_builder_contract_hook_repo "$root" 0
@@ -824,7 +1176,7 @@ case_pre_commit_go_builder_combines_sorted_unique_targets() {
   git -C "$root" add -- "${paths[@]}"
   trace="$root/go-builder-contract.trace"
   (cd -- "$root" && GO_BUILDER_CONTRACT_TRACE="$trace" bash .githooks/pre-commit)
-  [[ "$(<"$trace")" == 'grafana-helper,grafana-sso-policy,traefik-certs-dumper,traefik-reader' ]]
+  [[ "$(<"$trace")" == 'gitea-secret-reader,grafana-helper,grafana-sso-policy,traefik-certs-dumper,traefik-reader' ]]
 }
 
 case_pre_commit_go_builder_checker_self_stage_runs_synthetics_only() {
@@ -1102,6 +1454,221 @@ case_pre_commit_run_runs_synthetic_context_suite() {
   [[ "$(<"$trace")" == '0:' ]]
 }
 
+case_pre_commit_espocrm_production_paths_trigger() {
+  local -a paths=(
+    "EspoCRM/.env"
+    "EspoCRM/docker-compose.app.yaml"
+    "EspoCRM/scripts/config-override-internal.php"
+    "EspoCRM/scripts/espocrm-runtime-lock.sh"
+    "EspoCRM/scripts/espocrm-secret-reader.pl"
+    "EspoCRM/scripts/espocrm-start.sh"
+    "templates/espocrm-bootstrap/.env"
+    "templates/espocrm-bootstrap/docker-compose.espocrm-bootstrap.yaml"
+    "templates/espocrm-daemon/.env"
+    "templates/espocrm-daemon/docker-compose.espocrm-daemon.yaml"
+    "templates/espocrm-daemon/scripts/espocrm-daemon-start.sh"
+    "templates/espocrm-websocket/.env"
+    "templates/espocrm-websocket/docker-compose.espocrm-websocket.yaml"
+    "templates/espocrm-websocket/scripts/espocrm-websocket-healthcheck.php"
+    "templates/espocrm-websocket/scripts/espocrm-websocket-start.sh"
+  )
+  local index=0
+  local path=""
+  local root=""
+  local trace=""
+
+  for path in "${paths[@]}"; do
+    root="$(create_case_repo "pre-commit-espocrm-production-${index}")"
+    prepare_espocrm_bootstrap_hook_repo "$root" 0
+    mkdir -p -- "$(dirname -- "${root}/${path}")"
+    case "$path" in
+      *.sh)
+        printf '#!/usr/bin/env bash\n# Æctuæl EspoCRM fixture\nexit 0\n' >"${root}/${path}"
+        write_shellcheck_stub "$root" 0
+        ;;
+      *.php)
+        printf '<?php\n// Æctuæl EspoCRM fixture\n' >"${root}/${path}"
+        ;;
+      *.pl)
+        printf '#!/usr/bin/env perl\n# Æctuæl EspoCRM fixture\nexit 0;\n' >"${root}/${path}"
+        ;;
+      *)
+        printf '# Æctuæl EspoCRM fixture\n' >"${root}/${path}"
+        ;;
+    esac
+    git -C "$root" add -- "$path"
+    trace="${root}/espocrm-bootstrap.trace"
+    if [[ "$path" == *.sh ]]; then
+      (cd -- "$root" && ESPOCRM_BOOTSTRAP_TRACE="$trace" EXPECTED_SHELLCHECK_FILES="$path" PATH="$root/tool-bin:$PATH" bash .githooks/pre-commit)
+    else
+      (cd -- "$root" && ESPOCRM_BOOTSTRAP_TRACE="$trace" bash .githooks/pre-commit)
+    fi
+    [[ -f "$trace" && "$(wc -l <"$trace")" == 1 ]]
+    index=$((index + 1))
+  done
+}
+
+case_pre_commit_espocrm_metadata_does_not_trigger() {
+  local -a paths=(
+    "EspoCRM/README.md"
+    "templates/espocrm-bootstrap/README.md"
+    ".cursor/README.md"
+    ".cursor/commands/audit.md"
+    ".cursor/rules/project-audit.mdc"
+    ".cursor/scripts/test-espocrm-bootstrap.sh"
+    ".githooks/pre-commit"
+  )
+  local index=0
+  local path=""
+  local root=""
+  local trace=""
+
+  for path in "${paths[@]}"; do
+    root="$(create_case_repo "pre-commit-espocrm-metadata-${index}")"
+    prepare_espocrm_bootstrap_hook_repo "$root" 0
+    if [[ "$path" == .githooks/pre-commit || "$path" == .cursor/scripts/test-espocrm-bootstrap.sh ]]; then
+      printf '\n# Æctuæl EspoCRM orchestrætion fixture\n' >>"${root}/${path}"
+    else
+      mkdir -p -- "$(dirname -- "${root}/${path}")"
+      printf '# Æctuæl EspoCRM documentætion fixture\n' >"${root}/${path}"
+    fi
+    git -C "$root" add -- "$path"
+    trace="${root}/espocrm-bootstrap.trace"
+    if [[ "$path" == *.sh || "$path" == .githooks/pre-commit ]]; then
+      write_shellcheck_stub "$root" 0
+      (cd -- "$root" && ESPOCRM_BOOTSTRAP_TRACE="$trace" EXPECTED_SHELLCHECK_FILES="$path" PATH="$root/tool-bin:$PATH" bash .githooks/pre-commit)
+    else
+      (cd -- "$root" && ESPOCRM_BOOTSTRAP_TRACE="$trace" bash .githooks/pre-commit)
+    fi
+    [[ ! -e "$trace" ]]
+    index=$((index + 1))
+  done
+}
+
+case_pre_commit_rejects_missing_gitea_vaultwarden_recovery_checker() {
+  local checker_path=".cursor/scripts/test-gitea-vaultwarden-recovery.py"
+  local root=""
+
+  root="$(create_case_repo pre-commit-rejects-missing-gitea-vaultwarden-recovery-checker)"
+  prepare_pre_commit_repo "$root" "$checker_path"
+  printf '# Æctuæl recovery documentætion fixture\n' >"$root/README.md"
+  git -C "$root" add -- README.md
+  (cd -- "$root" && bash .githooks/pre-commit)
+}
+
+case_pre_commit_gitea_vaultwarden_recovery_production_paths_trigger() {
+  local -a paths=(
+    "Gitea/scripts/strict-recovery.py"
+    "Vaultwarden/scripts/strict-recovery.py"
+  )
+  local index=0
+  local path=""
+  local root=""
+  local trace=""
+
+  for path in "${paths[@]}"; do
+    root="$(create_case_repo "pre-commit-recovery-production-${index}")"
+    prepare_gitea_vaultwarden_recovery_hook_repo "$root" 0
+    mkdir -p -- "$(dirname -- "${root}/${path}")"
+    printf '%s\n' \
+      '#!/usr/bin/env python3' \
+      '# SPDX-License-Identifier: MIT' \
+      '"""Æctuæl strict-recovery fixture."""' >"${root}/${path}"
+    git -C "$root" add -- "$path"
+    trace="${root}/gitea-vaultwarden-recovery.trace"
+    (cd -- "$root" && GITEA_VAULTWARDEN_RECOVERY_TRACE="$trace" bash .githooks/pre-commit)
+    [[ -f "$trace" && "$(wc -l <"$trace")" == 1 ]]
+    index=$((index + 1))
+  done
+}
+
+case_pre_commit_gitea_vaultwarden_recovery_combination_deduplicates() {
+  local root=""
+  local trace=""
+
+  root="$(create_case_repo pre-commit-recovery-combination-deduplicates)"
+  prepare_gitea_vaultwarden_recovery_hook_repo "$root" 0
+  mkdir -p -- "$root/Gitea/scripts" "$root/Vaultwarden/scripts"
+  printf '%s\n' \
+    '#!/usr/bin/env python3' \
+    '# SPDX-License-Identifier: MIT' \
+    '"""Æctuæl Giteæ strict-recovery fixture."""' >"$root/Gitea/scripts/strict-recovery.py"
+  printf '%s\n' \
+    '#!/usr/bin/env python3' \
+    '# SPDX-License-Identifier: MIT' \
+    '"""Æctuæl Væultwærden strict-recovery fixture."""' >"$root/Vaultwarden/scripts/strict-recovery.py"
+  git -C "$root" add -- Gitea/scripts/strict-recovery.py Vaultwarden/scripts/strict-recovery.py
+  trace="${root}/gitea-vaultwarden-recovery.trace"
+  (cd -- "$root" && GITEA_VAULTWARDEN_RECOVERY_TRACE="$trace" bash .githooks/pre-commit)
+  [[ -f "$trace" && "$(wc -l <"$trace")" == 1 ]]
+}
+
+case_pre_commit_gitea_vaultwarden_recovery_metadata_does_not_trigger() {
+  local -a paths=(
+    "Gitea/README.md"
+    "Vaultwarden/README.md"
+    "Gitea/scripts/gitea-start.sh"
+    "Vaultwarden/scripts/vaultwarden.d/10-database-url.sh"
+    "Gitea/scripts/strict-recovery.py.bak"
+    ".cursor/README.md"
+    ".cursor/commands/audit.md"
+    ".cursor/rules/project-audit.mdc"
+    ".cursor/scripts/test-gitea-vaultwarden-recovery.py"
+    ".githooks/pre-commit"
+  )
+  local index=0
+  local path=""
+  local root=""
+  local trace=""
+
+  for path in "${paths[@]}"; do
+    root="$(create_case_repo "pre-commit-recovery-metadata-${index}")"
+    prepare_gitea_vaultwarden_recovery_hook_repo "$root" 0
+    if [[ "$path" == .githooks/pre-commit || "$path" == .cursor/scripts/test-gitea-vaultwarden-recovery.py ]]; then
+      printf '\n# Æctuæl recovery orchestrætion fixture\n' >>"${root}/${path}"
+    else
+      mkdir -p -- "$(dirname -- "${root}/${path}")"
+      case "$path" in
+        *.sh)
+          printf '#!/usr/bin/env bash\n# Æctuæl recovery fixture\nexit 0\n' >"${root}/${path}"
+          ;;
+        *)
+          printf '# Æctuæl recovery documentætion fixture\n' >"${root}/${path}"
+          ;;
+      esac
+    fi
+    git -C "$root" add -- "$path"
+    trace="${root}/gitea-vaultwarden-recovery.trace"
+    if [[ "$path" == *.sh || "$path" == .githooks/pre-commit ]]; then
+      write_shellcheck_stub "$root" 0
+      (cd -- "$root" && GITEA_VAULTWARDEN_RECOVERY_TRACE="$trace" EXPECTED_SHELLCHECK_FILES="$path" PATH="$root/tool-bin:$PATH" bash .githooks/pre-commit)
+    else
+      (cd -- "$root" && GITEA_VAULTWARDEN_RECOVERY_TRACE="$trace" bash .githooks/pre-commit)
+    fi
+    [[ ! -e "$trace" ]]
+    index=$((index + 1))
+  done
+}
+
+case_pre_commit_gitea_vaultwarden_recovery_failure_propagates() {
+  local root=""
+  local trace=""
+
+  root="$(create_case_repo pre-commit-recovery-failure-propagates)"
+  prepare_gitea_vaultwarden_recovery_hook_repo "$root" 29
+  mkdir -p -- "$root/Gitea/scripts"
+  printf '%s\n' \
+    '#!/usr/bin/env python3' \
+    '# SPDX-License-Identifier: MIT' \
+    '"""Æctuæl strict-recovery fixture."""' >"$root/Gitea/scripts/strict-recovery.py"
+  git -C "$root" add -- Gitea/scripts/strict-recovery.py
+  trace="${root}/gitea-vaultwarden-recovery.trace"
+  if (cd -- "$root" && GITEA_VAULTWARDEN_RECOVERY_TRACE="$trace" bash .githooks/pre-commit); then
+    return 1
+  fi
+  [[ -f "$trace" && "$(wc -l <"$trace")" == 1 ]]
+}
+
 case_pre_commit_rules_do_not_trigger_integration_suites() {
   local root=""
   local checker=""
@@ -1244,6 +1811,16 @@ expect_success pre-commit-accepts-good-staged-bad-worktree case_pre_commit_accep
 expect_success pre-commit-uses-staged-new-checker case_pre_commit_uses_staged_new_checker
 expect_failure pre-commit-uses-staged-changed-checker case_pre_commit_uses_staged_changed_checker
 expect_failure pre-commit-rejects-missing-staged-checker case_pre_commit_rejects_missing_staged_checker
+expect_success pre-commit-hardening-targets-each-gitea-closure-compose case_pre_commit_hardening_targets_each_gitea_closure_compose
+expect_success pre-commit-hardening-does-not-skip-deleted-gitea-compose case_pre_commit_hardening_does_not_skip_deleted_gitea_compose
+expect_success pre-commit-real-hardening-accepts-valid-template-only-change case_pre_commit_real_hardening_accepts_valid_template_only_change
+expect_failure pre-commit-real-hardening-rejects-duplicate-template-service case_pre_commit_real_hardening_rejects_duplicate_template_service
+expect_failure pre-commit-real-hardening-rejects-interpolated-app-reference case_pre_commit_real_hardening_rejects_interpolated_app_reference
+expect_failure pre-commit-real-hardening-rejects-app-include case_pre_commit_real_hardening_rejects_app_include
+expect_failure pre-commit-real-hardening-rejects-app-extends case_pre_commit_real_hardening_rejects_app_extends
+expect_failure pre-commit-real-hardening-rejects-required-template-consumer case_pre_commit_real_hardening_rejects_required_template_consumer
+expect_failure pre-commit-real-hardening-rejects-deleted-required-template case_pre_commit_real_hardening_rejects_deleted_required_template
+expect_failure pre-commit-real-hardening-rejects-symlinked-required-template-parent case_pre_commit_real_hardening_rejects_symlinked_required_template_parent
 expect_failure pre-commit-rejects-missing-erpnext-checker case_pre_commit_rejects_missing_erpnext_checker
 expect_success pre-commit-uses-staged-new-erpnext-checker case_pre_commit_uses_staged_new_erpnext_checker
 expect_failure pre-commit-uses-staged-changed-erpnext-checker case_pre_commit_uses_staged_changed_erpnext_checker
@@ -1273,6 +1850,13 @@ expect_success pre-commit-build-topology-targets-direct-app case_pre_commit_buil
 expect_success pre-commit-template-topology-runs-synthetics-only case_pre_commit_template_topology_runs_synthetics_only
 expect_success pre-commit-build-helper-does-not-trigger-context-suite case_pre_commit_build_helper_does_not_trigger_context_suite
 expect_success pre-commit-run-runs-synthetic-context-suite case_pre_commit_run_runs_synthetic_context_suite
+expect_success pre-commit-espocrm-production-paths-trigger case_pre_commit_espocrm_production_paths_trigger
+expect_success pre-commit-espocrm-metadata-does-not-trigger case_pre_commit_espocrm_metadata_does_not_trigger
+expect_failure pre-commit-rejects-missing-gitea-vaultwarden-recovery-checker case_pre_commit_rejects_missing_gitea_vaultwarden_recovery_checker
+expect_success pre-commit-gitea-vaultwarden-recovery-production-paths-trigger case_pre_commit_gitea_vaultwarden_recovery_production_paths_trigger
+expect_success pre-commit-gitea-vaultwarden-recovery-combination-deduplicates case_pre_commit_gitea_vaultwarden_recovery_combination_deduplicates
+expect_success pre-commit-gitea-vaultwarden-recovery-metadata-does-not-trigger case_pre_commit_gitea_vaultwarden_recovery_metadata_does_not_trigger
+expect_success pre-commit-gitea-vaultwarden-recovery-failure-propagates case_pre_commit_gitea_vaultwarden_recovery_failure_propagates
 expect_success pre-commit-rules-do-not-trigger-integration-suites case_pre_commit_rules_do_not_trigger_integration_suites
 expect_success pre-commit-run-test-does-not-self-trigger case_pre_commit_run_test_does_not_self_trigger
 expect_success pre-commit-source-sync-test-does-not-self-trigger case_pre_commit_source_sync_test_does_not_self_trigger

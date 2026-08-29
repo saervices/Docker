@@ -12,6 +12,7 @@ readonly RESTORE_SCRIPT="${TEST_REPO_ROOT}/templates/mariadb_maintenance/dockerf
 readonly BACKUP_SCRIPT="${TEST_REPO_ROOT}/templates/mariadb_maintenance/dockerfiles/backup.mariadb_maintenance.sh"
 readonly GUARD_SCRIPT="${TEST_REPO_ROOT}/templates/mariadb/dockerfiles/entrypoint.mariadb.sh"
 readonly MARIADB_DOCKERFILE="${TEST_REPO_ROOT}/templates/mariadb/dockerfiles/dockerfile.mariadb"
+readonly MARIADB_COMPOSE="${TEST_REPO_ROOT}/templates/mariadb/docker-compose.mariadb.yaml"
 readonly BINLOG_SCANNER="${TEST_REPO_ROOT}/templates/mariadb/dockerfiles/scan-binlogs.mariadb.pl"
 
 PASS=0
@@ -729,7 +730,7 @@ case_sigkill_initial_journal_publish_recovery() {
 
   prepare_guard_copy "$root"
   "$root/guard" mariadbd --recovery-probe
-  [[ "$(<"$root/vendor-called")" == 'mariadbd --recovery-probe' ]]
+  [[ "$(<"$root/vendor-called")" == 'mariadbd --recovery-probe --slave-connections-needed-for-purge=0' ]]
 }
 
 case_orphan_temp_with_artifact_blocks() {
@@ -927,6 +928,11 @@ prepare_guard_copy() {
 printf '%s\n' "\$*" >"$root/vendor-called"
 EOF
   chmod 0555 "$root/vendor"
+  cat >"$root/mariadbd" <<'EOF'
+#!/bin/sh
+printf '%s\n' '  --slave-connections-needed-for-purge=#'
+EOF
+  chmod 0755 "$root/mariadbd"
   vendor_sha256="$(sha256sum "$root/vendor")"
   vendor_sha256="${vendor_sha256%% *}"
   vendor_owner="$(stat -c '%u:%g' "$root/vendor")"
@@ -938,6 +944,7 @@ EOF
     -e "s#MARIADB_VENDOR_ENTRYPOINT=/usr/local/bin/docker-entrypoint-reviewed.sh#MARIADB_VENDOR_ENTRYPOINT=$root/vendor#" \
     -e "s#^MARIADB_VENDOR_ENTRYPOINT_SHA256S=.*#MARIADB_VENDOR_ENTRYPOINT_SHA256S='$vendor_sha256'#" \
     -e "s#^MARIADB_VENDOR_ENTRYPOINT_OWNER=.*#MARIADB_VENDOR_ENTRYPOINT_OWNER='$vendor_owner'#" \
+    -e "s#MARIADB_SERVER_BINARY=/usr/sbin/mariadbd#MARIADB_SERVER_BINARY=$root/mariadbd#" \
     "$GUARD_SCRIPT" >"$root/guard"
   chmod 0755 "$root/guard"
 }
@@ -947,7 +954,7 @@ case_guard_handoff() {
   mkdir -p -- "$root"
   prepare_guard_copy "$root"
   "$root/guard" mariadbd --test-flag
-  [[ "$(<"$root/vendor-called")" == 'mariadbd --test-flag' ]]
+  [[ "$(<"$root/vendor-called")" == 'mariadbd --test-flag --slave-connections-needed-for-purge=0' ]]
 }
 
 case_guard_blocks_marker() {
@@ -1003,7 +1010,7 @@ case_guard_rejects_invalid_binlog_retention() {
   local status=0
   mkdir -p -- "$root"
   prepare_guard_copy "$root"
-  for value in 0 3599 31536001 invalid; do
+  for value in 0 3599 8553601 invalid; do
     rm -f -- "$root/vendor-called"
     set +e
     MARIADB_BINLOG_EXPIRE_LOGS_SECONDS="$value" "$root/guard" mariadbd
@@ -1012,8 +1019,8 @@ case_guard_rejects_invalid_binlog_retention() {
     (( status == 78 ))
     [[ ! -e "$root/vendor-called" ]]
   done
-  MARIADB_BINLOG_EXPIRE_LOGS_SECONDS=604800 "$root/guard" mariadbd
-  [[ "$(<"$root/vendor-called")" == mariadbd ]]
+  MARIADB_BINLOG_EXPIRE_LOGS_SECONDS=8553600 "$root/guard" mariadbd
+  [[ "$(<"$root/vendor-called")" == 'mariadbd --slave-connections-needed-for-purge=0' ]]
 }
 
 case_guard_rejects_invalid_purge_replica_threshold() {
@@ -1032,7 +1039,68 @@ case_guard_rejects_invalid_purge_replica_threshold() {
     [[ ! -e "$root/vendor-called" ]]
   done
   MARIADB_SLAVE_CONNECTIONS_NEEDED_FOR_PURGE=0 "$root/guard" mariadbd
+  [[ "$(<"$root/vendor-called")" == 'mariadbd --slave-connections-needed-for-purge=0' ]]
+}
+
+case_guard_omits_unsupported_purge_option() {
+  local root="$TEST_ROOT/guard-purge-unsupported"
+  local status=0
+  mkdir -p -- "$root"
+  prepare_guard_copy "$root"
+  printf '#!/bin/sh\nprintf "%s\\n" "MariaDB 10.11 capability fixture"\n' >"$root/mariadbd"
+  chmod 0755 "$root/mariadbd"
+  MARIADB_SLAVE_CONNECTIONS_NEEDED_FOR_PURGE=0 "$root/guard" mariadbd
   [[ "$(<"$root/vendor-called")" == mariadbd ]]
+  rm -f -- "$root/vendor-called"
+  set +e
+  MARIADB_SLAVE_CONNECTIONS_NEEDED_FOR_PURGE=1 "$root/guard" mariadbd
+  status=$?
+  set -e
+  (( status == 78 ))
+  [[ ! -e "$root/vendor-called" ]]
+}
+
+case_guard_rejects_capability_inspection_failure() {
+  local root="$TEST_ROOT/guard-capability-failure"
+  local status=0
+  mkdir -p -- "$root"
+  prepare_guard_copy "$root"
+  printf '#!/bin/sh\nexit 92\n' >"$root/mariadbd"
+  chmod 0755 "$root/mariadbd"
+  set +e
+  "$root/guard" mariadbd
+  status=$?
+  set -e
+  (( status == 78 ))
+  [[ ! -e "$root/vendor-called" ]]
+}
+
+case_guard_rejects_capability_match_failure() {
+  local root="$TEST_ROOT/guard-capability-match-failure"
+  local status=0
+  mkdir -p -- "$root/bin"
+  prepare_guard_copy "$root"
+  printf '#!/bin/sh\nexit 2\n' >"$root/bin/grep"
+  chmod 0755 "$root/bin/grep"
+  set +e
+  PATH="$root/bin:$PATH" "$root/guard" mariadbd
+  status=$?
+  set -e
+  (( status == 78 ))
+  [[ ! -e "$root/vendor-called" ]]
+}
+
+case_guard_rejects_direct_purge_option() {
+  local root="$TEST_ROOT/guard-direct-purge-option"
+  local status=0
+  mkdir -p -- "$root"
+  prepare_guard_copy "$root"
+  set +e
+  "$root/guard" mariadbd --slave-connections-needed-for-purge=7
+  status=$?
+  set -e
+  (( status == 78 ))
+  [[ ! -e "$root/vendor-called" ]]
 }
 
 case_guard_rejects_vendor_byte_drift() {
@@ -1073,7 +1141,7 @@ case_guard_scans_safe_binlog() {
   printf 'safe binary log fixture without credential bytes' >"$root/data/binlog.000001"
   printf 'safe reviewed binary-log sidecar' >"$root/data/binlog.000001.idx"
   "$root/guard" mariadbd
-  [[ "$(<"$root/vendor-called")" == mariadbd ]]
+  [[ "$(<"$root/vendor-called")" == 'mariadbd --slave-connections-needed-for-purge=0' ]]
 }
 
 case_guard_rejects_each_current_secret_in_binlog() {
@@ -1235,8 +1303,12 @@ case_reviewed_target_preexistence_guard() {
 }
 
 case_static_temp_server_binlog_contract() {
+  rg -F 'e0ddaa7901a30c051487c5e8a31ff40edcf5c47bffe8f355c5227c9a4e8fcd9a)' "$MARIADB_DOCKERFILE" >/dev/null
+  rg -F '0f7d401ea262c6d14a558fee17fc82e640638ccf779c6e896dba0cb3985a8b72' "$MARIADB_DOCKERFILE" >/dev/null
   rg -F 'f0093b5ac80091c0138592c1dd5c2e920ed80d16a56f0fad952e14ee502520a0)' "$MARIADB_DOCKERFILE" >/dev/null
   rg -F 'f25d3c3a100936e686b9a508cca4f1fa9d2abcc4bc74ed4c1dabe57e88703be3' "$MARIADB_DOCKERFILE" >/dev/null
+  rg -F '80343dc600b9dd5754bfaaa79a98443c7d9464df84472093dba1ccfb380e23d1)' "$MARIADB_DOCKERFILE" >/dev/null
+  rg -F '907ba5ff379c7c336bbb5c03665b2850024bdf5685867050f5dcf14f16ba73f7' "$MARIADB_DOCKERFILE" >/dev/null
   rg -F '6e0c54561e24829b2b1e73dd96a7fcfadcaf576b1624dda8500f55dc970a7b53)' "$MARIADB_DOCKERFILE" >/dev/null
   rg -F '23426ac0f8d688aa3f8f1c7506a46f884269e19d4e7661831421649d03579ee4' "$MARIADB_DOCKERFILE" >/dev/null
   rg -F '$new = q!"$@" --skip-log-bin --skip-networking --default-time-zone=SYSTEM --socket="${SOCKET}" --wsrep_on=OFF!' "$MARIADB_DOCKERFILE" >/dev/null
@@ -1246,6 +1318,68 @@ case_static_temp_server_binlog_contract() {
   rg -F 'MARIADB_BINLOG_SCANNER_SHA256=' "$GUARD_SCRIPT" >/dev/null
   rg -F 'MARIADB_VENDOR_ENTRYPOINT=/usr/local/bin/docker-entrypoint-reviewed.sh' "$GUARD_SCRIPT" >/dev/null
   rg -F 'MARIADB_VENDOR_ENTRYPOINT_SHA256S=' "$GUARD_SCRIPT" >/dev/null
+  rg -F "grep -Eq '^  --slave-connections-needed-for-purge='" "$GUARD_SCRIPT" >/dev/null
+  ! rg -F -- '- --slave-connections-needed-for-purge=' "${TEST_REPO_ROOT}/templates/mariadb/docker-compose.mariadb.yaml" >/dev/null
+  rg -F '0f7d401ea262c6d14a558fee17fc82e640638ccf779c6e896dba0cb3985a8b72' "$GUARD_SCRIPT" >/dev/null
+  rg -F '907ba5ff379c7c336bbb5c03665b2850024bdf5685867050f5dcf14f16ba73f7' "$GUARD_SCRIPT" >/dev/null
+}
+
+case_static_moving_build_contract() {
+  python3 - "$TEST_REPO_ROOT" "$MARIADB_COMPOSE" <<'PY'
+from copy import deepcopy
+from pathlib import Path
+import sys
+
+import yaml
+
+
+root = Path(sys.argv[1])
+compose_path = Path(sys.argv[2])
+compose = yaml.safe_load(
+    compose_path.read_text(encoding="utf-8")
+)
+service = compose["services"]["mariadb"]
+build = service.get("build")
+if not isinstance(build, dict):
+    raise SystemExit("MariaDB build must use mapping form")
+if not (
+    service.get("pull_policy") == "build"
+    and build.get("pull") is True
+    and build.get("no_cache") is True
+):
+    raise SystemExit(
+        "MariaDB moving build requires pull_policy=build, build.pull=true, "
+        "and build.no_cache=true"
+    )
+if build.get("args", {}).get("MARIADB_IMAGE") != "${MARIADB_IMAGE:?Image required}":
+    raise SystemExit("MariaDB build arg must remain fail-closed")
+
+channels = {
+    "EspoCRM": "mariadb:12",
+    "ERPNext": "mariadb:11.8",
+    "Seafile": "mariadb:10.11",
+}
+for app, expected in channels.items():
+    values = []
+    for raw_line in (root / app / ".env").read_text(encoding="utf-8").splitlines():
+        if raw_line.startswith("MARIADB_IMAGE="):
+            values.append(raw_line.split("=", 1)[1].split("#", 1)[0].strip())
+    if values != [expected]:
+        raise SystemExit(
+            f"{app} must define exactly MARIADB_IMAGE={expected}, got {values!r}"
+        )
+
+    rendered = deepcopy(service)
+    rendered["build"]["args"]["MARIADB_IMAGE"] = values[0]
+    rendered_build = rendered["build"]
+    if not (
+        rendered.get("pull_policy") == "build"
+        and rendered_build.get("pull") is True
+        and rendered_build.get("no_cache") is True
+        and rendered_build.get("args", {}).get("MARIADB_IMAGE") == expected
+    ):
+        raise SystemExit(f"{app} rendered MariaDB moving-build contract drifted")
+PY
 }
 
 case_static_destructive_bounds() {
@@ -1305,6 +1439,10 @@ expect_success guard-rejects-unsafe-root case_guard_rejects_unsafe_root
 expect_success guard-find-error-blocks case_guard_find_error_blocks
 expect_success guard-rejects-invalid-binlog-retention case_guard_rejects_invalid_binlog_retention
 expect_success guard-rejects-invalid-purge-replica-threshold case_guard_rejects_invalid_purge_replica_threshold
+expect_success guard-omits-unsupported-purge-option case_guard_omits_unsupported_purge_option
+expect_success guard-rejects-capability-inspection-failure case_guard_rejects_capability_inspection_failure
+expect_success guard-rejects-capability-match-failure case_guard_rejects_capability_match_failure
+expect_success guard-rejects-direct-purge-option case_guard_rejects_direct_purge_option
 expect_success guard-rejects-vendor-byte-drift case_guard_rejects_vendor_byte_drift
 expect_success guard-rejects-vendor-metadata-drift case_guard_rejects_vendor_metadata_drift
 expect_success guard-scans-safe-binlog case_guard_scans_safe_binlog
@@ -1317,6 +1455,7 @@ expect_success guard-rejects-unexpected-binlog-name case_guard_rejects_unexpecte
 expect_success guard-rejects-scanner-drift case_guard_rejects_scanner_drift
 expect_success reviewed-target-preexistence-guard case_reviewed_target_preexistence_guard
 expect_success static-temp-server-binlog-contract case_static_temp_server_binlog_contract
+expect_success static-moving-build-contract case_static_moving_build_contract
 expect_success static-destructive-bounds case_static_destructive_bounds
 
 printf '\nMariaDB maintenance safety: %d passed, %d failed\n' "$PASS" "$FAIL"

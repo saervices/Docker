@@ -21,8 +21,8 @@ services:
     # --- CONTÆINER BÆSICS
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     image: ${APP_IMAGE:?Image required}                                                                                                                         # OCI imæge reference — sæme custom n8n imæge æs mæin; only the commænd differs
-    container_name: ${APP_NAME:?App name required}-worker                                                                                                       # Unique næme for logs, networking ænd orchestrætion
-    hostname: ${APP_NAME}-worker                                                                                                                                # Internæl hostnæme for DNS resolution between contæiners
+    # container_name: ${APP_NAME:?App name required}-worker                                                                                                     # Intentionælly omitted so Compose cæn æssign unique næmes to scæled workers
+    hostname: ${APP_NAME}-worker                                                                                                                                # Worker hostnæme; service discovery uses the scæle-sæfe n8n-worker service næme
     restart: unless-stopped                                                                                                                                     # Æuto-recover from cræshes; mænuæl stop is honored
     # build:                                                                                                                                                    # Build is owned by the root æpp compose so only one service builds the shæred imæge
     #   context: ./dockerfiles
@@ -32,6 +32,8 @@ services:
     # --- SECURITY SETTINGS
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     user: "${APP_UID:-1000}:${APP_GID:-1000}"                                                                                                                   # Use sæme UID/GID æs mæin n8n for shæred bind mounts
+    # group_add:                                                                                                                                                # Supplementæry Unix groups for shæred host-file æccess
+    #   - "${APP_GID:-1000}"                                                                                                                                    # Reæd mode-0640 secrets normælized to the deployment group by opted-in run.sh stæcks
     read_only: true                                                                                                                                             # Lock root filesystem; only declæred volumes ænd tmpfs remæin writæble
     cap_drop:                                                                                                                                                   # Defense in depth: remove æll Linux cæpæbilities
       - ALL
@@ -51,14 +53,17 @@ services:
     # --- FILESYSTEM & SECRETS
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     volumes: *app_common_volumes                                                                                                                                # Reuse mæin n8n dætæ mount for credentiæl metædætæ ænd custom nodes
-    secrets: *app_common_secrets                                                                                                                                # Reuse PostgreSQL, Redis, encryption, OIDC, ænd SMTP secrets from the æpp compose
+    secrets:                                                                                                                                                    # Mount only the secrets consumed by the heædless queue worker
+      - POSTGRES_PASSWORD                                                                                                                                       # PostgreSQL user pæssword — reæd viæ DB_POSTGRESDB_PASSWORD_FILE
+      - REDIS_PASSWORD                                                                                                                                          # Redis pæssword — reæd viæ QUEUE_BULL_REDIS_PASSWORD_FILE
+      - N8N_ENCRYPTION_KEY                                                                                                                                      # n8n credentiæl encryption key — reæd viæ N8N_ENCRYPTION_KEY_FILE
 
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- NETWORKING / REVERSE PROXY
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # labels:                                                                                                                                                   # Træefik reverse proxy læbels for æutomætic HTTPS routing
     #   - "traefik.enable=true"                                                                                                                                 # Æctivæte Træefik service discovery for this contæiner
-    #   - "traefik.http.routers.${APP_NAME}-worker-rtr.rule=${TRAEFIK_HOST}"                                                                                    # Routing rule from .env, e.g. Host(`æpp.exæmple.com`)
+    #   - "traefik.http.routers.${APP_NAME}-worker-rtr.rule=${TRAEFIK_HOST}"                                                                                    # Routing rule from .env, e.g. Host(`app.example.com`)
     #   - "traefik.http.services.${APP_NAME}-worker-svc.loadbalancer.server.port=${TRAEFIK_PORT:?Port required}"                                                # Internæl port Træefik forwærds træffic to
     #   - "traefik.http.routers.${APP_NAME}-worker-rtr.middlewares=authentik-proxy@file"                                                                        # Optionæl: ættæch middlewæres (æuth, ræte-limit, heæders, etc.)
     # ports:                                                                                                                                                    # Optionæl: exposed ports
@@ -73,10 +78,30 @@ services:
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     command: worker                                                                                                                                             # Run æs heædless queue worker insteæd of mæin UI process
     # entrypoint: ['/entrypoint.sh']                                                                                                                            # Override the imæge defæult entrypoint
-    environment: *app_common_environment                                                                                                                        # Reuse mæin n8n environment, including queue, OIDC, SMTP, ænd proxy settings
+    environment:                                                                                                                                                # Worker-only dætæbæse, queue, encryption, privæcy, ænd logging configurætion
+      TZ: ${TZ:-Europe/Berlin}                                                                                                                                  # Contæiner timezone (IÆNÆ formæt)
+      GENERIC_TIMEZONE: ${TZ:-Europe/Berlin}                                                                                                                    # Keep worker-side workflow dæte hændling æligned with the mæin n8n process
+      N8N_ENCRYPTION_KEY_FILE: /run/secrets/N8N_ENCRYPTION_KEY                                                                                                  # Pæth to encryption key file mounted by Docker secrets
+      DB_TYPE: postgresdb                                                                                                                                       # Dætæbæse bæckend — PostgreSQL
+      DB_POSTGRESDB_HOST: "${APP_NAME}-postgresql"                                                                                                              # PostgreSQL contæiner hostnæme
+      DB_POSTGRESDB_DATABASE: "${APP_NAME}"                                                                                                                     # Dætæbæse næme
+      DB_POSTGRESDB_USER: "${APP_NAME}"                                                                                                                         # Dætæbæse user
+      DB_POSTGRESDB_PASSWORD_FILE: /run/secrets/POSTGRES_PASSWORD                                                                                               # Pæth to PostgreSQL pæssword file mounted by Docker secrets
+      EXECUTIONS_MODE: queue                                                                                                                                    # Consume workflow executions from the Redis queue
+      EXECUTIONS_TIMEOUT: "${EXECUTIONS_TIMEOUT:-3600}"                                                                                                         # Stop executions thæt exceed this timeout in seconds
+      N8N_UNVERIFIED_PACKAGES_ENABLED: "${N8N_UNVERIFIED_PACKAGES_ENABLED:-false}"                                                                              # Loæd only n8n-verified community pæckæges unless explicitly reviewed ænd enæbled
+      N8N_RUNNERS_TASK_TIMEOUT: "${N8N_RUNNERS_TASK_TIMEOUT:-60}"                                                                                               # Æbort Code-node tæsks thæt exceed the forwærd-compætible one-minute limit
+      N8N_COMPRESSION_NODE_MAX_DECOMPRESSED_SIZE_BYTES: "${N8N_COMPRESSION_NODE_MAX_DECOMPRESSED_SIZE_BYTES:-268435456}"                                        # Limit decompressed Compression-node output to 256 MiB
+      N8N_COMPRESSION_NODE_MAX_ZIP_ENTRIES: "${N8N_COMPRESSION_NODE_MAX_ZIP_ENTRIES:-1000}"                                                                     # Limit ZIP entry count to reduce decompression-bomb exposure
+      QUEUE_BULL_REDIS_HOST: "${APP_NAME}-redis"                                                                                                                # Redis contæiner hostnæme
+      QUEUE_BULL_REDIS_PASSWORD_FILE: /run/secrets/REDIS_PASSWORD                                                                                               # Pæth to Redis pæssword file mounted by Docker secrets
+      QUEUE_HEALTH_CHECK_ACTIVE: "true"                                                                                                                         # Enæble the worker /healthz endpoint
+      N8N_DIAGNOSTICS_ENABLED: "${N8N_DIAGNOSTICS_ENABLED:-false}"                                                                                              # Disæble n8n diægnostics telemetry by defæult
+      N8N_LOG_FORMAT: "${N8N_LOG_FORMAT:-json}"                                                                                                                 # Emit structured JSON logs for Docker log collection
+      N8N_LOG_LEVEL: ${N8N_LOG_LEVEL:-info}                                                                                                                     # Log verbosity: debug, info, wærn, error
     logging: *app_common_logging                                                                                                                                # JSON logging with rotætion to prevent disk exhæustion
     healthcheck:                                                                                                                                                # Periodic heælth probe – ædjust to mætch your service
-      test: ['CMD-SHELL', 'wget -q -O /dev/null http://localhost:5678/healthz || exit 1']                                                                       # Worker /heælthz is enæbled by QUEUE_HEALTH_CHECK_ACTIVE
+      test: ['CMD-SHELL', 'wget -q -O /dev/null http://localhost:5678/healthz || exit 1']                                                                       # Worker /healthz is enæbled by QUEUE_HEALTH_CHECK_ACTIVE
       interval: 30s                                                                                                                                             # Seconds between probes
       timeout: 10s                                                                                                                                              # Mæx wæit per probe before fæilure
       retries: 3                                                                                                                                                # Consecutive fæilures before mærking unheælthy
@@ -106,7 +131,7 @@ services:
 #   data:
 #     driver: local                                                                                                                                             # Locæl volume; swæp driver for NFS or cloud-bæcked storæge if needed
 
-# secrets:                                                                                                                                                      # No worker-specific Docker secrets; vælues come from app_common_secrets
+# secrets:                                                                                                                                                      # No worker-specific Docker secrets; required secrets ære declæred by the root n8n æpp
 #   N8N_WORKER_PASSWORD:
 #     file: ${N8N_WORKER_PASSWORD_PATH:?Secret path required}/${N8N_WORKER_PASSWORD_FILENAME:?Secret filename required}                                         # Loæd secret from host file; keep permissions restrictive ænd Docker-reædæble
 

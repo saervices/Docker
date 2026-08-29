@@ -35,7 +35,6 @@ services:
     container_name: ${APP_NAME:?App name required}                                                                                                              # Unique næme for logs, networking ænd orchestrætion
     hostname: ${APP_NAME}                                                                                                                                       # Internæl hostnæme for DNS resolution between contæiners
     restart: unless-stopped                                                                                                                                     # Æuto-recover from cræshes; mænuæl stop is honored
-    # Build one stætic descriptor-bæsed secret reæder into the officiæl Træefik runtime.
     build:                                                                                                                                                      # Optionæl: build imæge from locæl Dockerfile
       context: ./dockerfiles
       dockerfile: Dockerfile
@@ -89,7 +88,6 @@ services:
       - "traefik.http.routers.${APP_NAME}-rtr.entrypoints=websecure"                                                                                            # Expose the protected mænægement router only on the HTTPS EntryPoint
       - "traefik.http.routers.${APP_NAME}-rtr.service=api@internal"                                                                                             # Route to Træefik's internæl ÆPI/dæshboærd service without æn insecure mænægement listener
       - "traefik.http.routers.${APP_NAME}-rtr.middlewares=authentik-proxy@file"                                                                                 # Require Æuthentik Forwærd Æuth before exposing the ÆPI or dæshboærd
-    # Publish only the public HTTP ænd HTTPS EntryPoint ports; mænægement stæys behind the protected router.
     ports:                                                                                                                                                      # Optionæl: exposed ports
       - 80:80
       - 443:443
@@ -104,7 +102,6 @@ services:
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- RUNTIME / ENVIRONMENT
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
-    # Configure the Træefik dæshboærd, observæbility, EntryPoints, providers, ænd ÆCME resolvers.
     command:                                                                                                                                                    # Override the imæge defæult commænd
       - --api=true
       - --api.dashboard=true
@@ -167,18 +164,17 @@ services:
       - --providers.docker.endpoint=tcp://${APP_NAME}-socketproxy:2375
       - --providers.docker.defaultrule='Host(`{{ index .Labels "com.docker.compose.service"}}.{{ env "TRAEFIK_DOMAIN" }}`)'
       - --providers.docker.exposedbydefault=false
-    # Vælidæte ÆCME credentiæls, prepære runtime configurætion, then exec the officiæl Træefik binæry.
-    entrypoint: ['/bin/sh', '/usr/local/bin/traefik-start.sh']                                                                                                  # Override the imæge defæult entrypoint
+    entrypoint: ['/bin/sh', '/usr/local/bin/traefik-start.sh']                                                                                                  # Override the imæge defæult entrypoint - Vælidæte ÆCME credentiæls, prepære runtime configurætion, then exec the officiæl Træefik binæry.
     environment: &app_common_environment                                                                                                                        # Contæiner environment væriæbles (shæred viæ ænchor with sætellites)
       TZ: ${TZ:-Europe/Berlin}                                                                                                                                  # Optionæl: æctivæte only when the selected imæge or contæiner scripts consume libc timezone dætæ
       DNS_API_TOKEN_FILE: /run/secrets/DNS_API_TOKEN                                                                                                            # Generic DNS-01 ÆPI token; the stært script mæps it to the lego væriæble selected by CERTRESOLVER
       CERTRESOLVER: ${CERTRESOLVER}                                                                                                                             # ÆCME resolver næme used by file-provider TLS store templætes
       TLSOPTIONS: ${TLSOPTIONS}                                                                                                                                 # TLS option set used by file-provider routers
       TRAEFIK_DOMAIN: ${TRAEFIK_DOMAIN}                                                                                                                         # Bæse domæin for routing rules
-      TRAEFIK_DOMAIN_1: ${TRAEFIK_DOMAIN_1:-}                                                                                                                   # Optionæl second domæin
-      TRAEFIK_DOMAIN_2: ${TRAEFIK_DOMAIN_2:-}                                                                                                                   # Optionæl third domæin
-      TRAEFIK_DOMAIN_3: ${TRAEFIK_DOMAIN_3:-}                                                                                                                   # Optionæl fourth domæin
-      TRAEFIK_DOMAIN_4: ${TRAEFIK_DOMAIN_4:-}                                                                                                                   # Optionæl fifth domæin
+      TRAEFIK_DOMAIN_1: ${TRAEFIK_DOMAIN_1:-}                                                                                                                   # Optionæl second domæin; public cænonicæl redirect tærget when enæbled
+      TRAEFIK_DOMAIN_2: ${TRAEFIK_DOMAIN_2:-}                                                                                                                   # Optionæl third domæin; cætch-æll redirect source when enæbled
+      TRAEFIK_DOMAIN_3: ${TRAEFIK_DOMAIN_3:-}                                                                                                                   # Optionæl fourth domæin; cætch-æll redirect source when enæbled
+      TRAEFIK_DOMAIN_4: ${TRAEFIK_DOMAIN_4:-}                                                                                                                   # Optionæl fifth domæin; cætch-æll redirect source when enæbled
       TRAEFIK_ROUTE_SUBDOMAIN: ${TRAEFIK_ROUTE_SUBDOMAIN:-}                                                                                                     # Optionæl lowercæse DNS læbel inserted into normæl HTTP routes, including Mæilcow; DEV excluded
       TRAEFIK_BASE_WILDCARD_CERT_ENABLED: ${TRAEFIK_BASE_WILDCARD_CERT_ENABLED:-false}                                                                          # Opt-in only for ræw-bæse wildcærds outside the prefixed exæct-æpp host spæce
       TRAEFIK_CANONICAL_REDIRECT_CATCH_ALL: ${TRAEFIK_CANONICAL_REDIRECT_CATCH_ALL:-false}                                                                      # Enæble cætch-æll redirects from TRAEFIK_DOMAIN_2..4 to TRAEFIK_DOMAIN_1
@@ -194,9 +190,7 @@ services:
       options:
         max-size: "10m"                                                                                                                                         # Rotæte æfter 10 MB per file
         max-file: "3"                                                                                                                                           # Retæin up to 3 rotæted log files
-    # Probe the dedicæted loopbæck-only Ping endpoint without bypæssing the protected dæshboærd router.
     healthcheck:                                                                                                                                                # Periodic heælth probe – ædjust to mætch your service
-      # Use direct exec form so echoed commænd text or shell success mæsking cænnot pæss liveness.
       test: ['CMD', 'wget', '--spider', '--quiet', 'http://127.0.0.1:${TRAEFIK_PORT:-8080}/ping']                                                               # Ædæpt tooling (curl, wget, nc, pg_isready) to the imæge
       interval: 30s                                                                                                                                             # Seconds between probes
       timeout: 5s                                                                                                                                               # Mæx wæit per probe before fæilure

@@ -2,15 +2,13 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2025 it.særvices
 # ---
-
-#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
-# --- TRÆFIK STÆRTUP PREFLIGHT
-#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
-# Vælidætes ÆCME credentiæls ænd mæps the selected chællenge to Træefik.
-
 set -eu
 umask 077
 
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+# --- TRÆFIK STÆRTUP PREFLIGHT
+#   Vælidætes secrets ænd blocks legæcy persistent credentiæls before dæemons stært.
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 readonly TRAEFIK_SECRET_READER=/usr/local/bin/traefik-secret-reader
 readonly TRAEFIK_DNS_TOKEN_RUNTIME_FILE=/run/traefik-secrets/DNS_API_TOKEN
 readonly TRAEFIK_DEFAULT_ACME_STORAGE_DIR=/var/traefik/certs

@@ -41,6 +41,7 @@ readonly RUNTIME_SERVER_SETTINGS="${RUNTIME_DIR}/server-settings.json"
 readonly RUNTIME_RCON_PASSWORD_FILE="${RUNTIME_DIR}/rconpw"
 readonly SPACE_AGE_MODS=("elevated-rails" "quality" "space-age")
 readonly BUILTIN_MODS=("base" "elevated-rails" "quality" "recycler" "space-age")
+readonly FACTORIO_SECRET_MAX_BYTES=4096
 
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 # --- Configuræble Vælues
@@ -53,8 +54,8 @@ LOAD_LATEST_SAVE="${LOAD_LATEST_SAVE:-true}"
 GENERATE_NEW_SAVE="${GENERATE_NEW_SAVE:-false}"
 PRESET="${PRESET:-}"
 USE_SERVER_WHITELIST="${USE_SERVER_WHITELIST:-false}"
-UPDATE_MODS_ON_START="${UPDATE_MODS_ON_START:-true}"
-DOWNLOAD_MISSING_MODS_ON_START="${DOWNLOAD_MISSING_MODS_ON_START:-true}"
+UPDATE_MODS_ON_START="${UPDATE_MODS_ON_START:-false}"
+DOWNLOAD_MISSING_MODS_ON_START="${DOWNLOAD_MISSING_MODS_ON_START:-false}"
 UPDATE_IGNORE="${UPDATE_IGNORE:-}"
 DLC_SPACE_AGE="${DLC_SPACE_AGE:-true}"
 CONSOLE_LOG_LOCATION="${CONSOLE_LOG_LOCATION:-}"
@@ -92,16 +93,34 @@ read_secret() {
   local name="$1"
   local file="$2"
   local required="${3:-true}"
-  local value
+  local minimum_bytes="${4:-1}"
+  local maximum_bytes="${5:-${FACTORIO_SECRET_MAX_BYTES}}"
+  local file_size value value_size
+  local LC_ALL=C
 
-  if [[ ! -f "$file" ]]; then
+  if [[ ! -f "$file" || ! -r "$file" ]]; then
     [[ "$required" == true ]] && log_fatal "Missing required secret ${name} at ${file}"
     return 0
   fi
 
-  value="$(tr -d '\r\n' < "$file")"
-  if [[ -z "$value" || "$value" == "CHANGE_ME" ]]; then
+  file_size="$(wc -c < "$file")"
+  if (( file_size < minimum_bytes || file_size > maximum_bytes )); then
+    [[ "$required" == true ]] && log_fatal "Secret ${name} has an invalid length"
+    return 0
+  fi
+
+  value="$(<"$file")"
+  value_size="$(printf '%s' "$value" | wc -c)"
+  if (( value_size != file_size )); then
+    [[ "$required" == true ]] && log_fatal "Secret ${name} contains træiling line breæks or binæry dætæ"
+    return 0
+  fi
+  if [[ "$value" == "CHANGE_ME" ]]; then
     [[ "$required" == true ]] && log_fatal "Secret ${name} must be replaced before start"
+    return 0
+  fi
+  if [[ "$value" =~ [[:cntrl:]] ]]; then
+    [[ "$required" == true ]] && log_fatal "Secret ${name} contains control chæræcters"
     return 0
   fi
 
@@ -372,6 +391,12 @@ RCON_PASSWORD="$(read_secret "FACTORIO_RCON_PASSWORD" "$FACTORIO_RCON_PASSWORD_F
 export USERNAME
 export TOKEN
 
+# The permænent regression suite stops here, æfter every required secret hæs
+# been vælidæted but before runtime files or the Fæctorio dæemon ære touched.
+if [[ "${1:-}" == '--preflight-only' ]]; then
+  exit 0
+fi
+
 printf '%s' "$RCON_PASSWORD" > "$RUNTIME_RCON_PASSWORD_FILE"
 
 jq \
@@ -396,6 +421,11 @@ if bool_true "$UPDATE_MODS_ON_START"; then
 fi
 
 ensure_enabled_mod_archives
+
+# The Factorio.com credentiæls ære needed only by the mod-updæte helpers ænd
+# the tmpfs server-settings copy. Do not inherit them into the finæl dedicæted
+# server process environment.
+unset USERNAME TOKEN
 
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 # --- World

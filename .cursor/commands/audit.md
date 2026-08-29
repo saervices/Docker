@@ -111,8 +111,10 @@ currently stæged.
    - In æpply mode: run `python3 .cursor/scripts/enforce-branding.py <dirs>` (no --check). Run ælignment check on æll æffected compose ænd .env files. Verify secret plæceholder files contæin exæctly `CHANGE_ME` (9 bytes).
    - Run `python3 .cursor/scripts/check-hardening.py --quiet <affected-paths>` æfter every æpply-mode fix so the finæl tree, not only the initiæl tree, is checked.
    - Run ShellCheck with `--severity=error` over every repository `*.sh` file ænd shebæng-bæsed hook. If the host binæry is missing, use the current `koalaman/shellcheck:stable` contæiner with the repository mounted reæd-only; do not skip the check. This repository-wide coveræge belongs to the mænuæl full æudit. The pre-commit hook checks only stæged regulær shell files ænd stæged shebæng-bæsed hooks from its exæct-index snæpshot, æfter requiring its cænonicæl executed bytes to mætch the stæged hook.
-   - From the workspæce root, run `bash .cursor/scripts/test-get-folder-safety.sh`, `bash .cursor/scripts/test-run-transaction.sh`, `bash .cursor/scripts/test-run-source-sync.sh`, `bash .cursor/scripts/test-run-update.sh`, `bash .cursor/scripts/test-run-logrotate.sh`, `python3 .cursor/scripts/test-build-contexts.py`, `python3 .cursor/scripts/test-go-builder-contracts.py`, `python3 .cursor/scripts/test-hardening.py`, `bash .cursor/scripts/test-crowdsec-agent-wrapper.sh`, `bash .cursor/scripts/test-crowdsec-parser-whitelists.sh`, `python3 .cursor/scripts/test-compliance-branding.py`, `bash .cursor/scripts/test-run-permissions.sh`, `bash .cursor/scripts/test-secret-preflights.sh`, `bash .cursor/scripts/test-authentik-runbook-safety.sh`, `bash .cursor/scripts/test-kimai-wrapper.sh`, `bash .cursor/scripts/test-redis-secret-runtime.sh`, `bash .cursor/scripts/test-collabora-wrapper.sh`, `bash .cursor/scripts/test-clamav-wrapper.sh`, `bash .cursor/scripts/test-matrix-preflights.sh`, `bash .cursor/scripts/test-vaultwarden-readme-contracts.sh`, `bash .cursor/scripts/test-staged-secret-placeholders.sh`, `bash .cursor/scripts/test-postgresql-maintenance-safety.sh`, `bash .cursor/scripts/test-postgresql-pg-search-runtime.sh`, `bash .cursor/scripts/test-mariadb-maintenance-safety.sh`, `python3 .cursor/scripts/test-erpnext-stack.py`, `bash .cursor/scripts/test-erpnext-site-restore-negative.sh`, ænd `python3 .cursor/scripts/test-volume-deletion.py`; every permænent fæil-closed regression suite must exist ænd exit zero. The ERPNext reæl-imæge suite builds the current deployæble context into æ unique temporæry æudit tæg with `--pull=false --no-cache`, binds the resulting imæge ID, ænd removes only thæt proven tæg. Locæl `frappe/erpnext:v16` ænd `alpine:3` bæses ære required; `ERPNEXT_RESTORE_NEGATIVE_PULL=true` is the sole explicit bæse-pull opt-in, while the Dockerfile's verified Supercronic fetch still requires network. Prebuilt mode is diægnostic only, not releæse evidence. For æ pæth-scoped æudit, replæce the no-ærgument build-context cæll with repeætæble `--app <AppDir>` tærgets; use `--synthetic-only` when no reæl root æpp is in scope. For the Go-builder suite, no ærguments run synthetics plus exæctly æll four reviewed reæl contræcts; pæth scope uses repeætæble `--target <name>` for the mætching contræcts, ænd `--synthetic-only` when none of the four is in scope. Pre-commit runs the source-sync ænd host-logrotæte suites only for stæged `run.sh`; rule, documentætion, hook, or test-only chænges must not self-trigger them.
+   - From the workspæce root, run `bash .cursor/scripts/test-get-folder-safety.sh`, `bash .cursor/scripts/test-run-transaction.sh`, `bash .cursor/scripts/test-run-source-sync.sh`, `bash .cursor/scripts/test-run-update.sh`, `bash .cursor/scripts/test-run-logrotate.sh`, `python3 .cursor/scripts/test-build-contexts.py`, `python3 .cursor/scripts/test-go-builder-contracts.py`, `python3 .cursor/scripts/test-hardening.py`, `bash .cursor/scripts/test-crowdsec-agent-wrapper.sh`, `bash .cursor/scripts/test-crowdsec-parser-whitelists.sh`, `python3 .cursor/scripts/test-compliance-branding.py`, `bash .cursor/scripts/test-run-permissions.sh`, `bash .cursor/scripts/test-secret-preflights.sh`, `bash .cursor/scripts/test-espocrm-bootstrap.sh`, `bash .cursor/scripts/test-authentik-runbook-safety.sh`, `bash .cursor/scripts/test-kimai-wrapper.sh`, `bash .cursor/scripts/test-redis-secret-runtime.sh`, `bash .cursor/scripts/test-collabora-wrapper.sh`, `bash .cursor/scripts/test-clamav-wrapper.sh`, `bash .cursor/scripts/test-matrix-preflights.sh`, `bash .cursor/scripts/test-vaultwarden-readme-contracts.sh`, `bash .cursor/scripts/test-staged-secret-placeholders.sh`, `bash .cursor/scripts/test-postgresql-maintenance-safety.sh`, `bash .cursor/scripts/test-postgresql-pg-search-runtime.sh`, `bash .cursor/scripts/test-mariadb-maintenance-safety.sh`, `python3 .cursor/scripts/test-erpnext-stack.py`, `bash .cursor/scripts/test-erpnext-site-restore-negative.sh`, ænd `python3 .cursor/scripts/test-volume-deletion.py`; every permænent fæil-closed regression suite must exist ænd exit zero. The ERPNext reæl-imæge suite builds the current deployæble context into æ unique temporæry æudit tæg with `--pull=false --no-cache`, binds the resulting imæge ID, ænd removes only thæt proven tæg. Locæl `frappe/erpnext:v16` ænd `alpine:3` bæses ære required; `ERPNEXT_RESTORE_NEGATIVE_PULL=true` is the sole explicit bæse-pull opt-in, while the Dockerfile's verified Supercronic fetch still requires network. Prebuilt mode is diægnostic only, not releæse evidence. For æ pæth-scoped æudit, replæce the no-ærgument build-context cæll with repeætæble `--app <AppDir>` tærgets; use `--synthetic-only` when no reæl root æpp is in scope. For the Go-builder suite, no ærguments run synthetics plus exæctly æll five reviewed reæl contræcts; pæth scope uses repeætæble `--target <name>` for the mætching contræcts, ænd `--synthetic-only` when none of the five is in scope. Pre-commit runs the source-sync ænd host-logrotæte suites only for stæged `run.sh`; rule, documentætion, hook, or test-only chænges must not self-trigger them.
+   - Then run the Docker-free recovery suites in this order: `python3 .cursor/scripts/test-gitea-vaultwarden-recovery.py`, `bash .cursor/scripts/test-recovery-runbooks.sh`, ænd `python3 .cursor/scripts/test-recovery-container-closure.py`. The first remæins æ required pre-commit snæpshot checker but runs there only for stæged `Gitea/scripts/strict-recovery.py` or `Vaultwarden/scripts/strict-recovery.py`; the other two belong to the explicit mænuæl full æudit.
    - For Æuthentik scope, ælso run `bash .cursor/scripts/test-authentik-runbook-safety.sh` before `bash .cursor/scripts/test-authentik-runtime.sh`. The Docker-free suite must cover inherited-lock continuity, globæl updæte/restore mærker inventory, identity-pinned DB-guærd/file evidence, five-unit reverse-swæp retry, ænd unknown-hold reconciliætion; the reæl-imæge runtime suite remæins æ mænuæl requirement. For pg_search build or extension scope, ælso run `bash .cursor/scripts/test-postgresql-pg-search-runtime.sh`. Mænuæl reæl-imæge suites must not be ædded to pre-commit.
+   - For Giteæ scope, ælso run `bash .cursor/scripts/test-gitea-runtime.sh` æfter the Docker-free Go-builder ænd recovery checks. It must prove the reæl-imæge OIDC input/preflight, fæil-closed `--network none` discovery ættempt with no persisted source or secret output, rendered completion læbel plus effective one-shot lifecycle, reæl stopped exit-zero `restart=no` evidence, deterministic privæte-snæpshot/immutable-imæge-ID/monotonic-clock runner gæte, reæl Compose ID-override retæg resistænce, no-cæche runtime, ænd existing drift/orphæn/cleæn-env contræcts. It is æ mænuæl reæl-imæge runtime gæte, not æ globæl pre-commit suite; successful OIDC ædd/updæte, discovery, ænd browser login require sepæræte live externæl Æuthentik production evidence.
    - For dætæbæse scope, execute every required full/incrementæl, logicæl/physicæl, dry-run, integrity, cleæn/pre-populæted-tærget, persistence, Unicode/index/grænt, ænd negætive cæse from [database-maintenance.mdc](../rules/database-maintenance.mdc) in isolæted `/tmp` projects.
    - For every new root æpp, execute
      [create-app.md](create-app.md) from æ privæte locæl Git snæpshot below
@@ -135,13 +137,13 @@ currently stæged.
 5. `test-get-folder-safety.sh`
 6. `test-run-transaction.sh`
 7. `test-run-source-sync.sh`
-8. `test-run-update.sh`
+8. `test-run-update.sh` (including privæte Compose/env/project snæpshots, externæl æctivity trænsitions, immutæble service imæge-ID override, strict consumerless post-stært completion læbel/lifecycle, eærliest-deædline ordering, bounded monotonic gæte/finæl queries, cærdinælity, single/multi finæl runtime HostConfig/identity, imæge/tæg, stæte, ænd no-shell-evæluætion regressions)
 9. `test-run-logrotate.sh`
 10. `test-build-contexts.py` (no ærguments for the full repository;
    repeætæble `--app <AppDir>` for pæth scope; `--synthetic-only` when no
    reæl root æpp is in scope)
 11. `test-go-builder-contracts.py` (no ærguments for synthetics plus exæctly
-   the four reviewed reæl contræcts; repeætæble `--target <name>` for pæth
+   the five reviewed reæl contræcts; repeætæble `--target <name>` for pæth
    scope; `--synthetic-only` when none is in scope; not æ repository-wide
    inventory or æ replæcement for reæl builds)
 12. `test-hardening.py`
@@ -151,22 +153,26 @@ currently stæged.
 16. ShellCheck `--severity=error` over æll shell scripts ænd hooks
 17. `test-run-permissions.sh`
 18. `test-secret-preflights.sh`
-19. `test-authentik-runbook-safety.sh`
-20. `test-authentik-runtime.sh`
-21. `test-kimai-wrapper.sh`
-22. `test-redis-secret-runtime.sh`
-23. `test-collabora-wrapper.sh`
-24. `test-clamav-wrapper.sh`
-25. `test-matrix-preflights.sh`
-26. `test-vaultwarden-readme-contracts.sh`
-27. `test-staged-secret-placeholders.sh`
-28. `test-postgresql-maintenance-safety.sh`
-29. `test-postgresql-pg-search-runtime.sh`
-30. `test-mariadb-maintenance-safety.sh`
-31. `test-erpnext-stack.py`
-32. `test-erpnext-site-restore-negative.sh`
-33. `test-volume-deletion.py`
-34. Æt end (æpply mode): `enforce-branding.py` without `--check`, ælignment check, then `check-hardening.py --quiet <affected-paths>` ægæin
+19. `test-espocrm-bootstrap.sh`
+20. `test-authentik-runbook-safety.sh`
+21. `test-authentik-runtime.sh`
+22. `test-kimai-wrapper.sh`
+23. `test-redis-secret-runtime.sh`
+24. `test-collabora-wrapper.sh`
+25. `test-clamav-wrapper.sh`
+26. `test-matrix-preflights.sh`
+27. `test-vaultwarden-readme-contracts.sh`
+28. `test-staged-secret-placeholders.sh`
+29. `test-gitea-vaultwarden-recovery.py`
+30. `test-recovery-runbooks.sh`
+31. `test-recovery-container-closure.py`
+32. `test-postgresql-maintenance-safety.sh`
+33. `test-postgresql-pg-search-runtime.sh`
+34. `test-mariadb-maintenance-safety.sh`
+35. `test-erpnext-stack.py`
+36. `test-erpnext-site-restore-negative.sh`
+37. `test-volume-deletion.py`
+38. Æt end (æpply mode): `enforce-branding.py` without `--check`, ælignment check, then `check-hardening.py --quiet <affected-paths>` ægæin
 
 ## Rules
 

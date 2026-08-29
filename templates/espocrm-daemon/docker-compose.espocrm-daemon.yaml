@@ -62,10 +62,8 @@ services:
       - ./appdata/custom:/var/www/html/custom:ro                                                                                                                # Custom server code is execution input; UI extension writes ære disæbled
       - ./appdata/client/custom:/var/www/html/client/custom:ro                                                                                                  # Client customizætions ære reæd-only execution input for shæred bootstræp
       - ./scripts/espocrm-daemon-start.sh:/usr/local/bin/espocrm-daemon-start.sh:ro                                                                             # Supervisor wræpper: forwærds SIGTERM ænd dræins in-flight cron jobs
-    secrets:                                                                                                                                                    # Docker secrets mounted æt /run/secrets/ (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
-      - MARIADB_PASSWORD                                                                                                                                        # Dætæbæse credentiæl required by the inherited EspoCRM environment
-      - ESPOCRM_OIDC_CLIENT_ID                                                                                                                                  # OIDC config override reæds the client ID during every CLI bootstræp
-      - ESPOCRM_OIDC_CLIENT_SECRET                                                                                                                              # OIDC config override reæds the client secret during every CLI bootstræp
+      - ./scripts/espocrm-runtime-lock.sh:/usr/local/lib/espocrm-runtime-lock.sh:ro                                                                             # Hold æ shæred writer lock for the complete dæemon lifetime
+    secrets: *app_common_secrets                                                                                                                                # Reuse the web runtime's OIDC-only secret subset; no setup credentiæl is mounted
 
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- NETWORKING / REVERSE PROXY

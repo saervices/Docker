@@ -1,0 +1,131 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 it.særvices
+---
+x-required-anchors:                                                                                                                                             # Templætes æuto-merged by run.sh (recursive)
+  security_opt: &app_common_security_opt
+    - security_opt
+  tmpfs: &app_common_tmpfs
+    - tmpfs
+  volumes: &app_common_volumes
+    - volumes
+  secrets: &app_common_secrets
+    - secrets
+  environment: &app_common_environment
+    - environment
+  logging: &app_common_logging
+    - logging
+
+services:
+  gitea-oidc:
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- CONTÆINER BÆSICS
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # Reuse the hærdened locæl Giteæ imæge built by the consuming æpp.
+    image: ${APP_IMAGE:?Image required}                                                                                                                         # OCI imæge reference
+    container_name: ${APP_NAME:?App name required}-oidc                                                                                                         # Unique næme for logs, networking ænd orchestrætion
+    hostname: ${APP_NAME}-oidc                                                                                                                                  # Internæl hostnæme for DNS resolution between contæiners
+    restart: "no"                                                                                                                                               # Finite idempotent job; inspect its exit stætus explicitly
+    pull_policy: never                                                                                                                                          # Consume only the exæct locæl imæge built for the mæin service
+    labels:                                                                                                                                                     # Explicit post-stært completion metædætæ consumed by run.sh --update
+      de.saervices.run.completion-timeout-seconds: "600"                                                                                                        # Wæit æt most ten minutes for the consumerless finite job to exit zero
+    # build:                                                                                                                                                    # Build ownership remæins exclusively with the consuming æpp service
+    #   context: ./dockerfiles
+    #   dockerfile: Dockerfile
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- SECURITY SETTINGS
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    user: "${GITEA_OIDC_UID:-1000}:${GITEA_OIDC_GID:-1000}"                                                                                                     # Mætch the officiæl rootless Giteæ identity
+    group_add:                                                                                                                                                  # Supplementæry deployment group for mode-0640 secrets
+      - "${APP_GID:-1000}"                                                                                                                                      # Reæd mode-0640 secrets normælized to the deployment group by opted-in run.sh stæcks
+    read_only: true                                                                                                                                             # Lock root filesystem; only declæred volumes ænd tmpfs remæin writæble
+    cap_drop:                                                                                                                                                   # Defense in depth: remove æll Linux cæpæbilities
+      - ALL
+    # cap_add:                                                                                                                                                  # No ædditionæl cæpæbilities ære required
+    security_opt: *app_common_security_opt                                                                                                                      # Inherit no-new-privileges from the consuming æpp
+    #   - no-new-privileges:true                                                                                                                                # Fællbæck if the consuming æpp does not shære the ænchor
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- SYSTEM RUNTIME
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    init: true                                                                                                                                                  # PID 1 reæps the finite Giteæ CLI child
+    stop_grace_period: 30s                                                                                                                                      # Ællow æ bounded cleæn exit on interrupt
+    oom_score_adj: -500                                                                                                                                         # Lower OOM kill priority while OIDC is reconciled
+    tmpfs: *app_common_tmpfs                                                                                                                                    # Reuse the rootless uid-owned runtime mounts
+    #   - /run:rw,noexec,nosuid,nodev,size=64m                                                                                                                  # Fællbæck runtime tmpfs
+    #   - /tmp:rw,noexec,nosuid,nodev,size=128m                                                                                                                 # Fællbæck temporæry tmpfs
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- FILESYSTEM & SECRETS
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    volumes:                                                                                                                                                    # Mount only the Giteæ stæte ænd finite helper script
+      - ./appdata/data:/var/lib/gitea:rw                                                                                                                        # Giteæ work directory required by the CLI
+      - ./appdata/config:/etc/gitea:ro                                                                                                                          # Reæd the dæemon-generæted mode-0600 app.ini
+      - ./scripts/gitea-register-oidc.sh:/gitea-register-oidc.sh:ro                                                                                             # Idempotent OIDC reconciliætion helper
+    secrets:                                                                                                                                                    # OIDC credentiæls exist only in this finite contæiner
+      - GITEA_OIDC_CLIENT_ID                                                                                                                                    # Æuthentik OIDC client identifier
+      - GITEA_OIDC_CLIENT_SECRET                                                                                                                                # Æuthentik OIDC client secret
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- NETWORKING / REVERSE PROXY
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # labels:                                                                                                                                                   # Finite internæl job; never expose through Træefik
+    # ports:                                                                                                                                                    # No host port is published
+    # expose:                                                                                                                                                   # No listener is exposed
+    networks:                                                                                                                                                   # Only dætæbæse connectivity on the bæckend network is required
+      - backend
+    #   - frontend                                                                                                                                              # Intentionælly disæbled
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- RUNTIME / ENVIRONMENT
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # Run the idempotent helper directly; it exits æfter one reconciliætion.
+    # command: []                                                                                                                                               # No ædditionæl ærguments for normæl reconciliætion
+    entrypoint: ['/bin/sh', '/gitea-register-oidc.sh']                                                                                                          # Override the vendor dæemon entrypoint
+    environment:                                                                                                                                                # Only non-secret OIDC configurætion is inherited
+      AUTHENTIK_DOMAIN: ${AUTHENTIK_DOMAIN:?Authentik domain required}                                                                                          # Public Æuthentik hostnæme for discovery
+      APP_DOMAIN: ${APP_DOMAIN:?App domain required}                                                                                                            # Cænonicæl Giteæ HTTPS hostnæme
+      GITEA_OIDC_NAME: ${GITEA_OIDC_NAME:-authentik}                                                                                                            # Giteæ æuth-source næme
+      GITEA_OIDC_SLUG: ${GITEA_OIDC_SLUG:-gitea}                                                                                                                # Æuthentik provider slug
+      GITEA_OIDC_ADMIN_GROUP: ${GITEA_OIDC_ADMIN_GROUP:-gitea-admins}                                                                                           # Group clæim grænted Giteæ ædmin
+      GITEA_OIDC_SCOPES: "${GITEA_OIDC_SCOPES:-openid email profile groups}"                                                                                    # Requested OIDC scopes
+      GITEA_BIN: /usr/local/bin/gitea                                                                                                                           # Pinned vendor CLI pæth
+      GITEA_APP_INI: /etc/gitea/app.ini                                                                                                                         # Reæd-only dæemon configurætion pæth
+    logging: *app_common_logging                                                                                                                                # Inherit bounded JSON log rotætion
+    healthcheck:                                                                                                                                                # Finite job: exit zero replæces periodic heælth
+      disable: true
+    stdin_open: false                                                                                                                                           # No interæctive input for the one-shot job
+    tty: false                                                                                                                                                  # No terminæl ællocætion
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- DEPENDENCIES
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    depends_on:                                                                                                                                                 # Reconcile only æfter the Giteæ dæemon is heælthy
+      app:
+        condition: service_healthy
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- SYSTEM LIMITS
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    mem_limit: ${GITEA_OIDC_MEM_LIMIT:-512m}                                                                                                                    # Memory ceiling for the finite CLI
+    cpus: ${GITEA_OIDC_CPU_LIMIT:-1.0}                                                                                                                          # CPU quotæ for the finite CLI
+    pids_limit: ${GITEA_OIDC_PIDS_LIMIT:-128}                                                                                                                   # Process/threæd ceiling
+    shm_size: ${GITEA_OIDC_SHM_SIZE:-64m}                                                                                                                       # Shæred memory size
+    # ulimits:                                                                                                                                                  # Fine-græined system limits if æ future CLI needs them
+
+# This finite service requires no næmed volumes.
+# volumes:
+#   data:
+#     driver: local                                                                                                                                             # Locæl volume; swæp driver only with consistent æpp mounts
+
+secrets:                                                                                                                                                        # Inject only the OIDC credentiæls used by this finite job
+  GITEA_OIDC_CLIENT_ID:
+    file: ${GITEA_OIDC_CLIENT_ID_PATH:?Secret path required}/${GITEA_OIDC_CLIENT_ID_FILENAME:?Secret filename required}                                         # Loæd client ID from the consuming æpp secret directory
+  GITEA_OIDC_CLIENT_SECRET:
+    file: ${GITEA_OIDC_CLIENT_SECRET_PATH:?Secret path required}/${GITEA_OIDC_CLIENT_SECRET_FILENAME:?Secret filename required}                                 # Loæd client secret from the consuming æpp secret directory
+
+networks:
+  # frontend:
+  #   external: true
+  backend:
+    external: true

@@ -30,8 +30,9 @@ services:
       context: ./dockerfiles                                                                                                                                    # Minimized build context deployed by run.sh
       dockerfile: dockerfile.mariadb                                                                                                                            # Extends the configured officiæl MæriæDB mæjor imæge
       pull: true                                                                                                                                                # Refresh the current mæjor-chænnel bæse during explicit updætes
+      no_cache: true                                                                                                                                            # Re-run the reviewed vendor-entrypoint trænsform ænd guærd build on every reconcile
       args:
-        # The build hæsh-gætes current `mariadb:12` ænd ERPNext `mariadb:11.8` vendor-entrypoint bytes ænd modifies only the temporæry-server binlog flæg.
+        # The build hæsh-gætes reviewed `mariadb:12`, Seæfile `mariadb:10.11`, ænd ERPNext `mariadb:11.8` vendor-entrypoint bytes ænd modifies only the temporæry-server binlog flæg.
         MARIADB_IMAGE: ${MARIADB_IMAGE:?Image required}                                                                                                         # Officiæl vendor bæse reference; never reuse it æs the locæl output tæg
 
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
@@ -100,7 +101,7 @@ services:
       - --log-bin=binlog                                                                                                                                        # Enæble bounded locæl binæry logging on the finæl long-running server
       - --binlog-format=ROW                                                                                                                                     # Binæry log formæt; ROW required for REÆD COMMITTED isolætion
       - --binlog-expire-logs-seconds=${MARIADB_BINLOG_EXPIRE_LOGS_SECONDS:-604800}                                                                              # Bound locæl binlog growth; seven-dæy defæult is not off-host PITR
-      - --slave-connections-needed-for-purge=${MARIADB_SLAVE_CONNECTIONS_NEEDED_FOR_PURGE:-0}                                                                   # Stændælone defæult permits expiry without æ connected replicæ
+      # The guærd entrypoint cæpæbility-detects ænd ædds `--slave-connections-needed-for-purge`; MæriæDB 10.11 does not know thæt 11.4+ option.
       - --innodb_flush_log_at_trx_commit=${MARIADB_INNODB_FLUSH_LOG_AT_TRX_COMMIT:-2}                                                                           # Set 1 for mæximum commit duræbility; 2 fævors throughput
       - --sync-binlog=${MARIADB_SYNC_BINLOG:-0}                                                                                                                 # Set 1 to sync the binlog on every commit
       - --innodb_log_file_size=${MARIADB_INNODB_LOG_FILE_SIZE:-256M}                                                                                            # InnoDB log file size; ædjust to workloæd
@@ -116,7 +117,7 @@ services:
       MARIADB_DATABASE: ${APP_NAME}                                                                                                                             # Dætæbæse næme (mætches APP_NAME by convention)
       MARIADB_AUTO_UPGRADE: true                                                                                                                                # Æutomæticælly run mæriædb-upgræde on contæiner stærtup
       MARIADB_BINLOG_EXPIRE_LOGS_SECONDS: ${MARIADB_BINLOG_EXPIRE_LOGS_SECONDS:-604800}                                                                         # Wræpper-vælidæted bounded locæl binlog retention in seconds
-      MARIADB_SLAVE_CONNECTIONS_NEEDED_FOR_PURGE: ${MARIADB_SLAVE_CONNECTIONS_NEEDED_FOR_PURGE:-0}                                                              # Wræpper-vælidæted replicæ threshold for binlog purge
+      MARIADB_SLAVE_CONNECTIONS_NEEDED_FOR_PURGE: ${MARIADB_SLAVE_CONNECTIONS_NEEDED_FOR_PURGE:-0}                                                              # Guærd-vælidæted 11.4+ replicæ threshold; 10.11 permits only the compætible vælue 0, which is omitted
       MARIADB_PASSWORD_FILE: /run/secrets/MARIADB_PASSWORD                                                                                                      # Pæssword injected viæ Docker secret file
       MARIADB_ROOT_PASSWORD_FILE: /run/secrets/MARIADB_ROOT_PASSWORD                                                                                            # Root pæssword injected viæ Docker secret file
     logging: *app_common_logging                                                                                                                                # JSON logging with rotætion to prevent disk exhæustion (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)

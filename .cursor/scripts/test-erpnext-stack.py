@@ -2126,7 +2126,7 @@ def _run_mariadb_binlog_guard_fixture(
             "expiry-below-minimum",
             "3599",
             "0",
-            "MARIADB_BINLOG_EXPIRE_LOGS_SECONDS must be between 3600 and 31536000.",
+            "MARIADB_BINLOG_EXPIRE_LOGS_SECONDS must be between 3600 and 8553600.",
         ),
         (
             "invalid-purge-threshold-format",
@@ -7604,18 +7604,25 @@ def _check_mariadb_binlog_policy(
         "--log-bin=binlog",
         "--binlog-format=ROW",
         "--binlog-expire-logs-seconds=${MARIADB_BINLOG_EXPIRE_LOGS_SECONDS:-604800}",
-        "--slave-connections-needed-for-purge=${MARIADB_SLAVE_CONNECTIONS_NEEDED_FOR_PURGE:-0}",
+    )
+    direct_purge_arguments = tuple(
+        value
+        for value in command_values
+        if value.startswith("--slave-connections-needed-for-purge")
+        or value.startswith("--slave_connections_needed_for_purge")
     )
     environment = mariadb_service.get("environment")
     contract.expect(
         all(command_values.count(value) == 1 for value in expected_command_values)
+        and not direct_purge_arguments
         and isinstance(environment, dict)
         and environment.get("MARIADB_BINLOG_EXPIRE_LOGS_SECONDS")
         == "${MARIADB_BINLOG_EXPIRE_LOGS_SECONDS:-604800}"
         and environment.get("MARIADB_SLAVE_CONNECTIONS_NEEDED_FOR_PURGE")
         == "${MARIADB_SLAVE_CONNECTIONS_NEEDED_FOR_PURGE:-0}",
-        "[database] MariaDB Compose must pass the validated expiry and purge "
-        "controls exactly once to both wrapper environment and server arguments",
+        "[database] MariaDB Compose must pass expiry once to the server, pass both "
+        "validated controls to the wrapper, and leave the version-gated purge "
+        "argument to that wrapper",
     )
     entrypoint_path = mariadb_root / "dockerfiles/entrypoint.mariadb.sh"
     entrypoint_source = _regular_text(entrypoint_path, contract, "database")
@@ -7624,7 +7631,7 @@ def _check_mariadb_binlog_policy(
         'MARIADB_SLAVE_CONNECTIONS_NEEDED_FOR_PURGE="${MARIADB_SLAVE_CONNECTIONS_NEEDED_FOR_PURGE:-0}"',
         'case "$MARIADB_BINLOG_EXPIRE_LOGS_SECONDS" in',
         '"$MARIADB_BINLOG_EXPIRE_LOGS_SECONDS" -lt 3600',
-        '"$MARIADB_BINLOG_EXPIRE_LOGS_SECONDS" -gt 31536000',
+        '"$MARIADB_BINLOG_EXPIRE_LOGS_SECONDS" -gt 8553600',
         'case "$MARIADB_SLAVE_CONNECTIONS_NEEDED_FOR_PURGE" in',
         '"$MARIADB_SLAVE_CONNECTIONS_NEEDED_FOR_PURGE" -gt 4294967295',
     )
@@ -7640,6 +7647,20 @@ def _check_mariadb_binlog_policy(
         and max(guard_positions) < data_root_index < vendor_exec_index,
         "[database] MariaDB entrypoint must validate numeric expiry range and "
         "unsigned purge threshold before data-root inspection or vendor startup",
+    )
+    capability_tokens = (
+        "MARIADB_SERVER_BINARY=/usr/sbin/mariadbd",
+        "inspect_purge_capability() {",
+        "--slave-connections-needed-for-purge|--slave-connections-needed-for-purge=*",
+        "^  --slave-connections-needed-for-purge=",
+        "This MariaDB version does not support a non-zero purge replica threshold.",
+        'set -- "$@" "--slave-connections-needed-for-purge=$MARIADB_SLAVE_CONNECTIONS_NEEDED_FOR_PURGE"',
+    )
+    contract.expect(
+        all(entrypoint_source.count(token) == 1 for token in capability_tokens),
+        "[database] MariaDB entrypoint must reject duplicate direct purge options, "
+        "inspect the exact server capability, fail closed for unsupported non-zero "
+        "values, and append the supported option exactly once",
     )
     dockerfile_source = _regular_text(
         mariadb_root / "dockerfiles/dockerfile.mariadb",
@@ -11570,11 +11591,11 @@ def _negative_cases() -> tuple[NegativeCase, ...]:
                 ),
             ),
             NegativeCase(
-                "mariadb-compose-purge-argument-removed",
+                "mariadb-compose-direct-purge-argument-added",
                 "[database] MariaDB Compose",
                 lambda root: _write_yaml(
                     root / "templates/mariadb/docker-compose.mariadb.yaml",
-                    lambda document: document["services"]["mariadb"]["command"].remove(
+                    lambda document: document["services"]["mariadb"]["command"].append(
                         "--slave-connections-needed-for-purge="
                         "${MARIADB_SLAVE_CONNECTIONS_NEEDED_FOR_PURGE:-0}"
                     ),
@@ -11586,8 +11607,8 @@ def _negative_cases() -> tuple[NegativeCase, ...]:
                 lambda root: _replace_once(
                     root / "templates/mariadb/dockerfiles/entrypoint.mariadb.sh",
                     'if [ "$MARIADB_BINLOG_EXPIRE_LOGS_SECONDS" -lt 3600 ] || '
-                    '[ "$MARIADB_BINLOG_EXPIRE_LOGS_SECONDS" -gt 31536000 ]; then',
-                    'if [ "$MARIADB_BINLOG_EXPIRE_LOGS_SECONDS" -gt 31536000 ]; then',
+                    '[ "$MARIADB_BINLOG_EXPIRE_LOGS_SECONDS" -gt 8553600 ]; then',
+                    'if [ "$MARIADB_BINLOG_EXPIRE_LOGS_SECONDS" -gt 8553600 ]; then',
                 ),
             ),
             NegativeCase(

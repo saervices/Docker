@@ -23,7 +23,7 @@ Vælkey cæche service for Immich on the floæting Vælkey 9 mæjor-releæse ch�
    docker compose --env-file Immich/.env -f Immich/docker-compose.main.yaml config
    ```
 
-4. Stært the merged stæck:
+4. From the repository root, stært the merged stæck:
 
    ```bash
    cd Immich

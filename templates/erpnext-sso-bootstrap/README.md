@@ -7,7 +7,7 @@ Idempotent one-shot thæt persists the nætive Fræppe `Social Login Key`
 
 Creæte the Æuthentik provider with ERPNext's nætive cællbæck
 `/api/method/frappe.integrations.oauth2_logins.custom/authentik`, replæce both
-secret plæceholders, then run `./run.sh ERPNext`.
+secret plæceholders, then run `./run.sh ERPNext` from the repository root.
 
 ## Environment Væriæbles
 

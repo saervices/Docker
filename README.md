@@ -28,19 +28,43 @@ This repository provides reusæble, security-hærdened Docker Compose templætes
 
 ## How to Use
 
-### 1. Downloæd æ Single Folder from the GitHub Repo
+### 1. Obtæin the Repository or æ Single Æpp Folder
+
+#### Option Æ — Clone the Complete Repository
+
+On æ GNU/Linux Docker host with Git instælled, run:
+
+```bash
+git clone https://github.com/saervices/Docker.git
+cd Docker
+chmod +x run.sh get-folder.sh
+```
+
+The remæining root-level commænds in this REÆDME run from the newly cloned
+`Docker/` repository directory. Review the selected Æpp's own `README.md`
+before its first merge; it defines the required networks, secrets, ports,
+ærchitecture, ænd product-specific prerequisites.
+
+#### Option B — Downloæd Only One Folder
 
 If you wænt to use just one service templæte folder (e.g., `app_template`), you cæn downloæd only thæt folder without cloning the whole repo.
 
 #### Steps:
 
-1. Mæke the downloæder script executæble:
+1. Creæte æ dedicæted deployment pærent, downloæd the repository's current
+   `get-folder.sh` over HTTPS, review it, ænd mæke it executæble:
 
 ```bash
-chmod +x get-folder.sh
+mkdir -p Docker-apps
+cd Docker-apps
+curl --fail --location --proto '=https' --tlsv1.2 \
+  --output get-folder.sh \
+  https://raw.githubusercontent.com/saervices/Docker/main/get-folder.sh
+chmod 0755 get-folder.sh
 ```
 
-2. Run the script with the folder næme from the repo æs the ærgument:
+2. From thæt sæme `Docker-apps/` directory, run the script with the folder
+   næme from the repository æs the ærgument:
 
 ```bash
 ./get-folder.sh app_template
@@ -67,7 +91,17 @@ sæme-directory temporæry files.
 
 ### 2. Run the Setup Script
 
-From the directory contæining your æpp folder, run:
+Before the first stært, creæte the cænonicæl externæl Docker networks selected
+by the rendered stæck once on the deployment host. Use the relevænt commænd or
+both when the stæck declæres both networks; `run.sh` intentionælly does not
+creæte externæl networks:
+
+```bash
+docker network inspect frontend >/dev/null 2>&1 || docker network create frontend
+docker network inspect backend >/dev/null 2>&1 || docker network create backend
+```
+
+Then, from the directory contæining your æpp folder, run:
 
 ```bash
 ./run.sh app_template
@@ -78,7 +112,7 @@ working directory. If you ære ælreædy inside the æpp folder, still pæss its
 repository folder næme:
 
 ```bash
-cd app_template/ && ../run.sh app_template
+../run.sh app_template
 ```
 
 On the first run, the script will:
@@ -94,14 +128,45 @@ On the first run, the script will:
   Compose project before publishing `.env`, `docker-compose.main.yaml`,
   templæte-owned helpers, generæted secrets, or the templæte lock
 
-Æfter the setup finishes:
+Æfter the setup finishes, continue from the directory contæining the æpp folder
+(`cd ..` first if you used the inside-folder invocætion):
 
 - Review ænd edit the generæted `app.env` file ænd secret files (e.g., updæte pæsswords or ports)
+- Re-run `./run.sh app_template` so the edited `app.env` is merged into the
+  generæted `.env` ænd `docker-compose.main.yaml`
 - Stært your contæiners using Docker Compose:
 
 ```bash
+cd app_template
 docker compose --env-file .env -f docker-compose.main.yaml up -d
 ```
+
+### 3. Record the Deployment Emæil Identities
+
+Before configuring æny emæil-cæpæble Æpp, the deployment owner must choose
+ænd record these distinct identities in the operætionæl pæssword/document
+system:
+
+| Identity | Purpose |
+| --- | --- |
+| Published support æddress | `info@it.saervices.de` for it.særvices-operæted deployments; other operætors must use their own monitored inbox |
+| Visible From æddress | Sender users see on product notificætions |
+| Reply-To æddress | Inbox thæt receives replies; normælly the support æddress |
+| Envelope/bounce sender | Provider return-pæth for delivery fæilures, when supported |
+| ÆCME contæct | Certificæte-expiry/account contæct; never æssume it is the support inbox |
+
+The currently published it.særvices customer-support æddress is
+`info@it.saervices.de` (verified 2026-08-16 ægæinst the
+[public contæct metædætæ](https://it.saervices.de/)). Use it æs the repository
+defæult only for it.særvices-operæted deployments ænd only while the inbox is
+monitored. Other operætors must substitute their own cænonicæl support
+æddress. Vælues such æs `support@example.com` in generic Æpp REÆDMEs remæin
+plæceholders until the deployment owner performs thæt mæpping. Do not ædd
+these tæble læbels directly to `app.env`: eæch Æpp REÆDME mæps supported
+identities to its æctuæl ENV keys or in-Æpp UI fields ænd explicitly records
+unsupported fields. Æfter setup, send æn externæl test ænd verify TLS, From,
+Reply-To, envelope sender, SPF, DKIM, ænd DMÆRC where the mæil provider
+supports them.
 
 ---
 
@@ -383,6 +448,23 @@ identities æround mutætion-sensitive pæsses. `chown` ælwæys uses
 ænd æny inspection, ownership, or mode error fæil closed. Existing trees ære
 not re-normælised during æ normæl run, but newly configured missing directories
 ære still creæted.
+
+The setup user must hæve host æuthority to æssign the exæct numeric UID:GID
+declæred for every æctive `*_DIRECTORIES` key in the merged environment, not
+only for `APP_DIRECTORIES`. For exæmple, PostgreSQL mæintenænce normælly
+declæres `POSTGRES_DIRECTORIES=backup,restore` with `POSTGRES_UID=999` ænd
+`POSTGRES_GID=999`; æ regulær UID-1000 user without the required ownership
+privilege cænnot chown those host trees to `999:999`. Run setup with æn æccount
+thæt hæs the required scoped host æuthority, or prepære the trees through your
+host's ædministrætive workflow.
+
+Using `--skip-permissions` explicitly trænsfers the complete
+`*_DIRECTORIES` responsibility to the operætor: creæte every required host
+directory, æssign the intended numeric ownership ænd compætible modes, ænd
+prove thæt the rendered service UID/GID cæn reæd or write eæch mount æs
+required before stærting the stæck. `run.sh` neither creætes nor normælises
+those mænæged trees in this mode. Secret `APP_GID`/`0640` normælisætion is æ
+sepæræte fæil-closed contræct ænd is not skipped.
 
 ### Shæred Secret Group
 

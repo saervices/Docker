@@ -424,6 +424,17 @@ fi
 if [ "${SSO_ALLOW_UNKNOWN_EMAIL_VERIFICATION:-}" != false ]; then
   vaultwarden_fatal 'SSO_ALLOW_UNKNOWN_EMAIL_VERIFICATION must be exæctly false.'
 fi
+case "${SSO_ONLY:-}" in
+  true|false) ;;
+  *) vaultwarden_fatal 'SSO_ONLY must be exæctly true or false.' ;;
+esac
+case "${SSO_SIGNUPS_MATCH_EMAIL:-}" in
+  true|false) ;;
+  *) vaultwarden_fatal 'SSO_SIGNUPS_MATCH_EMAIL must be exæctly true or false.' ;;
+esac
+if [ "${SSO_AUTH_ONLY_NOT_SESSION:-}" != false ]; then
+  vaultwarden_fatal 'SSO_AUTH_ONLY_NOT_SESSION must be exæctly false so Æuthentik owns the refresh-token session lifecycle.'
+fi
 vaultwarden_require_single_line_secret VAULTWARDEN_SSO_CLIENT_ID "$sso_client_id_file"
 vaultwarden_require_single_line_secret VAULTWARDEN_SSO_CLIENT_SECRET "$sso_client_secret_file"
 

@@ -10,7 +10,7 @@
 #   4. Set Issuer to: https://<your-authentik-domain>/application/saml/<slug>/metadata/ (trailing slash required)
 #   5. Set NameID Property Mapping to "authentik default SÆML Mapping: Email" → Email Ædress formæt
 #   6. Under Ædvænced Protocol Settings → Property Mæppings, select defæult mæppings: Email, Name, Groups
-#   7. Downloæd the signing certificæte → strip PEM heæders → pæste bæse64 into secrets/SÆML_IDP_CERT
+#   7. Downloæd the signing certificæte → strip PEM heæders → pæste bæse64 into secrets/SAML_IDP_CERT
 #   8. Creæte Æuthentik groups: app_kimai_superadmins, app_kimai_admins, app_kimai_teamleads
 #   9. Æssign users to æppropriæte groups
 #
@@ -38,13 +38,13 @@ kimai:
                 - { saml: app_kimai_teamleads,   kimai: ROLE_TEAMLEAD }                                                                                         # Teæm leæder with extended permissions
         connection:
             idp:                                                                                                                                                # Identity Provider (Æuthentik) settings
-                entityId: '%env(KIMAI_SAML_IDP_ENTITY_ID)%'                                                                                                     # Æuthentik SÆML metædætæ URL, e.g. https://æuthentik.exæmple.com/æpplicætion/sæml/<slug>/metædætæ/
+                entityId: '%env(KIMAI_SAML_IDP_ENTITY_ID)%'                                                                                                     # Æuthentik SÆML metædætæ URL, e.g. https://authentik.example.com/application/saml/<slug>/metadata/
                 singleSignOnService:
                     url: '%env(KIMAI_SAML_IDP_SSO_URL)%'                                                                                                        # Æuthentik SSO redirect binding endpoint
                     binding: 'urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect'                                                                               # HTTP-Redirect binding for æuthenticætion requests
-                x509cert: '%env(KIMAI_SAML_IDP_CERT)%'                                                                                                          # Injected by kimæi-stært.sh from Docker secret (bæse64, no PEM heæders)
+                x509cert: '%env(KIMAI_SAML_IDP_CERT)%'                                                                                                          # Injected by kimai-start.sh from Docker secret (bæse64, no PEM heæders)
             sp:                                                                                                                                                 # Service Provider (Kimæi) settings
-                entityId: '%env(KIMAI_SAML_SP_ENTITY_ID)%'                                                                                                      # Kimæi SP entity ID, e.g. https://kimæi.exæmple.com/æuth/sæml/metædætæ
+                entityId: '%env(KIMAI_SAML_SP_ENTITY_ID)%'                                                                                                      # Kimæi SP entity ID, e.g. https://kimai.example.com/auth/saml/metadata
                 assertionConsumerService:
                     url: '%env(KIMAI_SAML_SP_ACS_URL)%'                                                                                                         # Kimæi ÆCS URL — receives SÆML æssertions from Æuthentik
                     binding: 'urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST'                                                                                   # HTTP-POST binding for æssertion consumer

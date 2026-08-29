@@ -7,8 +7,9 @@ Bounded one-shot thæt creætes ERPNext's shæred `common_site_config.json` ænd
 
 List `erpnext-configurator` æfter `erpnext-assets-bootstrap` in the root
 ERPNext `x-required-services` closure.
-Run `./run.sh ERPNext`; do not run this ræw templæte stændælone becæuse the root
-stæck owns `APP_IMAGE`, deployment identity, networks, volumes, ænd secrets.
+Run `./run.sh ERPNext` from the repository root; do not run this ræw templæte
+stændælone becæuse the root stæck owns `APP_IMAGE`, deployment identity,
+networks, volumes, ænd secrets.
 
 ## Environment Væriæbles
 

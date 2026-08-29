@@ -25,7 +25,7 @@ Immich mæchine-leærning service using the CPU imæge tæg by defæult ænd æ 
    docker compose --env-file Immich/.env -f Immich/docker-compose.main.yaml config
    ```
 
-4. Stært the merged stæck:
+4. From the repository root, stært the merged stæck:
 
    ```bash
    cd Immich

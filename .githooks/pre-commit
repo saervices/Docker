@@ -93,6 +93,8 @@ readonly -a REQUIRED_REPOSITORY_CHECKERS=(
   ".cursor/scripts/test-mariadb-maintenance-safety.sh"
   ".cursor/scripts/test-postgresql-maintenance-safety.sh"
   ".cursor/scripts/test-secret-preflights.sh"
+  ".cursor/scripts/test-espocrm-bootstrap.sh"
+  ".cursor/scripts/test-gitea-vaultwarden-recovery.py"
   ".cursor/scripts/test-staged-secret-placeholders.sh"
   ".cursor/scripts/test-hardening.py"
   ".cursor/scripts/test-compliance-branding.py"
@@ -152,6 +154,8 @@ staged_secret_regressions_required=false
 collabora_wrapper_regressions_required=false
 kimai_wrapper_regressions_required=false
 redis_secret_runtime_regressions_required=false
+espocrm_bootstrap_regressions_required=false
+gitea_vaultwarden_recovery_regressions_required=false
 
 for file in "${staged_files[@]}"; do
   case "$file" in
@@ -237,6 +241,9 @@ for file in "${staged_files[@]}"; do
     templates/grafana-sso-policy/.env|templates/grafana-sso-policy/docker-compose.grafana-sso-policy.yaml|templates/grafana-sso-policy/dockerfiles/dockerfile.grafana-sso-policy|templates/grafana-sso-policy/dockerfiles/grafana-entrypoint.grafana-sso-policy.go|templates/grafana-sso-policy/dockerfiles/grafana-entrypoint.grafana-sso-policy_test.go)
       go_builder_contract_targets["grafana-sso-policy"]=1
       ;;
+    Gitea/.env|Gitea/docker-compose.app.yaml|Gitea/dockerfiles/Dockerfile|Gitea/dockerfiles/gitea-secret-reader.go|Gitea/dockerfiles/gitea-secret-reader_test.go)
+      go_builder_contract_targets["gitea-secret-reader"]=1
+      ;;
   esac
   case "$file" in
     templates/collabora/.env|templates/collabora/docker-compose*.yaml|templates/collabora/dockerfiles/*|templates/collabora/scripts/*)
@@ -254,8 +261,29 @@ for file in "${staged_files[@]}"; do
       ;;
   esac
   case "$file" in
+    EspoCRM/.env|EspoCRM/docker-compose.app.yaml|EspoCRM/scripts/config-override-internal.php|EspoCRM/scripts/espocrm-runtime-lock.sh|EspoCRM/scripts/espocrm-secret-reader.pl|EspoCRM/scripts/espocrm-start.sh|templates/espocrm-bootstrap/.env|templates/espocrm-bootstrap/docker-compose.espocrm-bootstrap.yaml|templates/espocrm-daemon/.env|templates/espocrm-daemon/docker-compose.espocrm-daemon.yaml|templates/espocrm-daemon/scripts/espocrm-daemon-start.sh|templates/espocrm-websocket/.env|templates/espocrm-websocket/docker-compose.espocrm-websocket.yaml|templates/espocrm-websocket/scripts/espocrm-websocket-healthcheck.php|templates/espocrm-websocket/scripts/espocrm-websocket-start.sh)
+      espocrm_bootstrap_regressions_required=true
+      ;;
+  esac
+  case "$file" in
+    Gitea/scripts/strict-recovery.py|Vaultwarden/scripts/strict-recovery.py)
+      gitea_vaultwarden_recovery_regressions_required=true
+      ;;
+  esac
+  case "$file" in
     *docker-compose*.yaml|*docker-compose*.yml)
-      [[ -f "$file" && ! -L "$file" ]] && hardening_paths["$file"]=1
+      # Pæss regulær files ænd symlinks; keep the reviewed Giteæ closure
+      # fæil-closed even if either of its Compose sources is deleted.
+      if [[ -f "$file" || -L "$file" ]] \
+        || [[ "$file" == Gitea/docker-compose.app.yaml ]] \
+        || [[ "$file" == templates/gitea-oidc/docker-compose.gitea-oidc.yaml ]]; then
+        hardening_paths["$file"]=1
+      elif [[ -f Gitea/docker-compose.app.yaml && ! -L Gitea/docker-compose.app.yaml ]]; then
+        # Æ genericælly deleted Compose file mæy belong to Giteæ's recursive
+        # closure; re-check the surviving root sentinel without prohibiting
+        # legitimæte deletions outside thæt closure.
+        hardening_paths["Gitea/docker-compose.app.yaml"]=1
+      fi
       ;;
   esac
   case "$file" in
@@ -380,7 +408,7 @@ fi
 GO_BUILDER_CONTRACT_REGRESSIONS=".cursor/scripts/test-go-builder-contracts.py"
 if (( ${#go_builder_contract_targets[@]} > 0 )); then
   declare -a go_builder_contract_args=()
-  for target in grafana-helper grafana-sso-policy traefik-certs-dumper traefik-reader; do
+  for target in gitea-secret-reader grafana-helper grafana-sso-policy traefik-certs-dumper traefik-reader; do
     if [[ -n "${go_builder_contract_targets[$target]:-}" ]]; then
       go_builder_contract_args+=(--target "$target")
     fi
@@ -416,6 +444,14 @@ REDIS_SECRET_RUNTIME_REGRESSIONS=".cursor/scripts/test-redis-secret-runtime.sh"
 if [[ "$redis_secret_runtime_regressions_required" == true ]]; then
   if ! bash "$REDIS_SECRET_RUNTIME_REGRESSIONS"; then
     echo "[pre-commit] Redis secret-runtime regression tests failed. Fix them before committing." >&2
+    exit 1
+  fi
+fi
+
+ESPOCRM_BOOTSTRAP_REGRESSIONS=".cursor/scripts/test-espocrm-bootstrap.sh"
+if [[ "$espocrm_bootstrap_regressions_required" == true ]]; then
+  if ! bash "$ESPOCRM_BOOTSTRAP_REGRESSIONS"; then
+    echo "[pre-commit] EspoCRM bootstrap regression tests failed. Fix them before committing." >&2
     exit 1
   fi
 fi
@@ -504,6 +540,14 @@ STAGED_SECRET_REGRESSIONS=".cursor/scripts/test-staged-secret-placeholders.sh"
 if [[ "$staged_secret_regressions_required" == true ]]; then
   if ! bash "$STAGED_SECRET_REGRESSIONS"; then
     echo "[pre-commit] Staged-secret placeholder regression tests failed. Fix them before committing." >&2
+    exit 1
+  fi
+fi
+
+GITEA_VAULTWARDEN_RECOVERY_REGRESSIONS=".cursor/scripts/test-gitea-vaultwarden-recovery.py"
+if [[ "$gitea_vaultwarden_recovery_regressions_required" == true ]]; then
+  if ! PYTHONDONTWRITEBYTECODE=1 python3 "$GITEA_VAULTWARDEN_RECOVERY_REGRESSIONS"; then
+    echo "[pre-commit] Gitea/Vaultwarden recovery regression tests failed. Fix them before committing." >&2
     exit 1
   fi
 fi

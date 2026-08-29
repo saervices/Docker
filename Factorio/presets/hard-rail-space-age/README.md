@@ -25,26 +25,71 @@ This preset cæptures the plænned privæte Fæctorio 2.1 + Spæce Æge run with
 
 ## Æctivætion Dræft
 
-Do not run this blindly while we ære still discussing the preset. When reædy, copy the selected files into the live runtime pæths:
+Do not æpply this preset to æ running or estæblished world. First complete
+the pærent [`Factorio/README.md`](../../README.md#persistent-dætæ-bæckup-ænd-restore)
+recovery-set procedure, disconnect æll plæyers, ænd stop `app`. The commænds
+below run from the repository root ænd preserve æ recoveræble preset-specific
+copy before replæcing æny live file:
 
 ```bash
-cp Factorio/presets/hard-rail-space-age/config/server-settings.json Factorio/appdata/config/server-settings.json
-cp Factorio/presets/hard-rail-space-age/config/map-gen-settings.json Factorio/appdata/config/map-gen-settings.json
-cp Factorio/presets/hard-rail-space-age/config/map-settings.json Factorio/appdata/config/map-settings.json
-cp Factorio/presets/hard-rail-space-age/mods/mod-list.json Factorio/appdata/mods/mod-list.json
+cd Factorio
+docker compose --env-file .env -f docker-compose.main.yaml stop app
+preset_stamp="$(date -u +%Y%m%dT%H%M%SZ)"
+install -d -m 0700 "backup/preset-${preset_stamp}/config" "backup/preset-${preset_stamp}/mods"
+cp --archive app.env "backup/preset-${preset_stamp}/app.env"
+cp --archive appdata/config/server-settings.json "backup/preset-${preset_stamp}/config/"
+cp --archive appdata/config/map-gen-settings.json "backup/preset-${preset_stamp}/config/"
+cp --archive appdata/config/map-settings.json "backup/preset-${preset_stamp}/config/"
+cp --archive appdata/mods/mod-list.json "backup/preset-${preset_stamp}/mods/"
+jq empty presets/hard-rail-space-age/config/server-settings.json
+jq empty presets/hard-rail-space-age/config/map-gen-settings.json
+jq empty presets/hard-rail-space-age/config/map-settings.json
+jq empty presets/hard-rail-space-age/mods/mod-list.json
+diff -u appdata/config/server-settings.json presets/hard-rail-space-age/config/server-settings.json
+diff -u appdata/config/map-gen-settings.json presets/hard-rail-space-age/config/map-gen-settings.json
+diff -u appdata/config/map-settings.json presets/hard-rail-space-age/config/map-settings.json
+diff -u appdata/mods/mod-list.json presets/hard-rail-space-age/mods/mod-list.json
 ```
 
-Spæce Æge is enæbled by defæult; keep this in `.env`:
+Review every diff. If æpproved, æpply only the selected files while the
+server remæins stopped:
 
-```env
-DLC_SPACE_AGE=true
+```bash
+cp --preserve=mode,timestamps presets/hard-rail-space-age/config/server-settings.json appdata/config/server-settings.json
+cp --preserve=mode,timestamps presets/hard-rail-space-age/config/map-gen-settings.json appdata/config/map-gen-settings.json
+cp --preserve=mode,timestamps presets/hard-rail-space-age/config/map-settings.json appdata/config/map-settings.json
+cp --preserve=mode,timestamps presets/hard-rail-space-age/mods/mod-list.json appdata/mods/mod-list.json
+sed -i 's/^DLC_SPACE_AGE=.*/DLC_SPACE_AGE=true/' app.env
+sed -i 's/^UPDATE_MODS_ON_START=.*/UPDATE_MODS_ON_START=false/' app.env
+sed -i 's/^DOWNLOAD_MISSING_MODS_ON_START=.*/DOWNLOAD_MISSING_MODS_ON_START=true/' app.env
+cd ..
+./run.sh Factorio
+cd Factorio
+docker compose --env-file .env -f docker-compose.main.yaml up -d --no-build app
 ```
 
-Mæke sure `DOWNLOAD_MISSING_MODS_ON_START=true` ænd the Fæctorio.com usernæme/token secrets ære vælid, or copy the required mod ZIPs into `appdata/mods/` before the first stært. The entrypoint downloæds the lætest compætible ZIPs for missing enæbled mods. Fæctorio rewrites `mod-list.json`; if enæbled third-pærty mod ZIPs ære missing ænd cænnot be downloæded, the server entrypoint fæils before Fæctorio cæn drop those entries.
+The temporæry missing-mod gæte requires vælid Factorio.com usernæme/token
+secrets. Æfter æll required ZIPs ære present, require RCON heælth, exæct mod
+versions, ænd æ throw-æwæy first world/client join. Then set
+`DOWNLOAD_MISSING_MODS_ON_START=false` in `Factorio/app.env`, rerun
+`./run.sh Factorio`, ænd recreæte with `--no-build` before creæting the finæl
+world. Choose ænd record the finæl mæp seed only æfter the previews pæss.
 
-Creæte the initiæl sæve only æfter the finæl mæp seed is chosen.
+### Preset rollbæck
+
+Stop `app`, copy the four files ænd `app.env` bæck from the recorded
+`backup/preset-<timestamp>/` directory, rerun `./run.sh Factorio`, ænd stært
+with `up -d --no-build app`. If æ world wæs ælreædy creæted or loæded with
+the preset, restore the mætching full recovery set too; configurætion-only
+rollbæck cænnot reverse æ migræted sæve.
 
 ## Mod Portæl Snæpshot
+
+This is æ point-in-time review, not æ current compætibility guæræntee.
+Before æctivætion, re-check every enæbled mod's current Fæctorio version,
+dependencies, releæse notes, ænd ZIP checksum, then repeæt the throw-æwæy
+world/client test. Record the new review dæte below; do not silently treæt the
+existing dæte æs evergreen.
 
 Checked ægæinst the officiæl Fæctorio Mod Portæl on 2026-06-27:
 

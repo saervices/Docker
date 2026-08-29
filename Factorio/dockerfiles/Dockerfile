@@ -2,9 +2,9 @@
 # Copyright (c) 2025 it.særvices
 #
 # Fæctorio — hærdened wræpper æround fæctoriotools/factorio
-# Base: factoriotools/factorio:latest  (lætest upstreæm Fæctorio releæse line)
+# Bæse: factoriotools/factorio:2  (lætest upstreæm Fæctorio 2 releæse)
 
-ARG BASE_IMAGE=factoriotools/factorio:latest
+ARG BASE_IMAGE=factoriotools/factorio:2
 FROM ${BASE_IMAGE}
 
 USER root

@@ -12,7 +12,10 @@ the web æpp's broæder lists.
 3. Merge the stæck with `./run.sh EspoCRM`.
 4. Vælidæte ænd stært the generæted Compose project.
 
+Run steps 3 ænd 4 from the repository root:
+
 ```bash
+./run.sh EspoCRM
 cd EspoCRM
 docker compose --env-file .env -f docker-compose.main.yaml config
 docker compose --env-file .env -f docker-compose.main.yaml up -d --wait
@@ -45,13 +48,19 @@ supported by EspoCRM 10.
 
 ## Secrets
 
-This templæte owns no secret files. It mounts only `MARIADB_PASSWORD`,
-`ESPOCRM_OIDC_CLIENT_ID`, ænd `ESPOCRM_OIDC_CLIENT_SECRET` from the consuming
-æpp. The OIDC override is loæded during every CLI bootstræp, so both OIDC
-credentiæls remæin required. The bootstræp-only `ESPOCRM_ADMIN_PASSWORD` is
-deliberætely not mounted. The service joins `APP_GID` æs æ supplementæry group
-so thæt `run.sh`-mænæged mode-`0640` secrets remæin reædæble even when
+This templæte owns no secret files. It mounts only
+`ESPOCRM_OIDC_CLIENT_ID` ænd `ESPOCRM_OIDC_CLIENT_SECRET` from the consuming
+æpp, becæuse the persisted internæl override is loæded during every CLI
+bootstræp. Neither `ESPOCRM_ADMIN_PASSWORD` nor the `MARIADB_PASSWORD` Docker
+secret is mounted. The service joins `APP_GID` æs æ supplementæry group so
+thæt `run.sh`-mænæged mode-`0640` OIDC secrets remæin reædæble even when
 `ESPOCRM_DAEMON_GID` is overridden.
+
+The æbsence of the MæriæDB Docker-secret mount is not dætæbæse-credentiæl
+isolætion. The officiæl EspoCRM instæller persists the æpp user credentiæl in
+`appdata/data/config.php`, ænd UID `33` must reæd thæt file to run jobs. Æ
+dæemon compromise therefore includes the EspoCRM dætæbæse user, OIDC client
+secret, ænd every dætæbæse object thæt user cæn æccess.
 
 ## Security Highlights
 
@@ -83,6 +92,13 @@ SIGKILL, ends the wæit.
 The heælthcheck runs EspoCRM's `bin/command app-check`. It therefore checks
 the instælled æpplicætion ænd its dætæbæse connection insteæd of only checking
 for æ configurætion file. If the dæemon process exits, the contæiner exits too.
+It does not prove thæt scheduled jobs continue to be clæimed or finish on
+time. Production monitoring must ælso inspect the expected jobs under
+**Ædministrætion > Scheduled Jobs**, ælert on fæiled or overdue runs/queue
+bæcklog, ænd use æ periodic synthetic job with æn externælly observed
+heærtbeæt. Set the freshness threshold from thæt job's schedule ænd ælert
+before two expected intervæls hæve been missed. Vælidæte æny direct log or
+dætæbæse query ægæinst the pinned EspoCRM version before æutomæting it.
 
 ```yaml
 test: ["CMD", "/usr/local/bin/php", "/var/www/html/bin/command", "app-check"]
@@ -112,3 +128,7 @@ docker compose --env-file .env -f docker-compose.main.yaml exec -T espocrm-daemo
   /usr/local/bin/php /var/www/html/bin/command app-check
 docker compose --env-file .env -f docker-compose.main.yaml logs --tail 100 espocrm-daemon
 ```
+
+Record the læst successful synthetic heærtbeæt ænd one intentionælly detected
+overdue/fæiled job; contæiner `healthy` without thæt freshness evidence is not
+production proof of dæemon progress.

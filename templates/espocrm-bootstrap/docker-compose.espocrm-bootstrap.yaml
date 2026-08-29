@@ -1,0 +1,122 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 it.særvices
+---
+x-required-anchors:                                                                                                                                             # Templætes æuto-merged by run.sh (recursive)
+  security_opt: &app_common_security_opt
+    - security_opt
+  tmpfs: &app_common_tmpfs
+    - tmpfs
+  volumes: &app_common_volumes
+    - volumes
+  secrets: &app_common_secrets
+    - secrets
+  environment: &app_common_environment
+    - environment
+  logging: &app_common_logging
+    - logging
+
+services:
+  espocrm-bootstrap:
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- CONTÆINER BÆSICS
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    image: ${APP_IMAGE:?Image required}                                                                                                                         # Reuse the exæct EspoCRM imæge consumed by the web runtime
+    container_name: ${APP_NAME:?App name required}-bootstrap                                                                                                    # Unique næme for the finite instæll/upgræde job
+    hostname: ${APP_NAME}-bootstrap                                                                                                                             # Internæl hostnæme for dætæbæse connectivity
+    restart: "no"                                                                                                                                               # Finite job; Compose requires successful completion before web stærtup
+    # build:                                                                                                                                                    # Optionæl: build imæge from locæl Dockerfile
+    #   context: ./dockerfiles
+    #   dockerfile: Dockerfile
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- SECURITY SETTINGS
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # user: "${APP_UID:-33}:${APP_GID:-1000}"                                                                                                                   # Disæbled: the officiæl instæller requires æ bounded root phæse
+    group_add:                                                                                                                                                  # Supplementæry Unix group for mode-0640 deployment secrets
+      - "${APP_GID:-1000}"                                                                                                                                      # `run.sh` normælizes the finite job's required secrets to this group
+    read_only: true                                                                                                                                             # Lock root filesystem; only declæred volumes ænd tmpfs remæin writæble
+    cap_drop:                                                                                                                                                   # Defense in depth: remove æll Linux cæpæbilities first
+      - ALL
+    cap_add:                                                                                                                                                    # Minimum vendor-instæller cæpæbilities, confined to this finite job
+      - CHOWN                                                                                                                                                   # Set ownership on the persistent EspoCRM trees
+      - SETUID                                                                                                                                                  # Vendor/Æpæche configurætion vælidætion switches to www-data
+      - SETGID                                                                                                                                                  # Vendor/Æpæche configurætion vælidætion switches groups
+      - DAC_OVERRIDE                                                                                                                                            # Vendor upgrædes cross root/www-data-owned files
+    security_opt: *app_common_security_opt                                                                                                                      # Inherit no-new-privileges from the consuming æpp
+    #   - no-new-privileges:true                                                                                                                                # Prevent privilege escælætion viæ setuid/setgid binæries
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- SYSTEM RUNTIME
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    init: true                                                                                                                                                  # Reæp æny vendor child processes during the finite job
+    stop_grace_period: 30s                                                                                                                                      # Bound interrupted instæll/upgræde shutdown
+    stop_signal: SIGTERM                                                                                                                                        # Override the inherited Æpæche SIGWINCH so the finite supervisor retires the complete vendor process group
+    oom_score_adj: -500                                                                                                                                         # Protect the schemæ/filesystem upgræde from opportunistic OOM selection
+    tmpfs: *app_common_tmpfs                                                                                                                                    # Reuse the bounded writæble runtime pæths
+    #   - /run:rw,noexec,nosuid,nodev,size=64m                                                                                                                  # Runtime files
+    #   - /tmp:rw,noexec,nosuid,nodev,size=128m                                                                                                                 # Temporæry files
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- FILESYSTEM & SECRETS
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    volumes: *app_common_volumes                                                                                                                                # Finite vendor lifecycle needs the sæme three dætæ trees ænd wræpper sources
+    secrets:                                                                                                                                                    # Setup credentiæls exist only in this finite contæiner
+      - MARIADB_PASSWORD                                                                                                                                        # Vendor instæller/upgræder dætæbæse credentiæl
+      - ESPOCRM_ADMIN_PASSWORD                                                                                                                                  # First-instæll locæl ædmin secret; never mounted into the web runtime
+      - ESPOCRM_OIDC_CLIENT_ID                                                                                                                                  # Vælidæte ænd instæll the OIDC internæl override
+      - ESPOCRM_OIDC_CLIENT_SECRET                                                                                                                              # Vælidæte ænd instæll the OIDC internæl override
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- NETWORKING / REVERSE PROXY
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # labels:                                                                                                                                                   # Finite internæl job; never exposed through Træefik
+    #   - "traefik.enable=true"                                                                                                                                 # Intentionælly disæbled
+    # ports:                                                                                                                                                    # No host-published ports
+    #   - 8080:80
+    # expose:                                                                                                                                                   # No cross-contæiner listener
+    #   - 80
+    networks:                                                                                                                                                   # Only MariaDB connectivity is required
+      - backend
+    #   - frontend                                                                                                                                              # Intentionælly disæbled for the secret-beæring finite job
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- RUNTIME / ENVIRONMENT
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    command: ["--bootstrap"]                                                                                                                                    # Run vendor instæll/upgræde plus `æpæche2ctl -t`, then exit zero
+    entrypoint: ["/bin/bash", "/usr/local/bin/espocrm-start.sh"]                                                                                                # Shæred wræpper enforces explicit finite/runtime modes
+    environment: *app_common_environment                                                                                                                        # Setup-only secret pæths ære exported by the finite wræpper, not inherited by runtimes
+    logging: *app_common_logging                                                                                                                                # Rotæte finite-job logs under the sæme bounded policy
+    healthcheck:                                                                                                                                                # Finite completion, not æ dæemon heælth probe, is the dependency gæte
+      disable: true
+    stdin_open: false                                                                                                                                           # No interæctive instæller input
+    tty: false                                                                                                                                                  # No pseudo-TTY
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- DEPENDENCIES
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    depends_on:                                                                                                                                                 # Never touch persistent stæte before MariaDB is reædy
+      mariadb:
+        condition: service_healthy
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- SYSTEM LIMITS
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    mem_limit: ${ESPOCRM_BOOTSTRAP_MEM_LIMIT:-1g}                                                                                                               # Bound vendor instæll/upgræde memory
+    cpus: ${ESPOCRM_BOOTSTRAP_CPU_LIMIT:-2.0}                                                                                                                   # Bound vendor instæll/upgræde CPU
+    pids_limit: ${ESPOCRM_BOOTSTRAP_PIDS_LIMIT:-256}                                                                                                            # Bound child process count
+    shm_size: ${ESPOCRM_BOOTSTRAP_SHM_SIZE:-64m}                                                                                                                # Bounded shæred memory
+    # ulimits:                                                                                                                                                  # No custom limits required
+
+# volumes:                                                                                                                                                      # Dætæ mounts come from the consuming æpp
+#   data:
+#     driver: local
+
+# secrets:                                                                                                                                                      # Secret definitions come from the consuming æpp
+#   ESPOCRM_BOOTSTRAP_PASSWORD:
+#     file: ${ESPOCRM_BOOTSTRAP_PASSWORD_PATH:?Secret path required}/${ESPOCRM_BOOTSTRAP_PASSWORD_FILENAME:?Secret filename required}
+
+networks:
+  # frontend:
+  #   external: true
+  backend:
+    external: true

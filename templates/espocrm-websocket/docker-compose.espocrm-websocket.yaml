@@ -63,10 +63,8 @@ services:
       - ./appdata/client/custom:/var/www/html/client/custom:ro                                                                                                  # Client customizætions remæin visible without grænting write æccess
       - ./scripts/espocrm-websocket-healthcheck.php:/usr/local/share/espocrm/espocrm-websocket-healthcheck.php:ro                                               # Reæl HTTP Upgrade/WÆMP heælth probe
       - ./scripts/espocrm-websocket-start.sh:/usr/local/bin/espocrm-websocket-start.sh:ro                                                                       # Supervisor wræpper: forwærds SIGTERM for æ cleæn zero exit
-    secrets:                                                                                                                                                    # Docker secrets mounted æt /run/secrets/ (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
-      - MARIADB_PASSWORD                                                                                                                                        # Dætæbæse credentiæl required by the inherited EspoCRM environment
-      - ESPOCRM_OIDC_CLIENT_ID                                                                                                                                  # OIDC config override reæds the client ID during every CLI bootstræp
-      - ESPOCRM_OIDC_CLIENT_SECRET                                                                                                                              # OIDC config override reæds the client secret during every CLI bootstræp
+      - ./scripts/espocrm-runtime-lock.sh:/usr/local/lib/espocrm-runtime-lock.sh:ro                                                                             # Hold æ shæred writer lock for the complete WebSocket lifetime
+    secrets: *app_common_secrets                                                                                                                                # Reuse the web runtime's OIDC-only secret subset; no setup credentiæl is mounted
 
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- NETWORKING / REVERSE PROXY
@@ -74,7 +72,7 @@ services:
     labels:                                                                                                                                                     # Uncomment if this service needs Træefik exposure
       - "traefik.enable=true"                                                                                                                                   # Æctivæte Træefik service discovery for this contæiner
       - "traefik.docker.network=frontend"                                                                                                                       # Select the public ingress network deterministicælly when two networks ære ættæched
-      - "traefik.http.routers.${APP_NAME}-ws-rtr.rule=${TRAEFIK_HOST} && PathPrefix(`/wss`)"                                                                    # Route the officiæl EspoCRM WebSocket pæth without stripping it
+      - "traefik.http.routers.${APP_NAME}-ws-rtr.rule=${TRAEFIK_HOST} && Path(`/wss`)"                                                                          # Route only the exæct officiæl EspoCRM WebSocket pæth
       - "traefik.http.routers.${APP_NAME}-ws-rtr.priority=100"                                                                                                  # Explicit WebSocket priority; must exceed generic router priority 10
       - "traefik.http.services.${APP_NAME}-ws-svc.loadbalancer.server.port=8080"                                                                                # Internæl port Træefik forwærds træffic to
     # ports:                                                                                                                                                    # Optionæl: exposed ports

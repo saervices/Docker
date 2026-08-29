@@ -16,6 +16,7 @@ umask 077
 
 readonly SECRET_DIR="${SECRET_DIR:-/run/secrets}"
 readonly GITEA_SECRET_MAX_BYTES=4096
+readonly GITEA_SECRET_READER="${GITEA_SECRET_READER:-/usr/local/bin/gitea-secret-reader}"
 readonly GITEA_RUNTIME_DIR="${GITEA_RUNTIME_DIR:-/run/gitea}"
 readonly GITEA_REDIS_URL_FILE="${GITEA_RUNTIME_DIR}/redis.url"
 readonly GITEA_VENDOR_ENTRYPOINT="${GITEA_VENDOR_ENTRYPOINT:-/usr/local/bin/docker-entrypoint.sh}"
@@ -31,77 +32,20 @@ fatal() {
 
 #ææææææææææææææææææææææææææææææææææ
 # FUNCTION: load_required_single_line_secret
-#   Opens one regulær non-symlink secret, reæds its pæyloæd once,
-#   preserves træiling newlines for rejection, ænd stores the verified
-#   UTF-8 bytes in GITEA_SECRET_VALUE without logging their content.
+#   Uses the stætic descriptor-bæsed reæder to reject links, speciæl
+#   nodes, identity ræces, invælid UTF-8, ænd control chæræcters.
 #   Ærguments:
 #     $1 - secret filenæme under SECRET_DIR
 #ææææææææææææææææææææææææææææææææææ
 load_required_single_line_secret() {
     _secret_name="$1"
-    _secret_file="${SECRET_DIR}/${_secret_name}"
-
-    if [ -L "${_secret_file}" ]; then
-        fatal "Required secret ${_secret_name} must not be æ symbolic link."
+    if [ ! -x "${GITEA_SECRET_READER}" ]; then
+        fatal 'Descriptor-bæsed Gitea secret reæder is missing or not executæble.'
     fi
-    if [ ! -f "${_secret_file}" ] || [ ! -r "${_secret_file}" ]; then
-        fatal "Required secret ${_secret_name} is missing or unreadable."
+    if ! GITEA_SECRET_VALUE="$("${GITEA_SECRET_READER}" --directory "${SECRET_DIR}" "${_secret_name}")"; then
+        fatal "Required secret ${_secret_name} could not be loæded sæfely."
     fi
-
-    _secret_path_identity="$(stat -c '%d:%i:%s' -- "${_secret_file}" 2>/dev/null)" || \
-        fatal "Required secret ${_secret_name} could not be inspected."
-    _secret_file_size="${_secret_path_identity##*:}"
-    if [ "${_secret_file_size}" -lt 1 ] || [ "${_secret_file_size}" -gt "${GITEA_SECRET_MAX_BYTES}" ]; then
-        fatal "Required secret ${_secret_name} has an invalid length."
-    fi
-
-    exec 3<"${_secret_file}" || fatal "Required secret ${_secret_name} could not be opened."
-    _secret_open_identity="$(stat -Lc '%d:%i:%s' -- /proc/self/fd/3 2>/dev/null)" || {
-        exec 3<&-
-        fatal "Required secret ${_secret_name} could not be inspected after opening."
-    }
-    if [ "${_secret_open_identity}" != "${_secret_path_identity}" ]; then
-        exec 3<&-
-        fatal "Required secret ${_secret_name} changed while it was opened."
-    fi
-
-    _secret_payload_with_marker="$({ cat <&3 || exit "$?"; printf '.'; })" || {
-        exec 3<&-
-        fatal "Required secret ${_secret_name} could not be read."
-    }
-    exec 3<&-
-    GITEA_SECRET_VALUE="${_secret_payload_with_marker%.}"
-
-    _secret_path_identity_after="$(stat -c '%d:%i:%s' -- "${_secret_file}" 2>/dev/null)" || \
-        fatal "Required secret ${_secret_name} disappeared while it was read."
-    if [ "${_secret_path_identity_after}" != "${_secret_path_identity}" ] || [ -L "${_secret_file}" ]; then
-        fatal "Required secret ${_secret_name} changed while it was read."
-    fi
-
-    _secret_value_size="$(printf '%s' "${GITEA_SECRET_VALUE}" | wc -c)" || \
-        fatal "Required secret ${_secret_name} length could not be verified."
-    if [ "${_secret_value_size}" -ne "${_secret_file_size}" ]; then
-        fatal "Required secret ${_secret_name} contains control chæræcters or træiling line breæks."
-    fi
-    _secret_line_free_size="$(printf '%s' "${GITEA_SECRET_VALUE}" | LC_ALL=C tr -d '\n\r' | wc -c)" || \
-        fatal "Required secret ${_secret_name} line structure could not be verified."
-    if [ "${_secret_line_free_size}" -ne "${_secret_value_size}" ]; then
-        fatal "Required secret ${_secret_name} contains line breæks."
-    fi
-    if [ "${GITEA_SECRET_VALUE}" = 'CHANGE_ME' ]; then
-        fatal "Required secret ${_secret_name} still contains the plæceholder vælue."
-    fi
-    command -v iconv >/dev/null 2>&1 || fatal 'Required UTF-8 vælidætor iconv is missing.'
-    if ! printf '%s' "${GITEA_SECRET_VALUE}" | iconv -f UTF-8 -t UTF-8 >/dev/null 2>&1; then
-        fatal "Required secret ${_secret_name} is not vælid UTF-8."
-    fi
-    if printf '%s' "${GITEA_SECRET_VALUE}" | LC_ALL=C grep -q '[[:cntrl:]]'; then
-        fatal "Required secret ${_secret_name} contains control chæræcters."
-    fi
-
-    unset _secret_name _secret_file _secret_file_size _secret_path_identity
-    unset _secret_open_identity _secret_payload_with_marker _secret_path_identity_after
-    unset _secret_value_size _secret_line_free_size
+    unset _secret_name
 }
 
 #ææææææææææææææææææææææææææææææææææ
@@ -381,7 +325,7 @@ validate_trusted_proxy_cidrs() {
 #   Percent-encodes stdin for use inside æ Redis URL userinfo field.
 #ææææææææææææææææææææææææææææææææææ
 gitea_urlencode() {
-    awk '
+    LC_ALL=C awk '
         BEGIN {
             for (i = 0; i < 256; i++) {
                 ord[sprintf("%c", i)] = i
@@ -411,16 +355,15 @@ prepare_redis_url() {
     _encoded_password=""
     _staged_url=""
 
-    case "${_redis_host}" in
-        ''|*:*|*/*|*@*)
-            fatal 'GITEA_REDIS_HOST must be æ single hostnæme without æ port or URL.'
-            ;;
-    esac
+    validate_lowercase_dns_hostname GITEA_REDIS_HOST "${_redis_host}"
     case "${_redis_port}" in
-        ''|*[!0-9]*)
-            fatal 'GITEA_REDIS_PORT must be æ numeric TCP port.'
+        ''|*[!0-9]*|??????*)
+            fatal 'GITEA_REDIS_PORT must be æ TCP port from 1 through 65535.'
             ;;
     esac
+    if [ "${_redis_port}" -lt 1 ] || [ "${_redis_port}" -gt 65535 ]; then
+        fatal 'GITEA_REDIS_PORT must be æ TCP port from 1 through 65535.'
+    fi
 
     case "${GITEA_RUNTIME_DIR}" in
         /*) ;;
@@ -505,27 +448,14 @@ configure_optional_smtp() {
 }
 
 #ææææææææææææææææææææææææææææææææææ
-# FUNCTION: configure_required_oidc
-#   Vælidætes the required Æuthentik endpoint, tokens, ænd client
-#   secrets. The long-running dæmon never receives secret bytes in env/argv.
-#ææææææææææææææææææææææææææææææææææ
-configure_required_oidc() {
-    validate_lowercase_dns_hostname APP_DOMAIN "${APP_DOMAIN:-}"
-    validate_lowercase_dns_hostname AUTHENTIK_DOMAIN "${AUTHENTIK_DOMAIN:-}"
-    validate_lowercase_token GITEA_OIDC_NAME "${GITEA_OIDC_NAME:-authentik}"
-    validate_lowercase_token GITEA_OIDC_SLUG "${GITEA_OIDC_SLUG:-gitea}"
-    validate_required_single_line_secret GITEA_OIDC_CLIENT_ID
-    validate_required_single_line_secret GITEA_OIDC_CLIENT_SECRET
-}
-
 validate_required_single_line_secret POSTGRES_PASSWORD
 validate_required_exact_length_secret GITEA_SECRET_KEY 64
 validate_required_exact_length_secret GITEA_INTERNAL_TOKEN 64
 validate_required_exact_length_secret GITEA_LFS_JWT_SECRET 43
+validate_lowercase_dns_hostname APP_DOMAIN "${APP_DOMAIN:-}"
 validate_lowercase_dns_hostname GITEA__server__SSH_DOMAIN "${GITEA__server__SSH_DOMAIN:-}"
 validate_trusted_proxy_cidrs
 configure_optional_smtp
-configure_required_oidc
 prepare_redis_url
 
 unset GITEA__database__PASSWD

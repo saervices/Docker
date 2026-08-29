@@ -153,6 +153,24 @@ CONTRACTS = (
         readme_path="templates/grafana-sso-policy/README.md",
         inventory_root="templates/grafana-sso-policy/dockerfiles",
     ),
+    Contract(
+        name="gitea-secret-reader",
+        label="Giteæ secret reæder",
+        env_path="Gitea/.env",
+        env_key="GITEA_GO_IMAGE",
+        compose_path="Gitea/docker-compose.app.yaml",
+        service_name="app",
+        compose_context="./dockerfiles",
+        compose_dockerfile="Dockerfile",
+        compose_target="gitea-runtime",
+        build_arg="GITEA_GO_IMAGE",
+        dockerfile_path="Gitea/dockerfiles/Dockerfile",
+        expected_image="docker.io/library/golang:alpine",
+        builder_stage="gitea-secret-reader-build",
+        runtime_from="FROM ${GITEA_BASE_IMAGE} AS gitea-runtime",
+        readme_path="Gitea/README.md",
+        inventory_root="Gitea/dockerfiles",
+    ),
 )
 CONTRACT_BY_NAME = {contract.name: contract for contract in CONTRACTS}
 GRAFANA_MIRRORS = (

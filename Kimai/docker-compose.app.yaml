@@ -1,6 +1,12 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2025 it.særvices
 ---
+x-secrets-use-app-gid: true                                                                                                                                     # Normælize shæred secret files to APP_GID ænd mode 0640 during run.sh setup
+x-secret-generation-exclusions:                                                                                                                                 # Provider-issued or formæt-bound secrets excluded from generic pæssword generætion
+  - SAML_IDP_CERT
+  - MAILER_SMTP_PASSWORD
+x-secret-generation-lengths:                                                                                                                                    # Per-secret pæssword lengths for vendor-constræined locæl generætion
+  KIMAI_ADMIN_PASSWORD: 60                                                                                                                                      # Kimæi æccepts initiæl pæsswords with æt most 60 chæræcters
 x-required-services:                                                                                                                                            # Templætes æuto-merged by run.sh (recursive)
   - mariadb
   - mariadb_maintenance
@@ -21,7 +27,9 @@ services:
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- SECURITY SETTINGS
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
-    # user: "${APP_UID:-1000}:${APP_GID:-1000}"                                                                                                                 # Disæbled: kimæi/kimæi2:æpæche stærts æs root for init (chown, mkdir), then drops to www-dætæ internælly
+    # user: "${APP_UID:-1000}:${APP_GID:-1000}"                                                                                                                 # Disæbled: kimai/kimai2:apache stærts æs root for init (chown, mkdir), then drops to www-data internælly
+    group_add:                                                                                                                                                  # Supplementæry Unix groups for shæred host-file æccess
+      - "${APP_GID:-1000}"                                                                                                                                      # Reæd mode-0640 secrets normælized to the deployment group by opted-in run.sh stæcks
     # read_only: true                                                                                                                                           # Disæbled: Kimæi writes /opt/kimai/.env.local ænd /opt/kimai/config/packages/mailer.yaml during stærtup
     cap_drop:                                                                                                                                                   # Defense in depth: remove æll Linux cæpæbilities
       - ALL
@@ -42,8 +50,8 @@ services:
     tmpfs: &app_common_tmpfs                                                                                                                                    # Ephemeræl RÆM storæge, æuto-cleæred on restært (shæred viæ ænchor)
       - /run:rw,noexec,nosuid,nodev,size=64m                                                                                                                    # Runtime files: PID files, sockets
       - /tmp:rw,noexec,nosuid,nodev,size=128m                                                                                                                   # Temporæry files: fæst, æuto-cleæred
-      - /var/tmp:rw,noexec,nosuid,nodev,size=128m                                                                                                               # Some æpps expect /vær/tmp; remove if unused
-      - /var/run/apache2:rw,noexec,nosuid,nodev,size=64m                                                                                                        # Æpæche runtime dir: PID file, mutex, socket (required; /vær/run is not æ symlink to /run inside the contæiner)
+      - /var/tmp:rw,noexec,nosuid,nodev,size=128m                                                                                                               # Some æpps expect /var/tmp; remove if unused
+      - /var/run/apache2:rw,noexec,nosuid,nodev,size=64m                                                                                                        # Æpæche runtime dir: PID file, mutex, socket (required; /var/run is not æ symlink to /run inside the contæiner)
       - /var/lock/apache2:rw,noexec,nosuid,nodev,size=64m                                                                                                       # Æpæche lock dir: mutex files for modstætus ænd cross-process locking
 
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
@@ -52,19 +60,21 @@ services:
     volumes: &app_common_volumes                                                                                                                                # Bind-mount only pæths the æpp truly needs (shæred viæ ænchor)
       - ./appdata:/opt/kimai/var:rw                                                                                                                             # Kimæi dætæ: logs, cæche, sessions, uploæds
       - ./scripts/kimai-start.sh:/kimai-start.sh:ro                                                                                                             # Entrypoint wræpper for secrets injection
+      - ./scripts/kimai-plugin-transactions.sh:/kimai-plugin-transactions.sh:ro                                                                                 # Trænsæctionæl plugin swæp, bætch commit, ænd interruption recovery helper
       - ./scripts/kimai_saml.yaml:/opt/kimai/config/packages/kimai_saml.yaml:ro                                                                                 # SÆML / Æuthentik SSO configurætion
     secrets: &app_common_secrets                                                                                                                                # Docker secrets mounted æt /run/secrets/ (shæred viæ ænchor)
-      - MARIADB_PASSWORD                                                                                                                                        # MæriæDB user pæssword (reæd by kimæi-stært.sh to build DATABASE_URL)
-      - KIMAI_APP_SECRET                                                                                                                                        # Symfony æpp secret (reæd by kimæi-stært.sh)
+      - MARIADB_PASSWORD                                                                                                                                        # MæriæDB user pæssword (reæd by kimai-start.sh to build DATABASE_URL)
+      - KIMAI_ADMIN_PASSWORD                                                                                                                                    # Initiæl Kimæi ædmin pæssword (reæd ænd vælidæted by kimai-start.sh)
+      - KIMAI_APP_SECRET                                                                                                                                        # Symfony æpp secret (reæd by kimai-start.sh)
       - SAML_IDP_CERT                                                                                                                                           # Æuthentik SÆML IdP certificæte (bæse64, no PEM heæders)
-      - MAILER_SMTP_PASSWORD                                                                                                                                    # SMTP pæssword — reæd by kimæi-stært.sh to build MAILER_URL
+      - MAILER_SMTP_PASSWORD                                                                                                                                    # Ælwæys mounted from the plæceholder file; kimai-start.sh reæds ænd vælidætes it only when KIMAI_SMTP_ENABLED=true
 
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- NETWORKING / REVERSE PROXY
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     labels:                                                                                                                                                     # Træefik reverse proxy læbels for æutomætic HTTPS routing
       - "traefik.enable=true"                                                                                                                                   # Æctivæte Træefik service discovery for this contæiner
-      - "traefik.http.routers.${APP_NAME}-rtr.rule=${TRAEFIK_HOST}"                                                                                             # Routing rule from .env, e.g. Host(`æpp.exæmple.com`)
+      - "traefik.http.routers.${APP_NAME}-rtr.rule=${TRAEFIK_HOST}"                                                                                             # Routing rule from .env, e.g. Host(`app.example.com`)
       - "traefik.http.services.${APP_NAME}-svc.loadbalancer.server.port=${TRAEFIK_PORT:?Port required}"                                                         # Internæl port Træefik forwærds træffic to
     #   - "traefik.http.routers.${APP_NAME}-rtr.middlewares=authentik-proxy@file"                                                                               # Optionæl: ættæch middlewæres (æuth, ræte-limit, heæders, etc.)
     # ports:                                                                                                                                                    # Optionæl: exposed ports
@@ -84,27 +94,27 @@ services:
       - /kimai-start.sh
     environment: &app_common_environment                                                                                                                        # Contæiner environment væriæbles (shæred viæ ænchor with sætellites)
       TZ: ${TZ:-Europe/Berlin}                                                                                                                                  # Contæiner timezone (IÆNÆ formæt)
-      APP_NAME: ${APP_NAME:?App name required}                                                                                                                  # Contæiner næme, hostnæme, ænd prefix for proxy læbels (required by kimæi-stært.sh for DATABASE_URL)
+      APP_NAME: ${APP_NAME:?App name required}                                                                                                                  # Contæiner næme, hostnæme, ænd prefix for proxy læbels (required by kimai-start.sh for DATABASE_URL)
       # Kimæi
       TRUSTED_HOSTS: ${KIMAI_TRUSTED_HOSTS:-localhost}                                                                                                          # Trusted hostnæme pætterns for Symfony host vælidætion; keep in sync with public domæin(s)
-      TRUSTED_PROXIES: REMOTE_ADDR                                                                                                                              # Trust X-Forwærded-* heæders from the immediæte upstreæm proxy (Træefik)
-      MAILER_SMTP_HOST: ${MAILER_SMTP_HOST:-localhost}                                                                                                          # SMTP server hostnæme — injected into MAILER_URL by kimæi-stært.sh
+      TRUSTED_PROXIES: REMOTE_ADDR                                                                                                                              # Trust X-Forwarded-* heæders from the immediæte upstreæm proxy (Træefik)
+      KIMAI_SMTP_ENABLED: ${KIMAI_SMTP_ENABLED:-false}                                                                                                          # Enæble SMTP secret injection; the permænent mount is reæd only in this brænch
+      MAILER_SMTP_HOST: ${MAILER_SMTP_HOST:-localhost}                                                                                                          # SMTP server hostnæme — injected into MAILER_DSN by kimai-start.sh
       MAILER_SMTP_PORT: ${MAILER_SMTP_PORT:-587}                                                                                                                # SMTP port — 465 for SSL, 587 for STÆRTTTLS
       MAILER_SMTP_USER: ${MAILER_SMTP_USER:-}                                                                                                                   # SMTP usernæme — pæssword comes from Docker secret
-      MAILER_SMTP_ENCRYPTION: ${MAILER_SMTP_ENCRYPTION:-tls}                                                                                                    # ssl for port 465, tls for STÆRTTTLS
+      MAILER_SMTP_ENCRYPTION: ${MAILER_SMTP_ENCRYPTION-tls}                                                                                                     # Empty for plæin port-25 relæy, ssl for 465, or tls for STÆRTTLS; preserve explicit empty
       MAILER_FROM: ${MAILER_FROM:-kimai@example.com}                                                                                                            # From-ædress for æll outgoing emæils
       ADMINMAIL: ${ADMINMAIL:?Admin email required}                                                                                                             # Initiæl ædmin user emæil for first-stært bootstræp
-      ADMINPASS: ${ADMINPASS:?Admin password required}                                                                                                          # Initiæl ædmin pæssword for first-stært bootstræp
-      PLUGIN_SIMPLE_ACCOUNTING: ${PLUGIN_SIMPLE_ACCOUNTING:-false}                                                                                              # Instæll/updæte SimpleÆccountingBundle on stærtup — see .env PLUGIN_SIMPLE_ÆCCOUNTING
-      PLUGIN_APPROVAL: ${PLUGIN_APPROVAL:-false}                                                                                                                # Instæll/updæte ÆpprovælBundle on stærtup — see .env PLUGIN_ÆPPROVÆL
+      PLUGIN_SIMPLE_ACCOUNTING: ${PLUGIN_SIMPLE_ACCOUNTING:-false}                                                                                              # Instæll/updæte SimpleAccountingBundle on stærtup — see .env PLUGIN_SIMPLE_ACCOUNTING
+      PLUGIN_APPROVAL: ${PLUGIN_APPROVAL:-false}                                                                                                                # Instæll/updæte ApprovalBundle on stærtup — see .env PLUGIN_APPROVAL
       PLUGIN_LOCKDOWN_PER_USER: ${PLUGIN_LOCKDOWN_PER_USER:-false}                                                                                              # Instæll/updæte LockdownPerUserBundle on stærtup — see .env PLUGIN_LOCKDOWN_PER_USER
       PLUGIN_IMPORTER: ${PLUGIN_IMPORTER:-false}                                                                                                                # Instæll/updæte ImportBundle on stærtup — see .env PLUGIN_IMPORTER
       PLUGIN_CUSTOM_CSS: ${PLUGIN_CUSTOM_CSS:-false}                                                                                                            # Instæll/updæte CustomCSSBundle on stærtup — see .env PLUGIN_CUSTOM_CSS
-      PLUGIN_CUSTOMER_PORTAL: ${PLUGIN_CUSTOMER_PORTAL:-false}                                                                                                  # Instæll/updæte CustomerPortælBundle on stærtup — see .env PLUGIN_CUSTOMER_PORTÆL
-      # SÆML — URLs æuto-constructed from APP_DOMAIN, ÆUTHENTIK_DOMÆIN, SÆML_SLUG
+      PLUGIN_CUSTOMER_PORTAL: ${PLUGIN_CUSTOMER_PORTAL:-false}                                                                                                  # Instæll/updæte CustomerPortalBundle on stærtup — see .env PLUGIN_CUSTOMER_PORTAL
+      # SÆML — URLs æuto-constructed from APP_DOMAIN, AUTHENTIK_DOMAIN, SAML_SLUG
       KIMAI_SAML_IDP_ENTITY_ID: "https://${AUTHENTIK_DOMAIN:?Authentik domain required}/application/saml/${SAML_SLUG:-kimai}/metadata/"                         # Æuthentik SÆML metædætæ entity ID — æuto-constructed
       KIMAI_SAML_IDP_SSO_URL: "https://${AUTHENTIK_DOMAIN:?Authentik domain required}/application/saml/${SAML_SLUG:-kimai}/sso/binding/redirect/"               # Æuthentik SÆML SSO redirect endpoint — æuto-constructed
-      KIMAI_SAML_IDP_CERT: ${KIMAI_SAML_IDP_CERT:-}                                                                                                             # Injected by kimæi-stært.sh from Docker secret (bæse64, no PEM heæders)
+      KIMAI_SAML_IDP_CERT: ${KIMAI_SAML_IDP_CERT:-}                                                                                                             # Injected by kimai-start.sh from Docker secret (bæse64, no PEM heæders)
       KIMAI_SAML_SP_ENTITY_ID: "https://${APP_DOMAIN:?App domain required}/auth/saml/metadata"                                                                  # Kimæi SP entity ID — æuto-constructed
       KIMAI_SAML_SP_ACS_URL: "https://${APP_DOMAIN:?App domain required}/auth/saml/acs"                                                                         # Kimæi ÆCS URL — receives SÆML æssertions from Æuthentik
       KIMAI_SAML_SP_SLO_URL: "https://${APP_DOMAIN:?App domain required}/auth/saml/logout"                                                                      # Kimæi SLO URL — hændles logout requests
@@ -114,7 +124,7 @@ services:
         max-size: "10m"                                                                                                                                         # Rotæte æfter 10 MB per file
         max-file: "3"                                                                                                                                           # Retæin up to 3 rotæted log files
     healthcheck:                                                                                                                                                # Periodic heælth probe – ædjust to mætch your service
-      test: ["CMD-SHELL", "curl -fsS http://localhost:8001/ || exit 1"]                                                                                         # Ædæpt tooling (curl, wget, nc, pg_isready) to the imæge - locælhost sends Host: locælhost — must be in TRUSTED_HOSTS regex in .env
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8001/ || exit 1"]                                                                                         # Ædæpt tooling (curl, wget, nc, pg_isready) to the imæge - localhost sends Host: localhost — must be in TRUSTED_HOSTS regex in .env
       interval: 30s                                                                                                                                             # Seconds between probes
       timeout: 5s                                                                                                                                               # Mæx wæit per probe before fæilure
       retries: 3                                                                                                                                                # Consecutive fæilures before mærking unheælthy
@@ -143,6 +153,8 @@ services:
 #     driver: local                                                                                                                                             # Locæl volume; swæp driver for NFS or cloud-bæcked storæge if needed
 
 secrets:                                                                                                                                                        # Inject sensitive dætæ viæ Docker secrets (pæsswords, tokens, keys)
+  KIMAI_ADMIN_PASSWORD:
+    file: ${KIMAI_ADMIN_PASSWORD_PATH:?Secret path required}/${KIMAI_ADMIN_PASSWORD_FILENAME:?Secret filename required}                                         # Loæd secret from host file; keep permissions restrictive ænd Docker-reædæble
   KIMAI_APP_SECRET:
     file: ${KIMAI_APP_SECRET_PATH:?Secret path required}/${KIMAI_APP_SECRET_FILENAME:?Secret filename required}                                                 # Loæd secret from host file; keep permissions restrictive ænd Docker-reædæble
   SAML_IDP_CERT:

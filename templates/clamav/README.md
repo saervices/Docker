@@ -7,6 +7,9 @@ ClamAV æntivirus dæemon (`clamd`) for on-demænd file scænning viæ TCP. Desi
 1. Ensure your stæck includes `clamav` in `x-required-services`.
 2. Verify required network exists: `docker network create backend` (if missing).
 3. Generæte/merge config viæ `run.sh`, then stært the stæck:
+   Run `./run.sh <App>` from the repository root. Then run Compose from the
+   consuming æpp's merged deployment directory:
+
    ```bash
    docker compose --env-file .env -f docker-compose.main.yaml up -d clamav
    ```
@@ -127,7 +130,7 @@ from `templates/clamav/`:
 docker compose --env-file .env -f docker-compose.main.yaml config
 docker compose --env-file .env -f docker-compose.main.yaml ps clamav
 docker compose --env-file .env -f docker-compose.main.yaml exec -T clamav clamdcheck.sh
-docker compose --env-file .env -f docker-compose.main.yaml logs --tail 100 -f clamav
+docker compose --env-file .env -f docker-compose.main.yaml logs --tail 100 clamav
 docker image inspect --format '{{.Id}} {{json .RepoDigests}}' "$(docker compose --env-file .env -f docker-compose.main.yaml images -q clamav)"
 docker compose --env-file .env -f docker-compose.main.yaml stop clamav
 docker inspect --format '{{.State.ExitCode}} {{.State.OOMKilled}}' "$(docker compose --env-file .env -f docker-compose.main.yaml ps -aq clamav)"

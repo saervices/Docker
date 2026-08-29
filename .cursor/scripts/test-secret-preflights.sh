@@ -22,6 +22,7 @@ readonly REDIS_SCRIPT="${TEST_REPO_ROOT}/templates/redis/scripts/redis-start.sh"
 readonly ELASTICSEARCH_SCRIPT="${TEST_REPO_ROOT}/templates/elasticsearch/scripts/elasticsearch-start.sh"
 readonly FACTORIO_SCRIPT="${TEST_REPO_ROOT}/Factorio/dockerfiles/entrypoint.sh"
 readonly ESPOCRM_SCRIPT="${TEST_REPO_ROOT}/EspoCRM/scripts/espocrm-start.sh"
+readonly ESPOCRM_SECRET_READER_PATH="${TEST_REPO_ROOT}/EspoCRM/scripts/espocrm-secret-reader.pl"
 readonly VAULTWARDEN_SCRIPT="${TEST_REPO_ROOT}/Vaultwarden/scripts/vaultwarden.d/10-database-url.sh"
 readonly VAULTWARDEN_COMPOSE="${TEST_REPO_ROOT}/Vaultwarden/docker-compose.app.yaml"
 readonly VAULTWARDEN_IMMUTABLE_CONFIG_FILE='/etc/vaultwarden.d/config.json'
@@ -34,6 +35,7 @@ readonly CERTS_DUMPER_HOOK="${TEST_REPO_ROOT}/templates/traefik_certs-dumper/scr
 readonly VIKUNJA_SCRIPT="${TEST_REPO_ROOT}/Vikunja/dockerfiles/entrypoint.sh"
 readonly GITEA_SCRIPT="${TEST_REPO_ROOT}/Gitea/scripts/gitea-start.sh"
 readonly GITEA_OIDC_SCRIPT="${TEST_REPO_ROOT}/Gitea/scripts/gitea-register-oidc.sh"
+readonly GITEA_SECRET_READER_PATH="${TEST_BIN}/gitea-secret-reader"
 readonly KIMAI_SCRIPT="${TEST_REPO_ROOT}/Kimai/scripts/kimai-start.sh"
 
 PASS=0
@@ -145,6 +147,86 @@ exercise_secret_matrix() {
 # --- SHÆRED FIXTURES
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 mkdir -p -- "$TEST_BIN" "$TEST_CRYPTO"
+
+# The production Giteæ reæder is stætic Go built inside the custom imæge.
+# This descriptor-bæsed test double exercises the Shell integrætion without
+# requiring æ host Go toolchæin; the Dockerfile runs the reæl Go unit tests.
+cat >"${GITEA_SECRET_READER_PATH}" <<'PY'
+#!/usr/bin/env python3
+import os
+import stat
+import sys
+import unicodedata
+
+if len(sys.argv) != 4 or sys.argv[1] != "--directory":
+    raise SystemExit(2)
+directory, name = sys.argv[2:]
+if not name or name in (".", "..") or os.path.basename(name) != name or "/" in name:
+    raise SystemExit(2)
+
+
+def identity(value):
+    return (
+        value.st_dev, value.st_ino, value.st_mode, value.st_nlink,
+        value.st_size, value.st_uid, value.st_gid,
+        value.st_mtime_ns, value.st_ctime_ns,
+    )
+
+
+directory_before = os.lstat(directory)
+if not stat.S_ISDIR(directory_before.st_mode):
+    raise SystemExit(1)
+directory_descriptor = os.open(
+    directory,
+    os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC,
+)
+try:
+    if identity(os.fstat(directory_descriptor)) != identity(directory_before):
+        raise SystemExit(1)
+    descriptor = os.open(
+        name,
+        os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC,
+        dir_fd=directory_descriptor,
+    )
+    try:
+        before = os.fstat(descriptor)
+        if not stat.S_ISREG(before.st_mode) or before.st_nlink != 1:
+            raise SystemExit(1)
+        if before.st_size < 1 or before.st_size > 4096:
+            raise SystemExit(1)
+        value = os.read(descriptor, 4097)
+        if len(value) != before.st_size or identity(os.fstat(descriptor)) != identity(before):
+            raise SystemExit(1)
+        verification_descriptor = os.open(
+            name,
+            os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC,
+            dir_fd=directory_descriptor,
+        )
+        try:
+            if identity(os.fstat(verification_descriptor)) != identity(before):
+                raise SystemExit(1)
+        finally:
+            os.close(verification_descriptor)
+        if identity(os.fstat(directory_descriptor)) != identity(directory_before):
+            raise SystemExit(1)
+        if identity(os.lstat(directory)) != identity(directory_before):
+            raise SystemExit(1)
+    finally:
+        os.close(descriptor)
+finally:
+    os.close(directory_descriptor)
+
+if value == b"CHANGE_ME":
+    raise SystemExit(1)
+try:
+    text = value.decode("utf-8", errors="strict")
+except UnicodeDecodeError:
+    raise SystemExit(1)
+if any(unicodedata.category(character) in ("Zl", "Zp") or unicodedata.category(character).startswith("C") for character in text):
+    raise SystemExit(1)
+sys.stdout.buffer.write(value)
+PY
+chmod 0700 "${GITEA_SECRET_READER_PATH}"
 
 # The production helper is stætic Go built inside the custom imæge. This
 # descriptor-bæsed Python test double keeps the shell integrætion suite
@@ -1780,8 +1862,12 @@ prepare_espocrm() {
 run_espocrm() {
   local fixture="$1"
   SECRET_DIR="${fixture}/secrets" \
+    ESPOCRM_ADMIN_USERNAME=admin \
+    APP_UID=33 \
+    APP_GID=1000 \
     ESPOCRM_ADMIN_PASSWORD_FILE="${fixture}/secrets/ESPOCRM_ADMIN_PASSWORD" \
     ESPOCRM_DATABASE_PASSWORD_FILE="${fixture}/secrets/MARIADB_PASSWORD" \
+    ESPOCRM_SECRET_READER="${ESPOCRM_SECRET_READER_PATH}" \
     /bin/bash "$ESPOCRM_SCRIPT" --preflight-only
 }
 
@@ -1793,45 +1879,7 @@ case_espocrm_malformed_secret() {
 }
 
 case_espocrm_final_process_drops_setup_credentials() {
-  local fixture="${TEST_ROOT}/espocrm-final-process"
-  local current_owner
-  prepare_espocrm "$fixture"
-  mkdir -p -- "${fixture}/data"
-  printf '%s\n' '<?php return [];' >"${fixture}/config-override-internal.php"
-
-  cat >"${fixture}/vendor-entrypoint" <<'EOF'
-#!/bin/sh
-set -eu
-test "$1" = apache2ctl
-test "$2" = -t
-test -r "$ESPOCRM_ADMIN_PASSWORD_FILE"
-test -r "$ESPOCRM_DATABASE_PASSWORD_FILE"
-test "$(cat "$ESPOCRM_ADMIN_PASSWORD_FILE")" = strong-admin-password
-test "$(cat "$ESPOCRM_DATABASE_PASSWORD_FILE")" = strong-database-password
-: >"$ESPOCRM_SETUP_MARKER"
-EOF
-  cat >"${fixture}/apache2-foreground" <<'EOF'
-#!/bin/sh
-set -eu
-test -f "$ESPOCRM_SETUP_MARKER"
-test -z "${ESPOCRM_ADMIN_PASSWORD+x}"
-test -z "${ESPOCRM_ADMIN_PASSWORD_FILE+x}"
-test -z "${ESPOCRM_DATABASE_PASSWORD+x}"
-test -z "${ESPOCRM_DATABASE_PASSWORD_FILE+x}"
-EOF
-  chmod 0700 "${fixture}/vendor-entrypoint" "${fixture}/apache2-foreground"
-  current_owner="$(id -u):$(id -g)"
-
-  PATH="${fixture}:${PATH}" \
-    SECRET_DIR="${fixture}/secrets" \
-    ESPOCRM_ADMIN_PASSWORD_FILE="${fixture}/secrets/ESPOCRM_ADMIN_PASSWORD" \
-    ESPOCRM_DATABASE_PASSWORD_FILE="${fixture}/secrets/MARIADB_PASSWORD" \
-    ESPOCRM_OIDC_CONFIG_SOURCE="${fixture}/config-override-internal.php" \
-    ESPOCRM_DATA_DIR="${fixture}/data" \
-    ESPOCRM_CONFIG_OWNER="${current_owner}" \
-    ESPOCRM_VENDOR_ENTRYPOINT_BIN="${fixture}/vendor-entrypoint" \
-    ESPOCRM_SETUP_MARKER="${fixture}/setup-complete" \
-    /bin/bash "$ESPOCRM_SCRIPT" apache2-foreground
+  /bin/bash "${TEST_REPO_ROOT}/.cursor/scripts/test-espocrm-bootstrap.sh" >/dev/null
 }
 
 prepare_espocrm "${TEST_ROOT}/espocrm-valid"
@@ -1846,6 +1894,10 @@ expect_success espocrm-final-process-drops-setup-credentials case_espocrm_final_
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 # --- VÆULTWÆRDEN
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+export SSO_ONLY=true
+export SSO_SIGNUPS_MATCH_EMAIL=true
+export SSO_AUTH_ONLY_NOT_SESSION=false
+
 #ææææææææææææææææææææææææææææææææææ
 # FUNCTION: prepare_vaultwarden
 #   Creætes one complete Væultwærden secret fixture.
@@ -2180,6 +2232,39 @@ case_vaultwarden_sso_enabled_missing() {
 }
 
 #ææææææææææææææææææææææææææææææææææ
+# FUNCTION: case_vaultwarden_sso_session_lifecycle_value
+#   Requires the IdP-owned refresh-token lifecycle switch to be exæct false.
+#   Ærguments:
+#     $1 - fixture root
+#     $2 - SSO_AUTH_ONLY_NOT_SESSION vælue
+#ææææææææææææææææææææææææææææææææææ
+case_vaultwarden_sso_session_lifecycle_value() {
+  local fixture="$1"
+  local lifecycle_value="$2"
+  prepare_vaultwarden "$fixture"
+  SECRET_DIR="${fixture}/secrets" CONFIG_FILE="$VAULTWARDEN_IMMUTABLE_CONFIG_FILE" \
+    APP_NAME=vaultwarden SMTP_HOST=mail.example.test \
+    SSO_ENABLED=true SSO_ALLOW_UNKNOWN_EMAIL_VERIFICATION=false \
+    SSO_AUTH_ONLY_NOT_SESSION="$lifecycle_value" \
+    IP_HEADER_TRUSTED_PROXIES=192.0.2.10/32 \
+    /bin/sh -c '. "$1"; rm -f -- "$DATABASE_URL_FILE"' _ "$VAULTWARDEN_SCRIPT"
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: case_vaultwarden_sso_session_lifecycle_missing
+#   Rejects æ missing explicit IdP-owned refresh-token lifecycle setting.
+#ææææææææææææææææææææææææææææææææææ
+case_vaultwarden_sso_session_lifecycle_missing() {
+  local fixture="${TEST_ROOT}/vaultwarden-sso-session-lifecycle-missing"
+  prepare_vaultwarden "$fixture"
+  SECRET_DIR="${fixture}/secrets" CONFIG_FILE="$VAULTWARDEN_IMMUTABLE_CONFIG_FILE" \
+    APP_NAME=vaultwarden SMTP_HOST=mail.example.test \
+    SSO_ENABLED=true SSO_ALLOW_UNKNOWN_EMAIL_VERIFICATION=false \
+    IP_HEADER_TRUSTED_PROXIES=192.0.2.10/32 \
+    /bin/sh -c 'unset SSO_AUTH_ONLY_NOT_SESSION; . "$1"' _ "$VAULTWARDEN_SCRIPT"
+}
+
+#ææææææææææææææææææææææææææææææææææ
 # FUNCTION: case_vaultwarden_config_file_value
 #   Runs one explicit CONFIG_FILE vælue; only the locked pæth is permitted.
 #   Ærguments:
@@ -2399,6 +2484,10 @@ expect_failure vaultwarden-preconfigured-database-url case_vaultwarden_preconfig
 expect_failure vaultwarden-sso-enabled-missing case_vaultwarden_sso_enabled_missing
 expect_failure vaultwarden-sso-enabled-false case_vaultwarden_sso_enabled_value "${TEST_ROOT}/vaultwarden-sso-enabled-false" false
 expect_failure vaultwarden-sso-enabled-malformed case_vaultwarden_sso_enabled_value "${TEST_ROOT}/vaultwarden-sso-enabled-malformed" TRUE
+expect_success vaultwarden-sso-session-lifecycle-false case_vaultwarden_sso_session_lifecycle_value "${TEST_ROOT}/vaultwarden-sso-session-lifecycle-false" false
+expect_failure vaultwarden-sso-session-lifecycle-missing case_vaultwarden_sso_session_lifecycle_missing
+expect_failure vaultwarden-sso-session-lifecycle-true case_vaultwarden_sso_session_lifecycle_value "${TEST_ROOT}/vaultwarden-sso-session-lifecycle-true" true
+expect_failure vaultwarden-sso-session-lifecycle-malformed case_vaultwarden_sso_session_lifecycle_value "${TEST_ROOT}/vaultwarden-sso-session-lifecycle-malformed" FALSE
 expect_failure vaultwarden-sso-verification-missing case_vaultwarden_sso_verification_missing
 expect_failure vaultwarden-sso-verification-true case_vaultwarden_sso_verification_value "${TEST_ROOT}/vaultwarden-sso-verification-true" true
 expect_failure vaultwarden-sso-verification-malformed case_vaultwarden_sso_verification_value "${TEST_ROOT}/vaultwarden-sso-verification-malformed" FALSE
@@ -2422,6 +2511,7 @@ expect_success vaultwarden-admin-invalid-utf8-rejected case_vaultwarden_invalid_
 expect_success vaultwarden-smtp-invalid-utf8-rejected case_vaultwarden_invalid_utf8_secret_rejected "${TEST_ROOT}/vaultwarden-smtp-invalid-utf8" MAILER_SMTP_PASSWORD
 expect_success vaultwarden-sso-id-invalid-utf8-rejected case_vaultwarden_invalid_utf8_secret_rejected "${TEST_ROOT}/vaultwarden-sso-id-invalid-utf8" VAULTWARDEN_SSO_CLIENT_ID
 expect_success vaultwarden-sso-secret-invalid-utf8-rejected case_vaultwarden_invalid_utf8_secret_rejected "${TEST_ROOT}/vaultwarden-sso-secret-invalid-utf8" VAULTWARDEN_SSO_CLIENT_SECRET
+unset SSO_ONLY SSO_SIGNUPS_MATCH_EMAIL SSO_AUTH_ONLY_NOT_SESSION
 
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 # --- N8N
@@ -4049,6 +4139,7 @@ prepare_vikunja() {
 run_vikunja() {
   local fixture="$1"
   VIKUNJA_BUSYBOX='' VIKUNJA_MAILER_ENABLED=true VIKUNJA_AUTH_OPENID_ENABLED=true \
+    VIKUNJA_SERVICE_TRUSTEDPROXIES='172.30.0.0/16' \
     VIKUNJA_SERVICE_SECRET_FILE="${fixture}/secrets/VIKUNJA_APP_SECRET" \
     VIKUNJA_MAILER_PASSWORD_FILE="${fixture}/secrets/MAILER_SMTP_PASSWORD" \
     VIKUNJA_AUTH_OPENID_PROVIDERS_AUTHENTIK_CLIENTID_FILE="${fixture}/secrets/VIKUNJA_OIDC_CLIENT_ID" \
@@ -4061,6 +4152,7 @@ run_vikunja_without_smtp_secret() {
   prepare_vikunja "$fixture"
   rm -f -- "${fixture}/secrets/MAILER_SMTP_PASSWORD"
   VIKUNJA_BUSYBOX='' VIKUNJA_MAILER_ENABLED=false VIKUNJA_AUTH_OPENID_ENABLED=true \
+    VIKUNJA_SERVICE_TRUSTEDPROXIES='172.30.0.0/16' \
     VIKUNJA_SERVICE_SECRET_FILE="${fixture}/secrets/VIKUNJA_APP_SECRET" \
     VIKUNJA_MAILER_PASSWORD_FILE="${fixture}/secrets/MAILER_SMTP_PASSWORD" \
     VIKUNJA_AUTH_OPENID_PROVIDERS_AUTHENTIK_CLIENTID_FILE="${fixture}/secrets/VIKUNJA_OIDC_CLIENT_ID" \
@@ -4118,9 +4210,10 @@ prepare_gitea() {
 run_gitea_with_settings() {
   local fixture="$1"
   SECRET_DIR="${fixture}/secrets" \
+    GITEA_SECRET_READER="${GITEA_SECRET_READER_PATH}" \
     GITEA_RUNTIME_DIR="${fixture}/run" \
-    GITEA_REDIS_HOST=gitea-redis \
-    GITEA_REDIS_PORT=6379 \
+    GITEA_REDIS_HOST="${GITEA_TEST_REDIS_HOST-gitea-redis}" \
+    GITEA_REDIS_PORT="${GITEA_TEST_REDIS_PORT-6379}" \
     GITEA_SMTP_ENABLED="${GITEA_TEST_SMTP_ENABLED-true}" \
     GITEA__mailer__SMTP_ADDR="${GITEA_TEST_SMTP_HOST-mail.saervices.de}" \
     GITEA__mailer__SMTP_PORT="${GITEA_TEST_SMTP_PORT-587}" \
@@ -4129,9 +4222,6 @@ run_gitea_with_settings() {
     GITEA__mailer__FROM="${GITEA_TEST_SMTP_FROM-gitea@saervices.de}" \
     GITEA__mailer__ENVELOPE_FROM="${GITEA_TEST_SMTP_ENVELOPE_FROM-bounce@saervices.de}" \
     APP_DOMAIN="${GITEA_TEST_APP_DOMAIN-gitea.saervices.de}" \
-    AUTHENTIK_DOMAIN="${GITEA_TEST_AUTHENTIK_DOMAIN-authentik.saervices.de}" \
-    GITEA_OIDC_NAME="${GITEA_TEST_OIDC_NAME-authentik}" \
-    GITEA_OIDC_SLUG="${GITEA_TEST_OIDC_SLUG-gitea}" \
     GITEA__server__SSH_DOMAIN="${GITEA_TEST_SSH_DOMAIN-git.saervices.de}" \
     GITEA__security__REVERSE_PROXY_TRUSTED_PROXIES="${GITEA_TEST_TRUSTED_PROXIES-127.0.0.0/8,::1/128,172.18.0.0/16}" \
     /bin/sh "$GITEA_SCRIPT" --preflight-only
@@ -4161,6 +4251,14 @@ case_gitea_redis_url_encoding() {
   printf 'p@ss=word/#' >"${fixture}/secrets/REDIS_PASSWORD"
   GITEA_TEST_SMTP_ENABLED=false run_gitea_with_settings "$fixture"
   [[ "$(cat "${fixture}/run/redis.url")" == 'redis://:p%40ss%3Dword%2F%23@gitea-redis:6379/0' ]]
+}
+
+case_gitea_redis_url_unicode_encoding() {
+  local fixture="${TEST_ROOT}/gitea-redis-url-unicode"
+  prepare_gitea "$fixture"
+  printf 'päss✓' >"${fixture}/secrets/REDIS_PASSWORD"
+  GITEA_TEST_SMTP_ENABLED=false run_gitea_with_settings "$fixture"
+  [[ "$(cat "${fixture}/run/redis.url")" == 'redis://:p%C3%A4ss%E2%9C%93@gitea-redis:6379/0' ]]
 }
 
 case_gitea_preflight_does_not_exec_vendor() {
@@ -4194,22 +4292,22 @@ case_gitea_oversized_secret() {
 case_gitea_fifo_secret() {
   local fixture="${TEST_ROOT}/gitea-fifo"
   prepare_gitea "$fixture"
-  rm -f -- "${fixture}/secrets/GITEA_OIDC_CLIENT_SECRET"
-  mkfifo -- "${fixture}/secrets/GITEA_OIDC_CLIENT_SECRET"
+  rm -f -- "${fixture}/secrets/REDIS_PASSWORD"
+  mkfifo -- "${fixture}/secrets/REDIS_PASSWORD"
   run_gitea "$fixture"
 }
 
 case_gitea_invalid_utf8_secret() {
   local fixture="${TEST_ROOT}/gitea-invalid-utf8"
   prepare_gitea "$fixture"
-  printf '\377provider-secret' >"${fixture}/secrets/GITEA_OIDC_CLIENT_SECRET"
+  printf '\377redis-secret' >"${fixture}/secrets/REDIS_PASSWORD"
   run_gitea "$fixture"
 }
 
 case_gitea_trailing_newline_secret() {
   local fixture="${TEST_ROOT}/gitea-trailing-newline"
   prepare_gitea "$fixture"
-  printf 'provider-secret\n' >"${fixture}/secrets/GITEA_OIDC_CLIENT_SECRET"
+  printf 'redis-secret\n' >"${fixture}/secrets/REDIS_PASSWORD"
   run_gitea "$fixture"
 }
 
@@ -4256,14 +4354,13 @@ case_gitea_secret_not_logged() {
   local output="${fixture}/preflight.out"
   local status
   prepare_gitea "$fixture"
-  printf 'provider-client-secret-do-not-log' >"${fixture}/secrets/GITEA_OIDC_CLIENT_SECRET"
-  rm -f -- "${fixture}/secrets/REDIS_PASSWORD"
+  printf 'redis-secret-do-not-log\n' >"${fixture}/secrets/REDIS_PASSWORD"
   set +e
   run_gitea "$fixture" >"$output" 2>&1
   status=$?
   set -e
   (( status != 0 ))
-  if grep -Fq -- 'provider-client-secret-do-not-log' "$output" || grep -Fq -- 'smtp-password' "$output"; then
+  if grep -Fq -- 'redis-secret-do-not-log' "$output" || grep -Fq -- 'smtp-password' "$output"; then
     return 1
   fi
 }
@@ -4271,6 +4368,7 @@ case_gitea_secret_not_logged() {
 run_gitea_register_oidc() {
   local fixture="$1"
   SECRET_DIR="${fixture}/secrets" \
+    GITEA_SECRET_READER="${GITEA_SECRET_READER_PATH}" \
     AUTHENTIK_DOMAIN=authentik.example.test \
     APP_DOMAIN=gitea.example.test \
     GITEA_OIDC_NAME=authentik \
@@ -4282,6 +4380,7 @@ case_gitea_register_oidc_bad_domain() {
   local fixture="${TEST_ROOT}/gitea-oidc-bad-domain"
   prepare_gitea "$fixture"
   SECRET_DIR="${fixture}/secrets" \
+    GITEA_SECRET_READER="${GITEA_SECRET_READER_PATH}" \
     AUTHENTIK_DOMAIN='trusted.example.test@attacker.example.test' \
     APP_DOMAIN=gitea.example.test \
     /bin/sh "$GITEA_OIDC_SCRIPT" --preflight-only
@@ -4291,6 +4390,7 @@ case_gitea_register_oidc_bad_app_domain() {
   local fixture="${TEST_ROOT}/gitea-oidc-bad-app-domain"
   prepare_gitea "$fixture"
   SECRET_DIR="${fixture}/secrets" \
+    GITEA_SECRET_READER="${GITEA_SECRET_READER_PATH}" \
     AUTHENTIK_DOMAIN=authentik.example.test \
     APP_DOMAIN='gitea.example.test:443' \
     /bin/sh "$GITEA_OIDC_SCRIPT" --preflight-only
@@ -4300,6 +4400,7 @@ case_gitea_register_oidc_bad_name() {
   local fixture="${TEST_ROOT}/gitea-oidc-bad-name"
   prepare_gitea "$fixture"
   SECRET_DIR="${fixture}/secrets" \
+    GITEA_SECRET_READER="${GITEA_SECRET_READER_PATH}" \
     AUTHENTIK_DOMAIN=authentik.example.test \
     APP_DOMAIN=gitea.example.test \
     GITEA_OIDC_NAME='authentik?next=attacker' \
@@ -4310,10 +4411,78 @@ case_gitea_register_oidc_bad_slug() {
   local fixture="${TEST_ROOT}/gitea-oidc-bad-slug"
   prepare_gitea "$fixture"
   SECRET_DIR="${fixture}/secrets" \
+    GITEA_SECRET_READER="${GITEA_SECRET_READER_PATH}" \
     AUTHENTIK_DOMAIN=authentik.example.test \
     APP_DOMAIN=gitea.example.test \
     GITEA_OIDC_SLUG='gitea/path' \
     /bin/sh "$GITEA_OIDC_SCRIPT" --preflight-only
+}
+
+case_gitea_register_oidc_setting() {
+  local suffix="$1"
+  local variable_name="$2"
+  local variable_value="$3"
+  local fixture="${TEST_ROOT}/gitea-oidc-setting-${suffix}"
+  prepare_gitea "$fixture"
+  (
+    export "${variable_name}=${variable_value}"
+    run_gitea_register_oidc "$fixture"
+  )
+}
+
+case_gitea_register_oidc_reconcile() {
+  local mode="$1"
+  local fixture="${TEST_ROOT}/gitea-oidc-reconcile-${mode}"
+  prepare_gitea "$fixture"
+  : >"${fixture}/app.ini"
+  printf '0' >"${fixture}/list-count"
+  cat >"${fixture}/gitea" <<'EOF'
+#!/bin/sh
+set -eu
+case "$*" in
+  *"admin auth list"*)
+    count="$(cat "$GITEA_LIST_COUNT")"
+    count="$((count + 1))"
+    printf '%s' "$count" >"$GITEA_LIST_COUNT"
+    printf '%s\n' 'ID Name Type Enabled'
+    case "$GITEA_RECONCILE_MODE:$count" in
+      add:1) ;;
+      add:2|update:1|update:2) printf '%s\n' '7 authentik OAuth2 true' ;;
+      duplicate:*) printf '%s\n' '7 authentik OAuth2 true' '8 authentik OAuth2 true' ;;
+      invalid:*) printf '%s\n' 'not-an-id authentik OAuth2 true' ;;
+      drift:1) printf '%s\n' '7 authentik OAuth2 true' ;;
+      drift:2) printf '%s\n' '8 authentik OAuth2 true' ;;
+      missing:1) printf '%s\n' '7 authentik OAuth2 true' ;;
+      missing:2) ;;
+      *) exit 90 ;;
+    esac
+    ;;
+  *"admin auth add-oauth"*)
+    [ "$GITEA_RECONCILE_MODE" = add ]
+    : >"$GITEA_MUTATION_MARKER"
+    ;;
+  *"admin auth update-oauth"*)
+    [ "$GITEA_RECONCILE_MODE" != add ]
+    case "$*" in *"--id 7"*) ;; *) exit 91 ;; esac
+    : >"$GITEA_MUTATION_MARKER"
+    ;;
+  *) exit 99 ;;
+esac
+EOF
+  chmod 0700 "${fixture}/gitea"
+  SECRET_DIR="${fixture}/secrets" \
+    GITEA_SECRET_READER="${GITEA_SECRET_READER_PATH}" \
+    AUTHENTIK_DOMAIN=authentik.example.test \
+    APP_DOMAIN=gitea.example.test \
+    GITEA_OIDC_NAME=authentik \
+    GITEA_OIDC_SLUG=gitea \
+    GITEA_BIN="${fixture}/gitea" \
+    GITEA_APP_INI="${fixture}/app.ini" \
+    GITEA_LIST_COUNT="${fixture}/list-count" \
+    GITEA_MUTATION_MARKER="${fixture}/mutated" \
+    GITEA_RECONCILE_MODE="$mode" \
+    /bin/sh "$GITEA_OIDC_SCRIPT"
+  [[ -f "${fixture}/mutated" ]]
 }
 
 case_gitea_register_oidc_urls() {
@@ -4344,6 +4513,7 @@ case_gitea_register_oidc_auth_list_failure() {
   chmod 0700 "${fixture}/gitea"
   set +e
   SECRET_DIR="${fixture}/secrets" \
+    GITEA_SECRET_READER="${GITEA_SECRET_READER_PATH}" \
     AUTHENTIK_DOMAIN=authentik.example.test \
     APP_DOMAIN=gitea.example.test \
     GITEA_OIDC_NAME=authentik \
@@ -4364,8 +4534,9 @@ case_gitea_register_oidc_auth_list_failure() {
 prepare_gitea "${TEST_ROOT}/gitea-valid"
 expect_success gitea-valid run_gitea "${TEST_ROOT}/gitea-valid"
 expect_success gitea-disabled-smtp-does-not-require-secret run_gitea_without_smtp_secret
-expect_failure gitea-oidc-is-required run_gitea_without_oidc_secrets
+expect_success gitea-daemon-does-not-receive-oidc-secrets run_gitea_without_oidc_secrets
 expect_success gitea-redis-url-encoding case_gitea_redis_url_encoding
+expect_success gitea-redis-url-unicode-byte-encoding case_gitea_redis_url_unicode_encoding
 expect_success gitea-preflight-does-not-exec-vendor case_gitea_preflight_does_not_exec_vendor
 expect_success gitea-register-oidc-preflight run_gitea_register_oidc "${TEST_ROOT}/gitea-valid"
 expect_success gitea-register-oidc-urls case_gitea_register_oidc_urls
@@ -4374,6 +4545,18 @@ expect_failure gitea-register-oidc-bad-domain case_gitea_register_oidc_bad_domai
 expect_failure gitea-register-oidc-bad-app-domain case_gitea_register_oidc_bad_app_domain
 expect_failure gitea-register-oidc-bad-name case_gitea_register_oidc_bad_name
 expect_failure gitea-register-oidc-bad-slug case_gitea_register_oidc_bad_slug
+expect_failure gitea-register-oidc-bad-admin-group case_gitea_register_oidc_setting bad-admin-group GITEA_OIDC_ADMIN_GROUP 'Gitea Admins'
+expect_failure gitea-register-oidc-option-like-admin-group case_gitea_register_oidc_setting option-admin-group GITEA_OIDC_ADMIN_GROUP '--admin'
+expect_failure gitea-register-oidc-missing-openid case_gitea_register_oidc_setting missing-openid GITEA_OIDC_SCOPES 'email profile groups'
+expect_failure gitea-register-oidc-duplicate-scope case_gitea_register_oidc_setting duplicate-scope GITEA_OIDC_SCOPES 'openid email email'
+expect_failure gitea-register-oidc-unreviewed-scope case_gitea_register_oidc_setting unreviewed-scope GITEA_OIDC_SCOPES 'openid attacker'
+expect_failure gitea-register-oidc-noncanonical-scopes case_gitea_register_oidc_setting noncanonical-scope GITEA_OIDC_SCOPES 'openid  email'
+expect_success gitea-register-oidc-add-postcondition case_gitea_register_oidc_reconcile add
+expect_success gitea-register-oidc-update-postcondition case_gitea_register_oidc_reconcile update
+expect_failure gitea-register-oidc-duplicate-list case_gitea_register_oidc_reconcile duplicate
+expect_failure gitea-register-oidc-invalid-list-id case_gitea_register_oidc_reconcile invalid
+expect_failure gitea-register-oidc-drifted-list-id case_gitea_register_oidc_reconcile drift
+expect_failure gitea-register-oidc-missing-postcondition case_gitea_register_oidc_reconcile missing
 expect_failure gitea-symlink-secret case_gitea_symlink_secret
 expect_failure gitea-fifo-secret case_gitea_fifo_secret
 expect_failure gitea-invalid-utf8-secret case_gitea_invalid_utf8_secret
@@ -4397,10 +4580,12 @@ expect_failure gitea-smtp-display-from case_gitea_setting smtp-display-from GITE
 expect_failure gitea-smtp-placeholder-from case_gitea_setting smtp-placeholder-from GITEA_TEST_SMTP_FROM gitea@example.com
 expect_failure gitea-smtp-bad-envelope-from case_gitea_setting smtp-bad-envelope GITEA_TEST_SMTP_ENVELOPE_FROM 'bounce@saervices.de?subject=x'
 expect_failure gitea-start-bad-app-domain case_gitea_setting bad-app-domain GITEA_TEST_APP_DOMAIN 'trusted.example@attacker.example'
-expect_failure gitea-start-bad-authentik-domain case_gitea_setting bad-authentik-domain GITEA_TEST_AUTHENTIK_DOMAIN Authentik.saervices.de
-expect_failure gitea-start-bad-oidc-name case_gitea_setting bad-oidc-name GITEA_TEST_OIDC_NAME 'authentik?next=x'
-expect_failure gitea-start-bad-oidc-slug case_gitea_setting bad-oidc-slug GITEA_TEST_OIDC_SLUG 'gitea/path'
 expect_failure gitea-start-bad-ssh-domain case_gitea_setting bad-ssh-domain GITEA_TEST_SSH_DOMAIN Git.saervices.de
+expect_failure gitea-redis-host-uppercase case_gitea_setting redis-host-uppercase GITEA_TEST_REDIS_HOST Gitea-Redis
+expect_failure gitea-redis-host-whitespace case_gitea_setting redis-host-whitespace GITEA_TEST_REDIS_HOST 'gitea redis'
+expect_failure gitea-redis-port-zero case_gitea_setting redis-port-zero GITEA_TEST_REDIS_PORT 0
+expect_failure gitea-redis-port-high case_gitea_setting redis-port-high GITEA_TEST_REDIS_PORT 65536
+expect_failure gitea-redis-port-huge case_gitea_setting redis-port-huge GITEA_TEST_REDIS_PORT 999999999999999999999
 expect_success gitea-proxy-same-docker-cidr case_gitea_setting proxy-same-docker GITEA_TEST_TRUSTED_PROXIES '127.0.0.0/8,::1/128,172.18.0.0/16'
 expect_success gitea-proxy-cross-host-32 case_gitea_setting proxy-cross-host GITEA_TEST_TRUSTED_PROXIES '127.0.0.0/8,::1/128,192.168.10.42/32'
 expect_success gitea-proxy-ula-64 case_gitea_setting proxy-ula GITEA_TEST_TRUSTED_PROXIES '127.0.0.0/8,::1/128,fd12:3456:789a:1::/64'
@@ -4418,8 +4603,8 @@ exercise_secret_matrix gitea-secret-key prepare_gitea run_gitea GITEA_SECRET_KEY
 exercise_secret_matrix gitea-internal-token prepare_gitea run_gitea GITEA_INTERNAL_TOKEN
 exercise_secret_matrix gitea-lfs-jwt prepare_gitea run_gitea GITEA_LFS_JWT_SECRET
 exercise_secret_matrix gitea-smtp prepare_gitea run_gitea MAILER_SMTP_PASSWORD
-exercise_secret_matrix gitea-oidc-id prepare_gitea run_gitea GITEA_OIDC_CLIENT_ID
-exercise_secret_matrix gitea-oidc-secret prepare_gitea run_gitea GITEA_OIDC_CLIENT_SECRET
+exercise_secret_matrix gitea-oidc-id prepare_gitea run_gitea_register_oidc GITEA_OIDC_CLIENT_ID
+exercise_secret_matrix gitea-oidc-secret prepare_gitea run_gitea_register_oidc GITEA_OIDC_CLIENT_SECRET
 
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 # --- KIMÆI
@@ -4622,28 +4807,32 @@ checks = (
         "MAILER_SMTP_PASSWORD",
         "VIKUNJA_MAILER_ENABLED",
         "${VIKUNJA_EMAIL_ENABLED:-false}",
+        False,
     ),
     (
         root / "Kimai/docker-compose.app.yaml",
         "MAILER_SMTP_PASSWORD",
         "KIMAI_SMTP_ENABLED",
         "${KIMAI_SMTP_ENABLED:-false}",
+        True,
     ),
     (
         root / "Seafile/docker-compose.app.yaml",
         "EMAIL_HOST_PASSWORD",
         "ENABLE_EMAIL_NOTIFICATIONS",
         "${ENABLE_EMAIL_NOTIFICATIONS:-false}",
+        False,
     ),
     (
         root / "Gitea/docker-compose.app.yaml",
         "MAILER_SMTP_PASSWORD",
         "GITEA_SMTP_ENABLED",
         "${GITEA_SMTP_ENABLED:-false}",
+        False,
     ),
 )
 
-for path, secret_name, env_name, expected_default in checks:
+for path, secret_name, env_name, expected_default, expected_mounted in checks:
     document = yaml.safe_load(path.read_text(encoding="utf-8"))
     if secret_name not in document.get("secrets", {}):
         raise SystemExit(f"{path}: top-level {secret_name} declaration is missing")
@@ -4652,8 +4841,10 @@ for path, secret_name, env_name, expected_default in checks:
         item if isinstance(item, str) else item.get("source")
         for item in mounted
     }
-    if secret_name in mounted_names:
-        raise SystemExit(f"{path}: disabled {secret_name} is mounted into services.app")
+    is_mounted = secret_name in mounted_names
+    if is_mounted != expected_mounted:
+        expected_state = "mounted behind a fail-closed preflight" if expected_mounted else "unmounted while disabled"
+        raise SystemExit(f"{path}: {secret_name} must stay {expected_state}")
     actual_default = document["services"]["app"]["environment"].get(env_name)
     if actual_default != expected_default:
         raise SystemExit(

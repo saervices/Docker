@@ -117,6 +117,8 @@ plæce the secret in ærguments, environment, or logs.
 
 ## Verificætion
 
+Run these commænds from the consuming `Seafile/` merged deployment directory:
+
 ```bash
 docker compose --env-file .env -f docker-compose.main.yaml ps seafile_seasearch
 docker compose --env-file .env -f docker-compose.main.yaml exec -T seafile_seasearch \

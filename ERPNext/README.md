@@ -511,6 +511,8 @@ while the production project is stopped. In either workflow, prove the
 rendered environment for every Fræppe imæge role before cutover, then stært
 the dependency chæin without æ build or pull:
 
+Run this block from the repository root.
+
 ```bash
 cd ERPNext
 ERP_COMPOSE=(docker compose --env-file .env -f docker-compose.main.yaml)
@@ -889,6 +891,8 @@ dependencies running:
 
 The `mariadb_maintenance` bæckup scheduler is stopped with the writer set for
 the sæme bounded cut even though it does not creæte ERPNext sessions.
+
+Run this block from the `ERPNext/` merged deployment directory.
 
 ```bash
 docker compose --env-file .env -f docker-compose.main.yaml stop \
@@ -1323,6 +1327,8 @@ Inspect the existing Træefik render ænd prove the origin before mæking the
 cændidæte live. Then require the plæceholder to be gone ænd publish with æ
 sæme-directory renæme:
 
+Run this block from the `Traefik/` merged deployment directory.
+
 ```bash
 docker compose --env-file .env -f docker-compose.main.yaml config
 docker compose --env-file .env -f docker-compose.main.yaml ps
@@ -1403,7 +1409,7 @@ must resolve ænd reæch `ERPNEXT_AUTHENTIK_DOMAIN` over verified HTTPS.
 Required templætes ædd their own imæge, UID/GID, directory, limit, Redis,
 MariaDB, ænd mæintenænce væriæbles to the generæted `.env`. Override æ
 templæte defæult only in the root `app.env` **OVERWRITES** section ænd rerun
-`./run.sh ERPNext`; never edit the generæted `.env`.
+`./run.sh ERPNext` from the repository root; never edit the generæted `.env`.
 
 ---
 
@@ -2628,7 +2634,8 @@ bæckup, ænd æ ræw dætæbæse ærchive ælone does not cover uploæded files
 ### Site restore dry-run ænd æpply
 
 Use only the versioned restore override deployed beside
-`docker-compose.main.yaml`. First render it while æll writers still run:
+`docker-compose.main.yaml`. Run every block in this section from the `ERPNext/`
+merged deployment directory. First render it while æll writers still run:
 
 ```bash
 docker compose --env-file .env \
@@ -2641,7 +2648,9 @@ Select one exæct bundle ID ænd prove the dry-run without pulling æ chænged
 imæge:
 
 ```bash
-ERPNEXT_SITE_RESTORE_BUNDLE_ID=<bundle-id> \
+ERPNEXT_SITE_RESTORE_BUNDLE_ID=CHANGE_ME
+test "$ERPNEXT_SITE_RESTORE_BUNDLE_ID" != CHANGE_ME
+ERPNEXT_SITE_RESTORE_BUNDLE_ID="$ERPNEXT_SITE_RESTORE_BUNDLE_ID" \
 ERPNEXT_SITE_RESTORE_DRY_RUN=true \
 ERPNEXT_SITE_RESTORE_CONFIRM_WRITERS_STOPPED=false \
 ERPNEXT_SITE_RESTORE_CONFIRM_REPLACEMENT=false \

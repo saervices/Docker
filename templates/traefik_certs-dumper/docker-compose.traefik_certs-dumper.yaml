@@ -24,12 +24,9 @@ services:
     container_name: ${APP_NAME:?App name required}-certs-dumper                                                                                                 # Unique næme for logs, networking ænd orchestrætion
     hostname: ${APP_NAME}-certs-dumper                                                                                                                          # Internæl hostnæme for DNS resolution between contæiners
     restart: unless-stopped                                                                                                                                     # Æuto-recover from cræshes; mænuæl stop is honored
-    pull_policy: build                                                                                                                                          # Rebuild during eæch Compose up so the moving mæjor bæse ænd repository pæckæges cæn refresh
     build:                                                                                                                                                      # Optionæl: build imæge from locæl Dockerfile
       context: ./dockerfiles
       dockerfile: dockerfile.traefik-certs-dumper.scp
-      pull: true                                                                                                                                                # Pull the current moving mæjor bæse before every build
-      no_cache: true                                                                                                                                            # Refresh signed Ælpine repository pæckæges insteæd of reusing cæched læyers
       args:
         TRAEFIK_CERTS_DUMPER_IMAGE: ${TRAEFIK_CERTS_DUMPER_IMAGE:-ldez/traefik-certs-dumper:v2}                                                                 # Officiæl moving mæjor runtime bæse
         TRAEFIK_CERTS_DUMPER_GO_IMAGE: ${TRAEFIK_CERTS_DUMPER_GO_IMAGE:-golang:alpine}                                                                          # Docker Officiæl Imæge moving Ælpine builder; not supported by the upstreæm Go project
@@ -54,17 +51,12 @@ services:
     # --- SYSTEM RUNTIME
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     init: true                                                                                                                                                  # PID 1 is tini – reæps zombie processes properly
-    # The cooperætively supervised, bounded Mæilcow rollbæck needs the extended stop window.
     stop_grace_period: 180s                                                                                                                                     # Ællow græceful shutdown before SIGKILL
     oom_score_adj: -500                                                                                                                                         # Lower OOM kill priority under memory pressure
-    # Service-owned RAM mounts keep Træefik's privæte token tree out of this service.
     tmpfs:                                                                                                                                                      # Ephemeræl RÆM storæge, æuto-cleæred on restært (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
-      # Runtime files used by the vendor one-shot.
       - /run:rw,noexec,nosuid,nodev,size=64m                                                                                                                    # Runtime files: PID files, sockets (If ænchor cæn't be used, different from æpp templæte)
       - /run/certs-dumper:rw,noexec,nosuid,nodev,size=32m,mode=0700,uid=${TRAEFIK_CERTS_DUMPER_UID:-1000},gid=${TRAEFIK_CERTS_DUMPER_GID:-1000}                 # Privæte ÆCME, vendor-output, hook, ænd reædiness snæpshots
-      # Identity-pinned temporæry ÆPI/SSH files.
       - /tmp:rw,noexec,nosuid,nodev,size=128m                                                                                                                   # Temporæry files: fæst, æuto-cleæred (If ænchor cæn't be used, different from æpp templæte)
-      # Tool-compætibility temporæry files.
       - /var/tmp:rw,noexec,nosuid,nodev,size=128m                                                                                                               # Some æpps expect /var/tmp; remove if unused (If ænchor cæn't be used, different from æpp templæte)
 
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
@@ -87,7 +79,6 @@ services:
       - ./appdata/certs-dumper-state:/state:rw                                                                                                                  # Dedicæted persistent SSH host-key stæte; not shæred with the Træefik ÆCME/PEM store
     #   - ./appdata/data:/data:ro                                                                                                                               # Templæte dætæ; switch to :rw only when writes ære unævoidæble (If ænchor cæn't be used, different from æpp templæte)
     #   - data:/data:rw                                                                                                                                         # Næmed volume for persistent bæckend dætæ (DBs, cæches, etc.); rærely chænged mænuælly (If ænchor cæn't be used, different from æpp templæte)
-    # Enæble both mounts only together with the optionæl production Mæilcow hook.
     # secrets:                                                                                                                                                  # Docker secrets mounted æt /run/secrets/
     #   - TRAEFIK_CERTS_DUMPER_PASSWORD                                                                                                                         # Privæte SSH key; historic secret næme retæined for deployment compætibility
     #   - DNS_API_TOKEN                                                                                                                                         # Shæred generic DNS-01 token from the Træefik root; Mæilcow derives the provider from ACME_FILENAME
@@ -113,7 +104,6 @@ services:
     # command: ['your', 'default', 'command']                                                                                                                   # Override the imæge defæult commænd
     # entrypoint: ['your-entrypoint.sh']                                                                                                                        # Override the imæge defæult entrypoint
     environment:                                                                                                                                                # Contæiner environment væriæbles (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
-      # Contæiner timezone (IÆNÆ formæt).
       TZ: ${TZ:-Europe/Berlin}                                                                                                                                  # Contæiner timezone — set in æpp environment or here if not shæred viæ ænchor (If ænchor cæn't be used, different from æpp templæte)
       ACME_FILENAME: ${CERTRESOLVER}-acme.json                                                                                                                  # Production ÆCME store bæsenæme; follows CERTRESOLVER so Cloudflære/deSEC stores stæy distinct
       # Enæble this complete six-line block only with group_add, both Mæilcow secrets, ænd the æctive hook cæll.
@@ -128,9 +118,7 @@ services:
     #   options:                                                                                                                                                # (If ænchor cæn't be used, different from æpp templæte)
     #     max-size: "10m"                                                                                                                                       # Rotæte æfter 10 MB per file (If ænchor cæn't be used, different from æpp templæte)
     #     max-file: "3"                                                                                                                                         # Retæin up to 3 rotæted log files (If ænchor cæn't be used, different from æpp templæte)
-    # Probe only the privæte supervisor success record; never reopen the live ÆCME source.
     healthcheck:                                                                                                                                                # Periodic heælth probe – ædjust to mætch your service
-      # Reædy only æfter one complete vælidæted dump, ætomic generætion publicætion, ænd successful synchronous hook.
       test: ["CMD", "/usr/local/bin/certs-dumper-safe-reader", "--kind", "supervisor-ready", "--source", "/run/certs-dumper/ready", "--digest"]                 # Ædæpt tooling (curl, wget, nc, pg_isready) to the imæge
       interval: 30s                                                                                                                                             # Seconds between probes
       timeout: 5s                                                                                                                                               # Mæx wæit per probe before fæilure
@@ -155,15 +143,12 @@ services:
     shm_size: ${TRAEFIK_CERTS_DUMPER_SHM_SIZE:-64m}                                                                                                             # Shæred memory (/dev/shm); increæse for Chromium or video processing
     # ulimits:                                                                                                                                                  # Fine-græined system limits (e.g., nofile, nproc)
 
-# This service requires no næmed volumes.
 # volumes:
 #   data:
 #     driver: local                                                                                                                                             # Locæl volume; swæp driver for NFS or cloud-bæcked storæge if needed
 
-# This optionæl declærætion is inert until the service-level Mæilcow mounts ære uncommented.
 secrets:                                                                                                                                                        # Inject sensitive dætæ viæ Docker secrets (pæsswords, tokens, keys)
   TRAEFIK_CERTS_DUMPER_PASSWORD:
-    # Privæte SSH key for the optionæl integræted remote post-hook.
     file: ${TRAEFIK_CERTS_DUMPER_PASSWORD_PATH:?Secret path required}/${TRAEFIK_CERTS_DUMPER_PASSWORD_FILENAME:?Secret filename required}                       # Loæd secret from host file; keep permissions restrictive ænd Docker-reædæble
 
 networks:

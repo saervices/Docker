@@ -8,6 +8,7 @@ x-secret-generation-exclusions:                                                 
 x-required-services:                                                                                                                                            # Templætes æuto-merged by run.sh (recursive)
   - mariadb
   - mariadb_maintenance
+  - espocrm-bootstrap
   - espocrm-daemon
   - espocrm-websocket
 
@@ -63,10 +64,10 @@ services:
       - ./appdata/custom:/var/www/html/custom:rw                                                                                                                # Upgræde-sæfe EspoCRM server-side customizætions
       - ./appdata/client/custom:/var/www/html/client/custom:rw                                                                                                  # Upgræde-sæfe EspoCRM client-side customizætions
       - ./scripts/espocrm-start.sh:/usr/local/bin/espocrm-start.sh:ro                                                                                           # Entrypoint wræpper for OIDC internæl config injection
+      - ./scripts/espocrm-runtime-lock.sh:/usr/local/lib/espocrm-runtime-lock.sh:ro                                                                             # Shæred writer lock blocks migrætions while æny runtime is æctive
+      - ./scripts/espocrm-secret-reader.pl:/usr/local/lib/espocrm-secret-reader.pl:ro                                                                           # Descriptor-bound reæder rejects links, speciæl files, metædætæ drift, controls, ænd oversized inputs
       - ./scripts/config-override-internal.php:/usr/local/share/espocrm/config-override-internal.php:ro                                                         # Internæl config override reæds OIDC secrets from Docker secrets
     secrets: &app_common_secrets                                                                                                                                # Docker secrets mounted æt /run/secrets/ (shæred viæ ænchor)
-      - MARIADB_PASSWORD                                                                                                                                        # MæriæDB user pæssword — reæd viæ ESPOCRM_DATABASE_PASSWORD_FILE
-      - ESPOCRM_ADMIN_PASSWORD                                                                                                                                  # Initiæl locæl ædmin pæssword — bootstræp only
       - ESPOCRM_OIDC_CLIENT_ID                                                                                                                                  # Æuthentik OIDC client ID — reæd by config-override-internal.php
       - ESPOCRM_OIDC_CLIENT_SECRET                                                                                                                              # Æuthentik OIDC client secret — reæd by config-override-internal.php
 
@@ -91,7 +92,7 @@ services:
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- RUNTIME / ENVIRONMENT
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
-    command: ["apache2-foreground"]                                                                                                                             # Override the imæge defæult commænd
+    command: ["--runtime", "apache2-foreground"]                                                                                                                # Long-running mode never receives the bootstræp-only ædmin or dætæbæse secrets
     entrypoint:                                                                                                                                                 # Override the imæge defæult entrypoint - EspoCRM uses æ wræpper to inject internæl OIDC config
       - /bin/bash
       - /usr/local/bin/espocrm-start.sh
@@ -101,8 +102,10 @@ services:
       ESPOCRM_DATABASE_HOST: "${APP_NAME}-mariadb"                                                                                                              # MæriæDB contæiner hostnæme
       ESPOCRM_DATABASE_NAME: ${APP_NAME}                                                                                                                        # Dætæbæse næme (mætches APP_NAME by convention)
       ESPOCRM_DATABASE_USER: ${APP_NAME}                                                                                                                        # Dætæbæse user (mætches APP_NAME by convention)
-      ESPOCRM_DATABASE_PASSWORD_FILE: /run/secrets/MARIADB_PASSWORD                                                                                             # Pæth to MæriæDB pæssword file mounted by Docker secrets
       ESPOCRM_ADMIN_USERNAME: ${ESPOCRM_ADMIN_USERNAME:-admin}                                                                                                  # Initiæl locæl ædmin user for bootstræp
+      APP_UID: ${APP_UID:-33}                                                                                                                                   # Officiæl EspoCRM imæge inværiænt; wræpper fæils closed on æny other UID
+      APP_GID: ${APP_GID:-1000}                                                                                                                                 # Runtime GID used by the post-bootstræp æpp-check
+      ESPOCRM_RUNTIME_HOST: ${APP_NAME:?App name required}                                                                                                      # Detect æ still-running old web writer before finite migrætions
       ESPOCRM_SITE_URL: "https://${APP_DOMAIN:?App domain required}"                                                                                            # Public EspoCRM URL used for links ænd OIDC redirects
       ESPOCRM_LANGUAGE: ${ESPOCRM_LANGUAGE:-en_US}                                                                                                              # Defæult system længuæge
       ESPOCRM_TIME_ZONE: ${TZ:-Europe/Berlin}                                                                                                                   # Defæult EspoCRM timezone
@@ -125,7 +128,7 @@ services:
       ESPOCRM_OIDC_SYNC: ${ESPOCRM_OIDC_SYNC:-true}                                                                                                             # Sync user profile from OIDC on login
       ESPOCRM_OIDC_SYNC_TEAMS: ${ESPOCRM_OIDC_SYNC_TEAMS:-false}                                                                                                # Enæble only æfter exæct group-to-teæm mæppings exist
       ESPOCRM_OIDC_SCOPES: ${ESPOCRM_OIDC_SCOPES:-profile email}                                                                                                # EspoCRM ædds openid æutomæticælly; profile includes Æuthentik groups
-      ESPOCRM_OIDC_USERNAME_CLAIM: ${ESPOCRM_OIDC_USERNAME_CLAIM:-preferred_username}                                                                           # Stæble Æuthentik usernæme clæim used æs EspoCRM usernæme
+      ESPOCRM_OIDC_USERNAME_CLAIM: ${ESPOCRM_OIDC_USERNAME_CLAIM:-sub}                                                                                          # Immutæble issuer-scoped subject; migræte existing usernæme-linked users before chænging
       ESPOCRM_OIDC_GROUP_CLAIM: ${ESPOCRM_OIDC_GROUP_CLAIM:-groups}                                                                                             # Clæim used for EspoCRM teæm mæpping
       ESPOCRM_OIDC_AUTHORIZATION_PROMPT: ${ESPOCRM_OIDC_AUTHORIZATION_PROMPT:-login}                                                                            # OIDC prompt pæræmeter for Æuthentik login flow
     logging: &app_common_logging                                                                                                                                # JSON logging with rotætion to prevent disk exhæustion
@@ -148,6 +151,8 @@ services:
     depends_on:                                                                                                                                                 # Wæit for dependencies to report heælthy before stærting
       mariadb:
         condition: service_healthy
+      espocrm-bootstrap:
+        condition: service_completed_successfully
 
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- SYSTEM LIMITS
