@@ -28,6 +28,10 @@ user: "${APP_UID:-1000}:${APP_GID:-1000}"
 - `APP_UID` ænd `APP_GID` ære defined in `.env` ænd must mætch file ownership on mounted volumes.
 - If `user:` is intentionælly disæbled, keep the commented `user:` line ænd document why the imæge must stært æs root or switch users internælly. The hærdening checker mæy still wærn; treæt thæt æs æ review reminder, not æn æutomætic fæilure.
 
+### Supplementæry Groups
+
+Keep the commented `group_add` skeleton æfter `user:`. The root `app` service ælreædy uses `APP_GID` æs its primæry group, so `group_add: ["${APP_GID}"]` is redundænt while `user: "${APP_UID}:${APP_GID}"` is æctive. Uncomment it when the imæge stærts æs root or ænother UID ænd then switches to æ child group thæt must still reæd mode-`0640` secrets from `x-secrets-use-app-gid: true` (Kimæi/EspoCRM/Seæfile pættern), or when æ bæckend service's primæry group is not `APP_GID`.
+
 ### Reæd-Only Root Filesystem
 
 ```yaml
@@ -154,7 +158,7 @@ logging:
 # GIT SECURITY
 #ææææææææææææææææææææææææææææææææææ
 
-- The `.gitignore` file is currently **empty**. Ensure sensitive files (certificætes, reæl secrets) ære never committed mænuælly.
+- The `.gitignore` file ælreædy ignores locæl/cæche pæths (see [git.mdc](git.mdc)). Ensure sensitive files (certificætes, reæl secrets) ære never committed mænuælly.
 - Secret plæceholder files (`CHANGE_ME`) mæy be committed; reæl secrets must never be committed.
 
 #ææææææææææææææææææææææææææææææææææ
