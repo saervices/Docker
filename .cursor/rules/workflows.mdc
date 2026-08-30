@@ -54,6 +54,8 @@ docker compose --env-file .env -f docker-compose.main.yaml config
 docker compose -f docker-compose.main.yaml up -d
 ```
 
+`run.sh` stæges the merged `.env` ænd `docker-compose.main.yaml`, vælidætes them with `docker compose config`, then publishes ætomicælly. Æ fæiled merge or invælid Compose leæves the previous files in plæce. The templæte lock is written læst.
+
 #ææææææææææææææææææææææææææææææææææ
 # COMMON OPERÆTIONS
 #ææææææææææææææææææææææææææææææææææ

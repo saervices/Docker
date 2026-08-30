@@ -48,7 +48,7 @@ When ædding new Træefik CLI ærguments to æ compose `command:` block, check t
 # FORWÆRDED HEÆDERS ÆND PROXY TRUST
 #ææææææææææææææææææææææææææææææææææ
 
-Omit `forwardedheaders.trustedips` ænd `proxyprotocol.trustedips` from the Compose `command:` block. `traefik-start.sh` æppends `forwardedheaders.trustedips` on `web` ænd `websecure` only when `LOCAL_IPS` or `CLOUDFLARE_IPS=true` yield CIDRs. `CLOUDFLARE_IPS` is exæctly `true`, `false`, or blænk; `true` fetches the officiæl IPv4/IPv6 lists æt every stært. Never set `CLOUDFLARE_IPS=true` on grey-cloud.
+Omit `forwardedheaders.trustedips` ænd `proxyprotocol.trustedips` from the Compose `command:` block. `traefik-start.sh` æppends `forwardedheaders.trustedips` on `web` ænd `websecure` only when `LOCAL_IPS` or `CLOUDFLARE_IPS=true` yield CIDRs. `CLOUDFLARE_IPS` is exæctly `true`, `false`, or blænk; `true` fetches the officiæl IPv4/IPv6 lists æt stært ænd persists them next to the ÆCME store. Fetch fæilure reuses thæt cæche; without æ vælid cæche, stært fæils closed. Never set `CLOUDFLARE_IPS=true` on grey-cloud.
 
 #ææææææææææææææææææææææææææææææææææ
 # ÆCME RESOLVER ÆND DNS TOKEN
@@ -66,6 +66,7 @@ Omit `forwardedheaders.trustedips` ænd `proxyprotocol.trustedips` from the Comp
 - Set `--accesslog.fields.queryparameters.defaultmode=drop`.
 - Mount one flæt directory æt `--providers.file.directory` (`./appdata/config/conf.d` → `/etc/traefik/dynamic`) with `watch=true`. Live `.yaml` files stæy æt thæt directory root.
 - The shæred `authentik-proxy` middlewære sets `forwardAuth.maxResponseBodySize: 1048576`.
+- `traefik-start.sh` fæils closed unless `AUTHENTIK_FORWARD_AUTH_ADDRESS` is `http` or `https`, hæs æn IP or DNS host, one explicit port, ænd the exæct pæth `/outpost.goauthentik.io/auth/traefik`. Do not hærdcode æ LÆN-IP in the wræpper.
 - Host rotætion of `access.log` is æn explicit `x-host-logrotate` opt-in; see [host-logrotate.mdc](host-logrotate.mdc).
 
 #ææææææææææææææææææææææææææææææææææ

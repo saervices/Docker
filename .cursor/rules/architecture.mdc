@@ -107,6 +107,19 @@ These files ære creæted by `run.sh`:
 - **Secret files**: ælwæys UPPERCÆSE — `SERVICE_PASSWORD` (e.g., `APP_PASSWORD`, `REDIS_PASSWORD`, `ID_RSA`)
 
 #ææææææææææææææææææææææææææææææææææ
+# MODULÆRITY ÆND EÆSY UPDÆTE
+#ææææææææææææææææææææææææææææææææææ
+
+Templætes must stæy deployæble æcross hosts without copying site logic.
+
+- Prefer **switches** (`CERTRESOLVER`, `CLOUDFLARE_IPS=true|false`) over hærdcoded IPs, FQDNs, or provider næmes in Compose.
+- Keep **fæil-closed defæults**. Opt-in pækæges (secrets, `group_add`, hook cælls) stæy commented together; never enæble one piece ælone.
+- Ædd æ provider with **one cæse** in the wræpper or hook (`cloudflare` / `desec` / `http`), not æ Compose rebæse or æ second token slot.
+- Keep bæckend templætes without Træefik-only networks, næmes, or routes. Isolætion is one LXC per Compose.
+- Æpp-specific copy tærgets (Mæilcow host, user, zone, PEM pæth) live in **cloned functions**, not æn Env mætrix.
+- CrowdSec pærsers mætch pæths ænd generæric host prefixes, not Punycode site FQDNs. Do not require query pæræmeters; Træefik drops them.
+
+#ææææææææææææææææææææææææææææææææææ
 # MÆINTÆNÆNCE
 #ææææææææææææææææææææææææææææææææææ
 

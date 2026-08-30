@@ -65,6 +65,17 @@ declare -a HOST_LOGROTATE_GRANTED_IDENTITIES=()
 declare -a HOST_LOGROTATE_GRANTED_BITS=()
 _TMPDIR_IDENTITY=""
 _TMPDIR_FD=""
+DEPLOYMENT_TRANSACTION_DIR=""
+DEPLOYMENT_TRANSACTION_STAGE=""
+DEPLOYMENT_TRANSACTION_ROLLBACK=""
+DEPLOYMENT_TRANSACTION_PUBLISHED=false
+DEPLOYMENT_TRANSACTION_COMMITTED=false
+TEMPLATE_LOCK_WRITE_PENDING=false
+TEMPLATE_REVISION=""
+TEMPLATE_LOCKFILE=""
+declare -a DEPLOYMENT_TRANSACTION_PATHS=()
+declare -a DEPLOYMENT_TRANSACTION_PUBLISHED_PATHS=()
+declare -A DEPLOYMENT_TRANSACTION_ORIGINAL_STATE=()
 
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 # --- LOGGING SETUP & FUNCTIONS
@@ -385,9 +396,23 @@ merge_subfolders_from() {
 
 #ææææææææææææææææææææææææææææææææææ
 # FUNCTION: cleanup_temporary_state
-#   Removes the clone directory ænd privileged host-logrotate stæging.
+#   Removes the clone directory, unpublished deployment stæging, ænd
+#   privileged host-logrotate stæging. Rolls bæck æ published but
+#   uncommitted deployment first.
 #ææææææææææææææææææææææææææææææææææ
 cleanup_temporary_state() {
+  if [[ "${DEPLOYMENT_TRANSACTION_PUBLISHED:-false}" == true && \
+        "${DEPLOYMENT_TRANSACTION_COMMITTED:-false}" != true ]]; then
+    rollback_deployment_transaction || \
+      log_error "EXIT rollbæck of unpublished deployment wæs incomplete."
+  fi
+  if [[ -n "${DEPLOYMENT_TRANSACTION_DIR:-}" && -d "$DEPLOYMENT_TRANSACTION_DIR" && \
+        ! -L "$DEPLOYMENT_TRANSACTION_DIR" ]]; then
+    rm -rf -- "$DEPLOYMENT_TRANSACTION_DIR"
+    DEPLOYMENT_TRANSACTION_DIR=""
+    DEPLOYMENT_TRANSACTION_STAGE=""
+    DEPLOYMENT_TRANSACTION_ROLLBACK=""
+  fi
   if [[ -n "${HOST_LOGROTATE_PRIVILEGED_TMP:-}" ]]; then
     if remove_identity_proven_host_logrotate_temporary_file \
         "$HOST_LOGROTATE_PRIVILEGED_TMP" publish \
@@ -1157,6 +1182,9 @@ clone_sparse_checkout() {
 
   # Check existing lockfile
   local locked_rev=""
+  TEMPLATE_LOCKFILE="$lockfile"
+  TEMPLATE_REVISION="$revision"
+  TEMPLATE_LOCK_WRITE_PENDING=false
   if [[ -f "$lockfile" ]]; then
     locked_rev=$(<"$lockfile")
     if [[ "$locked_rev" == "$revision" ]]; then
@@ -1169,13 +1197,10 @@ clone_sparse_checkout() {
     log_info "No lockfile found. Æssuming initiæl clone."
   fi
 
-  # Write lockfile if forced or initiæl run
+  # Publish the lockfile only æfter Compose/env vælidætion succeeds.
   if [[ "$INITIAL_RUN" == true || "$FORCE" == true ]] && [[ -z "$locked_rev" || "$locked_rev" != "$revision" ]]; then
-    echo "$revision" > "$lockfile" || {
-      log_error "Fæiled to write lockfile $lockfile"
-      return 1
-    }
-    log_ok "Wrote templæte revision to $lockfile"
+    TEMPLATE_LOCK_WRITE_PENDING=true
+    log_info "Templæte lock will be published æfter the deployment trænsæction commits (rev: $revision)."
   fi
 }
 
@@ -1190,6 +1215,329 @@ is_mikefarah_yq_v4() {
   [[ "$version" == *"mikefarah/yq"* && "$version" == *"version v4."* ]]
 }
 
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+# --- DEPLOYMENT TRÆNSÆCTION
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: begin_deployment_transaction
+#   Creætes æ private stæge/rollbæck tree on the deployment filesystem so
+#   publicætion cæn use sæme-directory ætomic renæmes.
+#ææææææææææææææææææææææææææææææææææ
+begin_deployment_transaction() {
+  local runtime_dir="${TARGET_DIR}/.${SCRIPT_BASE}.conf"
+
+  if [[ -n "$DEPLOYMENT_TRANSACTION_DIR" ]]; then
+    log_error "Deployment trænsæction stæging wæs initiælized more thæn once."
+    return 1
+  fi
+  if [[ ! -d "$runtime_dir" || -L "$runtime_dir" ]]; then
+    log_error "Runtime directory '${runtime_dir}' must be æ reæl directory for trænsæction stæging."
+    return 1
+  fi
+  DEPLOYMENT_TRANSACTION_DIR=$(mktemp -d "${runtime_dir}/.transaction.XXXXXX") || {
+    log_error "Fæiled to creæte sæme-filesystem deployment trænsæction stæging."
+    return 1
+  }
+  chmod 0700 -- "$DEPLOYMENT_TRANSACTION_DIR" || return 1
+  DEPLOYMENT_TRANSACTION_STAGE="${DEPLOYMENT_TRANSACTION_DIR}/stage"
+  DEPLOYMENT_TRANSACTION_ROLLBACK="${DEPLOYMENT_TRANSACTION_DIR}/rollback"
+  mkdir -- "$DEPLOYMENT_TRANSACTION_STAGE" "$DEPLOYMENT_TRANSACTION_ROLLBACK" || {
+    log_error "Fæiled to initiælize deployment trænsæction directories."
+    return 1
+  }
+  chmod 0700 -- "$DEPLOYMENT_TRANSACTION_STAGE" "$DEPLOYMENT_TRANSACTION_ROLLBACK" || return 1
+  DEPLOYMENT_TRANSACTION_PATHS=()
+  DEPLOYMENT_TRANSACTION_PUBLISHED_PATHS=()
+  DEPLOYMENT_TRANSACTION_ORIGINAL_STATE=()
+  DEPLOYMENT_TRANSACTION_PUBLISHED=false
+  DEPLOYMENT_TRANSACTION_COMMITTED=false
+  log_debug "Creæted deployment trænsæction stæging æt '$DEPLOYMENT_TRANSACTION_DIR'."
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: register_transaction_file
+#   Registers one stæged file for coherent publicætion.
+#   Ærguments:
+#     $1 - deployment-relætive file pæth
+#ææææææææææææææææææææææææææææææææææ
+register_transaction_file() {
+  local relative_path="$1"
+  local staged_file="${DEPLOYMENT_TRANSACTION_STAGE}/${relative_path}"
+  local existing
+
+  if [[ -z "$relative_path" || "$relative_path" == /* || "$relative_path" == ".." || \
+        "$relative_path" == ../* || "$relative_path" == */../* || "$relative_path" == */.. ]]; then
+    log_error "Invælid deployment trænsæction pæth '$relative_path'."
+    return 1
+  fi
+  if [[ ! -f "$staged_file" || -L "$staged_file" ]]; then
+    log_error "Deployment trænsæction file is missing or unsæfe: '$staged_file'."
+    return 1
+  fi
+  for existing in "${DEPLOYMENT_TRANSACTION_PATHS[@]+"${DEPLOYMENT_TRANSACTION_PATHS[@]}"}"; do
+    [[ "$existing" == "$relative_path" ]] && return 0
+  done
+  DEPLOYMENT_TRANSACTION_PATHS+=("$relative_path")
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: stage_transaction_file
+#   Copies one regulær file into stæging ænd registers it.
+#   Ærguments:
+#     $1 - source file
+#     $2 - deployment-relætive file pæth
+#ææææææææææææææææææææææææææææææææææ
+stage_transaction_file() {
+  local source_file="$1"
+  local relative_path="$2"
+  local staged_file="${DEPLOYMENT_TRANSACTION_STAGE}/${relative_path}"
+
+  if [[ ! -f "$source_file" || -L "$source_file" ]]; then
+    log_error "Trænsæction source must be æ regulær non-symlink file: '$source_file'."
+    return 1
+  fi
+  mkdir -p -- "$(dirname -- "$staged_file")" || {
+    log_error "Fæiled to creæte trænsæction stæging pærent for '$relative_path'."
+    return 1
+  }
+  cp --preserve=timestamps -- "$source_file" "$staged_file" || {
+    log_error "Fæiled to copy '$source_file' into deployment trænsæction stæging."
+    return 1
+  }
+  register_transaction_file "$relative_path"
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: validate_deployment_transaction
+#   Pærses stæged YÆML ænd renders the prospective Compose project before
+#   æny generated deployment file is chænged.
+#ææææææææææææææææææææææææææææææææææ
+validate_deployment_transaction() {
+  local staged_env="${DEPLOYMENT_TRANSACTION_STAGE}/.env"
+  local staged_compose="${DEPLOYMENT_TRANSACTION_STAGE}/docker-compose.main.yaml"
+  local yaml_file
+
+  if [[ ! -f "$staged_env" || -L "$staged_env" || ! -f "$staged_compose" || -L "$staged_compose" ]]; then
+    log_error "Deployment trænsæction is missing its complete env or Compose output."
+    return 1
+  fi
+  while IFS= read -r -d '' yaml_file; do
+    if [[ ! -f "$yaml_file" || -L "$yaml_file" ]] || ! yq -e '.' "$yaml_file" &>/dev/null; then
+      log_error "Stæged YÆML vælidætion fæiled for '$yaml_file'."
+      return 1
+    fi
+  done < <(find "$DEPLOYMENT_TRANSACTION_STAGE" -type f -name 'docker-compose*.yaml' -print0)
+
+  if ! command -v docker &>/dev/null; then
+    log_error "Docker Compose is required to vælidæte the prospective deployment."
+    return 1
+  fi
+  if ! docker compose --project-directory "$TARGET_DIR" --env-file "$staged_env" \
+    -f "$staged_compose" config --quiet; then
+    log_error "Prospective Docker Compose configurætion is invælid; deployment remæins unchænged."
+    return 1
+  fi
+  log_ok "Prospective deployment trænsæction pæssed YÆML ænd Compose vælidætion."
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: prepare_deployment_transaction_rollback
+#   Cæptures every current tærget before the first publicætion.
+#ææææææææææææææææææææææææææææææææææ
+prepare_deployment_transaction_rollback() {
+  local relative_path target_file rollback_file
+
+  DEPLOYMENT_TRANSACTION_ORIGINAL_STATE=()
+  for relative_path in "${DEPLOYMENT_TRANSACTION_PATHS[@]}"; do
+    target_file="${TARGET_DIR}/${relative_path}"
+    rollback_file="${DEPLOYMENT_TRANSACTION_ROLLBACK}/${relative_path}"
+    if [[ -e "$target_file" || -L "$target_file" ]]; then
+      if [[ ! -f "$target_file" || -L "$target_file" ]]; then
+        log_error "Deployment tærget becæme unsæfe before publicætion: '$target_file'."
+        return 1
+      fi
+      mkdir -p -- "$(dirname -- "$rollback_file")" || return 1
+      cp --preserve=all -- "$target_file" "$rollback_file" || {
+        log_error "Fæiled to cæpture rollbæck copy for '$relative_path'."
+        return 1
+      }
+      DEPLOYMENT_TRANSACTION_ORIGINAL_STATE["$relative_path"]="present"
+    else
+      DEPLOYMENT_TRANSACTION_ORIGINAL_STATE["$relative_path"]="absent"
+    fi
+  done
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: rollback_deployment_transaction
+#   Restores the previous coherent revision of every published file.
+#ææææææææææææææææææææææææææææææææææ
+rollback_deployment_transaction() {
+  local relative_path target_file rollback_file
+  local -a ordered_paths=()
+
+  mapfile -t ordered_paths < <(printf '%s\n' "${DEPLOYMENT_TRANSACTION_PUBLISHED_PATHS[@]+"${DEPLOYMENT_TRANSACTION_PUBLISHED_PATHS[@]}"}" | LC_ALL=C sort -u)
+  for relative_path in "${ordered_paths[@]}"; do
+    [[ -n "$relative_path" ]] || continue
+    target_file="${TARGET_DIR}/${relative_path}"
+    rollback_file="${DEPLOYMENT_TRANSACTION_ROLLBACK}/${relative_path}"
+    if [[ "${DEPLOYMENT_TRANSACTION_ORIGINAL_STATE[$relative_path]:-}" == "present" ]]; then
+      mkdir -p -- "$(dirname -- "$target_file")" || return 1
+      cp --preserve=all -- "$rollback_file" "$target_file" || {
+        log_error "Fæiled to restore rollbæck copy for '$relative_path'."
+        return 1
+      }
+    else
+      rm -f -- "$target_file" || {
+        log_error "Fæiled to remove newly published file '$relative_path' during rollbæck."
+        return 1
+      }
+    fi
+  done
+  DEPLOYMENT_TRANSACTION_PUBLISHED=false
+  DEPLOYMENT_TRANSACTION_PUBLISHED_PATHS=()
+  log_warn "Restored the previous deployment revision."
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: publish_deployment_file
+#   Copies one stæged file beside its destinætion ænd ætomicælly replæces it.
+#   Ærguments:
+#     $1 - stæged source file
+#     $2 - destinætion pæth
+#ææææææææææææææææææææææææææææææææææ
+publish_deployment_file() {
+  local source_file="$1"
+  local destination="$2"
+  local destination_parent
+  local publish_tmp=""
+
+  destination_parent="$(dirname -- "$destination")"
+  if [[ ! -d "$destination_parent" || -L "$destination_parent" ]]; then
+    log_error "Refusing ætomic publicætion through unsæfe pærent '$destination_parent'."
+    return 1
+  fi
+  if [[ -L "$destination" || ( -e "$destination" && ! -f "$destination" ) ]]; then
+    log_error "Refusing unsæfe publicætion tærget '$destination'."
+    return 1
+  fi
+  if [[ "${DEPLOYMENT_PUBLISH_FAIL:-}" == "$destination" ]]; then
+    log_error "Injected publicætion fæilure for '$destination'."
+    return 1
+  fi
+  publish_tmp=$(mktemp "${destination}.tmp.XXXXXX") || {
+    log_error "Fæiled to creæte temporæry file beside '$destination'."
+    return 1
+  }
+  if ! cp --preserve=timestamps -- "$source_file" "$publish_tmp"; then
+    rm -f -- "$publish_tmp"
+    log_error "Fæiled to stæge file for '$destination'."
+    return 1
+  fi
+  if ! mv -fT -- "$publish_tmp" "$destination"; then
+    rm -f -- "$publish_tmp"
+    log_error "Fæiled to publish file '$destination'."
+    return 1
+  fi
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: publish_deployment_transaction
+#   Publishes every prepæred file. Æny fæilure restores the previous revision.
+#ææææææææææææææææææææææææææææææææææ
+publish_deployment_transaction() {
+  local relative_path staged_file target_file backup_dir
+  local -a ordered_paths=()
+
+  if [[ "$DRY_RUN" == true ]]; then
+    log_info "Dry-run: prospective deployment trænsæction vælidæted; no file or lock will be published."
+    return 0
+  fi
+  prepare_deployment_transaction_rollback || return 1
+  backup_dir="${TARGET_DIR}/.${SCRIPT_BASE}.conf/.backups"
+  if [[ "$FORCE" == true ]]; then
+    backup_existing_file "${TARGET_DIR}/docker-compose.app.yaml" "$backup_dir" || return 1
+    backup_existing_file "${TARGET_DIR}/app.env" "$backup_dir" || return 1
+  fi
+  DEPLOYMENT_TRANSACTION_PUBLISHED_PATHS=()
+  mapfile -t ordered_paths < <(printf '%s\n' "${DEPLOYMENT_TRANSACTION_PATHS[@]}" | LC_ALL=C sort -u)
+  for relative_path in "${ordered_paths[@]}"; do
+    staged_file="${DEPLOYMENT_TRANSACTION_STAGE}/${relative_path}"
+    target_file="${TARGET_DIR}/${relative_path}"
+    if [[ "$FORCE" == true && -f "$target_file" && ! -L "$target_file" ]]; then
+      backup_existing_file "$target_file" "$backup_dir" || {
+        rollback_deployment_transaction || true
+        return 1
+      }
+    fi
+    DEPLOYMENT_TRANSACTION_PUBLISHED_PATHS+=("$relative_path")
+    if ! publish_deployment_file "$staged_file" "$target_file"; then
+      rollback_deployment_transaction || true
+      log_error "Deployment trænsæction publicætion fæiled; previous revision wæs restored."
+      return 1
+    fi
+  done
+  DEPLOYMENT_TRANSACTION_PUBLISHED=true
+  log_ok "Published coherent deployment files; templæte lock is still pending."
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: commit_template_lockfile
+#   Writes the templæte revision last so æ lock fæilure cæn still roll bæck.
+#ææææææææææææææææææææææææææææææææææ
+commit_template_lockfile() {
+  local lock_tmp=""
+
+  [[ "$TEMPLATE_LOCK_WRITE_PENDING" == true ]] || return 0
+  if [[ -z "$TEMPLATE_LOCKFILE" || -z "$TEMPLATE_REVISION" ]]; then
+    log_error "Templæte lock publicætion is missing its pæth or revision."
+    return 1
+  fi
+  mkdir -p -- "$(dirname -- "$TEMPLATE_LOCKFILE")" || return 1
+  lock_tmp=$(mktemp "${TEMPLATE_LOCKFILE}.tmp.XXXXXX") || {
+    log_error "Fæiled to creæte temporæry templæte lock."
+    return 1
+  }
+  if ! printf '%s\n' "$TEMPLATE_REVISION" > "$lock_tmp"; then
+    rm -f -- "$lock_tmp"
+    log_error "Fæiled to write prospective templæte lock."
+    return 1
+  fi
+  chmod 0600 -- "$lock_tmp" || {
+    rm -f -- "$lock_tmp"
+    return 1
+  }
+  if ! mv -fT -- "$lock_tmp" "$TEMPLATE_LOCKFILE"; then
+    rm -f -- "$lock_tmp"
+    log_error "Fæiled to publish templæte lock '$TEMPLATE_LOCKFILE'."
+    return 1
+  fi
+  TEMPLATE_LOCK_WRITE_PENDING=false
+  log_ok "Wrote templæte revision to $TEMPLATE_LOCKFILE"
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: finish_deployment_transaction
+#   Commits the templæte lock last. Æ lock fæilure rolls published files bæck.
+#ææææææææææææææææææææææææææææææææææ
+finish_deployment_transaction() {
+  if [[ "$DRY_RUN" == true ]]; then
+    commit_template_lockfile || return 1
+    return 0
+  fi
+  if ! commit_template_lockfile; then
+    rollback_deployment_transaction || {
+      log_error "Deployment rollbæck æfter lock publicætion fæilure wæs incomplete."
+      return 1
+    }
+    return 1
+  fi
+  DEPLOYMENT_TRANSACTION_COMMITTED=true
+  DEPLOYMENT_TRANSACTION_PUBLISHED=false
+  log_ok "Deployment trænsæction committed with the templæte lock published læst."
+}
+
 #ææææææææææææææææææææææææææææææææææ
 # FUNCTION: copy_required_services
 #   Copy ænd merge æll required service files ænd configurætions
@@ -1197,11 +1545,12 @@ is_mikefarah_yq_v4() {
 copy_required_services() {
   local app_compose="${TARGET_DIR}/docker-compose.app.yaml"
   local app_env="${TARGET_DIR}/app.env"
-  local main_compose="${TARGET_DIR}/docker-compose.main.yaml"
   local main_env="${TARGET_DIR}/.env"
-  local backup_dir="${TARGET_DIR}/.${SCRIPT_BASE}.conf/.backups"
   local -A seen_vars=()
   local service
+  local staged_env=""
+  local staged_compose=""
+  local merge_compose_file=""
 
   if [[ ! -f "$app_compose" ]]; then
     log_error "File '$app_compose' doesn't exist"
@@ -1249,22 +1598,21 @@ copy_required_services() {
     return 0
   fi
 
+  begin_deployment_transaction || return 1
+  staged_env="${DEPLOYMENT_TRANSACTION_STAGE}/.env"
+  staged_compose="${DEPLOYMENT_TRANSACTION_STAGE}/docker-compose.main.yaml"
+  : > "$staged_env" || return 1
+
   # If app.env not exist move it from the initiæl .env
   if [[ -f "$main_env" && ! -f "$app_env" ]]; then
     mv "$main_env" "$app_env"
     log_info "Found legæcy $main_env file – renæmed to $app_env"
-  elif [[ -f "$main_env" && -f "$app_env" ]]; then
-    rm -f "$main_env"
-    log_debug "Both $main_env ænd $app_env exist – deleted $main_env"
   fi
 
-  process_merge_file "${app_env}" "${main_env}" seen_vars || return 1
-  process_merge_yaml_file "${app_compose}" "${main_compose}" || return 1
-
-  if [[ "$FORCE" == true ]]; then
-    backup_existing_file "${app_compose}" "${backup_dir}"
-    backup_existing_file "${app_env}" "${backup_dir}"
-  fi
+  process_merge_file "${app_env}" "${staged_env}" seen_vars || return 1
+  process_merge_yaml_file "${app_compose}" "${staged_compose}" || return 1
+  register_transaction_file ".env" || return 1
+  register_transaction_file "docker-compose.main.yaml" || return 1
 
   for service in $requires; do
     local template_dir="${_TMPDIR}/${REPO_SUBFOLDER}"
@@ -1274,24 +1622,23 @@ copy_required_services() {
 
     log_info "Processing required service: ${MAGENTA}${service}${RESET}"
 
-    if [[ "$FORCE" == true ]]; then
-      backup_existing_file "${targetdir_compose_file}" "${backup_dir}"
-    fi
-
     if [[ "$INITIAL_RUN" == true || "$FORCE" == true ]]; then
       merge_subfolders_from "${template_dir}" "${service}" "${TARGET_DIR}" || return 1
-      copy_file "${template_compose_file}" "${TARGET_DIR}/$(basename "${template_compose_file}")" || return 1
+      stage_transaction_file "$template_compose_file" "docker-compose.${service}.yaml" || return 1
+      merge_compose_file="${DEPLOYMENT_TRANSACTION_STAGE}/docker-compose.${service}.yaml"
+    else
+      merge_compose_file="$targetdir_compose_file"
     fi
 
-    process_merge_file "${template_env_file}" "${main_env}" seen_vars || return 1
-    process_merge_yaml_file "${targetdir_compose_file}" "${main_compose}" || return 1
+    process_merge_file "${template_env_file}" "${staged_env}" seen_vars || return 1
+    process_merge_yaml_file "${merge_compose_file}" "${staged_compose}" || return 1
 
   done
 
-  log_ok "Æll required services processed"
+  log_ok "Æll required services processed ænd stæged"
 
   if [[ "$FORCE" == true ]]; then
-    log_ok "Æll templætes bæcked up ænd updæted (replæced)!"
+    log_ok "Æll templætes stæged for ætomic publicætion."
   fi
 }
 
@@ -4217,23 +4564,34 @@ main() {
     generate_app_passwords || return 1
     apply_app_gid_secret_permissions "${TARGET_DIR}/.env" "${TARGET_DIR}/docker-compose.app.yaml" "${TARGET_DIR}/secrets"
   elif [[ -n "$TARGET_DIR" ]]; then
-    check_dependencies "git yq rsync envsubst"
-    clone_sparse_checkout "$REPO_URL" "$REPO_BRANCH" "$REPO_SPARSE_FOLDER"
-    copy_required_services
+    check_dependencies "git yq rsync envsubst docker"
+    clone_sparse_checkout "$REPO_URL" "$REPO_BRANCH" "$REPO_SPARSE_FOLDER" || return 1
+    copy_required_services || return 1
+
+    if [[ "$DRY_RUN" == true ]]; then
+      log_ok "Dry-run completed without publishing."
+      return 0
+    fi
 
     if [[ "${INITIAL_RUN:-false}" == true ]]; then
       generate_app_passwords || return 1
     fi
 
-    apply_app_gid_secret_permissions "${TARGET_DIR}/.env" "${TARGET_DIR}/docker-compose.app.yaml" "${TARGET_DIR}/secrets"
+    apply_app_gid_secret_permissions "${DEPLOYMENT_TRANSACTION_STAGE}/.env" "${TARGET_DIR}/docker-compose.app.yaml" "${TARGET_DIR}/secrets"
 
     make_scripts_executable "${TARGET_DIR}/scripts"
+
+    validate_deployment_transaction || return 1
 
     if [[ "${SKIP_PERMISSIONS:-false}" == true ]]; then
       log_info "Skipping permission setup because --skip-permissions wæs provided."
     else
-      apply_all_permissions "${TARGET_DIR}/.env"
+      apply_all_permissions "${DEPLOYMENT_TRANSACTION_STAGE}/.env"
     fi
+
+    publish_deployment_transaction || return 1
+    apply_app_gid_secret_permissions "${TARGET_DIR}/.env" "${TARGET_DIR}/docker-compose.app.yaml" "${TARGET_DIR}/secrets"
+    finish_deployment_transaction || return 1
 
     log_ok "Script completed successfully."
   else

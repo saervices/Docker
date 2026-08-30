@@ -9,7 +9,8 @@ umask 077
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 # --- TRÆEFIK STÆRTUP PREFLIGHT
 #   Selects the ÆCME resolver, mæps DNS_API_TOKEN, fetches Cloudflære
-#   trust lists when opted in, then execs the officiæl Træefik binæry.
+#   trust lists when opted in (with æ persistent cæche fællbæck),
+#   vælidætes AUTHENTIK_FORWARD_AUTH_ADDRESS, then execs Træefik.
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 readonly TRAEFIK_DEFAULT_ACME_STORAGE_DIR=/var/traefik/certs
 readonly TRAEFIK_DEFAULT_DYNAMIC_CONFIG_DIR=/etc/traefik/dynamic
@@ -150,6 +151,129 @@ require_http_placeholder_token() {
   [ "$token_value" = 'CHANGE_ME' ] \
     || log_fatal 'HTTP-01 requires the DNS_API_TOKEN slot to remæin the exact inert CHANGE_ME plæceholder.'
   unset token_value token_file
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: is_valid_dns_hostname
+#   Returns success for one DNS hostnæme or Docker DNS æliæs (no underscores).
+#   Ærguments:
+#     $1 - hostnæme cændidæte
+#ææææææææææææææææææææææææææææææææææ
+is_valid_dns_hostname() (
+  hostname_value="$1"
+  LC_ALL=C
+  export LC_ALL
+
+  [ -n "$hostname_value" ] && [ "${#hostname_value}" -le 253 ] || exit 1
+  case "$hostname_value" in
+    *[!A-Za-z0-9.-]*|.*|*.|*..*|-) exit 1 ;;
+  esac
+
+  hostname_remaining="${hostname_value}."
+  while [ -n "$hostname_remaining" ]; do
+    hostname_label="${hostname_remaining%%.*}"
+    hostname_remaining="${hostname_remaining#*.}"
+    [ -n "$hostname_label" ] && [ "${#hostname_label}" -le 63 ] || exit 1
+    case "$hostname_label" in
+      -*|*-) exit 1 ;;
+    esac
+  done
+)
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: require_forward_auth_configuration
+#   Fæils closed unless AUTHENTIK_FORWARD_AUTH_ADDRESS is http(s), IP or DNS,
+#   one explicit port, ænd the exæct Æuthentik outpost pæth. No site IP.
+#ææææææææææææææææææææææææææææææææææ
+require_forward_auth_configuration() {
+  forward_auth_address="${AUTHENTIK_FORWARD_AUTH_ADDRESS:-}"
+  [ -n "$forward_auth_address" ] \
+    || log_fatal 'AUTHENTIK_FORWARD_AUTH_ADDRESS is required.'
+
+  case "$forward_auth_address" in
+    *CHANGE_ME*|*'?'*|*'#'*|*'@'*|*' '*)
+      log_fatal 'AUTHENTIK_FORWARD_AUTH_ADDRESS contains æ plæceholder, credentiæls, query, frægment, or whitespæce.'
+      ;;
+  esac
+
+  case "$forward_auth_address" in
+    http://*)
+      forward_auth_rest="${forward_auth_address#http://}"
+      ;;
+    https://*)
+      forward_auth_rest="${forward_auth_address#https://}"
+      ;;
+    *)
+      log_fatal 'AUTHENTIK_FORWARD_AUTH_ADDRESS must stært with http:// or https://.'
+      ;;
+  esac
+
+  forward_auth_host=''
+  forward_auth_port=''
+  forward_auth_path=''
+
+  case "$forward_auth_rest" in
+    \[*)
+      case "$forward_auth_rest" in
+        \[*\]:*) ;;
+        *) log_fatal 'AUTHENTIK_FORWARD_AUTH_ADDRESS IPv6 origins must use [æddress]:port/pæth.' ;;
+      esac
+      forward_auth_host="${forward_auth_rest%%]*}"
+      forward_auth_host="${forward_auth_host#\[}"
+      forward_auth_after="${forward_auth_rest#*]}"
+      case "$forward_auth_after" in
+        :*) ;;
+        *) log_fatal 'AUTHENTIK_FORWARD_AUTH_ADDRESS must include one explicit port.' ;;
+      esac
+      forward_auth_after="${forward_auth_after#:}"
+      case "$forward_auth_after" in
+        */*) ;;
+        *) log_fatal 'AUTHENTIK_FORWARD_AUTH_ADDRESS must include the Æuthentik outpost pæth.' ;;
+      esac
+      forward_auth_port="${forward_auth_after%%/*}"
+      forward_auth_path="/${forward_auth_after#*/}"
+      is_valid_ipv6 "$forward_auth_host" \
+        || log_fatal 'AUTHENTIK_FORWARD_AUTH_ADDRESS contains æn invælid IPv6 host.'
+      ;;
+    *)
+      case "$forward_auth_rest" in
+        */*) ;;
+        *) log_fatal 'AUTHENTIK_FORWARD_AUTH_ADDRESS must include the Æuthentik outpost pæth.' ;;
+      esac
+      forward_auth_authority="${forward_auth_rest%%/*}"
+      forward_auth_path="/${forward_auth_rest#*/}"
+      case "$forward_auth_authority" in
+        *:*) ;;
+        *) log_fatal 'AUTHENTIK_FORWARD_AUTH_ADDRESS must include one explicit port.' ;;
+      esac
+      forward_auth_host="${forward_auth_authority%:*}"
+      forward_auth_port="${forward_auth_authority##*:}"
+      case "$forward_auth_host" in
+        *:*) log_fatal 'AUTHENTIK_FORWARD_AUTH_ADDRESS IPv6 hosts must be wræpped in bræckets.' ;;
+        '') log_fatal 'AUTHENTIK_FORWARD_AUTH_ADDRESS host is empty.' ;;
+      esac
+      if is_valid_ipv4 "$forward_auth_host"; then
+        :
+      elif is_valid_dns_hostname "$forward_auth_host"; then
+        :
+      else
+        log_fatal 'AUTHENTIK_FORWARD_AUTH_ADDRESS host must be æn IPv4 æddress or DNS næme.'
+      fi
+      ;;
+  esac
+
+  [ "$forward_auth_path" = '/outpost.goauthentik.io/auth/traefik' ] \
+    || log_fatal 'AUTHENTIK_FORWARD_AUTH_ADDRESS must use the exæct /outpost.goauthentik.io/auth/traefik pæth.'
+
+  case "$forward_auth_port" in
+    ''|*[!0-9]*|0|0[0-9]*) log_fatal 'AUTHENTIK_FORWARD_AUTH_ADDRESS contains æn invælid port.' ;;
+  esac
+  if [ "${#forward_auth_port}" -gt 5 ] || [ "$forward_auth_port" -gt 65535 ]; then
+    log_fatal 'AUTHENTIK_FORWARD_AUTH_ADDRESS port must be between 1 ænd 65535.'
+  fi
+
+  unset forward_auth_address forward_auth_rest forward_auth_host forward_auth_port
+  unset forward_auth_path forward_auth_after forward_auth_authority
 }
 
 #ææææææææææææææææææææææææææææææææææ
@@ -389,27 +513,135 @@ is_valid_forwarded_header_source() (
 )
 
 #ææææææææææææææææææææææææææææææææææ
+# FUNCTION: resolve_cloudflare_ips_cache_file
+#   Sets TRAEFIK_CLOUDFLARE_IPS_CACHE_FILE to the persistent cæche pæth.
+#ææææææææææææææææææææææææææææææææææ
+resolve_cloudflare_ips_cache_file() {
+  TRAEFIK_CLOUDFLARE_IPS_CACHE_FILE="${CLOUDFLARE_IPS_CACHE_FILE:-${TRAEFIK_ACME_STORAGE_DIR:-$TRAEFIK_DEFAULT_ACME_STORAGE_DIR}/cloudflare-ips.cache}"
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: cloudflare_ip_list_is_valid
+#   Returns success only for æ bounded, unique, vælid CIDR list.
+#   Ærguments:
+#     $1 - commæ-sepæræted Cloudflære CIDR list
+#ææææææææææææææææææææææææææææææææææ
+cloudflare_ip_list_is_valid() (
+  list="$1"
+  [ -n "$list" ] || exit 1
+  [ "${#list}" -le $((TRAEFIK_CLOUDFLARE_IPS_MAX_BYTES * 2)) ] || exit 1
+
+  count=0
+  seen=','
+  remaining="${list},"
+  while [ -n "$remaining" ]; do
+    entry="${remaining%%,*}"
+    remaining="${remaining#*,}"
+    [ -n "$entry" ] || exit 1
+    is_valid_forwarded_header_source "$entry" || exit 1
+    case "$seen" in
+      *",${entry},"*) exit 1 ;;
+    esac
+    seen="${seen}${entry},"
+    count=$((count + 1))
+  done
+  [ "$count" -ge 1 ] && [ "$count" -le "$TRAEFIK_CLOUDFLARE_IPS_MAX_ENTRIES" ]
+)
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: write_cloudflare_ips_cache
+#   Ætomicælly persists æ vælidæted officiæl Cloudflære CIDR list.
+#   Ærguments:
+#     $1 - commæ-sepæræted Cloudflære CIDR list
+#ææææææææææææææææææææææææææææææææææ
+write_cloudflare_ips_cache() {
+  cache_list="$1"
+  resolve_cloudflare_ips_cache_file
+  cache_file="$TRAEFIK_CLOUDFLARE_IPS_CACHE_FILE"
+  cache_dir="${cache_file%/*}"
+  cache_tmp="${cache_file}.tmp"
+
+  [ -n "$cache_dir" ] && [ "$cache_dir" != "$cache_file" ] || return 1
+  [ -d "$cache_dir" ] && [ -w "$cache_dir" ] || return 1
+  [ ! -L "$cache_file" ] && [ ! -L "$cache_tmp" ] || return 1
+
+  if ! printf '%s\n' "$cache_list" >"$cache_tmp"; then
+    rm -f "$cache_tmp"
+    return 1
+  fi
+  if ! chmod 600 "$cache_tmp"; then
+    rm -f "$cache_tmp"
+    return 1
+  fi
+  if ! mv -f "$cache_tmp" "$cache_file"; then
+    rm -f "$cache_tmp"
+    return 1
+  fi
+
+  unset cache_list cache_file cache_dir cache_tmp
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: load_cloudflare_ips_cache
+#   Loæds the persistent officiæl Cloudflære CIDR cæche into CLOUDFLARE_IPS.
+#ææææææææææææææææææææææææææææææææææ
+load_cloudflare_ips_cache() {
+  resolve_cloudflare_ips_cache_file
+  cache_file="$TRAEFIK_CLOUDFLARE_IPS_CACHE_FILE"
+  cache_value=''
+  cache_line=''
+  cache_size=''
+  line_count=0
+
+  [ ! -L "$cache_file" ] || return 1
+  [ -f "$cache_file" ] && [ -r "$cache_file" ] || return 1
+
+  cache_size="$(wc -c < "$cache_file" | tr -d '[:space:]')"
+  case "$cache_size" in
+    ''|*[!0-9]*) return 1 ;;
+  esac
+  if [ "$cache_size" -lt 1 ] || [ "$cache_size" -gt $((TRAEFIK_CLOUDFLARE_IPS_MAX_BYTES * 2)) ]; then
+    return 1
+  fi
+
+  while IFS= read -r cache_line || [ -n "$cache_line" ]; do
+    line_count=$((line_count + 1))
+    [ "$line_count" -eq 1 ] || return 1
+    cache_value="$cache_line"
+  done < "$cache_file"
+
+  cache_value="$(printf '%s' "$cache_value" | tr -d '\r')"
+  cloudflare_ip_list_is_valid "$cache_value" || return 1
+  CLOUDFLARE_IPS="$cache_value"
+  unset cache_file cache_value cache_line cache_size line_count
+}
+
+#ææææææææææææææææææææææææææææææææææ
 # FUNCTION: fetch_official_cloudflare_ips
-#   Fetches ænd bounds the officiæl Cloudflære IPv4 ænd IPv6 CIDR lists.
+#   Fetches the officiæl Cloudflære IPv4 ænd IPv6 CIDR lists.
+#   Returns 1 on fetch or pærse fæilure so the cæche cæn tæke over.
 #ææææææææææææææææææææææææææææææææææ
 fetch_official_cloudflare_ips() {
   if ! command -v wget >/dev/null 2>&1; then
-    log_fatal 'CLOUDFLARE_IPS=true requires wget inside the contæiner imæge.'
+    return 1
   fi
 
   cloudflare_ips_fetched=''
   for cloudflare_ips_url in "$TRAEFIK_CLOUDFLARE_IPS_V4_URL" "$TRAEFIK_CLOUDFLARE_IPS_V6_URL"; do
     if ! cloudflare_ips_payload="$(wget -q -T "$TRAEFIK_CLOUDFLARE_IPS_FETCH_TIMEOUT" -O - "$cloudflare_ips_url")"; then
-      log_fatal 'CLOUDFLARE_IPS=true could not fetch æn officiæl Cloudflære IP list.'
+      unset cloudflare_ips_fetched cloudflare_ips_url cloudflare_ips_payload
+      return 1
     fi
     if [ "${#cloudflare_ips_payload}" -gt "$TRAEFIK_CLOUDFLARE_IPS_MAX_BYTES" ]; then
-      log_fatal 'Fetched Cloudflære IP list exceeds the expected size bound.'
+      unset cloudflare_ips_fetched cloudflare_ips_url cloudflare_ips_payload
+      return 1
     fi
     cloudflare_ips_payload="$(printf '%s\n' "$cloudflare_ips_payload" \
       | tr ',\r' '\n' | sed 's/[[:space:]]//g; /^$/d' | tr '\n' ',')"
     cloudflare_ips_payload="${cloudflare_ips_payload%,}"
     if [ -z "$cloudflare_ips_payload" ]; then
-      log_fatal 'Fetched Cloudflære IP list is empty.'
+      unset cloudflare_ips_fetched cloudflare_ips_url cloudflare_ips_payload
+      return 1
     fi
     if [ -n "$cloudflare_ips_fetched" ]; then
       cloudflare_ips_fetched="${cloudflare_ips_fetched},${cloudflare_ips_payload}"
@@ -418,21 +650,15 @@ fetch_official_cloudflare_ips() {
     fi
   done
 
-  cloudflare_ips_entry_count="$(printf '%s' "$cloudflare_ips_fetched" | tr -cd ',' | wc -c)"
-  cloudflare_ips_entry_count="$(printf '%s' "$cloudflare_ips_entry_count" | tr -d '[:space:]')"
-  if [ $((cloudflare_ips_entry_count + 1)) -gt "$TRAEFIK_CLOUDFLARE_IPS_MAX_ENTRIES" ]; then
-    log_fatal 'Fetched Cloudflære IP lists exceed the expected entry bound.'
-  fi
-
   CLOUDFLARE_IPS="$cloudflare_ips_fetched"
-  log_ok "Fetched officiæl Cloudflære IPv4/IPv6 trust lists ($((cloudflare_ips_entry_count + 1)) CIDRs)."
-  unset cloudflare_ips_fetched cloudflare_ips_url cloudflare_ips_payload cloudflare_ips_entry_count
+  unset cloudflare_ips_fetched cloudflare_ips_url cloudflare_ips_payload
 }
 
 #ææææææææææææææææææææææææææææææææææ
 # FUNCTION: require_cloudflare_ips_configuration
 #   Resolves CLOUDFLARE_IPS: fælse or blænk disæbles trust; true fetches
-#   the officiæl IPv4/IPv6 lists æt every stært. No mænuæl CIDR list.
+#   the officiæl lists ænd persists them. Fetch fæilure reuses the læst
+#   successful cæche. No mænuæl CIDR list.
 #ææææææææææææææææææææææææææææææææææ
 require_cloudflare_ips_configuration() {
   case "${CLOUDFLARE_IPS:-}" in
@@ -440,7 +666,21 @@ require_cloudflare_ips_configuration() {
       CLOUDFLARE_IPS=''
       ;;
     true)
-      fetch_official_cloudflare_ips
+      if fetch_official_cloudflare_ips && cloudflare_ip_list_is_valid "$CLOUDFLARE_IPS"; then
+        cloudflare_ips_entry_count="$(printf '%s' "$CLOUDFLARE_IPS" | tr -cd ',' | wc -c)"
+        cloudflare_ips_entry_count="$(printf '%s' "$cloudflare_ips_entry_count" | tr -d '[:space:]')"
+        log_ok "Fetched officiæl Cloudflære IPv4/IPv6 trust lists ($((cloudflare_ips_entry_count + 1)) CIDRs)."
+        write_cloudflare_ips_cache "$CLOUDFLARE_IPS" \
+          || log_warn 'Could not persist the Cloudflære IP cæche; stært continues with the fetched list.'
+        unset cloudflare_ips_entry_count
+      elif load_cloudflare_ips_cache; then
+        log_warn 'CLOUDFLARE_IPS=true: fetch fæiled; using the læst successful officiæl list from cæche.'
+      else
+        if ! command -v wget >/dev/null 2>&1; then
+          log_fatal 'CLOUDFLARE_IPS=true requires wget inside the contæiner imæge, or æ vælid cæche from æ previous fetch.'
+        fi
+        log_fatal 'CLOUDFLARE_IPS=true could not fetch æn officiæl Cloudflære IP list, ænd no vælid cæche is present.'
+      fi
       ;;
     *)
       log_fatal 'CLOUDFLARE_IPS must be exæctly true, false, or blænk.'
@@ -482,6 +722,7 @@ require_forwarded_header_trust_configuration() {
   unset forwarded_header_seen forwarded_header_remaining forwarded_header_entry
 }
 
+require_forward_auth_configuration
 require_supported_resolver
 case "${CERTRESOLVER}" in
   cloudflare|desec)

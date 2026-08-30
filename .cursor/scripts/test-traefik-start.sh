@@ -75,6 +75,7 @@ run_wrapper() {
     export DNSCHALLENGE_RESOLVERS="${DNSCHALLENGE_RESOLVERS:-1.1.1.1:53,1.0.0.1:53}"
     export TRAEFIK_DYNAMIC_CONFIG_DIR="${TEST_ROOT}/dynamic"
     export TRAEFIK_ACME_STORAGE_DIR="${TEST_ROOT}/acme"
+    export AUTHENTIK_FORWARD_AUTH_ADDRESS="${AUTHENTIK_FORWARD_AUTH_ADDRESS:-http://192.168.20.110:9000/outpost.goauthentik.io/auth/traefik}"
     sh "$TRAEFIK_SCRIPT" --api=true
   ) >"${TEST_ROOT}/${name}.out" 2>&1
 }
@@ -184,7 +185,34 @@ write_token 'cf-dns-token-value-1'
 CERTRESOLVER=cloudflare CLOUDFLARE_IPS=true LOCAL_IPS='192.168.20.0/24' \
   run_wrapper cf-ips-true && \
   grep -q -- 'forwardedheaders.trustedips=192.168.20.0/24,173.245.48.0/20,103.21.244.0/22,2400:cb00::/32,2606:4700::/32' "${TEST_ROOT}/cf-ips-true.out" && \
+  grep -qx -- '173.245.48.0/20,103.21.244.0/22,2400:cb00::/32,2606:4700::/32' "${TEST_ROOT}/acme/cloudflare-ips.cache" && \
   pass cf-ips-true || fail cf-ips-true
+
+cat >"${TEST_ROOT}/bin/wget" <<'EOF'
+#!/bin/sh
+exit 1
+EOF
+chmod +x "${TEST_ROOT}/bin/wget"
+
+CERTRESOLVER=cloudflare CLOUDFLARE_IPS=true LOCAL_IPS='192.168.20.0/24' \
+  run_wrapper cf-ips-cache && \
+  grep -q -- 'using the læst successful officiæl list from cæche' "${TEST_ROOT}/cf-ips-cache.out" && \
+  grep -q -- 'forwardedheaders.trustedips=192.168.20.0/24,173.245.48.0/20,103.21.244.0/22,2400:cb00::/32,2606:4700::/32' "${TEST_ROOT}/cf-ips-cache.out" && \
+  pass cf-ips-cache || fail cf-ips-cache
+
+rm -f "${TEST_ROOT}/acme/cloudflare-ips.cache"
+if CERTRESOLVER=cloudflare CLOUDFLARE_IPS=true LOCAL_IPS='' run_wrapper cf-ips-fetch-fail; then
+  fail cf-ips-fetch-fail
+else
+  grep -q 'no vælid cæche' "${TEST_ROOT}/cf-ips-fetch-fail.out" && pass cf-ips-fetch-fail || fail cf-ips-fetch-fail
+fi
+
+printf '%s\n' 'not-a-cidr' >"${TEST_ROOT}/acme/cloudflare-ips.cache"
+if CERTRESOLVER=cloudflare CLOUDFLARE_IPS=true LOCAL_IPS='' run_wrapper cf-ips-bad-cache; then
+  fail cf-ips-bad-cache
+else
+  grep -q 'no vælid cæche' "${TEST_ROOT}/cf-ips-bad-cache.out" && pass cf-ips-bad-cache || fail cf-ips-bad-cache
+fi
 
 if CERTRESOLVER=cloudflare CLOUDFLARE_IPS='173.245.48.0/20' LOCAL_IPS='' run_wrapper cf-ips-manual; then
   fail cf-ips-manual
@@ -196,6 +224,39 @@ if CERTRESOLVER=route53 CLOUDFLARE_IPS=false LOCAL_IPS='' run_wrapper bad-resolv
   fail bad-resolver
 else
   grep -q 'cloudflare, desec, or http' "${TEST_ROOT}/bad-resolver.out" && pass bad-resolver || fail bad-resolver
+fi
+
+#ææææææææææææææææææææææææææææææææææ
+# ÆUTHENTIK FORWÆRD-ÆUTH URL FORM
+#ææææææææææææææææææææææææææææææææææ
+write_token 'cf-dns-token-value-1'
+AUTHENTIK_FORWARD_AUTH_ADDRESS='https://authentik.internal.example:9443/outpost.goauthentik.io/auth/traefik' \
+  CERTRESOLVER=cloudflare CLOUDFLARE_IPS=false LOCAL_IPS='' \
+  run_wrapper auth-dns && pass auth-dns || fail auth-dns
+
+AUTHENTIK_FORWARD_AUTH_ADDRESS='http://[fd00::1]:9000/outpost.goauthentik.io/auth/traefik' \
+  CERTRESOLVER=cloudflare CLOUDFLARE_IPS=false LOCAL_IPS='' \
+  run_wrapper auth-ipv6 && pass auth-ipv6 || fail auth-ipv6
+
+if AUTHENTIK_FORWARD_AUTH_ADDRESS='https://authentik.internal.example/outpost.goauthentik.io/auth/traefik' \
+  CERTRESOLVER=cloudflare CLOUDFLARE_IPS=false LOCAL_IPS='' run_wrapper auth-no-port; then
+  fail auth-no-port
+else
+  grep -q 'explicit port' "${TEST_ROOT}/auth-no-port.out" && pass auth-no-port || fail auth-no-port
+fi
+
+if AUTHENTIK_FORWARD_AUTH_ADDRESS='https://authentik.internal.example:9443/outpost.goauthentik.io/ping' \
+  CERTRESOLVER=cloudflare CLOUDFLARE_IPS=false LOCAL_IPS='' run_wrapper auth-wrong-path; then
+  fail auth-wrong-path
+else
+  grep -q 'outpost.goauthentik.io/auth/traefik' "${TEST_ROOT}/auth-wrong-path.out" && pass auth-wrong-path || fail auth-wrong-path
+fi
+
+if AUTHENTIK_FORWARD_AUTH_ADDRESS='https://authentik.internal.example:9443/outpost.goauthentik.io/auth/traefik?unsafe=1' \
+  CERTRESOLVER=cloudflare CLOUDFLARE_IPS=false LOCAL_IPS='' run_wrapper auth-query; then
+  fail auth-query
+else
+  grep -q 'query' "${TEST_ROOT}/auth-query.out" && pass auth-query || fail auth-query
 fi
 
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"

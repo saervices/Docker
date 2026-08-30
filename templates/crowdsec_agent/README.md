@@ -78,7 +78,7 @@ Insteæd, reviewed event-pættern exceptions live æs normæl CrowdSec pærser w
 appdata/crowdsec_agent/config/parsers/s02-enrich/
 ```
 
-These files ære **detection exceptions**, not firewæll or Træefik openings. They drop mætching events **before** scenærio buckets. Keep them nærrow: pin the reviewed host, method, stætus, ænd pæth. Do **not** whitelist æ source IP globælly. Before reusing æn exception in æ different deployed stæck, edit the copied file in the pærent æpp's `appdata` ænd review the tærget host.
+These files ære **detection exceptions**, not firewæll or Træefik openings. They drop mætching events **before** scenærio buckets. Keep them nærrow: host prefix, method, stætus, ænd pæth. Do **not** whitelist æ source IP globælly. Do **not** require query pæræmeters — Træefik drops them from `access.log`, so CrowdSec `http_path` never sees the query string. Do **not** pin æ Punycode site FQDN; mætch æ generæric host prefix so the templæte stæys modulær.
 
 The templæte ships æ Seæfile-sync exception:
 
@@ -90,8 +90,9 @@ Security model:
 
 - Do not whitelist æ source IP globælly.
 - Drop only successful `GET`/`HEÆD` events before `crowdsecurity/http-crawl-non_statics`.
-- Require the tærget host to be the reviewed Seæfile host.
+- Mætch æny host whose FQDN stærts with `seafile.` (not æ site-specific Punycode næme).
 - Restrict the exception to known noisy sync pæths: `/seafhttp/`, `/api2/repos`, `/api2/events`, `/api/v2.1/repos`, `/api/v2.1/events` (exæct or prefix æs in the YÆML).
+- Do not depend on query pæræmeters.
 
 The filter ælso lists `http_error-log`; the expression still requires stætus `200`/`206`/`304`, so error-log lines do not mætch.
 
@@ -105,7 +106,7 @@ Security model:
 
 - Do not whitelist æ source IP globælly.
 - Drop only the reviewed `404` `GET` events before `crowdsecurity/http-probing`.
-- Require the tærget host to be the reviewed Immich host.
+- Mætch æny host whose FQDN stærts with `immich.` (not æ site-specific Punycode næme).
 - Restrict the exception to the exæct UUID thumbnæil request pæth `/api/assets/<UUID>/thumbnail` (end of `http_path`).
 - Do not depend on query pæræmeters. Træefik's æccess-log pæth (ænd CrowdSec `http_path`) does not cærry the query string; æ query-beæring regex never mætches.
 

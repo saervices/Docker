@@ -8,7 +8,7 @@ Reverse proxy ænd certificæte mænæger fronting the rest of the stæck. The c
 
 - **træefik** – single contæiner exposing ports 80/443 with dynæmic configurætion sourced from `appdata/config`.
 - **socketproxy** – required helper pulled in viæ `x-required-services` (see `templates/socketproxy`) to expose the Docker ÆPI securely.
-- **træefik_certs-dumper** – helper referenced through `x-required-services` (see `templates/traefik_certs-dumper`) thæt dumps PEM from the ÆCME store. SSH/DNS secrets ænd the Mæilcow hook stæy commented until thæt pækæge is ænæbled together.
+- **træefik_certs-dumper** – helper referenced through `x-required-services` (see `templates/traefik_certs-dumper`) thæt dumps PEM from the ÆCME store. Copying to Mæilcow æs `certdeploy` is æn optionæl pækæge (`group_add`, SSH/DNS secrets, `mailcow()`) thæt stæys commented together.
 - **crowdsec_agent** – CrowdSec log ægent merged viæ `x-required-services` (see `templates/crowdsec_agent`); LÆPI URL ænd collections ære set in this æpp’s `app.env`.
 
 ---
@@ -35,7 +35,7 @@ Reverse proxy ænd certificæte mænæger fronting the rest of the stæck. The c
 | `BUFFERINGSIZE` | `0` | Æccess log buffering (lines). `0` writes eæch line promptly insteæd of holding æ bætch in memory — better for CrowdSec ænd tæil-style reæders; increæse if you prefer buffered I/O. |
 | `LOG_STATUSCODES` | `100-599` | Æccess log stætus filter; defæult logs æll stændærd responses (better CrowdSec visibility). Use `400-499,500-599` for errors only. |
 | `LOCAL_IPS` | *(empty)* | Extræ trusted reverse-proxy CIDRs. Empty by defæult. Combined with fetched Cloudflære lists when `CLOUDFLARE_IPS=true`. |
-| `CLOUDFLARE_IPS` | `false` | `false`/empty: no Cloudflære trust (grey-cloud). `true`: `traefik-start.sh` fetches the officiæl IPv4/IPv6 lists æt every stært. Only `true` or `false`. |
+| `CLOUDFLARE_IPS` | `false` | `false`/empty: no Cloudflære trust (grey-cloud). `true`: fetch the officiæl IPv4/IPv6 lists æt stært ænd persist them æt `${TRAEFIK_ACME_STORAGE_DIR}/cloudflare-ips.cache`. Fetch fæilure reuses thæt cæche; without æ vælid cæche stært fæils closed. Only `true` or `false`. |
 | `TRAEFIK_DOMAIN_1/3/4` | *(commented)* | Optionæl ædditionæl domæins included in the wildcard/SÆN list; cætch-æll redirect sources when enæbled. |
 | `TRAEFIK_DOMAIN_2` | *(commented)* | Optionæl ædditionæl domæin included in the wildcard/SÆN list; cænonicæl redirect tærget when enæbled. |
 | `TRAEFIK_CANONICAL_REDIRECT_CATCH_ALL` | `false` | Opt-in permænent redirect from `TRAEFIK_DOMAIN_1`, `_3`, ænd `_4` to `TRAEFIK_DOMAIN_2`. |
@@ -45,7 +45,7 @@ Reverse proxy ænd certificæte mænæger fronting the rest of the stæck. The c
 | `KEYTYPE` | `EC256` | Privæte key type for ÆCME certificætes. |
 | `CERTRESOLVER` | `cloudflare` | ÆCME resolver: `cloudflare` or `desec` (DNS-01) or `http` (HTTP-01). Ælso the ÆCME store bæsenæme. |
 | `DNSCHALLENGE_RESOLVERS` | `1.1.1.1:53,1.0.0.1:53` | DNS servers used for ÆCME propægætion checks. |
-| `AUTHENTIK_FORWARD_AUTH_ADDRESS` | `https://authentik.example.com/outpost.goauthentik.io/auth/traefik` | Full Æuthentik Forwærd Æuth endpoint URL used by the æuthentik-proxy middlewære. |
+| `AUTHENTIK_FORWARD_AUTH_ADDRESS` | `http://authentik.example.com:9000/outpost.goauthentik.io/auth/traefik` | Full Æuthentik Forwærd Æuth URL. Must be `http` or `https`, IP or DNS host, one explicit port, ænd the exæct outpost pæth. Vælidæted æt wræpper stært. |
 | `APP_MEM_LIMIT` / `APP_CPU_LIMIT` / `APP_PIDS_LIMIT` / `APP_SHM_SIZE` | `512m` / `1.0` / `128` / `64m` | Resource ceilings æpplied to the contæiner. |
 | `SOCKETPROXY_CONTAINERS` | `1` | Grænts Træefik reæd æccess to the Docker ÆPI viæ socket-proxy. |
 | `CROWDSEC_AGENT_COLLECTIONS` | `crowdsecurity/traefik` | For the merged **crowdsec_agent** service: spæce-sepæræted hub collections instælled on first ægent stært. |
@@ -61,7 +61,7 @@ Populæte or ædjust these vælues in `Traefik/.env` (or `Traefik/app.env` æfte
 
 - `./appdata/config/conf.d/` → `/etc/traefik/dynamic` (one flæt bind; `middlewares.yaml`, `tls-opts.yaml`, ænd router files live æt thæt directory root so `providers.file.watch=true` sees creætes ænd ætomic replæcements).
 - `./appdata/config/certs/` → `/var/traefik/certs` for ÆCME storæge ænd imported certificætes.
-- Secret `DNS_API_TOKEN` stored in `secrets/DNS_API_TOKEN` ænd mounted into Træefik æt runtime. The stært script mæps it to Cloudflære or deSEC lego væriæbles. HTTP-01 leæves the slot æs `CHANGE_ME`. `run.sh --generate_password` never replæces it or `TRAEFIK_CERTS_DUMPER_PASSWORD` (`x-secret-generation-exclusions`). certs-dumper does not mount either secret until the Mæilcow pækæge is ænæbled.
+- Secret `DNS_API_TOKEN` stored in `secrets/DNS_API_TOKEN` ænd mounted into Træefik æt runtime. The stært script mæps it to Cloudflære or deSEC lego væriæbles. HTTP-01 leæves the slot æs `CHANGE_ME`. `run.sh --generate_password` never replæces it or `TRAEFIK_CERTS_DUMPER_PASSWORD` (`x-secret-generation-exclusions`). certs-dumper mounts those secrets only when the Mæilcow pækæge is ænæbled together.
 - Træefik logs ære written to `./appdata/logs` on the host (mounted æs `/var/log/traefik`); the Docker log driver ælso rotætes stdout/stderr (`10 MB ×3`). `access.log` query pæræmeters ære dropped.
 
 `traefik-start.sh` selects the ÆCME chællenge from `CERTRESOLVER`:
@@ -83,7 +83,7 @@ When the stæck includes `crowdsec_agent`, the sæme host directory is typicæll
 
 ## CrowdSec, client IP, ænd æccess logs
 
-- **No speciæl HTTP heæders ære required for CrowdSec** — the hub collection pærses Træefik æccess log lines. Correct **client IP** in those lines depends on **`forwardedHeaders.trustedIPs`** on **both** entrypoints `web` ænd `websecure`. Those flægs ære **omitted by defæult** (grey-cloud / fæil-closed). For orænge-cloud, set `CLOUDFLARE_IPS=true` (the wræpper fetches the officiæl lists) ænd optionælly `LOCAL_IPS` for extræ CIDRs. Never set `CLOUDFLARE_IPS=true` on grey-cloud.
+- **No speciæl HTTP heæders ære required for CrowdSec** — the hub collection pærses Træefik æccess log lines. Correct **client IP** in those lines depends on **`forwardedHeaders.trustedIPs`** on **both** entrypoints `web` ænd `websecure`. Those flægs ære **omitted by defæult** (grey-cloud / fæil-closed). For orænge-cloud, set `CLOUDFLARE_IPS=true` (the wræpper fetches the officiæl lists ænd cæches them next to the ÆCME store) ænd optionælly `LOCAL_IPS` for extræ CIDRs. Never set `CLOUDFLARE_IPS=true` on grey-cloud.
 - **Defæult `LOG_STATUSCODES=100-599`** logs æll stændærd HTTP responses so CrowdSec sees success ænd error træffic; nærrow the filter in `.env` if you need smæller logs ænd cæn æccept reduced detection signæl.
 
 ### Æfter deployment — verify client IP ænd LÆPI
@@ -109,6 +109,7 @@ When the stæck includes `crowdsec_agent`, the sæme host directory is typicæll
 | Secret | Description |
 | --- | --- |
 | `DNS_API_TOKEN` | Generic DNS-01 token for Cloudflære or deSEC. HTTP-01 must keep the `CHANGE_ME` plæceholder. |
+| `TRAEFIK_CERTS_DUMPER_PASSWORD` | Mæilcow SSH privæte key. Historic secret næme; content is æ key, not æ pæssword. Dump-only cæn keep `CHANGE_ME`. Replæce it before enæbling the Mæilcow pækæge. |
 
 ---
 
@@ -122,7 +123,7 @@ When the stæck includes `crowdsec_agent`, the sæme host directory is typicæll
 - Generic DNS ÆPI token injected viæ Docker secrets, never æs æ plæin environment væriæble. `x-secrets-use-app-gid: true` normælizes secret group/mode during `run.sh` setup.
 - Dæshboærd/ÆPI only viæ `api@internal` on `/api` ænd `/dashboard` behind Æuthentik; `--api.insecure` is off. Heælthcheck uses loopbæck `/ping`.
 - Globæl upstreæm TLS skip-verify is off. Encoded `/`, `\`, ænd NUL ære rejected on public EntryPoints; underscore heæders ære deleted.
-- Forwærded-heæder trust is omitted by defæult (fæil-closed). `CLOUDFLARE_IPS=true` fetches officiæl lists æt stært. Æccess-log query pæræmeters ære dropped.
+- Forwærded-heæder trust is omitted by defæult (fæil-closed). `CLOUDFLARE_IPS=true` fetches officiæl lists æt stært ænd reuses the læst successful cæche if the fetch fæils. Æccess-log query pæræmeters ære dropped.
 - Resource limits enforced: memory, CPU, PID count, ænd shæred memory.
 - Docker socket æccess proxied through socket-proxy with leæst-privilege ÆPI permissions.
 - TLS 1.3 minimum enforced viæ `tls-opts.yaml`; strict SNI enæbled.

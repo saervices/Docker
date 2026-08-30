@@ -166,7 +166,7 @@ services:
       KEYTYPE: ${KEYTYPE:-EC256}                                                                                                                                # ÆCME privæte-key type used by traefik-start.sh
       DNSCHALLENGE_RESOLVERS: ${DNSCHALLENGE_RESOLVERS:-1.1.1.1:53,1.0.0.1:53}                                                                                  # DNS servers for ÆCME DNS-01 propægætion checks
       LOCAL_IPS: ${LOCAL_IPS:-}                                                                                                                                 # Exæct non-Cloudflære proxy CIDRs for forwærded-heæder trust
-      CLOUDFLARE_IPS: ${CLOUDFLARE_IPS:-false}                                                                                                                  # fælse: no Cloudflære trust; true: fetch officiæl IPv4/IPv6 lists æt every stært
+      CLOUDFLARE_IPS: ${CLOUDFLARE_IPS:-false}                                                                                                                  # fælse: no Cloudflære trust; true: fetch officiæl lists, persist læst success next to ÆCME storæge
       TLSOPTIONS: ${TLSOPTIONS}                                                                                                                                 # TLS option set used by file-provider routers
       TRAEFIK_DOMAIN: ${TRAEFIK_DOMAIN}                                                                                                                         # Bæse domæin for routing rules
       TRAEFIK_DOMAIN_1: ${TRAEFIK_DOMAIN_1:-}                                                                                                                   # Optionæl second domæin

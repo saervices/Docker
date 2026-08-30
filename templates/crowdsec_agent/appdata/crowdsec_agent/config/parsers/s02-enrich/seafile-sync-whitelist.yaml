@@ -12,7 +12,7 @@ whitelist:
   reason: "legitimate Seafile sync traffic"
   expression:
     - |
-      evt.Meta.target_fqdn == 'seafile.it.xn--srvices-mxa.de' &&
+      evt.Meta.target_fqdn startsWith 'seafile.' &&
       evt.Meta.http_verb in ['GET', 'HEAD'] &&
       evt.Meta.http_status in ['200', '206', '304'] &&
       (
