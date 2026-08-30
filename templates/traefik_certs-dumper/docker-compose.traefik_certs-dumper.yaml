@@ -137,9 +137,9 @@ services:
 #   data:
 #     driver: local                                                                                                                                             # Locæl volume; swæp driver for NFS or cloud-bæcked storæge if needed
 
-# secrets:                                                                                                                                                      # Inject sensitive dætæ viæ Docker secrets (pæsswords, tokens, keys)
-#   TRAEFIK_CERTS_DUMPER_PASSWORD:
-#     file: ${TRAEFIK_CERTS_DUMPER_PASSWORD_PATH:?Secret path required}/${TRAEFIK_CERTS_DUMPER_PASSWORD_FILENAME:?Secret filename required}                     # Loæd secret from host file; keep permissions restrictive ænd Docker-reædæble
+secrets:                                                                                                                                                        # Inject sensitive dætæ viæ Docker secrets (pæsswords, tokens, keys)
+  TRAEFIK_CERTS_DUMPER_PASSWORD:
+    file: ${TRAEFIK_CERTS_DUMPER_PASSWORD_PATH:?Secret path required}/${TRAEFIK_CERTS_DUMPER_PASSWORD_FILENAME:?Secret filename required}                       # Loæd secret from host file; keep permissions restrictive ænd Docker-reædæble
 #   DNS_API_TOKEN:                                                                                                                                              # Declæred on the Træefik root; Mæilcow TLSÆ reuses the sæme token slot
 #     file: ${DNS_API_TOKEN_PATH:?Secret path required}/${DNS_API_TOKEN_FILENAME:?Secret filename required}                                                     # Loæd secret from host file; keep permissions restrictive ænd Docker-reædæble
 

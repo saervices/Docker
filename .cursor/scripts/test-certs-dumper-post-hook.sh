@@ -51,7 +51,9 @@ if grep -qE '^[[:space:]]+# group_add:' "$DUMPER_COMPOSE" \
   && grep -qE '^[[:space:]]+# secrets:' "$DUMPER_COMPOSE" \
   && grep -qE '^[[:space:]]+#[[:space:]]+DNS_API_TOKEN_FILE:' "$DUMPER_COMPOSE" \
   && ! grep -qE '^[[:space:]]+group_add:' "$DUMPER_COMPOSE" \
-  && ! grep -qE '^[[:space:]]+DNS_API_TOKEN_FILE:' "$DUMPER_COMPOSE"; then
+  && ! grep -qE '^[[:space:]]+DNS_API_TOKEN_FILE:' "$DUMPER_COMPOSE" \
+  && grep -qE '^secrets:' "$DUMPER_COMPOSE" \
+  && grep -qE '^  TRAEFIK_CERTS_DUMPER_PASSWORD:' "$DUMPER_COMPOSE"; then
   pass hook-mailcow-package
 else
   fail hook-mailcow-package
