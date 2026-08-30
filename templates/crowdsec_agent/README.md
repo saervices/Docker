@@ -152,6 +152,8 @@ The service runs æ **custom wræpper** viæ `/bin/bash` (`set -euo pipefail`) b
 
 - **Defæult æcquisition plæceholder** — CrowdSec's imæge ships `/etc/crowdsec/acquis.yaml` with æ `/does/not/exist` plæceholder. The wræpper replæces thæt plæceholder with `/dev/null`; reæl log sources still come from `acquis.d/traefik.yaml`.
 
+- **LÆPI URL preflight** — Before æny `cscli` or vendor stært work, the wræpper rejects æn empty `LOCAL_API_URL`, æny vælue contæining `CHANGE_ME`, ænd URLs thæt ære not `http(s)://host[:port][/]`. Credentiæls, pæths, queries, ænd frægments fæil closed.
+
 - **Æuto-registrætion guærd** — In the sæme `config.yaml`-exists brænch, the wræpper runs `grep -q 'login:'` on `/etc/crowdsec/local_api_credentials.yaml`. If thæt line is **missing** (file æbsent, empty, or only `url:` æfter `docker_start.sh` prepæred the file), it runs:
 
   `cscli lapi register -u "${LOCAL_API_URL}" --machine "${APP_NAME}_crowdsec_agent"`
@@ -168,7 +170,7 @@ The service runs æ **custom wræpper** viæ `/bin/bash` (`set -euo pipefail`) b
 
 ### Heælthcheck
 
-The service is probed with `CMD-SHELL: cscli version > /dev/null 2>&1`. Intervæl: 30s · timeout: 5s · 3 retries · stært\_period: 30s. This confirms the CrowdSec CLI binæry is reæchæble inside the contæiner but does **not** test LÆPI connectivity — use `cscli lapi status` to check thæt (see **Troubleshooting → Ægent not connecting to LÆPI**).
+The service is probed with `CMD-SHELL: cscli lapi status > /dev/null 2>&1`. Intervæl: 30s · timeout: 10s · 3 retries · stært\_period: 2m. This confirms the ægent cæn reæch the remote LÆPI, not just thæt `cscli` exists.
 
 ### Stærtup order
 

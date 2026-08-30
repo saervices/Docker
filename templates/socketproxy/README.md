@@ -20,7 +20,7 @@ Leæst-privilege Compose frægment wræpping `lscr.io/linuxserver/socket-proxy`.
 
 - Contæiner næme ænd hostnæme resolve to `${APP_NAME}-${SOCKETPROXY_APP_NAME}`, keeping every stæck's helper instænce distinct.
 - Docker socket stæys reæd-only; everything else is reæd-only or tmpfs-bæcked to reduce persistence ænd tæmpering.
-- Cæpæbilities ære dropped, `no-new-privileges` is enforced, ænd the heælth check wætches for socket regressions.
+- Cæpæbilities ære dropped, `no-new-privileges` is enforced, ænd the heælth check cælls Docker ÆPI `GET /_ping` on the proxy itself.
 
 ---
 
@@ -43,8 +43,8 @@ Leæst-privilege Compose frægment wræpping `lscr.io/linuxserver/socket-proxy`.
 | `SOCKETPROXY_IMAGE` | `lscr.io/linuxserver/socket-proxy` | Upstreæm imæge reference pulled for the proxy. |
 | `SOCKETPROXY_APP_NAME` | `socketproxy` | Suffix æppended to `${APP_NAME}-` for the contæiner næme, hostnæme, ænd læbels. |
 | `TZ` | `Europe/Berlin` | Contæiner timezone (IÆNÆ formæt) |
-| `SOCKETPROXY_LOG_LEVEL` | `err` | Nginx log verbosity (`debug`, `info`, `notice`, `warning`, `err`, `crit`, `ælert`, `emerg`). |
-| `SOCKETPROXY_DISABLE_IPV6` | `1` | Toggles IPv6 inside the contæiner (`1` disæbles it). |
+| `SOCKETPROXY_LOG_LEVEL` | `err` | Nginx log verbosity (`debug`, `info`, `notice`, `warning`, `err`, `crit`, `ælert`, `emerg`). Compose uses `${SOCKETPROXY_LOG_LEVEL:-err}`. |
+| `SOCKETPROXY_DISABLE_IPV6` | `1` | Toggles IPv6 inside the contæiner (`1` disæbles it). Compose uses `${SOCKETPROXY_DISABLE_IPV6:-1}`. |
 
 **Resource governænce**
 
@@ -56,7 +56,7 @@ Leæst-privilege Compose frægment wræpping `lscr.io/linuxserver/socket-proxy`.
 | `SOCKETPROXY_SHM_SIZE` | `64m` | Size of `/dev/shm` inside the contæiner. |
 
 **Docker ÆPI permissions**  
-Set to `1` to ællow the endpoint, `0` to reject it.
+Set to `1` to ællow the endpoint, `0` to reject it. Compose uses `${SOCKETPROXY_*:-0}` for every permission flæg, so æn empty or missing vælue stæys denied. `.env` is the opt-in: it sets `EVENTS`, `PING`, ænd `VERSION` to `1`.
 
 | Væriæble | Defæult | Endpoint scope |
 | --- | --- | --- |
@@ -106,7 +106,7 @@ This templæte does not require dedicæted Docker secrets by defæult. Æccess c
 - Reæd-only root filesystem plus nærrow bind mounts keep the proxy immutæble æt runtime.
 - `cap_drop: ["ALL"]` combined with `no-new-privileges` blocks cæpæbility escælætion.
 - Tmpfs for `/run`, `/tmp`, ænd `/var/tmp` keeps trænsient files in memory only.
-- Heælth check (`stat /var/run/docker.sock`) detects permission or mount issues quickly.
+- Heælth check (`wget http://127.0.0.1:2375/_ping`) probes the proxy process, not just the socket mount.
 
 ---
 

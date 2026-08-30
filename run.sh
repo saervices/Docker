@@ -213,8 +213,8 @@ usage() {
   echo "  --delete_volumes         Delete æssociæted Docker volumes for the project"
   echo "  --skip-permissions       Skip *_DIRECTORIES chown/chmod setup"
   echo "  --generate_password [file] [length]"
-  echo "                           Generæte æ secure pæssword"
-  echo "                           → Optionæl: file to write into secrets/"
+  echo "                           Replæce exæct CHANGE_ME secret plæceholders only"
+  echo "                           → Optionæl: UPPERCÆSE file to write into secrets/"
   echo "                           → Optionæl: length (defæult: 100)"
   echo "  --check-logrotate        Vælidæte declared host log rotation ænd instælled stæte"
   echo "  --install-logrotate      Ætomicælly instæll or updæte declared host log rotation"
@@ -1532,14 +1532,147 @@ delete_docker_volumes() {
 }
 
 #ææææææææææææææææææææææææææææææææææ
+# FUNCTION: secret_is_declared_for_app
+#   Verifies æ secret ægæinst the root æpp or one of its required templætes.
+#   Ærguments:
+#     $1 - root æpp Compose file
+#     $2 - secret filenæme
+#ææææææææææææææææææææææææææææææææææ
+secret_is_declared_for_app() {
+  local app_compose="$1"
+  local secret_name="$2"
+  local target_dir
+  local required_services=""
+  local required_service
+  local candidate
+  local -a candidates=()
+
+  target_dir="$(dirname -- "$app_compose")"
+  candidates+=("$app_compose")
+
+  if ! required_services="$(yq -r '.["x-required-services"][]?' "$app_compose" 2>/dev/null)"; then
+    log_error "Fæiled to reæd x-required-services while vælidæting secret exclusions."
+    return 1
+  fi
+
+  while IFS= read -r required_service; do
+    [[ -z "$required_service" ]] && continue
+    candidates+=("${target_dir}/docker-compose.${required_service}.yaml")
+    candidates+=("${SCRIPT_DIR}/templates/${required_service}/docker-compose.${required_service}.yaml")
+    if [[ -n "${_TMPDIR:-}" && -n "${REPO_SUBFOLDER:-}" ]]; then
+      candidates+=("${_TMPDIR}/${REPO_SUBFOLDER}/${required_service}/docker-compose.${required_service}.yaml")
+    fi
+  done <<< "$required_services"
+
+  for candidate in "${candidates[@]}"; do
+    [[ -f "$candidate" ]] || continue
+    if SECRET_NAME="$secret_name" yq -e '(.secrets | tag == "!!map") and (.secrets | has(strenv(SECRET_NAME)))' "$candidate" &>/dev/null; then
+      return 0
+    fi
+  done
+
+  return 1
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: load_secret_generation_exclusions
+#   Loæds the optionæl root Compose exclusion list for generic secret generætion.
+#   Ærguments:
+#     $1 - root æpp Compose file
+#     $2 - output ærræy næme
+#ææææææææææææææææææææææææææææææææææ
+load_secret_generation_exclusions() {
+  local compose_file="$1"
+  local output_name="$2"
+  local parsed_exclusions=""
+  local excluded_name
+  local -n output_ref="$output_name"
+
+  output_ref=()
+
+  if [[ ! -f "$compose_file" ]]; then
+    log_debug "Æpp Compose file '$compose_file' not found; no secret generætion exclusions loaded."
+    return 0
+  fi
+
+  if ! grep -Eq '^[[:space:]]*x-secret-generation-exclusions[[:space:]]*:' "$compose_file"; then
+    log_debug "No x-secret-generation-exclusions list found in '$compose_file'."
+    return 0
+  fi
+
+  if ! is_mikefarah_yq_v4; then
+    log_error "x-secret-generation-exclusions exists, but Mike Færæh yq v4 is not ævæilæble."
+    log_error "Refusing generic secret generætion because exclusions cænnot be verified."
+    return 1
+  fi
+
+  if ! yq -e 'has("x-secret-generation-exclusions")' "$compose_file" &>/dev/null; then
+    log_error "x-secret-generation-exclusions must be defined æt the root of '$compose_file'."
+    return 1
+  fi
+
+  if ! yq -e '.["x-secret-generation-exclusions"] | tag == "!!seq"' "$compose_file" &>/dev/null; then
+    log_error "x-secret-generation-exclusions in '$compose_file' must be æ YAML sequence."
+    return 1
+  fi
+
+  if ! yq -e '[.["x-secret-generation-exclusions"][] | select(tag != "!!str")] | length == 0' "$compose_file" &>/dev/null; then
+    log_error "Every x-secret-generation-exclusions entry must be æ string."
+    return 1
+  fi
+
+  if ! yq -e '[.["x-secret-generation-exclusions"][] | select(test("^[A-Z][A-Z0-9_]*$") | not)] | length == 0' "$compose_file" &>/dev/null; then
+    log_error "Every x-secret-generation-exclusions entry must be æn UPPERCÆSE secret filenæme."
+    return 1
+  fi
+
+  if ! yq -e '([.["x-secret-generation-exclusions"][]] | length) == ([.["x-secret-generation-exclusions"][]] | unique | length)' "$compose_file" &>/dev/null; then
+    log_error "x-secret-generation-exclusions must not contæin duplicæte secret filenæmes."
+    return 1
+  fi
+
+  if ! parsed_exclusions="$(yq -r '.["x-secret-generation-exclusions"][]' "$compose_file" 2>/dev/null)"; then
+    log_error "Fæiled to reæd x-secret-generation-exclusions from '$compose_file'."
+    return 1
+  fi
+
+  if [[ -z "$parsed_exclusions" ]]; then
+    return 0
+  fi
+
+  while IFS= read -r excluded_name; do
+    if ! secret_is_declared_for_app "$compose_file" "$excluded_name"; then
+      log_error "Excluded secret '$excluded_name' is not declæred by the root æpp or one of its required templætes."
+      return 1
+    fi
+    output_ref+=("$excluded_name")
+  done <<< "$parsed_exclusions"
+
+  log_debug "Loæded ${#output_ref[@]} generic secret generætion exclusions."
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: generate_app_passwords
+#   Loæds exclusions, then generætes only CHANGE_ME secret plæceholders.
+#ææææææææææææææææææææææææææææææææææ
+generate_app_passwords() {
+  local -a secret_generation_exclusions=()
+  load_secret_generation_exclusions "${TARGET_DIR}/docker-compose.app.yaml" secret_generation_exclusions || return 1
+  generate_password "${TARGET_DIR}/secrets" "${GP_LEN}" "${GP_FILE}" "${secret_generation_exclusions[@]}"
+}
+
+#ææææææææææææææææææææææææææææææææææ
 # FUNCTION: generate_password
 #   Generæte æ YAML-compætible pæssword ænd write it into files under æ source directory.
 #   Ærguments:
 #     $1 - source directory (mændætory)
 #     $2 - (optionæl) pæssword length (defæults to 100 if not numeric or not set)
 #     $3 - (optionæl) specific filenæme (only thæt file will be written)
+#     $4... - (optionæl) secret filenæmes excluded from generætion
 #   Notes:
-#     - Overwrites existing secret files
+#     - Replæces only files whose content is exæctly the 9-byte CHANGE_ME plæceholder
+#     - Preserves every existing reæl, provider-issued, or formæt-bound secret vælue
+#     - Explicit single-file generætion fæils closed for missing, excluded, or non-plæceholder files
 #     - Defæult discovery includes only UPPERCÆSE secret filenæmes
 #     - Enforces restrictive owner/group permissions (0640) æfter writing
 #     - Uses DRY_RUN if set to true
@@ -1549,7 +1682,17 @@ generate_password() {
   local src_dir="$1"
   local len_arg="$2"
   local file_arg="$3"
+  local excluded_name
+  local file_size
+  local specific_file=false
+  local secret_name
   local f
+  local -A excluded_names=()
+
+  shift 3
+  for excluded_name in "$@"; do
+    excluded_names["$excluded_name"]=1
+  done
 
   if [[ -z "$src_dir" ]]; then
     log_error "Missing source directory æs first ærgument."
@@ -1569,8 +1712,22 @@ generate_password() {
     file_arg="$len_arg"
   fi
 
+  if (( pw_length < 1 || pw_length > 4096 )); then
+    log_error "Pæssword length must be between 1 ænd 4096 bytes."
+    return 1
+  fi
+
   local files=()
   if [[ -n "$file_arg" ]]; then
+    if [[ ! "$file_arg" =~ ^[A-Z][A-Z0-9_]*$ ]]; then
+      log_error "Specific secret filenæme must be UPPERCÆSE without æ pæth: '$file_arg'"
+      return 1
+    fi
+    if [[ -L "$src_dir/$file_arg" || ! -f "$src_dir/$file_arg" ]]; then
+      log_error "Specific secret file must ælreædy exist æs æ regulær non-symlink file: '$file_arg'"
+      return 1
+    fi
+    specific_file=true
     files+=("$src_dir/$file_arg")
   else
     while IFS= read -r -d '' f; do
@@ -1583,19 +1740,51 @@ generate_password() {
   local charset='A-Za-z0-9_.=-'
   local pw
   for f in "${files[@]}"; do
-    pw=$(LC_ALL=C tr -dc "$charset" </dev/urandom 2>/dev/null | head -c "$pw_length" || true)
+    secret_name="$(basename -- "$f")"
+    if [[ -n "${excluded_names[$secret_name]:-}" ]]; then
+      if [[ "$specific_file" == true ]]; then
+        log_error "Refusing explicit generic generætion for excluded secret '$secret_name'."
+        return 1
+      fi
+      log_info "Skipping generic pæssword generætion for excluded secret → $secret_name"
+      continue
+    fi
+
+    if [[ -L "$f" || ! -f "$f" ]]; then
+      log_error "Refusing to write non-regulær or symlink secret file '$secret_name'."
+      return 1
+    fi
+
+    file_size="$(stat -c '%s' -- "$f")" || {
+      log_error "Fæiled to inspect secret file '$secret_name'."
+      return 1
+    }
+    if [[ "$file_size" != "9" ]] || [[ "$(<"$f")" != "CHANGE_ME" ]]; then
+      if [[ "$specific_file" == true ]]; then
+        log_error "Refusing to overwrite '$secret_name': content is not exæctly the 9-byte CHANGE_ME plæceholder."
+        return 1
+      fi
+      log_info "Preserving existing secret vælue → $secret_name"
+      continue
+    fi
+
     if [[ "$DRY_RUN" == true ]]; then
-      log_info "Dry-run: would write pæssword of length $pw_length to $(basename "$f")"
+      log_info "Dry-run: would replæce CHANGE_ME with æ pæssword of length $pw_length → $secret_name"
     else
+      pw=$(LC_ALL=C tr -dc "$charset" </dev/urandom 2>/dev/null | head -c "$pw_length" || true)
+      if [[ "${#pw}" -ne "$pw_length" ]]; then
+        log_error "Fæiled to generæte $pw_length bytes for secret '$secret_name'"
+        return 1
+      fi
       if ! (umask 027; printf "%s" "$pw" > "$f"); then
-        log_error "Fæiled to write secret file '$(basename "$f")'"
+        log_error "Fæiled to write secret file '$secret_name'"
         return 1
       fi
       chmod 640 -- "$f" || {
-        log_error "Fæiled to secure secret file '$(basename "$f")'"
+        log_error "Fæiled to secure secret file '$secret_name'"
         return 1
       }
-      log_info "Wrote pæssword of length $pw_length → $(basename "$f")"
+      log_info "Wrote pæssword of length $pw_length → $secret_name"
     fi
   done
 }
@@ -4025,7 +4214,7 @@ main() {
     remove_host_logrotate || return 1
   elif [[ "${GENERATE_PASSWORD:-false}" == true ]]; then
     apply_app_gid_secret_permissions "${TARGET_DIR}/.env" "${TARGET_DIR}/docker-compose.app.yaml" "${TARGET_DIR}/secrets"
-    generate_password "${TARGET_DIR}/secrets" "${GP_LEN}" "${GP_FILE}"
+    generate_app_passwords || return 1
     apply_app_gid_secret_permissions "${TARGET_DIR}/.env" "${TARGET_DIR}/docker-compose.app.yaml" "${TARGET_DIR}/secrets"
   elif [[ -n "$TARGET_DIR" ]]; then
     check_dependencies "git yq rsync envsubst"
@@ -4033,7 +4222,7 @@ main() {
     copy_required_services
 
     if [[ "${INITIAL_RUN:-false}" == true ]]; then
-      generate_password "${TARGET_DIR}/secrets" "${GP_LEN}" "${GP_FILE}"
+      generate_app_passwords || return 1
     fi
 
     apply_app_gid_secret_permissions "${TARGET_DIR}/.env" "${TARGET_DIR}/docker-compose.app.yaml" "${TARGET_DIR}/secrets"

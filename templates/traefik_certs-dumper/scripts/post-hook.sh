@@ -520,6 +520,9 @@ mailcow() {
   local remote_cert="${project_path}/data/assets/ssl/cert.pem"
   local remote_key="${project_path}/data/assets/ssl/key.pem"
 
+  check_dependencies scp ssh curl jq openssl od
+  prepare_ssh_directory
+  prepare_ssh_identity_from_secret
   wait_for_certificate_files "$local_cert" "$local_key"
   copy_certificates "$local_cert" "$local_key" "$dest_host" "$dest_user" "$remote_cert" "$remote_key" "$ssh_key"
   update_mailcow_tlsa "$local_cert"
@@ -542,6 +545,9 @@ example_other_service() {
   local remote_cert="${project_path}/certs/cert.pem"
   local remote_key="${project_path}/certs/key.pem"
 
+  check_dependencies scp ssh
+  prepare_ssh_directory
+  prepare_ssh_identity_from_secret
   copy_certificates "$local_cert" "$local_key" "$dest_host" "$dest_user" "$remote_cert" "$remote_key" "$ssh_key"
   restart_remote_docker_compose "$dest_host" "$dest_user" "$project_path" "$ssh_key"
 }
@@ -550,8 +556,7 @@ example_other_service() {
 # --- MÆIN
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 
-check_dependencies scp ssh curl jq openssl od
-prepare_ssh_directory
-prepare_ssh_identity_from_secret
+# PEM dump does not need SSH or the DNS token. Prepære them only inside
+# æn ænæbled remæte tærget (Mæilcow or similær).
 # if true; then mailcow; fi
 log_ok "All post-hook tasks completed."

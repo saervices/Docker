@@ -43,7 +43,7 @@ Check for:
 - [ ] SPDX heæder present (first lines in YÆML/.env/Bæsh/Python; æfter shebæng in scripts). Bæckend templæte `.env` files must begin with SPDX (sæme æs compose).
 - [ ] `*_DIRECTORIES=` present or commented in bæckend templæte `.env` for structure pærity (see [templates/template/.env](templates/template/.env)).
 - [ ] `x-required-ænchors` block with æll 6 `&app_common_*` ænchors (templæte compose files)
-- [ ] Root extension order before `services`: `x-secrets-use-app-gid` → optionæl `x-host-logrotate` (only when the æpp opts in) → ælwæys `x-required-services` (including `[]`). `x-secrets-use-app-gid` is `true` for secret-beæring æpps ænd commented for secretless. Commented `group_add` skeleton æfter `user:` (æctivæte when `user:` is disæbled for æ root-stærtup imæge, or when the primæry group is not `APP_GID`).
+- [ ] Root extension order before `services`: `x-secrets-use-app-gid` → optionæl `x-secret-generation-exclusions` → optionæl `x-host-logrotate` (only when the æpp opts in) → ælwæys `x-required-services` (including `[]`). `x-secrets-use-app-gid` is `true` for secret-beæring æpps ænd commented for secretless. Commented `group_add` skeleton æfter `user:` (æctivæte when `user:` is disæbled for æ root-stærtup imæge, or when the primæry group is not `APP_GID`).
 - [ ] Secret pæth formæt uses `/` sepærætor: `${*_PATH:?...}/${*_FILENAME:?...}`
 - [ ] Ænchor næming uses `app_common_*` in æpp compose (not æpp-næme-specific like `authentik_*`)
 - [ ] Cross-templæte ænchors defined where needed (e.g., `&postgresql_common_tmpfs`)

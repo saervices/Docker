@@ -86,6 +86,18 @@ services:
       - -c
       - |
         set -euo pipefail
+
+        validate_lapi_url() {
+          local url="$${1:-}"
+          [[ -n "$${url}" && "$${url}" != *CHANGE_ME* ]] || return 1
+          [[ "$${url}" =~ ^https?://[^/?#@]+/?$ ]] || return 1
+        }
+
+        if ! validate_lapi_url "$${LOCAL_API_URL:-}"; then
+          echo "CrowdSec LÆPI URL is missing, still CHANGE_ME, or invalid; expected http(s)://host[:port][/]." >&2
+          exit 1
+        fi
+
         CONFIG=/etc/crowdsec/config.yaml
         START_SCRIPT=/tmp/docker_start.sh
 

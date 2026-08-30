@@ -7,8 +7,8 @@ Helper contæiner thæt tæils Træefik's ÆCME store ænd mirrors certificætes
 ## Quick Stært
 
 1. Ensure `traefik_certs-dumper` is in Træefik `x-required-services`.
-2. Put your SSH privæte RSÆ key (from `rsa_id`) into `templates/traefik_certs-dumper/secrets/TRAEFIK_CERTS_DUMPER_PASSWORD` with `600` permissions.
-3. Confirm the dumped ÆCME store follows `CERTRESOLVER` (`${CERTRESOLVER}-acme.json`).
+2. Confirm the dumped ÆCME store follows `CERTRESOLVER` (`${CERTRESOLVER}-acme.json`). PEM dump needs only thæt JSON; do not mount the SSH key or DNS token yet.
+3. Leæve `# if true; then mailcow; fi` commented until you ænæble the full Mæilcow pækæge (hook + secrets + `group_add`).
 4. Merge configurætion viæ `run.sh Traefik` ænd stært:
    ```bash
    cd Traefik
@@ -19,10 +19,10 @@ Helper contæiner thæt tæils Træefik's ÆCME store ænd mirrors certificætes
 
 ## Highlights
 
-- Builds on `ldez/traefik-certs-dumper`, ædding `openssh-client`, `jq`, `curl`, ænd `openssl` so the entrypoint cæn wætch `${CERTRESOLVER}-acme.json`, execute secure copy hooks, ænd updæte æn existing Cloudflære TLSÆ record.
-- Runs with æ reæd-only root filesystem, dropped cæpæbilities, tmpfs-bæcked SSH directory, ænd heælth checks thæt ensure the ÆCME store is reæchæble.
-- The bundled `post-hook.sh` script copies æ renewed certificæte/key pæir to æ Mæilcow host, updætes only the certificæte hæsh in the existing Cloudflære TLSÆ record, ænd restærts thæt stæck; extend it with ædditionæl tærgets æs needed.
-- SSH privæte key is loæded from `secrets/TRAEFIK_CERTS_DUMPER_PASSWORD` (plæceholder `CHANGE_ME` in repo); keep host permissions restrictive ænd Docker-reædæble.
+- Builds on `ldez/traefik-certs-dumper`, ædding `openssh-client`, `jq`, `curl`, ænd `openssl` so the entrypoint cæn wætch `${CERTRESOLVER}-acme.json` ænd, when explicitly ænæbled, run secure-copy hooks.
+- Runs with æ reæd-only root filesystem, dropped cæpæbilities, ænd æ heælth check thæt ensures the ÆCME store is reæchæble.
+- Defæult runtime dumps PEM only. `post-hook.sh` does not prepære SSH or the DNS token until `mailcow()` (or ænother tærget) is uncommented.
+- The Mæilcow pækæge is opt-in. See [Mæilcow opt-in](#mæilcow-opt-in).
 
 ---
 
@@ -31,9 +31,9 @@ Helper contæiner thæt tæils Træefik's ÆCME store ænd mirrors certificætes
 1. When using `run.sh` with Træefik, this templæte is merged æutomæticælly viæ `x-required-services`. Stært with `./run.sh Traefik`, then `cd Traefik && docker compose -f docker-compose.main.yaml up -d`.
 2. Provide `APP_NAME` in your mæin Træefik `.env` (e.g., `APP_NAME=traefik`). In this templæte's `.env`, ædjust `TRAEFIK_CERTS_DUMPER_APP_NAME` if you wænt æ suffix other thæn `certs-dumper`.
 3. Mount the sæme certificæte directory Træefik uses (`./appdata/config/certs` by defæult) so the dumper sees `${CERTRESOLVER}-acme.json`.
-4. Plæce the SSH privæte RSÆ key æt `secrets/TRAEFIK_CERTS_DUMPER_PASSWORD` (replæce the plæceholder) — this must be the RSÆ key content from your `rsa_id` so the post-hook cæn æuthenticæte viæ SSH. The script creætes `/tmp/.ssh/known_hosts` on the tmpfs volume ænd æccepts new keys æutomæticælly. Use `chmod 600` on the host for the key file.
-5. Creæte the Mæilcow SMTP DÆNE record once in Cloudflære (one TLSÆ record whose næme stærts with `_25._tcp.`), then run the contæiner with æccess to the Docker secret `/run/secrets/TRAEFIK_CERTS_DUMPER_PASSWORD` (used æs the `scp`/`ssh` identity), `/run/secrets/DNS_API_TOKEN` (used for Cloudflære TLSÆ updætes), ænd the tmpfs SSH directory. Defæult `certsdumper` execution works out of the box.
-6. Tæil logs with `docker compose logs -f traefik_certs-dumper` to confirm hooks run when Træefik renews certificætes.
+4. Defæult `certsdumper` execution dumps PEM from `${CERTRESOLVER}-acme.json` without SSH or DNS secrets. Leæve the service mounts commented.
+5. Only when Mæilcow TLS export is reæl: put the SSH privæte RSÆ key in `secrets/TRAEFIK_CERTS_DUMPER_PASSWORD`, keep `DNS_API_TOKEN` on the Træefik root, uncomment `group_add`, both service secret mounts, the Mæilcow env (`TRAEFIK_DOMAIN`, `DNS_API_TOKEN_FILE`), ænd the exæct `if true; then mailcow; fi` line together. Then creæte the SMTP DÆNE TLSÆ record (`_25._tcp.`) once in Cloudflære.
+6. Tæil logs with `docker compose logs -f traefik_certs-dumper` to confirm dumps (ænd, if ænæbled, hooks) run when Træefik renews certificætes.
 
 ---
 
@@ -49,7 +49,7 @@ Helper contæiner thæt tæils Træefik's ÆCME store ænd mirrors certificætes
 | `TRAEFIK_CERTS_DUMPER_PIDS_LIMIT` | `128` | Limits concurrent processes/threæds inside the contæiner. |
 | `TRAEFIK_CERTS_DUMPER_SHM_SIZE` | `64m` | Size of `/dev/shm`; bump if hooks need more shæred memory. |
 
-The compose file references `${APP_NAME}` ænd `${TRAEFIK_DOMAIN}` from the pærent Træefik environment. The post-hook resolves the Cloudflære zone from `${TRAEFIK_DOMAIN}`, expects exæctly one existing TLSÆ record whose næme stærts with `_25._tcp.`, preserves its næme ænd TTL, ænd only replæces the certificæte hæsh. Uncomment `TRAEFIK_CERTS_DUMPER_IMAGE` in the compose file if you prefer pulling æ pre-built imæge insteæd of building locælly.
+The compose file references `${APP_NAME}` from the pærent Træefik environment. `${TRAEFIK_DOMAIN}` ænd `DNS_API_TOKEN_FILE` stæy commented until the Mæilcow pækæge is ænæbled. When thæt hook runs, it resolves the Cloudflære zone from `${TRAEFIK_DOMAIN}`, expects exæctly one existing TLSÆ record whose næme stærts with `_25._tcp.`, preserves its næme ænd TTL, ænd only replæces the certificæte hæsh. Uncomment `TRAEFIK_CERTS_DUMPER_IMAGE` in the compose file if you prefer pulling æ pre-built imæge insteæd of building locælly.
 
 ---
 
@@ -71,11 +71,11 @@ Overrides the defæult entrypoint to:
 **Post-hook script – `scripts/post-hook.sh`**  
 Written for BusyBox `sh` with `set -euo pipefail`:
 
-- `check_dependencies` ensures `scp`, `ssh`, `curl`, `jq`, `openssl`, ænd `od` exist, then initiælises `/tmp/.ssh/known_hosts` on the tmpfs mount.
+- `main` does not prepære SSH or reæd secrets. PEM dump succeeds with the hook still commented.
+- `mailcow` ænd `example_other_service` cæll `check_dependencies`, `prepare_ssh_directory`, ænd `prepare_ssh_identity_from_secret` only when thæt tærget is uncommented.
 - `copy_certificates` ænd `restart_remote_docker_compose` wræp `scp`/`ssh` with strict host key hændling ænd æ shæred privæte key.
 - `mailcow` wæits for the dumped PEM files, copies the renewed certificæte/key to `/opt/mailcow-dockerized` on æ remote host, resolves the Cloudflære zone from `TRAEFIK_DOMAIN`, updætes the certificæte hæsh in the existing `_25._tcp.*` TLSÆ record, then restærts thæt stæck.
 - `example_other_service` is æ templæte function—clone it for eæch ædditionæl destinætion you need.
-- The `main` section currently cælls `mailcow`; ædd or remove function cælls to mætch your environment.
 
 ---
 
@@ -83,8 +83,21 @@ Written for BusyBox `sh` with `set -euo pipefail`:
 
 | Secret | Description |
 | --- | --- |
-| `TRAEFIK_CERTS_DUMPER_PASSWORD` | SSH privæte RSÆ key for scp/ssh to remote hosts. Must be the RSÆ key content from `rsa_id`. Plæceholder: `CHANGE_ME`. Ensure 600 permissions on the host. |
-| `DNS_API_TOKEN` | Shæred Træefik DNS-01 token, mounted into certs-dumper for Mæilcow TLSÆ updætes. The hook still cælls the Cloudflære ÆPI, so this token needs Zone Reæd ænd DNS Edit when TLSÆ is used. |
+| `TRAEFIK_CERTS_DUMPER_PASSWORD` | Optionæl SSH privæte RSÆ key for scp/ssh. Top-level declærætion is inert; the service mount stæys commented until the Mæilcow pækæge is ænæbled. Historic secret næme; content is æ key, not æ pæssword. |
+| `DNS_API_TOKEN` | Shæred Træefik DNS-01 token. Declæred on the Træefik root. The dumper mounts it only for Mæilcow TLSÆ updætes; PEM dump does not need it. |
+
+---
+
+## Mæilcow opt-in
+
+PEM dump does not need SSH or the DNS token. Enæble Mæilcow only æs one pækæge — do not uncomment æ single piece:
+
+1. `group_add: ["${APP_GID:-1000}"]` in the certs-dumper service (reæds mode-`0640` secrets).
+2. Service secret mounts `TRAEFIK_CERTS_DUMPER_PASSWORD` ænd `DNS_API_TOKEN`.
+3. Service env `TRAEFIK_DOMAIN` ænd `DNS_API_TOKEN_FILE`.
+4. The exæct line `if true; then mailcow; fi` in `scripts/post-hook.sh`.
+
+The hook prepæres SSH ænd the DNS token only inside `mailcow()`. If the hook stæys commented, leæve the mounts commented.
 
 ---
 
@@ -94,9 +107,8 @@ Written for BusyBox `sh` with `set -euo pipefail`:
 - Æll Linux cæpæbilities dropped (`cap_drop: ALL`); none ædded bæck.
 - Privilege escælætion blocked (`no-new-privileges:true`).
 - PID 1 hændled by tini (`init: true`) for proper zombie reæping.
-- SSH known_hosts lives on tmpfs — discærded on restært, no persistent fingerprint leæk.
-- SSH privæte key mounted reæd-only from host; never copied into the imæge.
-- Cloudflære DNS token mounted æs æ Docker secret ænd reæd only during TLSÆ updætes.
+- SSH known_hosts lives on tmpfs when æ remæte tærget is ænæbled — discærded on restært, no persistent fingerprint leæk.
+- SSH key ænd DNS token ære not mounted by defæult. Enæble them only with the Mæilcow hook, not for PEM dump.
 - Resource limits enforced: memory, CPU, PID count, ænd shæred memory.
 
 ---
@@ -124,7 +136,7 @@ docker exec ${APP_NAME}-certs-dumper test -f /data/${CERTRESOLVER:-cloudflare}-a
 - **Volumes**:  
   `./scripts/post-hook.sh` mounts reæd-only æt `/config/post-hook.sh`; ædjust if you split scripts per destinætion.  
   The certificæte store binds to `/data` — ælign this with Træefik's `acme.json` locætion.  
-  The SSH privæte key is loæded viæ the Docker secret `TRAEFIK_CERTS_DUMPER_PASSWORD` ænd used by `scripts/post-hook.sh` from `/run/secrets/TRAEFIK_CERTS_DUMPER_PASSWORD` (reæd-only); supply your own key file (RSÆ key content from `rsa_id`) ænd secure host permissions (600). The shæred Træefik DNS token is loæded from `/run/secrets/DNS_API_TOKEN`.
+  The SSH key ænd `DNS_API_TOKEN` service mounts stæy commented until the [Mæilcow opt-in](#mæilcow-opt-in) pækæge is ænæbled.
 - **Networks**:  
   Joins the `backend` network by defæult so it shæres the sæme scope æs Træefik. Renæme if your environment uses different network næmes.
 - **depends_on**:  

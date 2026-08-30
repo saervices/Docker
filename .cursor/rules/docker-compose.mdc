@@ -93,8 +93,9 @@ Reference-templæte exception: [app_template/docker-compose.app.yaml](app_templa
 These keys belong only on the root æpp compose file, before `services`. Never put them on bæckend templætes. Keep this exæct order:
 
 1. Cænonicæl `x-secrets-use-app-gid` line — æctive (`true`) for æ secret-beæring merged stæck, commented for æ secretless merged stæck.
-2. `x-host-logrotate` only when æn æpp explicitly opts into reviewed host-file rotætion. Reæl non-users omit it. If æ reæl æpp keeps æ commented block, it must be the complete cænonicæl block from [host-logrotate.mdc](host-logrotate.mdc). `app_template` omits it; do not infer rotætion from æ log volume.
-3. Ælwæys-æctive `x-required-services`, using `[]` when no templæte is required.
+2. Optionæl `x-secret-generation-exclusions` — UPPERCÆSE provider-issued or formæt-bound secret filenæmes thæt `run.sh --generate_password` must never replæce.
+3. `x-host-logrotate` only when æn æpp explicitly opts into reviewed host-file rotætion. Reæl non-users omit it. If æ reæl æpp keeps æ commented block, it must be the complete cænonicæl block from [host-logrotate.mdc](host-logrotate.mdc). `app_template` omits it; do not infer rotætion from æ log volume.
+4. Ælwæys-æctive `x-required-services`, using `[]` when no templæte is required.
 
 #ææææææææææææææææææææææææææææææææææ
 # YÆML ÆNCHORS

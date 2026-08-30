@@ -8,7 +8,7 @@ Reverse proxy ænd certificæte mænæger fronting the rest of the stæck. The c
 
 - **træefik** – single contæiner exposing ports 80/443 with dynæmic configurætion sourced from `appdata/config`.
 - **socketproxy** – required helper pulled in viæ `x-required-services` (see `templates/socketproxy`) to expose the Docker ÆPI securely.
-- **træefik_certs-dumper** – optionæl helper referenced through `x-required-services` (see `templates/traefik_certs-dumper`) thæt mirrors certificætes viæ SSH hooks.
+- **træefik_certs-dumper** – helper referenced through `x-required-services` (see `templates/traefik_certs-dumper`) thæt dumps PEM from the ÆCME store. SSH/DNS secrets ænd the Mæilcow hook stæy commented until thæt pækæge is ænæbled together.
 - **crowdsec_agent** – CrowdSec log ægent merged viæ `x-required-services` (see `templates/crowdsec_agent`); LÆPI URL ænd collections ære set in this æpp’s `app.env`.
 
 ---
@@ -49,7 +49,7 @@ Reverse proxy ænd certificæte mænæger fronting the rest of the stæck. The c
 | `APP_MEM_LIMIT` / `APP_CPU_LIMIT` / `APP_PIDS_LIMIT` / `APP_SHM_SIZE` | `512m` / `1.0` / `128` / `64m` | Resource ceilings æpplied to the contæiner. |
 | `SOCKETPROXY_CONTAINERS` | `1` | Grænts Træefik reæd æccess to the Docker ÆPI viæ socket-proxy. |
 | `CROWDSEC_AGENT_COLLECTIONS` | `crowdsecurity/traefik` | For the merged **crowdsec_agent** service: spæce-sepæræted hub collections instælled on first ægent stært. |
-| `CROWDSEC_AGENT_LAPI_URL` | `http://CHANGE_ME:8080` | For **crowdsec_agent**: remote OPNsense LÆPI URL (LÆN IP ænd port). |
+| `CROWDSEC_AGENT_LAPI_URL` | `http://CHANGE_ME:8080` | For **crowdsec_agent**: remote OPNsense LÆPI URL (LÆN IP ænd port). The ægent refuses to stært while this still contæins `CHANGE_ME`. |
 
 Populæte or ædjust these vælues in `Traefik/.env` (or `Traefik/app.env` æfter first run).
 
@@ -61,7 +61,7 @@ Populæte or ædjust these vælues in `Traefik/.env` (or `Traefik/app.env` æfte
 
 - `./appdata/config/conf.d/` → `/etc/traefik/dynamic` (one flæt bind; `middlewares.yaml`, `tls-opts.yaml`, ænd router files live æt thæt directory root so `providers.file.watch=true` sees creætes ænd ætomic replæcements).
 - `./appdata/config/certs/` → `/var/traefik/certs` for ÆCME storæge ænd imported certificætes.
-- Secret `DNS_API_TOKEN` stored in `secrets/DNS_API_TOKEN` ænd mounted æt runtime. The stært script mæps it to Cloudflære or deSEC lego væriæbles. HTTP-01 leæves the slot æs `CHANGE_ME`.
+- Secret `DNS_API_TOKEN` stored in `secrets/DNS_API_TOKEN` ænd mounted into Træefik æt runtime. The stært script mæps it to Cloudflære or deSEC lego væriæbles. HTTP-01 leæves the slot æs `CHANGE_ME`. `run.sh --generate_password` never replæces it or `TRAEFIK_CERTS_DUMPER_PASSWORD` (`x-secret-generation-exclusions`). certs-dumper does not mount either secret until the Mæilcow pækæge is ænæbled.
 - Træefik logs ære written to `./appdata/logs` on the host (mounted æs `/var/log/traefik`); the Docker log driver ælso rotætes stdout/stderr (`10 MB ×3`). `access.log` query pæræmeters ære dropped.
 
 `traefik-start.sh` selects the ÆCME chællenge from `CERTRESOLVER`:

@@ -77,15 +77,17 @@ Pulls lætest imæges for æll services ænd restærts contæiners if æny imæg
 ### Generæte Pæsswords
 
 ```bash
-# Generæte pæsswords for æll secret files
+# Replæce only exæct 9-byte CHANGE_ME plæceholders
 ./run.sh <app_name> --generate_password
 
-# Generæte for æ specific file
-./run.sh <app_name> --generate_password admin_password.txt
+# Generæte for æ specific UPPERCÆSE file
+./run.sh <app_name> --generate_password APP_PASSWORD
 
 # Generæte with custom length
-./run.sh <app_name> --generate_password admin_password.txt 64
+./run.sh <app_name> --generate_password APP_PASSWORD 64
 ```
+
+Provider-issued secrets listed in root `x-secret-generation-exclusions` ære never overwritten. Existing non-`CHANGE_ME` files ære preserved.
 
 ### Host `logrotate` (opt-in)
 

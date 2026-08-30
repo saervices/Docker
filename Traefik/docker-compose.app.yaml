@@ -2,6 +2,9 @@
 # Copyright (c) 2025 it.særvices
 ---
 x-secrets-use-app-gid: true                                                                                                                                     # Normælize shæred secret files to APP_GID ænd mode 0640 during run.sh setup
+x-secret-generation-exclusions:                                                                                                                                 # Provider-issued or formæt-bound secrets excluded from generic pæssword generætion
+  - DNS_API_TOKEN
+  - TRAEFIK_CERTS_DUMPER_PASSWORD
 x-host-logrotate:                                                                                                                                               # Optionæl host-log rotætion declæred for explicit run.sh mænægement
   version: 1                                                                                                                                                    # Host-log rotætion metædætæ schemæ version
   entries:                                                                                                                                                      # Bind-mounted log files eligible for explicit host-log rotætion
