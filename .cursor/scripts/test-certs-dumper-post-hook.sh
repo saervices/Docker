@@ -17,6 +17,9 @@ readonly PARSER_IMMICH="${TEST_REPO_ROOT}/templates/crowdsec_agent/appdata/crowd
 readonly PARSER_SEAFILE="${TEST_REPO_ROOT}/templates/crowdsec_agent/appdata/crowdsec_agent/config/parsers/s02-enrich/seafile-sync-whitelist.yaml"
 readonly CROWDSEC_README="${TEST_REPO_ROOT}/templates/crowdsec_agent/README.md"
 readonly DUMPER_README="${TEST_REPO_ROOT}/templates/traefik_certs-dumper/README.md"
+readonly DUMPER_ENV="${TEST_REPO_ROOT}/templates/traefik_certs-dumper/.env"
+readonly DUMPER_DOCKERFILE="${TEST_REPO_ROOT}/templates/traefik_certs-dumper/dockerfiles/dockerfile.traefik-certs-dumper.scp"
+readonly DUMPER_ENTRYPOINT="${TEST_REPO_ROOT}/templates/traefik_certs-dumper/dockerfiles/entrypoint.traefik_certs-dumper.sh"
 
 PASS=0
 FAIL=0
@@ -109,6 +112,15 @@ if grep -q "startsWith 'seafile.'" "$PARSER_SEAFILE" \
   pass parser-seafile
 else
   fail parser-seafile
+fi
+
+if grep -q 'TRAEFIK_CERTS_DUMPER_IMAGE=ldez/traefik-certs-dumper:v2' "$DUMPER_ENV" \
+  && grep -q 'ARG TRAEFIK_CERTS_DUMPER_IMAGE=ldez/traefik-certs-dumper:v2' "$DUMPER_DOCKERFILE" \
+  && grep -q 'TRAEFIK_CERTS_DUMPER_IMAGE: ${TRAEFIK_CERTS_DUMPER_IMAGE:?Image required}' "$DUMPER_COMPOSE" \
+  && grep -q -- '--version v3' "$DUMPER_ENTRYPOINT"; then
+  pass dumper-image-v2-acme-v3
+else
+  fail dumper-image-v2-acme-v3
 fi
 
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"

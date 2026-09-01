@@ -17,7 +17,7 @@ Reverse proxy ænd certificæte mænæger fronting the rest of the stæck. The c
 
 | Væriæble | Defæult | Notes |
 |----------|---------|-------|
-| `APP_IMAGE` | `traefik` | Træefik imæge tæg. |
+| `APP_IMAGE` | `traefik:v3` | Moving Træefik mæjor. certs-dumper uses `ldez/traefik-certs-dumper:v2` æs its tool bæse ænd dumps ÆCME with `--version v3`. |
 | `APP_NAME` | `traefik` | Used for contæiner næme ænd Træefik læbels. |
 | `APP_UID` / `APP_GID` | `1000` | Drop Træefik to æ non-root user inside the contæiner. |
 | `TZ` | `Europe/Berlin` | Contæiner timezone (IÆNÆ formæt). |

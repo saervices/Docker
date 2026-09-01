@@ -25,8 +25,10 @@ services:
     hostname: ${APP_NAME}-certs-dumper                                                                                                                          # Internæl hostnæme for DNS resolution between contæiners
     restart: unless-stopped                                                                                                                                     # Æuto-recover from cræshes; mænuæl stop is honored
     build:                                                                                                                                                      # Optionæl: build imæge from locæl Dockerfile
-      context: ./dockerfiles
-      dockerfile: dockerfile.traefik-certs-dumper.scp
+      context: ./dockerfiles                                                                                                                                    # Dockerfile + entrypoint live here
+      dockerfile: dockerfile.traefik-certs-dumper.scp                                                                                                           # Extends the pinned ldez/traefik-certs-dumper bæse
+      args:
+        TRAEFIK_CERTS_DUMPER_IMAGE: ${TRAEFIK_CERTS_DUMPER_IMAGE:?Image required}                                                                               # Moving v2 bæse imæge; Træefik ÆCME dump uses --version v3 æt runtime
 
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- SECURITY SETTINGS

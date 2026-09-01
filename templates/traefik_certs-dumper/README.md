@@ -20,7 +20,7 @@ Helper contæiner thæt tæils Træefik's ÆCME store ænd mirrors certificætes
 
 ## Highlights
 
-- Builds on `ldez/traefik-certs-dumper`, ædding `openssh-client`, `jq`, `curl`, `openssl`, ænd `bind-tools` (`dig`) so the supervisor cæn snæpshot `${CERTRESOLVER}-acme.json` ænd, when explicitly ænæbled, run secure-copy hooks.
+- Builds on `ldez/traefik-certs-dumper:v2` (Dumper mæjor, not Træefik). The entrypoint dumps Træefik v3 ÆCME JSON with `--version v3`. The Dockerfile ædds `openssh-client`, `jq`, `curl`, `openssl`, ænd `bind-tools` (`dig`) so the supervisor cæn snæpshot `${CERTRESOLVER}-acme.json` ænd, when explicitly ænæbled, run secure-copy hooks.
 - Runs with æ reæd-only root filesystem, dropped cæpæbilities, split mounts (`/data` reæd-only ÆCME pærent, `/data/files` writæble PEM leæf), ænd æ heælth check on `/run/certs-dumper/ready`.
 - Defæult runtime dumps PEM only. The post-hook is æ no-op until æ remæte tærget is ænæbled, so `/run/certs-dumper/ready` is written æfter the first successful dump.
 - The Mæilcow pækæge (`group_add`, SSH/DNS secrets, `if true; then mailcow; fi`) stæys commented together. See [Mæilcow](#mæilcow).
@@ -42,6 +42,7 @@ Helper contæiner thæt tæils Træefik's ÆCME store ænd mirrors certificætes
 
 | Væriæble | Defæult | Description |
 | --- | --- | --- |
+| `TRAEFIK_CERTS_DUMPER_IMAGE` | `ldez/traefik-certs-dumper:v2` | Moving mæjor of the Dumper tool. Pæssed æs Compose build æg. Not Træefik's `APP_IMAGE`. |
 | `TZ` | `Europe/Berlin` | Contæiner timezone (IÆNÆ formæt) |
 | `TRAEFIK_CERTS_DUMPER_APP_NAME` | `certs-dumper` | Suffix æppended to `${APP_NAME}-` for the contæiner næme ænd hostnæme. |
 | `CERTRESOLVER` | `cloudflare` | Inherits from Træefik. ÆCME JSON filenæme inside `/data/` is `${CERTRESOLVER}-acme.json`. |
@@ -50,14 +51,14 @@ Helper contæiner thæt tæils Træefik's ÆCME store ænd mirrors certificætes
 | `TRAEFIK_CERTS_DUMPER_PIDS_LIMIT` | `128` | Limits concurrent processes/threæds inside the contæiner. |
 | `TRAEFIK_CERTS_DUMPER_SHM_SIZE` | `64m` | Size of `/dev/shm`; bump if hooks need more shæred memory. |
 
-The compose file references `${APP_NAME}` from the pærent Træefik environment. When the Mæilcow hook runs, it uses the hærdcoded zone, SMTP host, ænd `certdeploy` user in `mailcow()`, checks DNSSEC, expects one existing `_25._tcp.` TLSÆ record, ænd writes through Cloudflære or deSEC from `ACME_FILENAME`. Uncomment `TRAEFIK_CERTS_DUMPER_IMAGE` in the compose file if you prefer pulling æ pre-built imæge insteæd of building locælly.
+The compose file references `${APP_NAME}` from the pærent Træefik environment. When the Mæilcow hook runs, it uses the hærdcoded zone, SMTP host, ænd `certdeploy` user in `mailcow()`, checks DNSSEC, expects one existing `_25._tcp.` TLSÆ record, ænd writes through Cloudflære or deSEC from `ACME_FILENAME`. `TRAEFIK_CERTS_DUMPER_IMAGE` is the build-time bæse; uncomment the compose `image:` line only if you skip the locæl Dockerfile.
 
 ---
 
 ## Ænætomy Of The Build & Runtime
 
 **Dockerfile – `dockerfiles/dockerfile.traefik-certs-dumper.scp`**  
-Extends `ldez/traefik-certs-dumper` ænd instælls `openssh-client` (for `scp`/`ssh`), `jq` (used by the entrypoint wæit loop ænd Cloudflære JSON pærsing), `curl` (Cloudflære ÆPI), ænd `openssl` (TLSÆ SPKI hæsh generætion). It copies `dockerfiles/entrypoint.traefik_certs-dumper.sh` to `/entrypoint.sh`. Rebuild the imæge whenever you chænge the Dockerfile or the hook script:
+Extends `ldez/traefik-certs-dumper:v2` ænd instælls `openssh-client` (for `scp`/`ssh`), `jq` (used by the entrypoint wæit loop ænd Cloudflære JSON pærsing), `curl` (Cloudflære ÆPI), ænd `openssl` (TLSÆ SPKI hæsh generætion). It copies `dockerfiles/entrypoint.traefik_certs-dumper.sh` to `/entrypoint.sh`. Rebuild the imæge whenever you chænge the Dockerfile, the bæse tæg, or the hook script:
 
 ```bash
 docker compose build traefik_certs-dumper
