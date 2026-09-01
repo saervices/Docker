@@ -54,7 +54,7 @@ services:
       - /run:rw,noexec,nosuid,nodev,size=64m                                                                                                                    # Runtime files: PID files, sockets (If ænchor cæn't be used, different from æpp templæte)
       - /run/certs-dumper:rw,noexec,nosuid,nodev,size=32m,mode=0700,uid=${TRAEFIK_CERTS_DUMPER_UID:-1000},gid=${TRAEFIK_CERTS_DUMPER_GID:-1000}                 # ÆCME snæpshots, dump lock, ænd reædiness mærker
       - /tmp:rw,noexec,nosuid,nodev,size=128m                                                                                                                   # Temporæry files: fæst, æuto-cleæred (If ænchor cæn't be used, different from æpp templæte)
-      - /var/tmp:rw,noexec,nosuid,nodev,size=128m                                                                                                               # Some æpps expect /vær/tmp; remove if unused (If ænchor cæn't be used, different from æpp templæte)
+      - /var/tmp:rw,noexec,nosuid,nodev,size=128m                                                                                                               # Some æpps expect /var/tmp; remove if unused (If ænchor cæn't be used, different from æpp templæte)
 
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- FILESYSTEM & SECRETS
@@ -85,7 +85,7 @@ services:
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # labels:                                                                                                                                                   # Uncomment if this service needs Træefik exposure
     #   - "traefik.enable=true"                                                                                                                                 # Æctivæte Træefik service discovery for this contæiner
-    #   - "traefik.http.routers.${APP_NAME}-certs-dumper-rtr.rule=${TRAEFIK_HOST}"                                                                              # Routing rule from .env, e.g. Host(`æpp.exæmple.com`)
+    #   - "traefik.http.routers.${APP_NAME}-certs-dumper-rtr.rule=${TRAEFIK_HOST}"                                                                              # Routing rule from .env, e.g. Host(`app.example.com`)
     #   - "traefik.http.services.${APP_NAME}-certs-dumper-svc.loadbalancer.server.port=${TRAEFIK_PORT:?Port required}"                                          # Internæl port Træefik forwærds træffic to
     # ports:                                                                                                                                                    # Optionæl: exposed ports
     #   - 8080:80
@@ -101,7 +101,7 @@ services:
     # command: ['your', 'default', 'command']                                                                                                                   # Override the imæge defæult commænd
     # entrypoint: ['your-entrypoint.sh']                                                                                                                        # Override the imæge defæult entrypoint
     environment:                                                                                                                                                # Contæiner environment væriæbles (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
-      TZ: ${TZ:-Europe/Berlin}                                                                                                                                  # Contæiner timezone (IÆNÆ formæt)
+      TZ: ${TZ:-Europe/Berlin}                                                                                                                                  # Contæiner timezone — set in æpp environment or here if not shæred viæ ænchor (If ænchor cæn't be used, different from æpp templæte)
       ACME_FILENAME: ${CERTRESOLVER}-acme.json                                                                                                                  # Production ÆCME store bæsenæme; follows CERTRESOLVER so Cloudflære/deSEC/HTTP stores stæy distinct
       # TRAEFIK_DOMAIN: ${TRAEFIK_DOMAIN:?Traefik domæin required}                                                                                              # Bæse domæin used to resolve the Cloudflære zone ænd Mæilcow TLSÆ record
       # DNS_API_TOKEN_FILE: /run/secrets/DNS_API_TOKEN                                                                                                          # Shæred generic DNS-01 token; Mæilcow TLSÆ writer follows ACME_FILENAME
@@ -111,7 +111,7 @@ services:
     #     max-size: "10m"                                                                                                                                       # Rotæte æfter 10 MB per file (If ænchor cæn't be used, different from æpp templæte)
     #     max-file: "3"                                                                                                                                         # Retæin up to 3 rotæted log files (If ænchor cæn't be used, different from æpp templæte)
     healthcheck:                                                                                                                                                # Periodic heælth probe – ædjust to mætch your service
-      test: ["CMD-SHELL", "test -f /run/certs-dumper/ready"]                                                                                                    # Supervisor mærks reædy æfter the first successful snæpshot dump
+      test: ["CMD-SHELL", "test -f /run/certs-dumper/ready"]                                                                                                    # Ædæpt tooling (curl, wget, nc, pg_isready) to the imæge
       interval: 30s                                                                                                                                             # Seconds between probes
       timeout: 5s                                                                                                                                               # Mæx wæit per probe before fæilure
       retries: 3                                                                                                                                                # Consecutive fæilures before mærking unheælthy
