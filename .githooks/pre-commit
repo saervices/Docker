@@ -32,6 +32,7 @@ fi
 # --- Æpp-templæte compliænce ænd ænchor verificætion ---
 # Find æpp dirs with stæged docker-compose.app.yaml or .env / app.env
 app_dirs=""
+template_dirs=""
 hardening_paths=""
 while IFS= read -r file; do
     case "$file" in
@@ -40,6 +41,15 @@ while IFS= read -r file; do
             ;;
     esac
     case "$file" in
+        templates/*/*)
+            rest="${file#templates/}"
+            svc="${rest%%/*}"
+            case "$file" in
+                "templates/${svc}/docker-compose.${svc}.yaml"|"templates/${svc}/docker-compose.template.yaml"|"templates/${svc}/.env")
+                    template_dirs="$template_dirs templates/${svc}"
+                    ;;
+            esac
+            ;;
         */*)
             dir="${file%%/*}"
             case "$file" in
@@ -51,6 +61,7 @@ while IFS= read -r file; do
     esac
 done <<< "$staged_files"
 app_dirs=$(echo "$app_dirs" | tr ' ' '\n' | sort -u | tr '\n' ' ')
+template_dirs=$(echo "$template_dirs" | tr ' ' '\n' | sort -u | tr '\n' ' ')
 hardening_paths=$(echo "$hardening_paths" | tr ' ' '\n' | sort -u | tr '\n' ' ')
 
 HARDENING=".cursor/scripts/check-hardening.py"
@@ -63,16 +74,37 @@ fi
 
 COMPLIANCE=".cursor/scripts/enforce-app-template-compliance.py"
 ANCHORS=".cursor/scripts/verify-anchors.py"
-for app in $app_dirs; do
-    [[ -z "$app" ]] && continue
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: run_compliance
+#   Check then auto-fix æpp-templæte compliænce; fæil closed if issues remæin.
+#   Ærguments:
+#     $1 - æpp or templæte directory
+#     $2 - pæths to re-stæge æfter æ fix
+#ææææææææææææææææææææææææææææææææææ
+run_compliance() {
+    local target="$1"
+    local staged_hint="$2"
+    [[ -z "$target" ]] && return 0
     if [[ -f "$COMPLIANCE" ]]; then
-        if ! python3 "$COMPLIANCE" --check "$app" >/dev/null 2>&1; then
-            echo "[pre-commit] Compliance issues in $app — auto-fixing..."
-            python3 "$COMPLIANCE" "$app"
-            git add "$app/docker-compose.app.yaml" "$app/.env" "$app/app.env" 2>/dev/null || true
-            echo "[pre-commit] Compliance fixed and re-staged for $app."
+        if ! python3 "$COMPLIANCE" --check "$target" >/dev/null 2>&1; then
+            echo "[pre-commit] Compliance issues in $target — auto-fixing..."
+            python3 "$COMPLIANCE" "$target"
+            read -r -a restage <<< "$staged_hint"
+            git add -- "${restage[@]}" 2>/dev/null || true
+            if ! python3 "$COMPLIANCE" --check "$target" >/dev/null 2>&1; then
+                echo "[pre-commit] Unresolved compliance issues in $target. Fix them before committing." >&2
+                python3 "$COMPLIANCE" --check "$target" >&2 || true
+                exit 1
+            fi
+            echo "[pre-commit] Compliance fixed and re-staged for $target."
         fi
     fi
+}
+
+for app in $app_dirs; do
+    [[ -z "$app" ]] && continue
+    run_compliance "$app" "$app/docker-compose.app.yaml $app/.env $app/app.env"
     if [[ -f "$ANCHORS" ]]; then
         if ! python3 "$ANCHORS" "$app"; then
             echo "[pre-commit] Anchor issues in $app — auto-fixing deterministic cases..."
@@ -85,6 +117,11 @@ for app in $app_dirs; do
             echo "[pre-commit] Anchor issues fixed and re-staged for $app."
         fi
     fi
+done
+
+for tmpl in $template_dirs; do
+    [[ -z "$tmpl" ]] && continue
+    run_compliance "$tmpl" "$tmpl"
 done
 
 exit 0

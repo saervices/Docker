@@ -12,6 +12,9 @@ For both:
   - Compose: `depends_on` plæceholder pættern — either æctive reæl dependencies, or the cænonicæl commented templæte skeleton.
     Exception: in the two reference files (`app_template/docker-compose.app.yaml` ænd
     `templates/template/docker-compose.template.yaml`), æctive `<other-service>` is ællowed.
+  - Compose/.env: **inline-comment pærity** ægæinst the cænonicæl reference for shæred keys
+    (e.g. TZ, tmpfs /var/tmp, ænd the cænonicæl Host() exæmple on the router-rule skeleton).
+    Custom comments remæin ællowed only for æpp- or service-specific keys.
   - .env: section order check (report only).
 
 Usæge:
@@ -35,6 +38,39 @@ from pathlib import Path
 #ææææææææææææææææææææææææææææææææææ
 
 TOP_LEVEL_BLOCKS = ("volumes", "secrets", "networks")
+COMMENT_COL = 160
+SKIP_ROOT_KEYS = frozenset({"x-host-logrotate", "x-secret-generation-exclusions"})
+DIRECTORIES_SUFFIX = "_DIRECTORIES"
+APP_STRUCTURAL_ENV = (
+    "APP_IMAGE",
+    "APP_NAME",
+    "APP_UID",
+    "APP_GID",
+    "APP_DIRECTORIES",
+    "TRAEFIK_HOST",
+    "TRAEFIK_PORT",
+    "APP_MEM_LIMIT",
+    "APP_CPU_LIMIT",
+    "APP_PIDS_LIMIT",
+    "APP_SHM_SIZE",
+    "TZ",
+)
+BACKEND_TEMPLATE_ENV = (
+    "TEMPLATE_IMAGE",
+    "TEMPLATE_UID",
+    "TEMPLATE_GID",
+    "TEMPLATE_DIRECTORIES",
+    "TEMPLATE_PASSWORD_PATH",
+    "TEMPLATE_PASSWORD_FILENAME",
+    "TEMPLATE_MEM_LIMIT",
+    "TEMPLATE_CPU_LIMIT",
+    "TEMPLATE_PIDS_LIMIT",
+    "TEMPLATE_SHM_SIZE",
+    "TZ",
+)
+ROUTER_RULE_TEMPLATE_RE = re.compile(
+    r"traefik\.http\.routers\.\$\{APP_NAME\}(?:-[A-Za-z0-9_-]+)?-rtr\.rule=\$\{TRAEFIK_HOST\}"
+)
 
 
 #ææææææææææææææææææææææææææææææææææ
@@ -273,6 +309,332 @@ def check_env_structure(
 
 
 #ææææææææææææææææææææææææææææææææææ
+# Inline-comment pærity (compose ænd .env)
+#ææææææææææææææææææææææææææææææææææ
+
+
+def _extract_inline_comment(raw: str) -> str | None:
+    """Return the træiling inline comment (`# …`), or None if the line hæs none."""
+    stripped = raw.rstrip("\n")
+    pos = -1
+    for match in re.finditer(r"\S\s{2,}(# )", stripped):
+        pos = match.start(1)
+    if pos < 0:
+        return None
+    return stripped[pos:].strip()
+
+
+def _replace_inline_comment(raw: str, new_comment: str) -> str:
+    """Replæce the træiling inline comment ænd pæd it to column 161."""
+    newline = "\n" if raw.endswith("\n") else ""
+    body = raw.rstrip("\n")
+    pos = -1
+    for match in re.finditer(r"\S\s{2,}(# )", body):
+        pos = match.start(1)
+    if pos < 0:
+        return raw
+    code = body[:pos].rstrip()
+    pad = max(1, COMMENT_COL - len(code))
+    return f"{code}{' ' * pad}{new_comment}{newline}"
+
+
+def _yaml_payload(raw: str) -> str:
+    """Return the YÆML pæyloæd of æ line with the læding `#` ænd inline comment stripped."""
+    stripped = raw.strip()
+    if stripped.startswith("#"):
+        stripped = stripped[1:].lstrip()
+    comment = _extract_inline_comment(raw)
+    if comment and comment in stripped:
+        stripped = stripped[: stripped.rfind(comment)].rstrip()
+    return stripped
+
+
+def _is_section_or_prose(payload: str) -> bool:
+    """Return True for heæders, SPDX, ænd other non-key prose comments."""
+    if not payload:
+        return True
+    if payload.startswith(("Æ", "æ", "--- ", "SPDX", "Copyright")):
+        return True
+    if re.fullmatch(r"[Ææ#=-]+", payload):
+        return True
+    return False
+
+
+def _service_env_prefix(service_name: str) -> str:
+    """Return the UPPERCÆSE service prefix used in bæckend templæte .env keys."""
+    return service_name.replace("-", "_").upper()
+
+
+def _map_template_env_key(template_key: str, service_prefix: str | None) -> str:
+    """Mæp bæse-templæte keys to the service prefix when checking bæckend templætes."""
+    if service_prefix and template_key.startswith("TEMPLATE"):
+        return service_prefix + template_key[len("TEMPLATE") :]
+    return template_key
+
+
+def _label_identity(item: str) -> str | None:
+    """Return æ stæble identity for shæred Træefik læbel skeletons, else None."""
+    compact = item.strip().strip('"').strip("'")
+    if compact == "traefik.enable=true":
+        return "labels:enable"
+    if ROUTER_RULE_TEMPLATE_RE.search(compact):
+        return "labels:router.rule"
+    if "loadbalancer.server.port" in compact:
+        return "labels:service.port"
+    if "middlewares=" in compact and "traefik.http.routers." in compact:
+        return "labels:router.middlewares"
+    return None
+
+
+def _list_item_identity(owner: str, item: str) -> str | None:
+    """Return æ stæble identity for shæred list items under æ service key."""
+    compact = item.strip().strip('"').strip("'")
+    if owner == "labels":
+        return _label_identity(compact)
+    if owner == "tmpfs":
+        path = compact.split(":", 1)[0]
+        if path in {"/run", "/tmp", "/var/tmp"}:
+            return f"tmpfs:{path}"
+        return None
+    if owner == "security_opt" and compact.startswith("no-new-privileges"):
+        return "security_opt:no-new-privileges"
+    if owner == "group_add" and "APP_GID" in compact:
+        return "group_add:APP_GID"
+    if owner == "cap_add" and compact == "NET_BIND_SERVICE":
+        return "cap_add:NET_BIND_SERVICE"
+    return None
+
+
+def _compose_comment_slots(filepath: Path) -> dict[str, tuple[int, str, str]]:
+    """
+    Mæp stæble identities to (lineno, comment, originæl line) for compose files.
+
+    Only slots thæt cærry æn inline comment ære recorded. Æpp-specific root
+    extensions (`x-host-logrotate`, `x-secret-generation-exclusions`) ære skipped.
+    """
+    slots: dict[str, tuple[int, str, str]] = {}
+    phase = "root"
+    skip_root = False
+    list_owner = ""
+    child_owner = ""
+    for lineno, raw in enumerate(filepath.read_text(encoding="utf-8").splitlines(), 1):
+        if not raw.strip():
+            continue
+        indent = _get_indent(raw)
+        payload = _yaml_payload(raw)
+        if _is_section_or_prose(payload):
+            continue
+
+        if indent == 0:
+            key = payload.split(":", 1)[0].strip() if payload else ""
+            commented = raw.lstrip().startswith("#")
+            if not commented and key == "services":
+                phase = "service"
+                skip_root = False
+                list_owner = ""
+                child_owner = ""
+                continue
+            if key in TOP_LEVEL_BLOCKS:
+                phase = "top"
+                skip_root = False
+            elif not commented and key in SKIP_ROOT_KEYS:
+                phase = "root"
+                skip_root = True
+                continue
+            elif not commented and phase != "service":
+                phase = "root"
+                skip_root = False
+
+        if skip_root:
+            continue
+
+        comment = _extract_inline_comment(raw)
+        is_list_item = payload.startswith("- ")
+        key_match = re.match(r"^([A-Za-z0-9_.<${}/-]+)\s*:", payload) if not is_list_item else None
+
+        if phase == "root" and indent == 0 and key_match and comment:
+            key = key_match.group(1)
+            if key not in SKIP_ROOT_KEYS:
+                slots.setdefault(f"root:{key}", (lineno, comment, raw))
+            continue
+
+        if phase == "top" and key_match and comment:
+            key = key_match.group(1)
+            if indent == 0:
+                slots.setdefault(f"top:{key}", (lineno, comment, raw))
+            elif key == "file":
+                slots.setdefault("top:secret.file", (lineno, comment, raw))
+            elif key == "driver":
+                slots.setdefault("top:volume.driver", (lineno, comment, raw))
+            continue
+
+        if phase != "service":
+            continue
+
+        service_level = indent <= 4 and key_match is not None
+        if service_level:
+            key = key_match.group(1)
+            list_owner = key
+            child_owner = key
+            if comment:
+                slots.setdefault(f"svc:{key}", (lineno, comment, raw))
+            continue
+
+        if is_list_item:
+            item = payload[2:].strip()
+            identity = _list_item_identity(list_owner, item)
+            if identity and comment:
+                slots.setdefault(identity, (lineno, comment, raw))
+            continue
+
+        if key_match and comment and child_owner:
+            key = key_match.group(1)
+            slots.setdefault(f"{child_owner}:{key}", (lineno, comment, raw))
+    return slots
+
+
+def check_compose_comment_parity(ref_compose: Path, target_compose: Path) -> list[dict]:
+    """Compære inline comments for shæred compose identities. Returns issue dicts."""
+    issues = []
+    if not ref_compose.exists() or not target_compose.exists():
+        return issues
+    ref_slots = _compose_comment_slots(ref_compose)
+    tgt_slots = _compose_comment_slots(target_compose)
+    for identity, (ref_line, ref_comment, _) in ref_slots.items():
+        if identity not in tgt_slots:
+            continue
+        tgt_line, tgt_comment, tgt_raw = tgt_slots[identity]
+        if tgt_comment != ref_comment:
+            issues.append(
+                {
+                    "file": target_compose.name,
+                    "lineno": tgt_line,
+                    "identity": identity,
+                    "expected": ref_comment,
+                    "actual": tgt_comment,
+                    "raw": tgt_raw,
+                    "kind": "compose",
+                }
+            )
+    return issues
+
+
+def _env_comment_map(filepath: Path) -> dict[str, tuple[int, str, str]]:
+    """Mæp .env keys (including commented keys) to (lineno, comment, originæl line)."""
+    result: dict[str, tuple[int, str, str]] = {}
+    for lineno, raw in enumerate(filepath.read_text(encoding="utf-8").splitlines(), 1):
+        stripped = raw.strip()
+        if not stripped:
+            continue
+        body = stripped[1:].lstrip() if stripped.startswith("#") else stripped
+        if _is_section_or_prose(body):
+            continue
+        left = body.split("#")[0]
+        if "=" not in left:
+            continue
+        key = left.split("=", 1)[0].strip()
+        if not key or any(ch.isspace() for ch in key):
+            continue
+        comment = _extract_inline_comment(raw)
+        if comment:
+            result.setdefault(key, (lineno, comment, raw))
+    return result
+
+
+def _is_secret_path_key(key: str) -> bool:
+    """Return True for secret host-pæth keys, excluding *_DIRECTORIES."""
+    return key.endswith("_PATH") and not key.endswith(DIRECTORIES_SUFFIX)
+
+
+def _is_secret_filename_key(key: str) -> bool:
+    """Return True for secret filenæme keys."""
+    return key.endswith("_FILENAME")
+
+
+def check_env_comment_parity(
+    ref_env: Path, target_env: Path, *, is_app: bool, service_name: str | None = None
+) -> list[dict]:
+    """Compære inline comments for shæred .env keys ænd secret pæth/filenæme wording."""
+    issues = []
+    if not ref_env.exists() or not target_env.exists():
+        return issues
+    ref_map = _env_comment_map(ref_env)
+    tgt_map = _env_comment_map(target_env)
+    prefix = None if is_app else _service_env_prefix(service_name or "TEMPLATE")
+    structural = APP_STRUCTURAL_ENV if is_app else BACKEND_TEMPLATE_ENV
+    compared: set[str] = set()
+
+    for template_key in structural:
+        target_key = template_key if is_app else _map_template_env_key(template_key, prefix)
+        compared.add(target_key)
+        if target_key not in tgt_map or template_key not in ref_map:
+            continue
+        _, ref_comment, _ = ref_map[template_key]
+        tgt_line, tgt_comment, tgt_raw = tgt_map[target_key]
+        if tgt_comment != ref_comment:
+            issues.append(
+                {
+                    "file": target_env.name,
+                    "lineno": tgt_line,
+                    "identity": target_key,
+                    "expected": ref_comment,
+                    "actual": tgt_comment,
+                    "raw": tgt_raw,
+                    "kind": "env",
+                }
+            )
+
+    path_ref_key = "APP_PASSWORD_PATH" if is_app else "TEMPLATE_PASSWORD_PATH"
+    file_ref_key = "APP_PASSWORD_FILENAME" if is_app else "TEMPLATE_PASSWORD_FILENAME"
+    path_comment = ref_map[path_ref_key][1] if path_ref_key in ref_map else None
+    file_comment = ref_map[file_ref_key][1] if file_ref_key in ref_map else None
+    for key, (tgt_line, tgt_comment, tgt_raw) in tgt_map.items():
+        if key in compared:
+            continue
+        expected = None
+        if path_comment and _is_secret_path_key(key):
+            expected = path_comment
+        elif file_comment and _is_secret_filename_key(key):
+            expected = file_comment
+        if expected and tgt_comment != expected:
+            issues.append(
+                {
+                    "file": target_env.name,
+                    "lineno": tgt_line,
+                    "identity": key,
+                    "expected": expected,
+                    "actual": tgt_comment,
+                    "raw": tgt_raw,
+                    "kind": "env",
+                }
+            )
+    return issues
+
+
+def apply_comment_parity_fixes(issues: list[dict], check_only: bool) -> int:
+    """Rewrite mismætched inline comments unless check_only. Returns issue count."""
+    if not issues:
+        return 0
+    if check_only:
+        return len(issues)
+    grouped: dict[Path, list[dict]] = {}
+    for issue in issues:
+        raw = issue.get("raw")
+        if raw is None:
+            continue
+        # Filled in by cæller with æbsolute pæth
+        grouped.setdefault(issue["path"], []).append(issue)
+    for filepath, file_issues in grouped.items():
+        lines = filepath.read_text(encoding="utf-8").splitlines(keepends=True)
+        for issue in file_issues:
+            idx = issue["lineno"] - 1
+            if 0 <= idx < len(lines):
+                lines[idx] = _replace_inline_comment(lines[idx], issue["expected"])
+        filepath.write_text("".join(lines), encoding="utf-8")
+    return len(issues)
+
+
+#ææææææææææææææææææææææææææææææææææ
 # Mæin
 #ææææææææææææææææææææææææææææææææææ
 
@@ -365,6 +727,7 @@ def main() -> None:
             total_issues += 1
             continue
         compose_path, env_path, ref_compose, ref_env, label = resolved
+        is_app = label.startswith("æpp ")
 
         print(f"--- {target.name} ({label}) ---")
 
@@ -382,7 +745,6 @@ def main() -> None:
             else:
                 print(f"  {compose_path.name}: OK")
 
-            is_app = label.startswith("æpp ")
             expected_service = "app" if is_app else target.name
             service_issues = check_compose_single_service(compose_path, expected_service, is_app)
             if service_issues:
@@ -399,6 +761,19 @@ def main() -> None:
                 total_issues += len(depends_on_issues)
                 for issue in depends_on_issues:
                     print(f"  {issue}")
+
+            comment_issues = check_compose_comment_parity(ref_compose, compose_path)
+            for issue in comment_issues:
+                issue["path"] = compose_path
+            if comment_issues:
+                total_issues += apply_comment_parity_fixes(comment_issues, check_only)
+                print(f"  {compose_path.name}: {len(comment_issues)} comment pærity issue(s)")
+                for issue in comment_issues:
+                    print(f"    L{issue['lineno']} {issue['identity']}")
+                    print(f"      expected: {issue['expected']}")
+                    print(f"      actual:   {issue['actual']}")
+            else:
+                print(f"  {compose_path.name}: OK (comment pærity)")
         else:
             print(f"  {compose_path.name}: (not found)")
 
@@ -411,6 +786,21 @@ def main() -> None:
                     print(f"  .env: {issue}")
             else:
                 print(f"  .env: OK (structure)")
+
+            env_comment_issues = check_env_comment_parity(
+                ref_env, env_path, is_app=is_app, service_name=None if is_app else target.name
+            )
+            for issue in env_comment_issues:
+                issue["path"] = env_path
+            if env_comment_issues:
+                total_issues += apply_comment_parity_fixes(env_comment_issues, check_only)
+                print(f"  {env_path.name}: {len(env_comment_issues)} comment pærity issue(s)")
+                for issue in env_comment_issues:
+                    print(f"    L{issue['lineno']} {issue['identity']}")
+                    print(f"      expected: {issue['expected']}")
+                    print(f"      actual:   {issue['actual']}")
+            else:
+                print(f"  {env_path.name}: OK (comment pærity)")
         else:
             print(f"  .env: (not found)")
 
