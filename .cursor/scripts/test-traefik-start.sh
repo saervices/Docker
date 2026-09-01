@@ -259,5 +259,98 @@ else
   grep -q 'query' "${TEST_ROOT}/auth-query.out" && pass auth-query || fail auth-query
 fi
 
+#ææææææææææææææææææææææææææææææææææ
+# CÆNONICÆL REDIRECT
+#ææææææææææææææææææææææææææææææææææ
+write_token 'cf-dns-token-value-1'
+if TRAEFIK_CANONICAL_REDIRECT_CATCH_ALL=true \
+  CERTRESOLVER=cloudflare CLOUDFLARE_IPS=false LOCAL_IPS='' run_wrapper canonical-missing-target; then
+  fail canonical-missing-target
+else
+  grep -q 'TRAEFIK_DOMAIN_1' "${TEST_ROOT}/canonical-missing-target.out" \
+    && pass canonical-missing-target || fail canonical-missing-target
+fi
+
+TRAEFIK_CANONICAL_REDIRECT_CATCH_ALL=true \
+  TRAEFIK_DOMAIN_1='public.test' \
+  TRAEFIK_DOMAIN_2='alias.test' \
+  CERTRESOLVER=cloudflare CLOUDFLARE_IPS=false LOCAL_IPS='' \
+  run_wrapper canonical-ok && pass canonical-ok || fail canonical-ok
+
+#ææææææææææææææææææææææææææææææææææ
+# STÆGE TLS PÆSSTHROUGH
+#ææææææææææææææææææææææææææææææææææ
+cp -- "${TEST_REPO_ROOT}/Traefik/appdata/config/conf.d/stage-traefik-forward.yaml.template" \
+  "${TEST_ROOT}/dynamic/stage-traefik-forward.yaml.template"
+
+if TRAEFIK_STAGE_FORWARD_ENABLED=true \
+  TRAEFIK_DOMAIN_1='public.test' \
+  TRAEFIK_STAGE_FORWARD_TARGET_ADDRESS='192.168.10.50:443' \
+  CERTRESOLVER=cloudflare CLOUDFLARE_IPS=false LOCAL_IPS='' run_wrapper stage-missing-live; then
+  fail stage-missing-live
+else
+  grep -q 'stage-traefik-forward.yaml' "${TEST_ROOT}/stage-missing-live.out" \
+    && pass stage-missing-live || fail stage-missing-live
+fi
+
+cp -- "${TEST_ROOT}/dynamic/stage-traefik-forward.yaml.template" \
+  "${TEST_ROOT}/dynamic/stage-traefik-forward.yaml"
+if TRAEFIK_STAGE_FORWARD_ENABLED=false \
+  CERTRESOLVER=cloudflare CLOUDFLARE_IPS=false LOCAL_IPS='' run_wrapper stage-live-while-off; then
+  fail stage-live-while-off
+else
+  grep -q 'Remove stage-traefik-forward.yaml' "${TEST_ROOT}/stage-live-while-off.out" \
+    && pass stage-live-while-off || fail stage-live-while-off
+fi
+
+TRAEFIK_STAGE_FORWARD_ENABLED=true \
+  TRAEFIK_DOMAIN_1='public.test' \
+  TRAEFIK_DOMAIN_2='alias.test' \
+  TRAEFIK_STAGE_FORWARD_PREFIX=demo \
+  TRAEFIK_STAGE_FORWARD_TARGET_ADDRESS='192.168.10.50:443' \
+  CERTRESOLVER=cloudflare CLOUDFLARE_IPS=false LOCAL_IPS='' \
+  run_wrapper stage-ok && pass stage-ok || fail stage-ok
+rm -f -- "${TEST_ROOT}/dynamic/stage-traefik-forward.yaml"
+
+TRAEFIK_PROXY_PROTOCOL_TRUSTED_IPS='192.168.20.100/32' \
+  CERTRESOLVER=cloudflare CLOUDFLARE_IPS=false LOCAL_IPS='' \
+  run_wrapper proxy-protocol-ok && \
+  grep -q -- '--entrypoints.websecure.proxyprotocol.trustedips=192.168.20.100/32' \
+    "${TEST_ROOT}/proxy-protocol-ok.out" && pass proxy-protocol-ok || fail proxy-protocol-ok
+
+#ææææææææææææææææææææææææææææææææææ
+# FILE-PROVIDER CONTRÆCTS
+#ææææææææææææææææææææææææææææææææææ
+CANONICAL_YAML="${TEST_REPO_ROOT}/Traefik/appdata/config/conf.d/canonical-domain-redirect.yaml"
+STAGE_TEMPLATE="${TEST_REPO_ROOT}/Traefik/appdata/config/conf.d/stage-traefik-forward.yaml.template"
+MIDDLEWARES_YAML="${TEST_REPO_ROOT}/Traefik/appdata/config/conf.d/middlewares.yaml"
+
+if grep -q 'redirect TRAEFIK_DOMAIN_2, TRAEFIK_DOMAIN_3 ænd TRAEFIK_DOMAIN_4 to TRAEFIK_DOMAIN_1' "$CANONICAL_YAML" \
+  && grep -q 'env "TRAEFIK_DOMAIN_1"' "$CANONICAL_YAML" \
+  && grep -q 'with env "TRAEFIK_DOMAIN_2"' "$CANONICAL_YAML" \
+  && ! grep -q 'to TRAEFIK_DOMAIN_2' "$CANONICAL_YAML"; then
+  pass canonical-yaml-direction
+else
+  fail canonical-yaml-direction
+fi
+
+if grep -q 'canonical-domain-redirect:' "$CANONICAL_YAML" \
+  && ! grep -q 'canonical-domain-redirect:' "$MIDDLEWARES_YAML"; then
+  pass canonical-middleware-colocated
+else
+  fail canonical-middleware-colocated
+fi
+
+if grep -q 'TRAEFIK_STAGE_FORWARD_PREFIX' "$STAGE_TEMPLATE" \
+  && grep -q 'TRAEFIK_DOMAIN_1' "$STAGE_TEMPLATE" \
+  && grep -q 'passthrough: true' "$STAGE_TEMPLATE" \
+  && ! grep -q 'env "TRAEFIK_DOMAIN_2"' "$STAGE_TEMPLATE" \
+  && ! grep -q 'env "TRAEFIK_DOMAIN_4"' "$STAGE_TEMPLATE" \
+  && ! grep -q 'env "TRAEFIK_DOMAIN"' "$STAGE_TEMPLATE"; then
+  pass stage-template-canonical-only
+else
+  fail stage-template-canonical-only
+fi
+
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 [[ "$FAIL" -eq 0 ]]

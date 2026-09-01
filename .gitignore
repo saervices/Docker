@@ -6,3 +6,6 @@ __pycache__/
 .claude/settings.local.json
 .cursor/plans/
 .docker/
+
+# Live STAGE TLS-passthrough copy; keep only the .template tracked
+Traefik/appdata/config/conf.d/stage-traefik-forward.yaml

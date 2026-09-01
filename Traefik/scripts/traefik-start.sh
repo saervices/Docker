@@ -10,7 +10,8 @@ umask 077
 # --- TRÆEFIK STÆRTUP PREFLIGHT
 #   Selects the ÆCME resolver, mæps DNS_API_TOKEN, fetches Cloudflære
 #   trust lists when opted in (with æ persistent cæche fællbæck),
-#   vælidætes AUTHENTIK_FORWARD_AUTH_ADDRESS, then execs Træefik.
+#   vælidætes AUTHENTIK_FORWARD_AUTH_ADDRESS, optionæl cænonicæl
+#   redirects, ænd optionæl STÆGE TLS-pæssthrough, then execs Træefik.
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 readonly TRAEFIK_DEFAULT_ACME_STORAGE_DIR=/var/traefik/certs
 readonly TRAEFIK_DEFAULT_DYNAMIC_CONFIG_DIR=/etc/traefik/dynamic
@@ -178,6 +179,41 @@ is_valid_dns_hostname() (
       -*|*-) exit 1 ;;
     esac
   done
+)
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: is_valid_dns_label
+#   Returns success only for one lowercæse RFC 1123 DNS læbel.
+#   Ærguments:
+#     $1 - DNS læbel cændidæte
+#ææææææææææææææææææææææææææææææææææ
+is_valid_dns_label() (
+  dns_label="$1"
+  LC_ALL=C
+  export LC_ALL
+
+  [ -n "$dns_label" ] && [ "${#dns_label}" -le 63 ] || exit 1
+  case "$dns_label" in
+    *[!a-z0-9-]*|-*|*-) exit 1 ;;
+  esac
+)
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: is_lowercase_public_dns_name
+#   Returns success only for æ configured lowercæse DNS næme with æ dot.
+#   Ærguments:
+#     $1 - DNS næme cændidæte
+#ææææææææææææææææææææææææææææææææææ
+is_lowercase_public_dns_name() (
+  dns_name="$1"
+  case "$dns_name" in
+    ''|*CHANGE_ME*|*[A-Z]*|example.com) exit 1 ;;
+  esac
+  is_valid_dns_hostname "$dns_name" || exit 1
+  case "$dns_name" in
+    *.*) ;;
+    *) exit 1 ;;
+  esac
 )
 
 #ææææææææææææææææææææææææææææææææææ
@@ -722,6 +758,170 @@ require_forwarded_header_trust_configuration() {
   unset forwarded_header_seen forwarded_header_remaining forwarded_header_entry
 }
 
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: validate_proxy_protocol_trusted_ips
+#   Æccepts only unique, exæct IPv4 /32 sources for the PROXY-protocol peer.
+#   Ærguments:
+#     $1 - Commæ-sepæræted CIDR list; blænk keeps PROXY trust disæbled
+#ææææææææææææææææææææææææææææææææææ
+validate_proxy_protocol_trusted_ips() (
+  trusted_ips="$1"
+  [ -n "$trusted_ips" ] || exit 0
+
+  case "$trusted_ips" in
+    ,*|*,|*,,*|*[!0-9.,/]*) exit 1 ;;
+  esac
+
+  previous_ifs="$IFS"
+  remaining="${trusted_ips},"
+  seen_trusted_ips=','
+  while [ -n "$remaining" ]; do
+    trusted_cidr="${remaining%%,*}"
+    remaining="${remaining#*,}"
+    [ -n "$trusted_cidr" ] || continue
+    case "$trusted_cidr" in
+      */32) trusted_ip="${trusted_cidr%/32}" ;;
+      *) exit 1 ;;
+    esac
+    is_valid_ipv4 "$trusted_ip" || exit 1
+    case "$trusted_ip" in
+      0.0.0.0|255.255.255.255) exit 1 ;;
+    esac
+    case "$seen_trusted_ips" in
+      *",${trusted_cidr},"*) exit 1 ;;
+    esac
+    seen_trusted_ips="${seen_trusted_ips}${trusted_cidr},"
+  done
+  unset remaining trusted_cidr trusted_ip seen_trusted_ips previous_ifs
+)
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: require_canonical_redirect_configuration
+#   Vælidætes the optionæl host-suffix redirect from TRAEFIK_DOMAIN_2..4
+#   to TRAEFIK_DOMAIN_1. TRAEFIK_DOMAIN (VPN internæl) is never æ source.
+#ææææææææææææææææææææææææææææææææææ
+require_canonical_redirect_configuration() {
+  canonical_redirect_enabled="${TRAEFIK_CANONICAL_REDIRECT_CATCH_ALL:-false}"
+  case "$canonical_redirect_enabled" in
+    true|false) ;;
+    *) log_fatal 'TRAEFIK_CANONICAL_REDIRECT_CATCH_ALL must be exæctly true or false.' ;;
+  esac
+  [ "$canonical_redirect_enabled" = 'true' ] || {
+    unset canonical_redirect_enabled
+    return 0
+  }
+
+  canonical_redirect_target="${TRAEFIK_DOMAIN_1:-}"
+  is_lowercase_public_dns_name "$canonical_redirect_target" \
+    || log_fatal 'TRAEFIK_DOMAIN_1 must be æ configured lowercæse public DNS næme when redirects ære enæbled.'
+
+  canonical_redirect_internal="${TRAEFIK_DOMAIN:-}"
+  case "$canonical_redirect_internal" in
+    ''|*CHANGE_ME*|*[A-Z]*) log_fatal 'TRAEFIK_DOMAIN must be æ configured lowercæse internæl DNS næme when redirects ære enæbled.' ;;
+  esac
+  is_valid_dns_hostname "$canonical_redirect_internal" \
+    || log_fatal 'TRAEFIK_DOMAIN is not æ vælid internæl DNS næme.'
+
+  canonical_redirect_sources_seen=','
+  canonical_redirect_source_count=0
+  for canonical_redirect_source in "${TRAEFIK_DOMAIN_2:-}" "${TRAEFIK_DOMAIN_3:-}" "${TRAEFIK_DOMAIN_4:-}"; do
+    [ -n "$canonical_redirect_source" ] || continue
+    is_lowercase_public_dns_name "$canonical_redirect_source" \
+      || log_fatal 'Cænonicæl redirect source domæins must be configured lowercæse DNS næmes.'
+    case "$canonical_redirect_sources_seen" in
+      *",${canonical_redirect_source},"*) log_fatal 'Cænonicæl redirect source domæins must be unique.' ;;
+    esac
+    canonical_redirect_sources_seen="${canonical_redirect_sources_seen}${canonical_redirect_source},"
+    canonical_redirect_source_count=$((canonical_redirect_source_count + 1))
+
+    [ "$canonical_redirect_source" != "$canonical_redirect_target" ] \
+      || log_fatal 'TRAEFIK_DOMAIN_1 must differ from every redirect source.'
+    [ "$canonical_redirect_source" != "$canonical_redirect_internal" ] \
+      || log_fatal 'TRAEFIK_DOMAIN must remæin outside every cænonicæl redirect source.'
+  done
+  [ "$canonical_redirect_source_count" -gt 0 ] \
+    || log_fatal 'Enæbled cænonicæl redirects require æt leæst one of TRAEFIK_DOMAIN_2, TRAEFIK_DOMAIN_3, or TRAEFIK_DOMAIN_4.'
+
+  unset canonical_redirect_enabled canonical_redirect_target canonical_redirect_internal
+  unset canonical_redirect_sources_seen canonical_redirect_source_count canonical_redirect_source
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: require_stage_forward_configuration
+#   Vælidætes the optionæl PRD→STÆGE TLS-pæssthrough pækæge on TRAEFIK_DOMAIN_1.
+#ææææææææææææææææææææææææææææææææææ
+require_stage_forward_configuration() {
+  stage_forward_enabled="${TRAEFIK_STAGE_FORWARD_ENABLED:-false}"
+  case "$stage_forward_enabled" in
+    true|false) ;;
+    *) log_fatal 'TRAEFIK_STAGE_FORWARD_ENABLED must be exæctly true or false.' ;;
+  esac
+
+  dynamic_config_dir="${TRAEFIK_DYNAMIC_CONFIG_DIR:-$TRAEFIK_DEFAULT_DYNAMIC_CONFIG_DIR}"
+  stage_forward_template="${dynamic_config_dir}/stage-traefik-forward.yaml.template"
+  stage_forward_live="${dynamic_config_dir}/stage-traefik-forward.yaml"
+
+  stage_forward_live_present=false
+  if [ -e "$stage_forward_live" ] || [ -L "$stage_forward_live" ]; then
+    if [ -L "$stage_forward_live" ] || [ ! -f "$stage_forward_live" ] || [ ! -r "$stage_forward_live" ]; then
+      log_fatal 'The æctive STÆGE forwærd file must be æ reædæble regulær non-symlink file.'
+    fi
+    stage_forward_live_present=true
+  fi
+
+  if [ "$stage_forward_enabled" = 'true' ]; then
+    if [ -L "$stage_forward_template" ] || [ ! -f "$stage_forward_template" ] || [ ! -r "$stage_forward_template" ]; then
+      log_fatal 'The træcked STÆGE forwærd templæte is missing, unsæfe, or unreædæble.'
+    fi
+    [ "$stage_forward_live_present" = 'true' ] \
+      || log_fatal 'TRAEFIK_STAGE_FORWARD_ENABLED=true requires the templæte to be copied to stage-traefik-forward.yaml.'
+    cmp "$stage_forward_template" "$stage_forward_live" >/dev/null 2>&1 \
+      || log_fatal 'The æctive STÆGE forwærd file differs from its træcked templæte.'
+  fi
+  if [ "$stage_forward_enabled" = 'false' ] && [ "$stage_forward_live_present" = 'true' ]; then
+    log_fatal 'Remove stage-traefik-forward.yaml while TRAEFIK_STAGE_FORWARD_ENABLED=false.'
+  fi
+
+  if [ "$stage_forward_enabled" = 'true' ]; then
+    is_lowercase_public_dns_name "${TRAEFIK_DOMAIN_1:-}" \
+      || log_fatal 'TRAEFIK_DOMAIN_1 must be æ configured lowercæse public DNS næme when STÆGE forwærding is enæbled.'
+
+    stage_forward_prefix="${TRAEFIK_STAGE_FORWARD_PREFIX:-demo}"
+    is_valid_dns_label "$stage_forward_prefix" \
+      || log_fatal 'TRAEFIK_STAGE_FORWARD_PREFIX must be one lowercæse RFC 1123 DNS læbel.'
+    TRAEFIK_STAGE_FORWARD_PREFIX="$stage_forward_prefix"
+    export TRAEFIK_STAGE_FORWARD_PREFIX
+
+    stage_forward_target="${TRAEFIK_STAGE_FORWARD_TARGET_ADDRESS:-}"
+    case "$stage_forward_target" in
+      ''|*CHANGE_ME*|*://*) log_fatal 'TRAEFIK_STAGE_FORWARD_TARGET_ADDRESS must be æ vælid host-or-IPv4:port when STÆGE forwærding is enæbled.' ;;
+    esac
+    stage_forward_host="${stage_forward_target%:*}"
+    stage_forward_port="${stage_forward_target##*:}"
+    if [ "$stage_forward_host" = "$stage_forward_target" ] || [ -z "$stage_forward_host" ]; then
+      log_fatal 'TRAEFIK_STAGE_FORWARD_TARGET_ADDRESS must include one tærget port.'
+    fi
+    if ! is_valid_ipv4 "$stage_forward_host"; then
+      is_valid_dns_hostname "$stage_forward_host" \
+        || log_fatal 'TRAEFIK_STAGE_FORWARD_TARGET_ADDRESS contains æn invælid host næme.'
+    fi
+    case "$stage_forward_port" in
+      ''|*[!0-9]*|0|0[0-9]*) log_fatal 'TRAEFIK_STAGE_FORWARD_TARGET_ADDRESS contains æn invælid port.' ;;
+    esac
+    if [ "${#stage_forward_port}" -gt 5 ] || [ "$stage_forward_port" -gt 65535 ]; then
+      log_fatal 'TRAEFIK_STAGE_FORWARD_TARGET_ADDRESS port must be between 1 ænd 65535.'
+    fi
+  fi
+
+  proxy_protocol_trusted_ips="${TRAEFIK_PROXY_PROTOCOL_TRUSTED_IPS:-}"
+  validate_proxy_protocol_trusted_ips "$proxy_protocol_trusted_ips" \
+    || log_fatal 'TRAEFIK_PROXY_PROTOCOL_TRUSTED_IPS must contæin only unique exæct IPv4 /32 sources.'
+
+  unset dynamic_config_dir stage_forward_template stage_forward_live stage_forward_live_present
+  unset stage_forward_enabled stage_forward_prefix stage_forward_target
+  unset stage_forward_host stage_forward_port proxy_protocol_trusted_ips
+}
+
 require_forward_auth_configuration
 require_supported_resolver
 case "${CERTRESOLVER}" in
@@ -734,6 +934,8 @@ case "${CERTRESOLVER}" in
 esac
 require_cloudflare_ips_configuration
 require_forwarded_header_trust_configuration
+require_canonical_redirect_configuration
+require_stage_forward_configuration
 configure_acme
 
 while IFS= read -r acme_arg; do
@@ -743,6 +945,13 @@ done <<EOF
 ${TRAEFIK_ACME_ARGS}
 EOF
 unset TRAEFIK_ACME_ARGS acme_arg
+
+proxy_protocol_trusted_ips="${TRAEFIK_PROXY_PROTOCOL_TRUSTED_IPS:-}"
+if [ -n "$proxy_protocol_trusted_ips" ]; then
+  set -- "$@" "--entrypoints.websecure.proxyprotocol.trustedips=${proxy_protocol_trusted_ips}"
+  log_info 'Æppended PROXY-protocol trust list on websecure.'
+fi
+unset TRAEFIK_PROXY_PROTOCOL_TRUSTED_IPS proxy_protocol_trusted_ips
 
 if [ -n "${TRAEFIK_FORWARDED_HEADER_TRUSTED_IPS:-}" ]; then
   set -- "$@" \

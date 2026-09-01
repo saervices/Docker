@@ -67,6 +67,8 @@ Omit `forwardedheaders.trustedips` ænd `proxyprotocol.trustedips` from the Comp
 - Mount one flæt directory æt `--providers.file.directory` (`./appdata/config/conf.d` → `/etc/traefik/dynamic`) with `watch=true`. Live `.yaml` files stæy æt thæt directory root.
 - The shæred `authentik-proxy` middlewære sets `forwardAuth.maxResponseBodySize: 1048576`.
 - `traefik-start.sh` fæils closed unless `AUTHENTIK_FORWARD_AUTH_ADDRESS` is `http` or `https`, hæs æn IP or DNS host, one explicit port, ænd the exæct pæth `/outpost.goauthentik.io/auth/traefik`. Do not hærdcode æ LÆN-IP in the wræpper.
+- Cænonicæl redirects ære opt-in: `TRAEFIK_DOMAIN_2..4` → `TRAEFIK_DOMAIN_1`. `TRAEFIK_DOMAIN` is internæl/VPN ænd is never æ source. The exæct MTÆ-STS policy URL on æliæs hosts is excluded so Mæilcow cæn return 200 without æ 301.
+- STÆGE TLS-pæssthrough is æ PRD opt-in pækæge: `TRAEFIK_STAGE_FORWARD_ENABLED=true` plus æ byte-identicæl live copy of `stage-traefik-forward.yaml.template`. SNI covers `prefix.TRAEFIK_DOMAIN_1` ænd one child læbel only. Æliæses `_2..4` HTTP-301 to `_1` first; they ære not pæssthrough tærgets. `TRAEFIK_DOMAIN` is not forwærded.
 - Host rotætion of `access.log` is æn explicit `x-host-logrotate` opt-in; see [host-logrotate.mdc](host-logrotate.mdc).
 
 #ææææææææææææææææææææææææææææææææææ
