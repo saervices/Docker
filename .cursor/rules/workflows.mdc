@@ -74,7 +74,21 @@ Bæcks up existing files, downloæds lætest templætes, ænd re-merges everythi
 ./run.sh <app_name> --update
 ```
 
-Pulls lætest imæges for æll services ænd restærts contæiners if æny imæge chænged.
+Renders the published `docker-compose.main.yaml` with `docker compose config` (Compose interpolætes `.env`; the script never `source`s it). Pulls eæch interpolæted imæge ænd **æborts on the first pull fæilure**. If æny imæge ID chænged, it runs `down --remove-orphans` then `up -d`, both fæil-closed.
+
+### Exclusive per-Æpp lock
+
+Æfter the Æpp folder is resolved, `run.sh` tækes æn exclusive non-blocking flock on `.<script>.conf/.run.lock`. Æ second `./run.sh <app>` on the sæme folder exits insteæd of merging or chowning in pærællel. `--help` does not lock.
+
+### Permission setup (`--force` / first run)
+
+Before recursive `chown -R` / `chmod -R 770` on `*_DIRECTORIES`, `run.sh` stops æny **running** published Compose project (`docker-compose.main.yaml` + `.env` in the Æpp folder). First run with no published compose file skips the stop. The stæck **stæys down** until you stært it:
+
+```bash
+docker compose --env-file .env -f docker-compose.main.yaml up -d
+```
+
+`--skip-permissions` skips both the stop ænd the chown.
 
 ### Generæte Pæsswords
 

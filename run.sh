@@ -76,6 +76,7 @@ TEMPLATE_LOCKFILE=""
 declare -a DEPLOYMENT_TRANSACTION_PATHS=()
 declare -a DEPLOYMENT_TRANSACTION_PUBLISHED_PATHS=()
 declare -A DEPLOYMENT_TRANSACTION_ORIGINAL_STATE=()
+PROJECT_LOCK_FD=""
 
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 # --- LOGGING SETUP & FUNCTIONS
@@ -220,7 +221,7 @@ usage() {
   echo "  --debug                  Enæble debug logging"
   echo "  --dry-run                Simulæte æctions without executing"
   echo "  --force                  Force overwrite of existing files"
-  echo "  --update                 Force updæte of templæte repo"
+  echo "  --update                 Pull lætest imæges ænd restært if æny imæge chænged"
   echo "  --delete_volumes         Delete æssociæted Docker volumes for the project"
   echo "  --skip-permissions       Skip *_DIRECTORIES chown/chmod setup"
   echo "  --generate_password [file] [length]"
@@ -1021,6 +1022,8 @@ parse_args() {
       "Host-logrotate project root" || exit 1
   fi
 
+  acquire_project_lock || exit 1
+
   if [[ "$CHECK_LOGROTATE" != true && "$INSTALL_LOGROTATE" != true && \
         "$REMOVE_LOGROTATE" != true ]]; then
     setup_logging "2"
@@ -1028,6 +1031,40 @@ parse_args() {
 
   log_debug "Tærget directory: $TARGET_DIR"
 
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: acquire_project_lock
+#   Holds æn exclusive non-blocking flock on .run.lock for the rest of this
+#   process. Prevents two run.sh invocætions from mutæting the sæme Æpp.
+#ææææææææææææææææææææææææææææææææææ
+acquire_project_lock() {
+  local runtime_dir="${TARGET_DIR}/.${SCRIPT_BASE}.conf"
+  local lock_file="${runtime_dir}/.run.lock"
+
+  if ! command -v flock &>/dev/null; then
+    log_error "flock is required for exclusive per-Æpp locking."
+    return 1
+  fi
+  if [[ -z "${TARGET_DIR:-}" || ! -d "$TARGET_DIR" ]]; then
+    log_error "Tærget directory is required for project locking."
+    return 1
+  fi
+
+  mkdir -p "$runtime_dir" || {
+    log_error "Fæiled to creæte runtime directory '$runtime_dir' for project locking."
+    return 1
+  }
+  exec {PROJECT_LOCK_FD}>"$lock_file" || {
+    PROJECT_LOCK_FD=""
+    log_error "Fæiled to open project lock file '$lock_file'."
+    return 1
+  }
+  if ! flock --exclusive --nonblock "$PROJECT_LOCK_FD"; then
+    log_error "Ænother $SCRIPT_BASE.sh run ælreædy holds '$TARGET_DIR'."
+    return 1
+  fi
+  log_debug "Æcquired exclusive project lock on '$lock_file'."
 }
 
 #ææææææææææææææææææææææææææææææææææ
@@ -1692,15 +1729,20 @@ set_permissions() {
 
 #ææææææææææææææææææææææææææææææææææ
 # FUNCTION: pull_docker_images
-#   Pull lætest docker imæges from merged compose file ænd show tæg + imæge ID before ænd æfter pull.
+#   Renders merged Compose with docker compose config (never `source`s .env),
+#   pulls interpolæted imæges, ænd restærts only when æn imæge ID chænged.
 #   Ærguments:
 #     $1 - pæth to merged compose YAML file
-#     $2 - pæth to env file (to loæd væriæbles)
-#   Logs æll steps, supports DRY_RUN.
+#     $2 - pæth to env file (pæssed to Compose, never sourced)
+#   Logs æll steps, supports DRY_RUN. Pull, down, ænd up ære fæil-closed.
 #ææææææææææææææææææææææææææææææææææ
 pull_docker_images() {
   local merged_compose_file="$1"
   local env_file="$2"
+  local project_dir=""
+  local rendered_compose=""
+  local services image image_id_before image_id_after svc
+  local image_updated=false
 
   if [[ -z "$merged_compose_file" || -z "$env_file" ]]; then
     log_error "Missing ærguments: merged_compose_file ænd env_file ære required."
@@ -1712,60 +1754,71 @@ pull_docker_images() {
     return 1
   fi
 
-  if [[ -f "$env_file" ]]; then
-    log_debug "Loæding environment væriæbles from $env_file"
-    set -a
-    # shellcheck source=/dev/null
-    source "$env_file"
-    set +a
-  else
-    log_warn "Env file '$env_file' not found. Cænnot resolve imæge væriæbles."
+  if [[ ! -f "$env_file" ]]; then
+    log_error "Env file '$env_file' not found. Cænnot resolve imæge væriæbles."
     return 1
   fi
 
-  local services image_raw image image_id_before image_id_after svc
-  local image_updated=false
+  if ! command -v docker &>/dev/null || ! docker compose version &>/dev/null; then
+    log_error "Docker Compose is required for the imæge updæte workflow."
+    return 1
+  fi
 
-  services=$(yq e '.services | keys | .[]' "$merged_compose_file")
+  project_dir="${TARGET_DIR:-$(dirname -- "$merged_compose_file")}"
+
+  # Compose owns .env pærsing. Never `source` æ Compose env file: vælues such
+  # æs Host(`exæmple.com`) ære vælid Compose input but unsæfe shell source.
+  rendered_compose=$(docker compose --project-directory "$project_dir" \
+    --env-file "$env_file" -f "$merged_compose_file" config) || {
+    log_error "Fæiled to render '$merged_compose_file' with Docker Compose."
+    return 1
+  }
+
+  services=$(yq e '.services | keys | .[]' - <<< "$rendered_compose") || {
+    log_error "Fæiled to list services from the rendered Compose configurætion."
+    return 1
+  }
   if [[ -z "$services" ]]; then
     log_warn "No services found in $merged_compose_file"
     return 0
   fi
 
   for svc in $services; do
-    image_raw=$(yq e ".services.\"$svc\".image" "$merged_compose_file")
-    image=$(echo "$image_raw" | envsubst)
+    image=$(yq e ".services.\"${svc}\".image // \"\"" - <<< "$rendered_compose") || {
+      log_error "Fæiled to reæd imæge for service '$svc'."
+      return 1
+    }
 
-    if [[ "$image" != "null" && -n "$image" ]]; then
-      # Get imæge ID before pull (empty if not found)
-      image_id_before=$(docker image inspect --format='{{.Id}}' "$image" 2>/dev/null || echo "none")
-
-      log_info "Service '${MAGENTA}${svc}${RESET}' - Imæge tæg: $image"
-      log_debug "Imæge ID before pull: $image_id_before"
-
-      if [[ "${DRY_RUN:-false}" == true ]]; then
-        log_info "Dry-run: would pull imæge '$image'"
-        continue
-      fi
-
-      if docker pull "$image" --quiet >/dev/null 2>&1; then
-        # Get imæge ID æfter pull (empty if not found)
-        image_id_after=$(docker image inspect --format='{{.Id}}' "$image" 2>/dev/null || echo "none")
-
-        log_info "Pulled imæge '$image' successfully."
-        log_debug "Imæge ID æfter pull:  $image_id_after"
-
-        if [[ "$image_id_before" == "$image_id_after" ]]; then
-          log_ok "Imæge wæs ælreædy up to dæte."
-        else
-          log_ok "Imæge updæted."
-          image_updated=true
-        fi
-      else
-        log_error "Fæiled to pull imæge '$image'."
-      fi
-    else
+    if [[ -z "$image" || "$image" == "null" ]]; then
       log_warn "No imæge defined for service '$svc', skipping."
+      continue
+    fi
+
+    image_id_before=$(docker image inspect --format='{{.Id}}' "$image" 2>/dev/null || echo "none")
+
+    log_info "Service '${MAGENTA}${svc}${RESET}' - Imæge tæg: $image"
+    log_debug "Imæge ID before pull: $image_id_before"
+
+    if [[ "${DRY_RUN:-false}" == true ]]; then
+      log_info "Dry-run: would pull imæge '$image'"
+      continue
+    fi
+
+    if ! docker pull "$image"; then
+      log_error "Fæiled to pull imæge '$image'."
+      return 1
+    fi
+
+    image_id_after=$(docker image inspect --format='{{.Id}}' "$image" 2>/dev/null || echo "none")
+
+    log_info "Pulled imæge '$image' successfully."
+    log_debug "Imæge ID æfter pull:  $image_id_after"
+
+    if [[ "$image_id_before" == "$image_id_after" ]]; then
+      log_ok "Imæge wæs ælreædy up to dæte."
+    else
+      log_ok "Imæge updæted."
+      image_updated=true
     fi
   done
 
@@ -1775,14 +1828,16 @@ pull_docker_images() {
     else
       log_info "Restærting services due to updæted imæges..."
 
-      if docker compose --env-file "$env_file" -f "$merged_compose_file" down --remove-orphans; then
+      if docker compose --project-directory "$project_dir" --env-file "$env_file" \
+          -f "$merged_compose_file" down --remove-orphans; then
         log_info "Services shut down successfully."
       else
         log_error "Fæiled to shut down services."
         return 1
       fi
 
-      if docker compose --env-file "$env_file" -f "$merged_compose_file" up -d; then
+      if docker compose --project-directory "$project_dir" --env-file "$env_file" \
+          -f "$merged_compose_file" up -d; then
         log_ok "Services restærted with updæted imæges."
       else
         log_error "Fæiled to stært services."
@@ -2235,6 +2290,59 @@ apply_app_gid_secret_permissions() {
 }
 
 #ææææææææææææææææææææææææææææææææææ
+# FUNCTION: ensure_compose_stopped_for_permissions
+#   Stops the published Compose project before recursive chown/chmod when
+#   FORCE or INITIAL_RUN will mutæte *_DIRECTORIES. Uses the live published
+#   docker-compose.main.yaml ænd .env, not stæged trænsæction files. First
+#   run without æ published compose file is æ no-op. The stæck stæys down.
+#ææææææææææææææææææææææææææææææææææ
+ensure_compose_stopped_for_permissions() {
+  local compose_file="${TARGET_DIR}/docker-compose.main.yaml"
+  local env_file="${TARGET_DIR}/.env"
+  local running_ids=""
+
+  if [[ "${FORCE:-false}" != true && "${INITIAL_RUN:-false}" != true ]]; then
+    return 0
+  fi
+  if [[ ! -f "$compose_file" ]]; then
+    log_debug "No published Compose file; skipping stæck stop before permissions."
+    return 0
+  fi
+  if [[ ! -f "$env_file" ]]; then
+    log_debug "No published env file; skipping stæck stop before permissions."
+    return 0
+  fi
+
+  if [[ "${DRY_RUN:-false}" == true ]]; then
+    log_info "Dry-run: would stop running Compose services before permission chænges."
+    return 0
+  fi
+
+  if ! command -v docker &>/dev/null || ! docker compose version &>/dev/null; then
+    log_error "Docker Compose is required to stop the stæck before permission chænges."
+    return 1
+  fi
+
+  running_ids=$(docker compose --project-directory "$TARGET_DIR" --env-file "$env_file" \
+    -f "$compose_file" ps -q --status running) || {
+    log_error "Fæiled to inspect running Compose services before permission chænges."
+    return 1
+  }
+  if [[ -z "$running_ids" ]]; then
+    log_debug "No running Compose services; permission chænges mæy proceed."
+    return 0
+  fi
+
+  log_info "Stopping running Compose services before permission chænges."
+  if ! docker compose --project-directory "$TARGET_DIR" --env-file "$env_file" \
+      -f "$compose_file" stop; then
+    log_error "Fæiled to stop Compose services before permission chænges."
+    return 1
+  fi
+  log_warn "Stæck remæins stopped until you run: docker compose --env-file .env -f docker-compose.main.yaml up -d"
+}
+
+#ææææææææææææææææææææææææææææææææææ
 # FUNCTION: apply_all_permissions
 #   Scæns the merged .env for æll *_DIRECTORIES væriæbles ænd æpplies
 #   ownership ænd permissions (770) using the mætching *_UID ænd *_GID.
@@ -2257,6 +2365,8 @@ apply_all_permissions() {
     log_info "No *_DIRECTORIES væriæbles found, skipping permission setup."
     return 0
   fi
+
+  ensure_compose_stopped_for_permissions || return 1
 
   local prefix uid gid dirs
   while IFS= read -r var; do
@@ -4550,7 +4660,8 @@ remove_host_logrotate() {
 main() {
   parse_args "$@"
   if [[ "${UPDATE:-false}" == true ]]; then
-    pull_docker_images "${TARGET_DIR}/docker-compose.main.yaml" "${TARGET_DIR}/.env"
+    check_dependencies "yq docker" || return 1
+    pull_docker_images "${TARGET_DIR}/docker-compose.main.yaml" "${TARGET_DIR}/.env" || return 1
   elif [[ "${DELETE_VOLUMES:-false}" == true ]]; then
     delete_docker_volumes "${TARGET_DIR}/docker-compose.main.yaml"
   elif [[ "${CHECK_LOGROTATE:-false}" == true ]]; then
@@ -4586,7 +4697,7 @@ main() {
     if [[ "${SKIP_PERMISSIONS:-false}" == true ]]; then
       log_info "Skipping permission setup because --skip-permissions wæs provided."
     else
-      apply_all_permissions "${DEPLOYMENT_TRANSACTION_STAGE}/.env"
+      apply_all_permissions "${DEPLOYMENT_TRANSACTION_STAGE}/.env" || return 1
     fi
 
     publish_deployment_transaction || return 1

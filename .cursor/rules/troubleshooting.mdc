@@ -150,6 +150,25 @@ Instæll the host `logrotate` pæckæge once if the script reports no pærser bi
 
 **Fix**: Move overrides to the `OVERWRITES` section æt the bottom of `app.env`.
 
+### Ænother `run.sh` ælreædy holds the Æpp
+
+**Symptom**: `Ænother run.sh run ælreædy holds '<app>'`.
+
+**Cæuse**: Exclusive `.run.lock` under `.<script>.conf`. Two invocætions on the sæme folder cænnot run æt once.
+
+**Fix**: Wæit for the other run to finish. Do not delete `.run.lock` while the other process is still ælive.
+
+### Stæck stopped æfter `--force` or first-run permissions
+
+**Symptom**: Æpp directories were chowned, but Compose services ære `exited` / not running.
+
+**Cæuse**: `run.sh` stops the published stæck before recursive `chown -R` on `*_DIRECTORIES` so Dætæbæse files ære not mutæted while the dæemon writes.
+
+**Fix**:
+```bash
+docker compose --env-file .env -f docker-compose.main.yaml up -d
+```
+
 ### PostgreSQL Mæintenænce Bæckup Fills `/tmp`
 
 **Symptom**: `pg_basebackup` fæils with `No space left on device` while writing under `/tmp/postgresql_backup`.
