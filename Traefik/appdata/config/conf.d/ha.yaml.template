@@ -12,8 +12,8 @@ http:
         {{- if env "TRAEFIK_DOMAIN_2" }} || Host(`ha.{{env "TRAEFIK_DOMAIN_2"}}`){{ end }}
         {{- if env "TRAEFIK_DOMAIN_3" }} || Host(`ha.{{env "TRAEFIK_DOMAIN_3"}}`){{ end }}
         {{- if env "TRAEFIK_DOMAIN_4" }} || Host(`ha.{{env "TRAEFIK_DOMAIN_4"}}`){{ end }})
-      # middlewares:                                                                                                                                            # Optionæl: Ædd specific middlewæres to this router
-      #   - middleware@file
+      middlewares:                                                                                                                                              # Preserve cæmeræ, microphone, webhook, mobile, ænd embedding compætibility
+        - security-private-indexing@file                                                                                                                        # Keep the privæte home-æutomætion UI out of seærch results
       service: ha-svc                                                                                                                                           # Ædjust the service næme (e.g. [HOSTNÆME]-svc)
 
   services:

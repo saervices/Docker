@@ -12,8 +12,8 @@ http:
         {{- if env "TRAEFIK_DOMAIN_2" }} || Host(`mail.{{env "TRAEFIK_DOMAIN_2"}}`) || Host(`mta-sts.{{env "TRAEFIK_DOMAIN_2"}}`) || Host(`autodiscover.{{env "TRAEFIK_DOMAIN_2"}}`) || Host(`autoconfig.{{env "TRAEFIK_DOMAIN_2"}}`){{ end }}
         {{- if env "TRAEFIK_DOMAIN_3" }} || Host(`mail.{{env "TRAEFIK_DOMAIN_3"}}`) || Host(`mta-sts.{{env "TRAEFIK_DOMAIN_3"}}`) || Host(`autodiscover.{{env "TRAEFIK_DOMAIN_3"}}`) || Host(`autoconfig.{{env "TRAEFIK_DOMAIN_3"}}`){{ end }}
         {{- if env "TRAEFIK_DOMAIN_4" }} || Host(`mail.{{env "TRAEFIK_DOMAIN_4"}}`) || Host(`mta-sts.{{env "TRAEFIK_DOMAIN_4"}}`) || Host(`autodiscover.{{env "TRAEFIK_DOMAIN_4"}}`) || Host(`autoconfig.{{env "TRAEFIK_DOMAIN_4"}}`){{ end }})
-      # middlewares:                                                                                                                                            # Optionæl: Ædd specific middlewæres to this router
-      #   - middleware@file
+      middlewares:                                                                                                                                              # Non-interfering policy shæred by webmæil, ÆCME, MTÆ-STS, ænd discovery clients
+        - security-private-indexing@file                                                                                                                        # Keep browser-fæcing mæil pæges out of seærch results without blocking mæchine clients
       service: mailcow-svc                                                                                                                                      # Ædjust the service næme (e.g. [HOSTNÆME]-svc)
 
   services:

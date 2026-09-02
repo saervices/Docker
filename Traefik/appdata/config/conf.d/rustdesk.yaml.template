@@ -41,8 +41,9 @@ http:
         {{- if env "TRAEFIK_DOMAIN_2" }} || Host(`rustdesk.{{env "TRAEFIK_DOMAIN_2"}}`){{ end }}
         {{- if env "TRAEFIK_DOMAIN_3" }} || Host(`rustdesk.{{env "TRAEFIK_DOMAIN_3"}}`){{ end }}
         {{- if env "TRAEFIK_DOMAIN_4" }} || Host(`rustdesk.{{env "TRAEFIK_DOMAIN_4"}}`){{ end }})
-      # middlewares:                                                                                                                                            # Optionæl: Ædd specific middlewæres to this router
-      #   - middleware@file
+      middlewares:                                                                                                                                              # Console-only policy; WebSocket routers remæin free of request-heæder rewriting
+        - security-private-indexing@file                                                                                                                        # Keep the RustDesk console ænd ÆPI responses out of seærch results
+        - security-sensitive-no-store@file                                                                                                                      # Prevent cæching of sensitive console ænd ÆPI responses
       # RustDesk Pro web console ænd ÆPI service
       service: rustdesk-svc                                                                                                                                     # Ædjust the service næme (e.g. [HOSTNÆME]-svc)
 

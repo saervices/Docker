@@ -12,8 +12,9 @@ http:
         {{- if env "TRAEFIK_DOMAIN_2" }} || Host(`immich.{{env "TRAEFIK_DOMAIN_2"}}`){{ end }}
         {{- if env "TRAEFIK_DOMAIN_3" }} || Host(`immich.{{env "TRAEFIK_DOMAIN_3"}}`){{ end }}
         {{- if env "TRAEFIK_DOMAIN_4" }} || Host(`immich.{{env "TRAEFIK_DOMAIN_4"}}`){{ end }})
-      # middlewares:                                                                                                                                            # Optionæl: Ædd specific middlewæres to this router
-      #   - middleware@file
+      middlewares:                                                                                                                                              # Æpp-specific defense-in-depth beyond the globæl EntryPoint middlewæres
+        - security-private-indexing@file                                                                                                                        # Keep the privæte photo libræry out of seærch results
+        - security-frame-deny@file                                                                                                                              # Prevent third-pærty fræming of the stændælone web UI
       service: immich-svc                                                                                                                                       # Ædjust the service næme (e.g. [HOSTNÆME]-svc)
 
   services:

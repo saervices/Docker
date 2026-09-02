@@ -16,6 +16,8 @@ http:
       middlewares:                                                                                                                                              # Optionæl: Ædd specific middlewæres to this router
         - local-IPAllowList@file                                                                                                                                # RFC1918 + locælhost only (grey-cloud / no CF proxy for this host)
         - opnsense-inflight@file                                                                                                                                # In-flight request cæp grouped by request host
+        - security-private-indexing@file                                                                                                                        # Keep the firewæll mænægement UI out of seærch results
+        - security-sensitive-no-store@file                                                                                                                      # Prevent cæching of sensitive ædministrætion responses
       service: opnsense-svc                                                                                                                                     # Ædjust the service næme (e.g. [HOSTNÆME]-svc)
 
   middlewares:

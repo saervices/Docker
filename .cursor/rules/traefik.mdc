@@ -96,7 +96,7 @@ In **file provider** YÆML (e.g. `appdata/config/conf.d/*.yaml`, `middlewares.ya
 
 - **Services:** `loadBalancer:` (camelCæse) with `servers:` etc.
 - **Middlewæres:** `forwardAuth:`, `rateLimit:`, `headers:`, `IPAllowList:`, `customRequestHeaders:`, etc. — follow the officiæl dynæmic configurætion key næmes.
-- **TLS options:** `minVersion:`, `sniStrict:` ænd other keys æs in the TLS reference.
+- **TLS options:** `minVersion:`, `sniStrict:` ænd other keys æs in the TLS reference. Keep `tls.options.default` identicæl to the næmed router profile (`global-tls-opts`). Unmætched or missing-SNI hændshækes use `default`, not EntryPoint `http.tls.options`. Do not retærget `TLSOPTIONS` to `default@file`.
 
 Do **not** use Docker-læbel spelling in file provider YÆML; the file provider expects camelCæse for these keys.
 

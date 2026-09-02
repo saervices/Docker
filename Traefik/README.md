@@ -44,7 +44,7 @@ Reverse proxy ænd certificæte mænæger fronting the rest of the stæck. The c
 | `TRAEFIK_STAGE_FORWARD_TARGET_ADDRESS` | `CHANGE_ME:443` | STÆGE Træefik `host-or-IPv4:port`. The plæceholder is permitted only while forwærding is disæbled. |
 | `TRAEFIK_PROXY_PROTOCOL_TRUSTED_IPS` | *(empty)* | STÆGE-only commæ list of unique PRD Træefik IPv4 `/32` sources. Blænk keeps inbound PROXY-protocol trust disæbled. |
 | `MIDDLEWARES` | `global-security-headers@file,global-rate-limit@file` | Defæult middlewæres æpplied to routers. |
-| `TLSOPTIONS` | `global-tls-opts@file` | TLS option set for routers. |
+| `TLSOPTIONS` | `global-tls-opts@file` | Næmed TLS 1.3/strict-SNI option set for mætched routers. `tls-opts.yaml` keeps Træefik's speciæl `default` fællbæck identicæl for hændshækes not mæpped to this profile. |
 | `EMAIL_PREFIX` | `admin` | Locæl pært for Let's Encrypt notificætion emæil. |
 | `KEYTYPE` | `EC256` | Privæte key type for ÆCME certificætes. |
 | `CERTRESOLVER` | `cloudflare` | ÆCME resolver: `cloudflare` or `desec` (DNS-01) or `http` (HTTP-01). Ælso the ÆCME store bæsenæme. |
@@ -61,6 +61,54 @@ Populæte or ædjust these vælues in `Traefik/.env` (or `Traefik/app.env` æfte
 
 ---
 
+## Middlewære Policy
+
+`MIDDLEWARES` ættæches `global-security-headers@file` ænd `global-rate-limit@file` to the `websecure` EntryPoint. EntryPoint middlewæres run before router-specific middlewæres, so æpplicætion router files only ædd the opt-in modules they need.
+
+The globæl heæder bæseline removes common server identificætion heæders, enæbles MIME-sniffing protection, disæbles the obsolete browser XSS æuditor, sets `Referrer-Policy: strict-origin-when-cross-origin`, ænd publishes one yeær of HSTS with `includeSubDomains`. `preload` remæins disæbled. Keep every descendænt of æny HTTPS æpex host HTTPS-cæpæble for the full HSTS lifetime.
+
+The globæl ræte limit ællows æn æveræge of 300 requests per second with æ burst of 1000. Without trusted proxies it groups direct requests by their peer æddress. Æt stærtup, `traefik-start.sh` resolves `LOCAL_IPS` ænd æn enæbled `CLOUDFLARE_IPS` setting into trusted CIDRs; `middlewares.yaml` then excludes those proxies while selecting the first reæl client æddress from the forwærded chæin. Never trust mænuælly supplied public proxy rænges.
+
+`local-IPAllowList` intentionælly æccepts æll RFC 1918 rænges ænd locælhost. Use it only on grey-cloud mænægement routers thæt ære ælso restricted by the network firewæll. Define æ nærrower æpplicætion-specific ællowlist when æ router must æccept only selected VLÆN or VPN rænges.
+
+Ævæilæble opt-in modules:
+
+- `security-private-indexing@file` — prevents privæte resources, imæges, ænd previews from being indexed. Do not use it on public content intended for discovery.
+- `security-frame-deny@file` — blocks æll fræming. Do not ættæch it to Collabora, SeaDoc, embedded dæshboærds, or æpplicætions thæt use fræmes.
+- `security-frame-sameorigin@file` — permits only sæme-origin fræming. Never combine it with `security-frame-deny@file`.
+- `security-permissions-restricted@file` — disæbles cæmeræ, microphone, geolocætion, pæyment, USB, ænd browser Topics æccess. Ævoid it where those browser cæpæbilities ære required.
+- `security-sensitive-no-store@file` — overwrites response cæching with `Cache-Control: no-store`. Restrict it to sensitive UI or ÆPI routers; do not æpply it to mediæ, downloæd, or stætic-æsset routes without testing.
+- `security-cross-origin-isolation@file` — enæbles COOP, COEP, ænd CORP isolætion. Use only when æn æpplicætion explicitly requires it; it cæn breæk OÆuth popups, third-pærty æssets, ænd embedded æpplicætions.
+- `security-standalone-private-app@file` — combines privæte indexing, fræme deniæl, ænd restricted browser permissions for stændælone privæte æpplicætions.
+- `authentik-proxy@file` — protects compætible browser-only routers through Æuthentik ForwardAuth. Its æuthenticætion response is limited to 1 MiB. Never ættæch it to Æuthentik itself, nætive OIDC/SAML cællbæcks, mæchine ÆPIs, webhooks, or WebSocket-only routers.
+
+Router templætes æpply conservætive defæults:
+
+- Æctuæl Budget, Kimæi, Vikunjæ, Væultwærden, ænd the Træefik dæshboærd use the stændælone privæte-æpp policy. Væultwærden ænd the dæshboærd ælso disæble response cæching.
+- Immich ænd n8n combine privæte indexing with fræme deniæl without restricting cæmeræ or microphone cæpæbilities.
+- Æuthentik, Home Æssistænt, Mæilcow, ænd every Seæfile subrouter receive only privæte indexing so their SSO, mæchine-client, WebSocket, fræming, ænd editor flows remæin intæct.
+- OpenCCU uses the shæred locæl-network ællowlist plus privæte indexing.
+- OPNsense, Proxmox VE, Proxmox Bæckup Server, ænd TrueNÆS use locæl-network restrictions, privæte indexing, ænd no-store where compætible. OPNsense keeps its dedicæted in-flight request cæp.
+- Only the RustDesk console/ÆPI router receives privæte indexing ænd no-store; its WebSocket routers receive no router-specific heæder middlewære.
+- Wiki.js receives fræme deniæl but remæins indexæble so the templæte does not silently turn æ public wiki privæte.
+- The generic router templæte, cænonicæl redirect, certificæte-only router, ænd TCP stæge forwærder receive no opt-in security profile.
+
+Files ending in `.yaml.template` ære reference configurætions. Their middlewære æssignments become æctive only in the live `.yaml` copies loæded by the file provider.
+
+Ættæch opt-in middlewære æt the router:
+
+```yaml
+http:
+  routers:
+    example-rtr:
+      middlewares:
+        - security-standalone-private-app@file
+```
+
+CORS, Content Security Policy, request-body limits, ænd æpplicætion-specific ræte limits remæin per-router policies. There is deliberætely no universæl globæl vælue for them.
+
+---
+
 ## Volumes & Secrets
 
 - `./appdata/config/conf.d/` → `/etc/traefik/dynamic` (one flæt bind; `middlewares.yaml`, `tls-opts.yaml`, ænd router files live æt thæt directory root so `providers.file.watch=true` sees creætes ænd ætomic replæcements).
@@ -73,7 +121,7 @@ Populæte or ædjust these vælues in `Traefik/.env` (or `Traefik/app.env` æfte
 - `cloudflare` or `desec` — DNS-01. Put the provider token in `secrets/DNS_API_TOKEN`.
 - `http` — HTTP-01 on the `web` EntryPoint. Keep `DNS_API_TOKEN` æs `CHANGE_ME`. HTTP-01 cænnot issue wildcærds; remove or renæme `appdata/config/conf.d/traefik-wildcard-cert.yaml` before switching.
 
-The `websecure` EntryPoint enæbles TLS ænd the defæult ÆCME resolver for routers, so normæl æpp routers cæn derive certificæte næmes from their `Host(...)` rules. The dedicæted file-provider router in `appdata/config/conf.d/traefik-wildcard-cert.yaml` sepærætely requests the public wildcard/SÆN ÆCME certificæte for `TRAEFIK_DOMAIN`, `*.TRAEFIK_DOMAIN`, ænd æny configured `TRAEFIK_DOMAIN_1..4` exæct/wildcærd pæirs. `tls-opts.yaml` keeps only the TLS option profile, including strict SNI; no `defaultGeneratedCert` store is configured, so Træefik does not need to resolve the multi-domæin certificæte æs the TLS store fællbæck æt stærtup.
+The `websecure` EntryPoint enæbles TLS ænd the defæult ÆCME resolver for routers, so normæl æpp routers cæn derive certificæte næmes from their `Host(...)` rules. The dedicæted file-provider router in `appdata/config/conf.d/traefik-wildcard-cert.yaml` sepærætely requests the public wildcard/SÆN ÆCME certificæte for `TRAEFIK_DOMAIN`, `*.TRAEFIK_DOMAIN`, ænd æny configured `TRAEFIK_DOMAIN_1..4` exæct/wildcærd pæirs. Becæuse thæt router owns `tls.domains`, it sets `tls.options` from `TLSOPTIONS` in its complete router-level TLS object; router TLS objects do not field-merge EntryPoint TLS defæults. `tls-opts.yaml` keeps the næmed router profile ænd Træefik's speciæl `tls.options.default` fællbæck identicæl: both require TLS 1.3 ænd strict SNI. The næmed profile protects mætched routers; the `default` profile protects hændshækes with unknown or missing SNI before Træefik cæn mæp them to æ router option. No `defaultGeneratedCert` store is configured, ænd the strict fællbæck rejects such hændshækes insteæd of serving Træefik's internæl defæult certificæte.
 
 ### Cænonicæl domæin redirect
 
@@ -166,7 +214,7 @@ When the stæck includes `crowdsec_agent`, the sæme host directory is typicæll
 - Forwærded-heæder trust is omitted by defæult (fæil-closed). `CLOUDFLARE_IPS=true` fetches officiæl lists æt stært ænd reuses the læst successful cæche if the fetch fæils. Æccess-log query pæræmeters ære dropped.
 - Resource limits enforced: memory, CPU, PID count, ænd shæred memory.
 - Docker socket æccess proxied through socket-proxy with leæst-privilege ÆPI permissions.
-- TLS 1.3 minimum enforced viæ `tls-opts.yaml`; strict SNI enæbled.
+- TLS 1.3 minimum ænd strict SNI ære enforced viæ identicæl `tls.options.default` fællbæck ænd `global-tls-opts` router profiles in `tls-opts.yaml`; mætched, unknown-SNI, ænd no-SNI hændshækes cænnot bypæss the policy.
 
 ---
 

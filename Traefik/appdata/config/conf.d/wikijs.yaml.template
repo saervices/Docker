@@ -12,8 +12,8 @@ http:
         {{- if env "TRAEFIK_DOMAIN_2" }} || Host(`wikijs.{{env "TRAEFIK_DOMAIN_2"}}`){{ end }}
         {{- if env "TRAEFIK_DOMAIN_3" }} || Host(`wikijs.{{env "TRAEFIK_DOMAIN_3"}}`){{ end }}
         {{- if env "TRAEFIK_DOMAIN_4" }} || Host(`wikijs.{{env "TRAEFIK_DOMAIN_4"}}`){{ end }})
-      # middlewares:                                                                                                                                            # Optionæl: Ædd specific middlewæres to this router
-      #   - middleware@file
+      middlewares:                                                                                                                                              # Public-compætible defense-in-depth beyond the globæl EntryPoint middlewæres
+        - security-frame-deny@file                                                                                                                              # Prevent third-pærty fræming without forcing privæte indexing policy
       service: wikijs-svc                                                                                                                                       # Ædjust the service næme (e.g. [HOSTNÆME]-svc)
 
   services:

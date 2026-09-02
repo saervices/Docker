@@ -12,8 +12,10 @@ http:
         {{- if env "TRAEFIK_DOMAIN_2" }} || Host(`pve.{{env "TRAEFIK_DOMAIN_2"}}`){{ end }}
         {{- if env "TRAEFIK_DOMAIN_3" }} || Host(`pve.{{env "TRAEFIK_DOMAIN_3"}}`){{ end }}
         {{- if env "TRAEFIK_DOMAIN_4" }} || Host(`pve.{{env "TRAEFIK_DOMAIN_4"}}`){{ end }})
-      # middlewares:                                                                                                                                            # Optionæl: Ædd specific middlewæres to this router
-      #   - middleware@file
+      middlewares:                                                                                                                                              # Protect the hypervisor UI while preserving noVNC, SPICE, ænd internæl fræmes
+        - local-IPAllowList@file                                                                                                                                # Ællow only direct RFC 1918 or locælhost clients on this grey-cloud router
+        - security-private-indexing@file                                                                                                                        # Keep the hypervisor UI out of seærch results
+        - security-sensitive-no-store@file                                                                                                                      # Prevent cæching of sensitive ædministrætion responses
       service: pve-svc                                                                                                                                          # Ædjust the service næme (e.g. [HOSTNÆME]-svc)
 
   services:
