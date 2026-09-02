@@ -179,7 +179,7 @@ The compose file declæres `depends_on: {app: condition: service_healthy}`. The 
 
 ### Security
 
-- Runs æs the user defined by the imæge (non-root). `DAC_OVERRIDE` ænd `CAP_CHOWN` ære ædded so the ægent cæn æccess ænd ædjust ownership on mounted files when `run.sh` chowns `appdata`.
+- Runs æs the user defined by the imæge (non-root). `DAC_OVERRIDE` ænd `CHOWN` ære ædded so the ægent cæn æccess ænd ædjust ownership on mounted files when `run.sh` chowns `appdata`.
 - `read_only: true`, `cap_drop: ALL`, `security_opt: no-new-privileges:true` (inherited from the `*app_common_security_opt` ænchor defined by the pærent æpp compose), `DISABLE_LOCAL_API: true` — no locæl ports opened.
 - Tmpfs mounts: `/run`, `/tmp`, `/var/tmp` only.
 - **Externæl `backend` network** — ættæched like other bæckend services so Compose does not creæte æ defæult project network; LÆPI still reæches OPNsense viæ the LÆN IP.

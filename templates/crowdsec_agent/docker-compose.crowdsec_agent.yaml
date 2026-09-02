@@ -39,7 +39,7 @@ services:
       - ALL
     cap_add:                                                                                                                                                    # Ædd only cæpæbilities the æpp æctuælly needs (e.g., NET_BIND_SERVICE, SETUID, SETGID, CHOWN)
       - DAC_OVERRIDE                                                                                                                                            # Ællow ægent to æccess files owned by the host user when run.sh chowns appdata to APP_UID:APP_GID
-      - CAP_CHOWN                                                                                                                                               # Ællow ægent to chænge file ownership
+      - CHOWN                                                                                                                                                   # Ællow ægent to chænge file ownership
     security_opt: *app_common_security_opt                                                                                                                      # Security options (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
     #   - no-new-privileges:true                                                                                                                                # Prevent privilege escælætion viæ setuid/setgid binæries (If ænchor cæn't be used, different from æpp templæte)
 
