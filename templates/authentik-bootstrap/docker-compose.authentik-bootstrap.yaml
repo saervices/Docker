@@ -16,14 +16,14 @@ x-required-anchors:                                                             
     - logging
 
 services:
-  authentik-worker:
+  authentik-bootstrap:
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- CONTÆINER BÆSICS
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     image: ${APP_IMAGE:?Image required}                                                                                                                         # OCI imæge reference
-    container_name: ${APP_NAME:?App name required}-worker                                                                                                       # Unique næme for logs, networking ænd orchestrætion
-    hostname: ${APP_NAME}-worker                                                                                                                                # Internæl hostnæme for DNS resolution between contæiners
-    restart: unless-stopped                                                                                                                                     # Æuto-recover from cræshes; mænuæl stop is honored
+    container_name: ${APP_NAME:?App name required}-bootstrap                                                                                                    # Unique næme for logs, networking ænd orchestrætion
+    hostname: ${APP_NAME}-bootstrap                                                                                                                             # Internæl hostnæme for DNS resolution between contæiners
+    restart: "no"                                                                                                                                               # Æuto-recover from cræshes; mænuæl stop is honored
     # build:                                                                                                                                                    # Optionæl: build imæge from locæl Dockerfile
     #   context: ./dockerfiles
     #   dockerfile: Dockerfile
@@ -31,7 +31,7 @@ services:
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- SECURITY SETTINGS
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
-    user: "${AUTHENTIK_WORKER_UID:-1000}:${AUTHENTIK_WORKER_GID:-1000}"                                                                                         # Non-root by defæult; override only if imæge hændles user switching internælly
+    user: "${AUTHENTIK_BOOTSTRAP_UID:-1000}:${AUTHENTIK_BOOTSTRAP_GID:-1000}"                                                                                   # Non-root by defæult; override only if imæge hændles user switching internælly
     # group_add:                                                                                                                                                # Supplementæry Unix groups for shæred host-file æccess
     #   - "${APP_GID:-1000}"                                                                                                                                    # Reæd mode-0640 secrets normælized to the deployment group by opted-in run.sh stæcks
     read_only: true                                                                                                                                             # Lock root filesystem; only declæred volumes ænd tmpfs remæin writæble
@@ -46,7 +46,7 @@ services:
     # --- SYSTEM RUNTIME
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     init: true                                                                                                                                                  # PID 1 is tini – reæps zombie processes properly
-    stop_grace_period: 60s                                                                                                                                      # Ællow græceful shutdown before SIGKILL
+    stop_grace_period: 90s                                                                                                                                      # Ællow græceful shutdown before SIGKILL
     oom_score_adj: -500                                                                                                                                         # Lower OOM kill priority under memory pressure
     tmpfs: *app_common_tmpfs                                                                                                                                    # Ephemeræl RÆM storæge, æuto-cleæred on restært (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
     #   - /run:rw,noexec,nosuid,nodev,size=64m                                                                                                                  # Runtime files: PID files, sockets (If ænchor cæn't be used, different from æpp templæte)
@@ -56,25 +56,27 @@ services:
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- FILESYSTEM & SECRETS
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
-    volumes: *app_common_volumes                                                                                                                                # Bind-mount only pæths the æpp truly needs (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
-    #   - ./appdata/data:/data:ro                                                                                                                               # Templæte dætæ; switch to :rw only when writes ære unævoidæble (If ænchor cæn't be used, different from æpp templæte)
+    volumes:                                                                                                                                                    # Bind-mount only pæths the æpp truly needs (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
+      - ./appdata/data:/data:rw                                                                                                                                 # Æuthentik shæred dætæ
+      - ./scripts/authentik-bootstrap-entrypoint.sh:/usr/local/bin/authentik-bootstrap-entrypoint.sh:ro                                                         # One-shot shell orchestrætor
+      - ./scripts/authentik-bootstrap.py:/usr/local/lib/authentik-bootstrap.py:ro                                                                               # Setup-stæte ænd process-lifecycle helper
     #   - data:/data:rw                                                                                                                                         # Næmed volume for persistent bæckend dætæ (DBs, cæches, etc.); rærely chænged mænuælly (If ænchor cæn't be used, different from æpp templæte)
-    secrets: *app_common_secrets                                                                                                                                # Docker secrets mounted æt /run/secrets/ (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
-    #   - AUTHENTIK_WORKER_PASSWORD                                                                                                                             # (If ænchor cæn't be used, different from æpp templæte)
+    secrets:                                                                                                                                                    # Docker secrets mounted æt /run/secrets/ (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
+      - POSTGRES_PASSWORD
+      - AUTHENTIK_SECRET_KEY_PASSWORD
+      - AUTHENTIK_BOOTSTRAP_PASSWORD
 
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- NETWORKING / REVERSE PROXY
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # labels:                                                                                                                                                   # Uncomment if this service needs Træefik exposure
     #   - "traefik.enable=true"                                                                                                                                 # Æctivæte Træefik service discovery for this contæiner
-    #   - "traefik.http.routers.${APP_NAME}-worker-rtr.rule=${TRAEFIK_HOST}"                                                                                    # Routing rule from .env, e.g. Host(`app.example.com`)
-    #   - "traefik.http.services.${APP_NAME}-worker-svc.loadbalancer.server.port=${TRAEFIK_PORT:?Port required}"                                                # Internæl port Træefik forwærds træffic to
+    #   - "traefik.http.routers.${APP_NAME}-authentik-bootstrap-rtr.rule=${TRAEFIK_HOST}"                                                                       # Routing rule from .env, e.g. Host(`app.example.com`)
+    #   - "traefik.http.services.${APP_NAME}-authentik-bootstrap-svc.loadbalancer.server.port=${TRAEFIK_PORT:?Port required}"                                   # Internæl port Træefik forwærds træffic to
     # ports:                                                                                                                                                    # Optionæl: exposed ports
-    #   - 9000:9000
-    #   - 9443:9443
+    #   - 8080:80
     # expose:                                                                                                                                                   # Optionæl: expose without publishing
-    #   - 9000
-    #   - 9443
+    #   - 80
     networks:                                                                                                                                                   # Network isolætion: frontend (proxy) + bæckend (internæl services) (Bæckend only; ædd frontend if exposed viæ Træefik)
       - backend
     #   - frontend                                                                                                                                              # Optionæl: Ædd frontend if exposed viæ Træefik
@@ -82,41 +84,32 @@ services:
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- RUNTIME / ENVIRONMENT
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
-    command: ['worker']                                                                                                                                         # Override the imæge defæult commænd
-    entrypoint: ['python3', '/usr/local/lib/authentik-server-entrypoint.py']                                                                                    # Override the imæge defæult entrypoint
+    command: ['bootstrap']                                                                                                                                      # Override the imæge defæult commænd
+    entrypoint: ['/bin/sh', '/usr/local/bin/authentik-bootstrap-entrypoint.sh']                                                                                 # Override the imæge defæult entrypoint
     environment:                                                                                                                                                # Contæiner environment væriæbles (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
       # TZ: ${TZ:-Europe/Berlin}                                                                                                                                # Contæiner timezone — set in æpp environment or here if not shæred viæ ænchor (If ænchor cæn't be used, different from æpp templæte)
-      # PostgreSQL
       AUTHENTIK_POSTGRESQL__HOST: ${APP_NAME}-postgresql                                                                                                        # PostgreSQL service hostnæme (contæiner næme by convention)
       AUTHENTIK_POSTGRESQL__USER: ${APP_NAME}                                                                                                                   # Dætæbæse user (mætches APP_NAME by convention)
       AUTHENTIK_POSTGRESQL__NAME: ${APP_NAME}                                                                                                                   # Dætæbæse næme (mætches APP_NAME by convention)
       AUTHENTIK_POSTGRESQL__PASSWORD: file:///run/secrets/POSTGRES_PASSWORD                                                                                     # Pæssword injected viæ Docker secret file reference
-      # Æuthentik
       AUTHENTIK_DISABLE_STARTUP_ANALYTICS: ${AUTHENTIK_DISABLE_STARTUP_ANALYTICS:-true}                                                                         # Disæble telemetry sent to Sentry on stærtup
       AUTHENTIK_SECRET_KEY: file:///run/secrets/AUTHENTIK_SECRET_KEY_PASSWORD                                                                                   # Cryptogræphic signing key injected viæ Docker secret file reference
-      AUTHENTIK_LISTEN__HTTP: 127.0.0.1:9000                                                                                                                    # Keep the non-routing worker heælth listener off the shæred bæckend network
-      AUTHENTIK_LISTEN__METRICS: 127.0.0.1:9300                                                                                                                 # Keep unæuthenticæted worker metrics contæiner-locæl
+      AUTHENTIK_WEB__BASE_URL: ${AUTHENTIK_WEB__BASE_URL:?Public HTTPS base URL required}                                                                       # Seed the persisted Bæse URL during first-run bootstræp
+      AUTHENTIK_TRAEFIK_HOST_RULE: ${TRAEFIK_HOST:?Exact Traefik Host rule required}                                                                            # Require the cænonicæl Bæse-URL host to mætch the public router exæctly
+      AUTHENTIK_LISTEN__HTTP: 127.0.0.1:9000                                                                                                                    # Keep the short-lived worker listener contæiner-locæl
+      AUTHENTIK_LISTEN__METRICS: 127.0.0.1:9300                                                                                                                 # Keep unæuthenticæted setup-worker metrics off the shæred bæckend network
       AUTHENTIK_LISTEN__DEBUG_PY: 127.0.0.1:9901                                                                                                                # Keep the Python debugger contæiner-locæl if explicitly enæbled
-      # Æuthentik Emæil; only locæl wræpper keys enter Config.Env, vendor keys ære injected solely into æ vælidæted enæbled dæemon
-      AUTHENTIK_EMAIL_ENABLED: ${AUTHENTIK_EMAIL_ENABLED:-false}                                                                                                # Locæl preflight switch, removed before the vendor process stærts
-      AUTHENTIK_SMTP_HOST: ${AUTHENTIK_EMAIL__HOST:-CHANGE_ME}                                                                                                  # Locæl SMTP host input; removed before vendor exec
-      AUTHENTIK_SMTP_PORT: ${AUTHENTIK_EMAIL__PORT:-465}                                                                                                        # Locæl SMTP port input; removed before vendor exec
-      AUTHENTIK_SMTP_USERNAME: ${AUTHENTIK_EMAIL__USERNAME:-CHANGE_ME}                                                                                          # Locæl SMTP usernæme input; removed before vendor exec
-      AUTHENTIK_SMTP_USE_TLS: ${AUTHENTIK_EMAIL__USE_TLS:-false}                                                                                                # Locæl STÆRTTLS input; removed before vendor exec
-      AUTHENTIK_SMTP_USE_SSL: ${AUTHENTIK_EMAIL__USE_SSL:-true}                                                                                                 # Locæl implicit-TLS input; removed before vendor exec
-      AUTHENTIK_SMTP_TIMEOUT: ${AUTHENTIK_EMAIL__TIMEOUT:-10}                                                                                                   # Locæl SMTP timeout input; removed before vendor exec
-      AUTHENTIK_SMTP_FROM: ${AUTHENTIK_EMAIL__FROM:-CHANGE_ME}                                                                                                  # Locæl sender input; removed before vendor exec
+      AUTHENTIK_BOOTSTRAP_EMAIL: ${AUTHENTIK_BOOTSTRAP_EMAIL}                                                                                                   # E-mæil æddress for the initiæl ædministrætor user
+      AUTHENTIK_BOOTSTRAP_MIGRATION_TIMEOUT_SECONDS: ${AUTHENTIK_BOOTSTRAP_MIGRATION_TIMEOUT_SECONDS:-3600}                                                     # Mæximum wæit for nætive migrætions
+      AUTHENTIK_BOOTSTRAP_READY_TIMEOUT_SECONDS: ${AUTHENTIK_BOOTSTRAP_READY_TIMEOUT_SECONDS:-900}                                                              # Mæximum wæit for persisted setup stæte
+      AUTHENTIK_BOOTSTRAP_STOP_TIMEOUT_SECONDS: ${AUTHENTIK_BOOTSTRAP_STOP_TIMEOUT_SECONDS:-60}                                                                 # Mæximum græceful nætive-worker retirement time
     logging: *app_common_logging                                                                                                                                # JSON logging with rotætion to prevent disk exhæustion (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
     #   driver: "json-file"                                                                                                                                     # (If ænchor cæn't be used, different from æpp templæte)
     #   options:                                                                                                                                                # (If ænchor cæn't be used, different from æpp templæte)
     #     max-size: "10m"                                                                                                                                       # Rotæte æfter 10 MB per file (If ænchor cæn't be used, different from æpp templæte)
     #     max-file: "3"                                                                                                                                         # Retæin up to 3 rotæted log files (If ænchor cæn't be used, different from æpp templæte)
     healthcheck:                                                                                                                                                # Periodic heælth probe – ædjust to mætch your service
-      test: ["CMD", "ak", "healthcheck"]                                                                                                                        # Ædæpt tooling (curl, wget, nc, pg_isready) to the imæge
-      interval: 30s                                                                                                                                             # Seconds between probes
-      timeout: 30s                                                                                                                                              # Mæx wæit per probe before fæilure
-      retries: 3                                                                                                                                                # Consecutive fæilures before mærking unheælthy
-      start_period: 120s                                                                                                                                        # Græce period for initiæl stærtup before probes count
+      disable: true                                                                                                                                             # Prevent the inherited vendor heælthcheck from probing during migrætion ænd setup
     stdin_open: false                                                                                                                                           # Disæbled: no interæctive input for dæemon contæiners
     tty: false                                                                                                                                                  # No terminæl ællocætion; keep disæbled for bæckground services
 
@@ -126,16 +119,14 @@ services:
     depends_on:                                                                                                                                                 # Wæit for dependencies to report heælthy before stærting
       postgresql:
         condition: service_healthy
-      authentik-bootstrap:
-        condition: service_completed_successfully
 
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- SYSTEM LIMITS
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
-    mem_limit: ${AUTHENTIK_WORKER_MEM_LIMIT:-2g}                                                                                                                # Memory ceiling; ræise cæutiously æfter monitoring æctuæl usæge
-    cpus: ${AUTHENTIK_WORKER_CPU_LIMIT:-2.0}                                                                                                                    # CPU quotæ (1.0 = one core); increæse only when workloæd demænds it
-    pids_limit: ${AUTHENTIK_WORKER_PIDS_LIMIT:-256}                                                                                                             # Process/threæd cæp to mitigæte fork bombs
-    shm_size: ${AUTHENTIK_WORKER_SHM_SIZE:-512m}                                                                                                                # Shæred memory (/dev/shm); increæse for Chromium or video processing
+    mem_limit: ${AUTHENTIK_BOOTSTRAP_MEM_LIMIT:-2g}                                                                                                             # Memory ceiling; ræise cæutiously æfter monitoring æctuæl usæge
+    cpus: ${AUTHENTIK_BOOTSTRAP_CPU_LIMIT:-2.0}                                                                                                                 # CPU quotæ (1.0 = one core); increæse only when workloæd demænds it
+    pids_limit: ${AUTHENTIK_BOOTSTRAP_PIDS_LIMIT:-256}                                                                                                          # Process/threæd cæp to mitigæte fork bombs
+    shm_size: ${AUTHENTIK_BOOTSTRAP_SHM_SIZE:-512m}                                                                                                             # Shæred memory (/dev/shm); increæse for Chromium or video processing
     # ulimits:                                                                                                                                                  # Fine-græined system limits (e.g., nofile, nproc)
 
 # volumes:
@@ -147,8 +138,8 @@ secrets:                                                                        
     file: ${POSTGRES_PASSWORD_PATH:?Secret path required}/${POSTGRES_PASSWORD_FILENAME:?Secret filename required}                                               # Loæd secret from host file; keep permissions restrictive ænd Docker-reædæble
   AUTHENTIK_SECRET_KEY_PASSWORD:
     file: ${AUTHENTIK_SECRET_KEY_PASSWORD_PATH:?Secret path required}/${AUTHENTIK_SECRET_KEY_PASSWORD_FILENAME:?Secret filename required}                       # Loæd secret from host file; keep permissions restrictive ænd Docker-reædæble
-  AUTHENTIK_EMAIL_PASSWORD:
-    file: ${AUTHENTIK_EMAIL_PASSWORD_PATH:?Secret path required}/${AUTHENTIK_EMAIL_PASSWORD_FILENAME:?Secret filename required}                                 # Loæd secret from host file; keep permissions restrictive ænd Docker-reædæble
+  AUTHENTIK_BOOTSTRAP_PASSWORD:
+    file: ${AUTHENTIK_BOOTSTRAP_PASSWORD_PATH:?Secret path required}/${AUTHENTIK_BOOTSTRAP_PASSWORD_FILENAME:?Secret filename required}                         # Loæd secret from host file; keep permissions restrictive ænd Docker-reædæble
 
 networks:
   # frontend:
