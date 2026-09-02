@@ -1,10 +1,13 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2025 it.særvices
+#
+# PostgreSQL — officiæl runtime with optionæl reviewed extension instællætion
+# Bæse: postgres:18 (officiæl moving mæjor chænnel)
 
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 # --- BÆSE IMÆGE
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
-ARG POSTGRES_IMAGE=postgres:17
+ARG POSTGRES_IMAGE=postgres:18
 FROM ${POSTGRES_IMAGE}
 
 ARG POSTGRES_EXTENSIONS=
@@ -13,46 +16,84 @@ ARG POSTGRES_PG_SEARCH_VERSION=
 LABEL maintainer="it.særvices <admin@it.saervices.de>"
 
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
-# --- OPTIONÆL pg_seærch EXTENSION
+# --- OPTIONÆL EXTENSION PÆCKÆGES
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
-# pg_seærch is instælled only when POSTGRES_EXTENSIONS contæins pg_seærch.
+# pgvector is instælled when POSTGRES_EXTENSIONS contæins vector or pg_search.
+# pg_search is instælled only when POSTGRES_EXTENSIONS contæins pg_search.
 # POSTGRES_PG_SEARCH_VERSION mæy pin æ releæse; empty uses GitHub lætest.
 RUN set -eux; \
     REQUESTED_EXTENSIONS="$(printf '%s' "${POSTGRES_EXTENSIONS}" | tr -d '[:space:]')"; \
+    INSTALL_VECTOR=false; \
+    INSTALL_PG_SEARCH=false; \
     case ",${REQUESTED_EXTENSIONS}," in \
-      *,pg_search,*) ;; \
-      *) \
-        echo "Skipping pg_search install; POSTGRES_EXTENSIONS=${POSTGRES_EXTENSIONS:-<empty>}"; \
-        exit 0; \
-        ;; \
+      *,vector,*|*,pg_search,*) INSTALL_VECTOR=true ;; \
     esac; \
-    apt-get update; \
-    apt-get install -y --no-install-recommends curl ca-certificates; \
-    ARCH="$(dpkg --print-architecture)"; \
+    case ",${REQUESTED_EXTENSIONS}," in \
+      *,pg_search,*) INSTALL_PG_SEARCH=true ;; \
+    esac; \
+    if [ "${INSTALL_VECTOR}" != true ] && [ "${INSTALL_PG_SEARCH}" != true ]; then \
+        echo "Skipping optional extension packages; POSTGRES_EXTENSIONS=${POSTGRES_EXTENSIONS:-<empty>}"; \
+        exit 0; \
+    fi; \
     PG_MAJOR="$(pg_config --version | awk '{print $2}' | cut -d. -f1)"; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends ca-certificates; \
+    if [ "${INSTALL_VECTOR}" = true ]; then \
+      apt-get install -y --no-install-recommends "postgresql-${PG_MAJOR}-pgvector"; \
+    fi; \
+    if [ "${INSTALL_PG_SEARCH}" != true ]; then \
+      rm -rf /var/lib/apt/lists/*; \
+      exit 0; \
+    fi; \
+    apt-get install -y --no-install-recommends curl jq; \
+    ARCH="$(dpkg --print-architecture)"; \
     DEB_DIST="$(. /etc/os-release && printf '%s' "${VERSION_CODENAME}")"; \
     if [ -n "${POSTGRES_PG_SEARCH_VERSION}" ]; then \
       PG_SEARCH_VERSION="${POSTGRES_PG_SEARCH_VERSION#v}"; \
+      printf '%s' "${PG_SEARCH_VERSION}" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z]+)*$' || { echo "Invalid pg_search version pin: ${POSTGRES_PG_SEARCH_VERSION}" >&2; exit 1; }; \
+      RELEASE_API="https://api.github.com/repos/paradedb/paradedb/releases/tags/v${PG_SEARCH_VERSION}"; \
     else \
-      PG_SEARCH_VERSION="$(curl -fsSL -o /dev/null -w '%{url_effective}' \
-        'https://github.com/paradedb/paradedb/releases/latest' \
-        | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"; \
+      RELEASE_API='https://api.github.com/repos/paradedb/paradedb/releases/latest'; \
     fi; \
-    if [ -z "${PG_SEARCH_VERSION}" ]; then \
-      echo "Unable to resolve pg_search version" >&2; \
-      exit 1; \
+    RELEASE_METADATA="$(mktemp)"; \
+    curl --proto '=https' --proto-redir '=https' --tlsv1.2 \
+      --fail --silent --show-error --location \
+      --retry 5 --retry-all-errors --retry-max-time 120 \
+      --connect-timeout 15 --max-time 120 \
+      "${RELEASE_API}" -o "${RELEASE_METADATA}"; \
+    PG_SEARCH_RELEASE="$(jq -er '.tag_name' "${RELEASE_METADATA}")"; \
+    if [ -n "${POSTGRES_PG_SEARCH_VERSION}" ]; then \
+      [ "${PG_SEARCH_RELEASE}" = "v${PG_SEARCH_VERSION}" ] || { echo "Resolved unexpected pg_search release: ${PG_SEARCH_RELEASE}" >&2; exit 1; }; \
+    else \
+      printf '%s' "${PG_SEARCH_RELEASE}" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z]+)*$' || { echo "Malformed pg_search release tag: ${PG_SEARCH_RELEASE}" >&2; exit 1; }; \
+      PG_SEARCH_VERSION="${PG_SEARCH_RELEASE#v}"; \
     fi; \
-    curl -fsSL \
-      "https://github.com/paradedb/paradedb/releases/download/v${PG_SEARCH_VERSION}/postgresql-${PG_MAJOR}-pg-search_${PG_SEARCH_VERSION}-1PARADEDB-${DEB_DIST}_${ARCH}.deb" \
-      -o /tmp/pg_search.deb; \
+    PG_SEARCH_ASSET_NAME="postgresql-${PG_MAJOR}-pg-search_${PG_SEARCH_VERSION}-1PARADEDB-${DEB_DIST}_${ARCH}.deb"; \
+    PG_SEARCH_ASSET="$(jq -cer --arg asset "${PG_SEARCH_ASSET_NAME}" \
+      '[.assets[] | select(.name == $asset)] | if length == 1 then .[0] else error("missing or duplicate release asset") end' \
+      "${RELEASE_METADATA}")"; \
+    PG_SEARCH_URL="$(printf '%s' "${PG_SEARCH_ASSET}" | jq -er '.browser_download_url')"; \
+    PG_SEARCH_DIGEST="$(printf '%s' "${PG_SEARCH_ASSET}" | jq -er '.digest')"; \
+    EXPECTED_URL="https://github.com/paradedb/paradedb/releases/download/${PG_SEARCH_RELEASE}/${PG_SEARCH_ASSET_NAME}"; \
+    [ "${PG_SEARCH_URL}" = "${EXPECTED_URL}" ] || { echo "Unexpected official pg_search asset URL: ${PG_SEARCH_URL}" >&2; exit 1; }; \
+    printf '%s' "${PG_SEARCH_DIGEST}" | grep -Eq '^sha256:[0-9a-f]{64}$' || { echo "Missing or malformed official SHA256 digest for ${PG_SEARCH_ASSET_NAME}" >&2; exit 1; }; \
+    curl --proto '=https' --proto-redir '=https' --tlsv1.2 \
+      --fail --silent --show-error --location \
+      --retry 5 --retry-all-errors --retry-max-time 300 \
+      --connect-timeout 15 --max-time 300 \
+      "${PG_SEARCH_URL}" -o /tmp/pg_search.deb; \
+    printf '%s  %s\n' "${PG_SEARCH_DIGEST#sha256:}" /tmp/pg_search.deb | sha256sum -c -; \
+    printf 'Installing pg_search %s from %s with verified %s\n' "${PG_SEARCH_RELEASE}" "${PG_SEARCH_ASSET_NAME}" "${PG_SEARCH_DIGEST}"; \
     apt-get install -y /tmp/pg_search.deb; \
+    apt-get purge -y --auto-remove curl jq; \
+    rm -f "${RELEASE_METADATA}"; \
     rm -rf /tmp/pg_search.deb /var/lib/apt/lists/*
 
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 # --- INIT ÆND ENTRYPOINT SCRIPTS
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 # Bæked into the imæge; no host-mount required.
-# Init script runs once; entrypoint wrapper runs on every contæiner stært.
+# Init script runs once; entrypoint wræpper runs on every contæiner stært.
 COPY init_extensions.postgresql.sh /docker-entrypoint-initdb.d/init_extensions.sh
 COPY entrypoint.postgresql.sh /usr/local/bin/entrypoint.postgresql.sh
 RUN chmod +x \

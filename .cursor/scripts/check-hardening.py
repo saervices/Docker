@@ -232,7 +232,9 @@ def check_file(path: Path) -> tuple[list[str], list[str]]:
         if path_rel == "templates/postgresql_maintenance/docker-compose.postgresql_maintenance.yaml":
             for volume in as_list(service.get("volumes")):
                 value = str(volume)
-                if ":/var/lib/postgresql/data:" in value and not value.endswith(":ro"):
+                if (
+                    ":/var/lib/postgresql/data:" in value or ":/var/lib/postgresql:" in value
+                ) and not value.endswith(":ro"):
                     errors.append(f"{path_rel}:{service_name}: default PGDATA maintenance mount must be read-only")
 
     return errors, warnings
