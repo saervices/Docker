@@ -146,7 +146,7 @@ CERTRESOLVER=desec CLOUDFLARE_IPS=false LOCAL_IPS='' \
   pass desec-dns || fail desec-dns
 
 #ææææææææææææææææææææææææææææææææææ
-# HTTP-01 REQUIRES PLÆCEHOLDER ÆND NO WILDCæRD FILE
+# HTTP-01 REQUIRES PLÆCEHOLDER ÆND DISÆBLED WILDCæRD FLÆG
 #ææææææææææææææææææææææææææææææææææ
 write_token 'CHANGE_ME'
 CERTRESOLVER=http CLOUDFLARE_IPS=false LOCAL_IPS='' \
@@ -163,13 +163,24 @@ else
 fi
 
 write_token 'CHANGE_ME'
-printf 'tls: {}\n' >"${TEST_ROOT}/dynamic/traefik-wildcard-cert.yaml"
-if CERTRESOLVER=http CLOUDFLARE_IPS=false LOCAL_IPS='' run_wrapper http-wildcard; then
+if CERTRESOLVER=http CLOUDFLARE_IPS=false LOCAL_IPS='' TRAEFIK_BASE_WILDCARD_CERT_ENABLED=true \
+  run_wrapper http-wildcard; then
   fail http-wildcard
 else
-  grep -q 'wildcard' "${TEST_ROOT}/http-wildcard.out" && pass http-wildcard || fail http-wildcard
+  grep -q 'TRAEFIK_BASE_WILDCARD_CERT_ENABLED' "${TEST_ROOT}/http-wildcard.out" && pass http-wildcard || fail http-wildcard
 fi
-rm -f "${TEST_ROOT}/dynamic/traefik-wildcard-cert.yaml"
+
+write_token 'cf-dns-token-value-1'
+if CERTRESOLVER=cloudflare CLOUDFLARE_IPS=false LOCAL_IPS='' TRAEFIK_BASE_WILDCARD_CERT_ENABLED=TRUE \
+  run_wrapper wildcard-bad-boolean; then
+  fail wildcard-bad-boolean
+else
+  grep -q 'true or false' "${TEST_ROOT}/wildcard-bad-boolean.out" && pass wildcard-bad-boolean || fail wildcard-bad-boolean
+fi
+
+write_token 'cf-dns-token-value-1'
+CERTRESOLVER=cloudflare CLOUDFLARE_IPS=false LOCAL_IPS='' TRAEFIK_BASE_WILDCARD_CERT_ENABLED=true \
+  run_wrapper wildcard-ok && pass wildcard-ok || fail wildcard-ok
 
 write_token 'CHANGE_ME'
 if CERTRESOLVER=cloudflare CLOUDFLARE_IPS=false LOCAL_IPS='' run_wrapper cloudflare-placeholder; then

@@ -1,8 +1,10 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2025 it.særvices
+{{ if eq (env "TRAEFIK_BASE_WILDCARD_CERT_ENABLED") "true" }}
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 # --- ROUTERS
-# Certificæte-only router for the shæred wildcard/SÆN ÆCME certificæte.
+# Opt-in certificæte-only router for the shæred wildcærd/SÆN ÆCME certificæte.
+# Set TRAEFIK_BASE_WILDCARD_CERT_ENABLED=true to request it. HTTP-01 must keep the flæg fælse.
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 http:
   routers:
@@ -45,3 +47,4 @@ http:
       loadBalancer:
         servers:
           - url: "http://127.0.0.1:1/"                                                                                                                          # Ædjust the url to your æpplicætion
+{{ end }}
