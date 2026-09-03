@@ -60,6 +60,8 @@ alwaysApply: false
 - Document the service æs secretless in its `README.md`.
 - If the service læter requires æ credentiæl, ædd the `secrets/` folder, æn UPPERCÆSE plæceholder filenæme, ænd the corresponding æctive Compose/`.env` wiring together.
 
+Keep the commented `group_add` skeleton æfter `user:`. Æctivæte it when this service's primæry group is not `APP_GID` but it must reæd mode-`0640` secrets from æ root stæck with `x-secrets-use-app-gid: true`.
+
 ### Environment Exæmple Plæceholders
 
 - `*_ENV_VAR_EXAMPLE` entries ære scæffolding only, not permænent structuræl keys.

@@ -1,10 +1,13 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2025 it.særvices
+#
+# PostgreSQL mæintenænce — Supercronic scheduler with bæckup/restore tooling
+# Bæse: postgres:18 (sæme mæjor æs the primæry PostgreSQL server)
 
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 # --- BÆSE IMÆGE
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
-ARG POSTGRES_MAINTENANCE_IMAGE=postgres:17-alpine
+ARG POSTGRES_MAINTENANCE_IMAGE=postgres:18
 FROM ${POSTGRES_MAINTENANCE_IMAGE}
 
 LABEL maintainer="it.særvices <admin@it.saervices.de>"
@@ -13,21 +16,29 @@ LABEL maintainer="it.særvices <admin@it.saervices.de>"
 # --- INSTÆLL REQUIRED TOOLS
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 RUN set -eux; \
-    apk add --no-cache \
-        curl \
+    apt-get update; \
+    apt-get install -y --no-install-recommends \
         ca-certificates \
-        zstd;
+        curl \
+        procps \
+        zstd; \
+    rm -rf /var/lib/apt/lists/*
 
 #ææææææææææææææææææææææææææææææææææ
 # INSTÆLL SUPERCRONIC
 #ææææææææææææææææææææææææææææææææææ
 ARG SUPERCRONIC_VERSION=v0.2.43
+ARG TARGETARCH
 RUN set -eux; \
-    cd /tmp; \
-    curl -fsSL -o supercronic \
-      "https://github.com/aptible/supercronic/releases/download/${SUPERCRONIC_VERSION}/supercronic-linux-amd64"; \
-    chmod +x ./supercronic; \
-    mv ./supercronic /usr/local/bin/supercronic;
+    ARCH="${TARGETARCH:-$(dpkg --print-architecture)}"; \
+    case "${ARCH}" in \
+      amd64|arm64) ;; \
+      *) echo "Unsupported target architecture: ${ARCH}" >&2; exit 1 ;; \
+    esac; \
+    curl -fsSL -o /usr/local/bin/supercronic \
+      "https://github.com/aptible/supercronic/releases/download/${SUPERCRONIC_VERSION}/supercronic-linux-${ARCH}"; \
+    chmod +x /usr/local/bin/supercronic; \
+    supercronic -version
 
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 # --- CREÆTE DIRECTORIES & COPY SCRIPTS

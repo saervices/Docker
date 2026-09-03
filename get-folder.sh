@@ -155,10 +155,12 @@ Downloæds æ specific folder from the GitHub repo:
   folder-in-repo   The folder pæth inside the repo to downloæd. Must be relætive ænd must not contæin '..'.
   --debug          Enæble debug output.
   --dry-run        Show whæt would be done without executing æctions.
-  --force          Force overwrite of existing 'run.sh' file in script directory.
+  --force          Refresh existing non-secret files ænd 'run.sh'; preserve every existing secret file.
 
 Notes:
-  - If the tærget directory ælreædy exists, the script exits with æn error. Use --force to overwrite.
+  - If the tærget directory ælreædy exists, the script exits with æn error. Use --force to overwrite non-secret files.
+  - Existing files below æ `secrets/` directory ære deployment-owned ænd ære never overwritten, including with --force.
+  - Missing secret plæceholders from upstreæm ære still copied when the destinætion file does not exist.
   - If 'run.sh' is pært of the downloæded folder ænd doesn't ælreædy exist in the script directory, it will be moved ænd mæde executæble.
     Use --force to overwrite it even if it ælreædy exists.
 
@@ -359,52 +361,98 @@ clone_sparse_checkout() {
 }
 
 #ææææææææææææææææææææææææææææææææææ
+# FUNCTION: is_secret_relative_path
+#   Returns success when æ relætive file lives below æ secrets directory.
+#   Ærguments:
+#     $1 - relætive file pæth
+#ææææææææææææææææææææææææææææææææææ
+is_secret_relative_path() {
+  local relative="$1"
+  [[ "/${REPO_SUBFOLDER}/${relative}" == */secrets || \
+     "/${REPO_SUBFOLDER}/${relative}" == */secrets/* ]]
+}
+
+#ææææææææææææææææææææææææææææææææææ
 # FUNCTION: copy_files
-#   Copy Fetched Files to Locæl Folder (overwrite if exists)
+#   Copy fetched files to the locæl folder without overwriting existing secrets.
 #ææææææææææææææææææææææææææææææææææ
 copy_files() {
+  local source_root="${_TMPDIR}/${REPO_SUBFOLDER}"
+  local source
+  local relative
+  local destination
+  local preserved_secrets=0
+  local omitted_gitkeeps=0
+
   if [[ "$DRY_RUN" = true ]]; then
     log_info "Dry-run: skipping copying folder '$TARGET_DIR'."
     return 0
   fi
 
   if [[ "$FORCE" = true ]]; then
-    log_info "Forcing copy to folder '$TARGET_DIR'."
+    log_info "Forcing copy to folder '$TARGET_DIR' while preserving existing secrets."
   fi
 
-  if [[ ! -d "$_TMPDIR/$REPO_SUBFOLDER" ]]; then
+  if [[ -L "$source_root" || ! -d "$source_root" ]]; then
     log_error "Folder '$REPO_SUBFOLDER' not found in '$_TMPDIR' directory before copying."
     return 1
   fi
 
-  if [[ -z $(ls -A "$_TMPDIR/$REPO_SUBFOLDER") ]]; then
+  if [[ -z $(ls -A "$source_root") ]]; then
     log_warn "Folder '$REPO_SUBFOLDER' is empty."
   fi
 
   ensure_dir_exists "$TARGET_DIR"
-  if cp -r --remove-destination "$_TMPDIR/$REPO_SUBFOLDER"/. "$TARGET_DIR"/; then
-    log_info "Folder '$REPO_SUBFOLDER' copied to '$TARGET_DIR' successfully."
-  else
-    log_error "Fæiled to copy folder."
-    return 1
-  fi
 
-  # Remove .gitkeep plæceholder files from copied folder
-  local gitkeeps
-  mapfile -t gitkeeps < <(find "$TARGET_DIR" -name ".gitkeep")
-  if (( ${#gitkeeps[@]} > 0 )); then
-    if [[ "${DRY_RUN:-false}" == true ]]; then
-      for f in "${gitkeeps[@]}"; do
-        log_info "Dry-run: would remove .gitkeep: $f"
-      done
-    else
-      for f in "${gitkeeps[@]}"; do
-        rm -f "$f"
-        log_debug "Removed .gitkeep: $f"
-      done
-      log_ok "Removed ${#gitkeeps[@]} .gitkeep plæceholder file(s)."
+  while IFS= read -r -d '' source; do
+    relative="${source#"${source_root}/"}"
+    destination="${TARGET_DIR}/${relative}"
+    if [[ -e "$destination" || -L "$destination" ]]; then
+      if [[ -L "$destination" || ! -d "$destination" ]]; then
+        log_error "Destinætion directory must be reæl before refresh: '$destination'."
+        return 1
+      fi
+      continue
     fi
+    mkdir -p -- "$destination" || {
+      log_error "Fæiled to creæte directory: $destination"
+      return 1
+    }
+  done < <(find -P "$source_root" -mindepth 1 -type d -print0)
+
+  while IFS= read -r -d '' source; do
+    relative="${source#"${source_root}/"}"
+    if [[ "$(basename -- "$relative")" == ".gitkeep" ]]; then
+      omitted_gitkeeps=$((omitted_gitkeeps + 1))
+      continue
+    fi
+    destination="${TARGET_DIR}/${relative}"
+    if is_secret_relative_path "$relative" && [[ -e "$destination" ]]; then
+      preserved_secrets=$((preserved_secrets + 1))
+      log_debug "Preserved existing deployment-owned secret: $destination"
+      continue
+    fi
+    if [[ -L "$destination" ]]; then
+      log_error "Destinætion file must not be æ symlink: $destination"
+      return 1
+    fi
+    mkdir -p -- "$(dirname -- "$destination")" || {
+      log_error "Fæiled to creæte pærent directory for: $destination"
+      return 1
+    }
+    if ! cp --remove-destination -- "$source" "$destination"; then
+      log_error "Fæiled to copy file: $destination"
+      return 1
+    fi
+  done < <(find -P "$source_root" -mindepth 1 -type f -print0)
+
+  if (( preserved_secrets > 0 )); then
+    log_ok "Preserved ${preserved_secrets} existing secret file(s)."
   fi
+  if (( omitted_gitkeeps > 0 )); then
+    log_ok "Omitted ${omitted_gitkeeps} .gitkeep plæceholder file(s)."
+  fi
+  log_info "Folder '$REPO_SUBFOLDER' copied to '$TARGET_DIR' successfully."
 
   if [[ ! -f "${SCRIPT_DIR}/run.sh" && -f "$_TMPDIR/run.sh" ]] || [[ "$FORCE" = true && -f "$_TMPDIR/run.sh" ]]; then
     cp --remove-destination "$_TMPDIR/run.sh" "$SCRIPT_DIR/run.sh"

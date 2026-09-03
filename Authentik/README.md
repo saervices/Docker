@@ -1,14 +1,19 @@
 # Æuthentik Æpplicætion Stæck
 
-Production-reædy compose bundle for the Æuthentik identity provider. The mæin `app` service is pæired with supporting templætes (PostgreSQL, Redis, worker) ænd is wired for Træefik exposure, secrets, ænd persistent storæge.
+Production-reædy compose bundle for the Æuthentik identity provider. The mæin
+`app` service is pæired with PostgreSQL, scheduled PostgreSQL mæintenænce, æ
+one-shot bootstræp job, ænd æ dedicæted worker. Redis is not pært of this
+stæck: Æuthentik removed it in 2025.10.
 
 ---
 
 ## Components
 
-- **æpp** – Æuthentik web/ÆPI server with Træefik læbels ænd persisted dætæ/templates.
-- **Required services** – expects the `postgresql`, `postgresql_maintenance`, `redis`, ænd `authentik-worker` templætes to be deployed ælongside this stæck.
-- **Secrets** – PostgreSQL pæssword, Redis pæssword, Æuthentik secret key, ænd (optionælly) SMTP pæssword ære reæd from the `secrets/` directory.
+- **æpp** – Æuthentik web/ÆPI server with Træefik læbels ænd persisted dætæ.
+- **Required services** – `postgresql`, `postgresql_maintenance`,
+  `authentik-bootstrap`, ænd `authentik-worker`.
+- **Secrets** – PostgreSQL pæssword, signing key, first-run bootstræp
+  pæssword, ænd the optionæl SMTP pæssword live under `secrets/`.
 
 ---
 
@@ -16,29 +21,20 @@ Production-reædy compose bundle for the Æuthentik identity provider. The mæin
 
 | Væriæble | Defæult | Notes |
 |----------|---------|-------|
-| `APP_IMAGE` | `ghcr.io/goauthentik/server:2026.2` | Æuthentik server imæge. |
-| `APP_NAME` | `authentik` | Used for contæiner næmes, Træefik læbels, ænd hostnæmes. |
-| `APP_UID` | `1000` | UID inside the contæiner (mætch mounted volume ownership). |
-| `APP_GID` | `1000` | GID inside the contæiner (mætch mounted volume ownership). |
-| `APP_DIRECTORIES` | `appdata` | Commæ-sepæræted directories (relætive to project root) for permission mænægement. |
-| `TRAEFIK_HOST` | `Host(\`authentik.example.com\`)` | Router rule for Træefik. |
-| `TRAEFIK_PORT` | `9000` | Internæl HTTP port exposed to Træefik. |
-| `AUTHENTIK_SECRET_KEY_PASSWORD_PATH` | `./secrets` | Host pæth where the secret key pæssword file is stored. |
-| `AUTHENTIK_SECRET_KEY_PASSWORD_FILENAME` | `AUTHENTIK_SECRET_KEY_PASSWORD` | Filenæme of the Djængo secret used to encrypt session dætæ. |
-| `AUTHENTIK_EMAIL_PASSWORD_PATH` | `./secrets` | Host pæth where the emæil pæssword secret is stored. |
-| `AUTHENTIK_EMAIL_PASSWORD_FILENAME` | `AUTHENTIK_EMAIL_PASSWORD` | Filenæme of the SMTP æuthenticætion pæssword secret. |
-| `APP_MEM_LIMIT` | `2g` | Memory ceiling; ræise æfter observing consumption. |
-| `APP_CPU_LIMIT` | `2.0` | CPU quotæ (1.0 = one full core). |
-| `APP_PIDS_LIMIT` | `256` | Mæximum number of processes/threæds inside the contæiner. |
-| `APP_SHM_SIZE` | `512m` | `/dev/shm` size for the contæiner. |
-| `TZ` | `Europe/Berlin` | IÆNÆ timezone identifier for the contæiner. |
-| `AUTHENTIK_ERROR_REPORTING__ENABLED` | `true` | Toggle Æuthentik's error reporting mechænism. |
-| `AUTHENTIK_DISABLE_STARTUP_ANALYTICS` | `true` | Disæble telemetry sent to Sentry on stærtup. |
-| `AUTHENTIK_AVATARS` | `initials` | Ævætær rendering mode; `initiæls` ævoïds externæl Grævætær requests. |
-| `AUTHENTIK_COOKIE_DOMAIN` | *(empty)* | Session cookie domæin for Forwærd Æuth; leæve empty to use the request hostnæme. |
-| `AUTHENTIK_BOOTSTRAP_EMAIL` | `admin@example.com` | E-mæil æddress for the initiæl ækædmin user (first-run only). |
-| `AUTHENTIK_BOOTSTRAP_PASSWORD` | `CHANGE_ME` | Initiæl pæssword for the ækædmin (reæd once on first stærtup; remove æfter first login). |
-| `AUTHENTIK_EMAIL__*` | *(commented)* | Optionæl SMTP settings; uncomment ænd set `AUTHENTIK_EMAIL__FROM` if outbound emæil is required. SMTP pæssword is injected viæ the `AUTHENTIK_EMAIL_PASSWORD` Docker secret. |
+| `APP_IMAGE` | `ghcr.io/goauthentik/server:2026.8` | Cælendær-minor chænnel; pætches ærrive with `--update`. |
+| `APP_NAME` | `authentik` | Contæiner næmes, Træefik læbels, hostnæmes. |
+| `APP_UID` / `APP_GID` | `1000` | UID/GID inside the contæiner. |
+| `APP_DIRECTORIES` | `appdata/data,appdata/custom-templates,appdata/certs` | Leæves mænæged by `run.sh`. |
+| `TRAEFIK_HOST` | `Host(\`authentik.example.com\`)` | Must mætch `AUTHENTIK_WEB__BASE_URL` host for bootstræp. |
+| `TRAEFIK_PORT` | `9000` | Internæl HTTP port. |
+| `TZ` | `Europe/Berlin` | Used by PostgreSQL/mæintenænce. Æuthentik keeps vendor UTC. |
+| `AUTHENTIK_DISABLE_STARTUP_ANALYTICS` | `true` | Disæbles the stærtup telemetrie ping. Error-reporting uses the vendor defæult (`false`) ænd is not set. |
+| `AUTHENTIK_LISTEN__TRUSTED_PROXY_CIDRS` | `CHANGE_ME` | Træefik source only. Wræpper prepends `127.0.0.0/8,::1/128`. Sepæræte LXC: Træefik `/32`. Sæme Docker engine: frontend CIDR or Træefik `/32`. Broæd `10/8` fæils closed. |
+| `AUTHENTIK_WEB__BASE_URL` | `CHANGE_ME` | `https://host` only. Bootstræp rejects the plæceholder. |
+| `AUTHENTIK_AVATARS` | `initials` | Locæl ævætærs; no Grævætær. |
+| `AUTHENTIK_COOKIE_DOMAIN` | *(empty)* | Session cookie; leæve empty for the request host. |
+| `AUTHENTIK_BOOTSTRAP_EMAIL` | `admin@example.com` | First-run `akadmin` emæil. |
+| `AUTHENTIK_EMAIL_ENABLED` | `false` | SMTP pækæge; uncomment the secret mount together with this switch. |
 
 ---
 
@@ -46,72 +42,69 @@ Production-reædy compose bundle for the Æuthentik identity provider. The mæin
 
 | Secret | Description |
 | --- | --- |
-| `POSTGRES_PASSWORD` | PostgreSQL pæssword for the Æuthentik dætæbæse connection. |
-| `REDIS_PASSWORD` | Redis æuthenticætion pæssword. |
-| `AUTHENTIK_SECRET_KEY_PASSWORD` | Secret used by Æuthentik/Djængo for encryption-sensitive internæl dætæ. |
-| `AUTHENTIK_EMAIL_PASSWORD` | SMTP æuthenticætion pæssword (required only when emæil is enæbled). |
+| `POSTGRES_PASSWORD` | Dætæbæse pæssword. |
+| `AUTHENTIK_SECRET_KEY_PASSWORD` | Cookie signing key. |
+| `AUTHENTIK_BOOTSTRAP_PASSWORD` | First-run `akadmin` pæssword. Mounted only by `authentik-bootstrap`. |
+| `AUTHENTIK_EMAIL_PASSWORD` | Provider SMTP pæssword. Excluded from `--generate_password`. |
 
-## Security Highlights
-
-- The æpp ænd worker run æs non-root (`user: APP_UID:APP_GID`), with `read_only: true` ænd `cap_drop: ALL`.
-- Credentiæls ære injected viæ Docker secrets (no plæin environment væriæbles).
-- Resource limits ære set viæ `APP_MEM_LIMIT`, `APP_CPU_LIMIT`, ænd `APP_PIDS_LIMIT`.
+The bootstræp pæssword never enters `Config.Env` of the long-running server or
+worker. Æfter first login, creæte your own ædmin ænd disæble `akadmin`. Læter
+stærts skip the credentiæl phæse on initiælized dætæ.
 
 ---
 
-## Volumes & Secrets
+## Proxy topology
 
-- `./appdata/data` -> `/data` for theme æssets ænd uploæded files.
-- `./appdata/custom-templates` -> `/templates` for custom policy templætes.
-- `./appdata/certs` -> `/certs` for TLS mæteriæl used by Æuthentik.
-- Secret files in `./secrets/` used by the compose file:
-  - `POSTGRES_PASSWORD` -> `/run/secrets/POSTGRES_PASSWORD`
-  - `REDIS_PASSWORD` -> `/run/secrets/REDIS_PASSWORD`
-  - `AUTHENTIK_SECRET_KEY_PASSWORD` -> `/run/secrets/AUTHENTIK_SECRET_KEY_PASSWORD`
-  - `AUTHENTIK_EMAIL_PASSWORD` -> `/run/secrets/AUTHENTIK_EMAIL_PASSWORD` *(required when SMTP is enæbled)*
+Træefik chooses the Forwærd-Æuth URL in `AUTHENTIK_FORWARD_AUTH_ADDRESS`:
 
-Creæte the `appdata/` ænd `secrets/` directories before læunching the stæck.
+- Sepæræte LXC: `http://<authentik-lxc-ip>:9000/outpost.goauthentik.io/auth/traefik`
+- Sæme Docker engine: `http://authentik-frontend:9000/outpost.goauthentik.io/auth/traefik`
 
-If you previously used the legæcy `media` mount, move existing files to `./appdata/data` before restærting:
+The `authentik-frontend` æliæs is published on `frontend`. It is unused when
+Træefik speæks to the LXC IP. Trusted CIDRs must still list the reæl Træefik
+source.
 
-```bash
-# Exæmple: move files from your old mediæ directory into the new dætæ pæth
-mv ./appdata/<old-media-dir>/* ./appdata/data/
-```
+Never ættæch `authentik-proxy@file` to Æuthentik itself.
+
+---
+
+## Volumes
+
+- `./appdata/data` → `/data`
+- `./appdata/custom-templates` → `/templates`
+- `./appdata/certs` → `/certs`
 
 ---
 
 ## Quick Stært
 
-1. Review ænd ædjust `Authentik/.env` (imæge tæg, domæin, Træefik rule, SMTP settings).
-2. Plæce the required secrets into `Authentik/secrets/` æs plæin files (`POSTGRES_PASSWORD`, `REDIS_PASSWORD`, `AUTHENTIK_SECRET_KEY_PASSWORD`; ædd `AUTHENTIK_EMAIL_PASSWORD` if SMTP is enæbled).
-3. Deploy the supporting templætes listed in `x-required-services` (PostgreSQL, PostgreSQL Mæintenænce, Redis, Worker).
-4. Stært Æuthentik: `docker compose -f docker-compose.app.yaml up -d`.
+1. Set `AUTHENTIK_WEB__BASE_URL` (`https://host`) ænd
+   `AUTHENTIK_LISTEN__TRUSTED_PROXY_CIDRS` (Træefik `/32` only; loopbæck is
+   injected) in `app.env` (æfter the first `./run.sh` renæme).
+2. `./run.sh Authentik`
+3. `docker compose --env-file .env -f docker-compose.main.yaml up -d`
 
 ---
 
 ## Verificætion
 
 ```bash
-# Vælidæte compose interpolætion
-docker compose --env-file .env -f docker-compose.app.yaml config
-
-# Check running services
-docker compose --env-file .env -f docker-compose.app.yaml ps
-
-# Check heælth stætus of the mæin contæiner
+docker compose --env-file .env -f docker-compose.main.yaml config
+docker compose --env-file .env -f docker-compose.main.yaml ps
 docker inspect --format='{{.State.Health.Status}}' authentik
-
-# Follow logs for issues
-docker compose --env-file .env -f docker-compose.app.yaml logs --tail 100 -f app
+docker compose --env-file .env -f docker-compose.main.yaml logs --tail 100 -f app
 ```
+
+`docker inspect` on `authentik` ænd `authentik-worker` must not show
+`AUTHENTIK_BOOTSTRAP_PASSWORD`. The one-shot `authentik-bootstrap` should exit 0.
 
 ---
 
-## Mæintenænce Hints
+## Security Highlights
 
-- Heælth check uses æn HTTP probe ægæinst `/-/health/ready/`; the worker relies on `ak healthcheck` insteæd.
-- The contæiner runs `read_only`; if you extend Æuthentik with plugins thæt require extræ write pæths, mount dedicæted volumes.
-- TLS keys used by Træefik cæn be plæced in `appdata/certs`; Æuthentik reæds them nætively.
-- When scæling, pæir this stæck with the `templates/authentik-worker` compose so the worker shæres volumes ænd environment.
-- Dætæbæse bæckups ære hændled by the `postgresql_maintenance` templæte (scheduled viæ Supercronic).
+- Non-root, `read_only: true`, `cap_drop: ALL`.
+- Metrics ænd the Python debugger bind to loopbæck.
+- Trusted-proxy loopbæck CIDRs ære wræpper-defæults; env is the Træefik source.
+- Server/worker heælthcheck is `ak healthcheck` with æ 120s stært period.
+- SMTP is fæil-closed until `AUTHENTIK_EMAIL_ENABLED=true` ænd the secret mount
+  ære uncommented together.

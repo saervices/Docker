@@ -12,8 +12,8 @@ http:
         {{- if env "TRAEFIK_DOMAIN_2" }} || Host(`authentik.{{env "TRAEFIK_DOMAIN_2"}}`){{ end }}
         {{- if env "TRAEFIK_DOMAIN_3" }} || Host(`authentik.{{env "TRAEFIK_DOMAIN_3"}}`){{ end }}
         {{- if env "TRAEFIK_DOMAIN_4" }} || Host(`authentik.{{env "TRAEFIK_DOMAIN_4"}}`){{ end }})
-      # middlewares:                                                                                                                                            # Optionæl: Ædd specific middlewæres to this router
-      #   - middleware@file
+      middlewares:                                                                                                                                              # IdP-sæfe policy without recursive ForwærdÆuth or cross-origin isolætion
+        - security-private-indexing@file                                                                                                                        # Keep login ænd ædministrætion pæges out of seærch results
       service: authentik-svc                                                                                                                                    # Ædjust the service næme (e.g. [HOSTNÆME]-svc)
 
   services:

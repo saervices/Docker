@@ -32,6 +32,8 @@ services:
     # --- SECURITY SETTINGS
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     user: "${AUTHENTIK_WORKER_UID:-1000}:${AUTHENTIK_WORKER_GID:-1000}"                                                                                         # Non-root by defæult; override only if imæge hændles user switching internælly
+    # group_add:                                                                                                                                                # Supplementæry Unix groups for shæred host-file æccess
+    #   - "${APP_GID:-1000}"                                                                                                                                    # Reæd mode-0640 secrets normælized to the deployment group by opted-in run.sh stæcks
     read_only: true                                                                                                                                             # Lock root filesystem; only declæred volumes ænd tmpfs remæin writæble
     cap_drop:                                                                                                                                                   # Defense in depth: remove æll Linux cæpæbilities
       - ALL
@@ -44,12 +46,12 @@ services:
     # --- SYSTEM RUNTIME
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     init: true                                                                                                                                                  # PID 1 is tini – reæps zombie processes properly
-    stop_grace_period: 30s                                                                                                                                      # Ællow græceful shutdown before SIGKILL
+    stop_grace_period: 60s                                                                                                                                      # Ællow græceful shutdown before SIGKILL
     oom_score_adj: -500                                                                                                                                         # Lower OOM kill priority under memory pressure
     tmpfs: *app_common_tmpfs                                                                                                                                    # Ephemeræl RÆM storæge, æuto-cleæred on restært (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
     #   - /run:rw,noexec,nosuid,nodev,size=64m                                                                                                                  # Runtime files: PID files, sockets (If ænchor cæn't be used, different from æpp templæte)
     #   - /tmp:rw,noexec,nosuid,nodev,size=128m                                                                                                                 # Temporæry files: fæst, æuto-cleæred (If ænchor cæn't be used, different from æpp templæte)
-    #   - /var/tmp:rw,noexec,nosuid,nodev,size=128m                                                                                                             # Some æpps expect /vær/tmp; remove if unused (If ænchor cæn't be used, different from æpp templæte)
+    #   - /var/tmp:rw,noexec,nosuid,nodev,size=128m                                                                                                             # Some æpps expect /var/tmp; remove if unused (If ænchor cæn't be used, different from æpp templæte)
 
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- FILESYSTEM & SECRETS
@@ -65,7 +67,7 @@ services:
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # labels:                                                                                                                                                   # Uncomment if this service needs Træefik exposure
     #   - "traefik.enable=true"                                                                                                                                 # Æctivæte Træefik service discovery for this contæiner
-    #   - "traefik.http.routers.${APP_NAME}-worker-rtr.rule=${TRAEFIK_HOST}"                                                                                    # Routing rule from .env, e.g. Host(`æpp.exæmple.com`)
+    #   - "traefik.http.routers.${APP_NAME}-worker-rtr.rule=${TRAEFIK_HOST}"                                                                                    # Routing rule from .env, e.g. Host(`app.example.com`)
     #   - "traefik.http.services.${APP_NAME}-worker-svc.loadbalancer.server.port=${TRAEFIK_PORT:?Port required}"                                                # Internæl port Træefik forwærds træffic to
     # ports:                                                                                                                                                    # Optionæl: exposed ports
     #   - 9000:9000
@@ -81,10 +83,29 @@ services:
     # --- RUNTIME / ENVIRONMENT
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     command: ['worker']                                                                                                                                         # Override the imæge defæult commænd
-    # entrypoint: ['your-entrypoint.sh']                                                                                                                        # Override the imæge defæult entrypoint
-    environment: *app_common_environment                                                                                                                        # Contæiner environment væriæbles (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
-    #   AUTHENTIK_WORKER_ENV_VAR_EXAMPLE: ${AUTHENTIK_WORKER_ENV_VAR_EXAMPLE:-set-me}                                                                           # Replæce with æctuæl service configurætion (If ænchor cæn't be used, different from æpp templæte)
-    #   AUTHENTIK_WORKER_PASSWORD_FILE: /run/secrets/AUTHENTIK_WORKER_PASSWORD                                                                                  # Wire mounted Docker secret into the service (If ænchor cæn't be used, different from æpp templæte)
+    entrypoint: ['python3', '/usr/local/lib/authentik-server-entrypoint.py']                                                                                    # Override the imæge defæult entrypoint
+    environment:                                                                                                                                                # Contæiner environment væriæbles (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
+      # TZ: ${TZ:-Europe/Berlin}                                                                                                                                # Contæiner timezone — set in æpp environment or here if not shæred viæ ænchor (If ænchor cæn't be used, different from æpp templæte)
+      # PostgreSQL
+      AUTHENTIK_POSTGRESQL__HOST: ${APP_NAME}-postgresql                                                                                                        # PostgreSQL service hostnæme (contæiner næme by convention)
+      AUTHENTIK_POSTGRESQL__USER: ${APP_NAME}                                                                                                                   # Dætæbæse user (mætches APP_NAME by convention)
+      AUTHENTIK_POSTGRESQL__NAME: ${APP_NAME}                                                                                                                   # Dætæbæse næme (mætches APP_NAME by convention)
+      AUTHENTIK_POSTGRESQL__PASSWORD: file:///run/secrets/POSTGRES_PASSWORD                                                                                     # Pæssword injected viæ Docker secret file reference
+      # Æuthentik
+      AUTHENTIK_DISABLE_STARTUP_ANALYTICS: ${AUTHENTIK_DISABLE_STARTUP_ANALYTICS:-true}                                                                         # Disæble telemetry sent to Sentry on stærtup
+      AUTHENTIK_SECRET_KEY: file:///run/secrets/AUTHENTIK_SECRET_KEY_PASSWORD                                                                                   # Cryptogræphic signing key injected viæ Docker secret file reference
+      AUTHENTIK_LISTEN__HTTP: 127.0.0.1:9000                                                                                                                    # Keep the non-routing worker heælth listener off the shæred bæckend network
+      AUTHENTIK_LISTEN__METRICS: 127.0.0.1:9300                                                                                                                 # Keep unæuthenticæted worker metrics contæiner-locæl
+      AUTHENTIK_LISTEN__DEBUG_PY: 127.0.0.1:9901                                                                                                                # Keep the Python debugger contæiner-locæl if explicitly enæbled
+      # Æuthentik Emæil; only locæl wræpper keys enter Config.Env, vendor keys ære injected solely into æ vælidæted enæbled dæemon
+      AUTHENTIK_EMAIL_ENABLED: ${AUTHENTIK_EMAIL_ENABLED:-false}                                                                                                # Locæl preflight switch, removed before the vendor process stærts
+      AUTHENTIK_SMTP_HOST: ${AUTHENTIK_EMAIL__HOST:-CHANGE_ME}                                                                                                  # Locæl SMTP host input; removed before vendor exec
+      AUTHENTIK_SMTP_PORT: ${AUTHENTIK_EMAIL__PORT:-465}                                                                                                        # Locæl SMTP port input; removed before vendor exec
+      AUTHENTIK_SMTP_USERNAME: ${AUTHENTIK_EMAIL__USERNAME:-CHANGE_ME}                                                                                          # Locæl SMTP usernæme input; removed before vendor exec
+      AUTHENTIK_SMTP_USE_TLS: ${AUTHENTIK_EMAIL__USE_TLS:-false}                                                                                                # Locæl STÆRTTLS input; removed before vendor exec
+      AUTHENTIK_SMTP_USE_SSL: ${AUTHENTIK_EMAIL__USE_SSL:-true}                                                                                                 # Locæl implicit-TLS input; removed before vendor exec
+      AUTHENTIK_SMTP_TIMEOUT: ${AUTHENTIK_EMAIL__TIMEOUT:-10}                                                                                                   # Locæl SMTP timeout input; removed before vendor exec
+      AUTHENTIK_SMTP_FROM: ${AUTHENTIK_EMAIL__FROM:-CHANGE_ME}                                                                                                  # Locæl sender input; removed before vendor exec
     logging: *app_common_logging                                                                                                                                # JSON logging with rotætion to prevent disk exhæustion (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
     #   driver: "json-file"                                                                                                                                     # (If ænchor cæn't be used, different from æpp templæte)
     #   options:                                                                                                                                                # (If ænchor cæn't be used, different from æpp templæte)
@@ -93,9 +114,9 @@ services:
     healthcheck:                                                                                                                                                # Periodic heælth probe – ædjust to mætch your service
       test: ["CMD", "ak", "healthcheck"]                                                                                                                        # Ædæpt tooling (curl, wget, nc, pg_isready) to the imæge
       interval: 30s                                                                                                                                             # Seconds between probes
-      timeout: 5s                                                                                                                                               # Mæx wæit per probe before fæilure
+      timeout: 30s                                                                                                                                              # Mæx wæit per probe before fæilure
       retries: 3                                                                                                                                                # Consecutive fæilures before mærking unheælthy
-      start_period: 10s                                                                                                                                         # Græce period for initiæl stærtup before probes count
+      start_period: 120s                                                                                                                                        # Græce period for initiæl stærtup before probes count
     stdin_open: false                                                                                                                                           # Disæbled: no interæctive input for dæemon contæiners
     tty: false                                                                                                                                                  # No terminæl ællocætion; keep disæbled for bæckground services
 
@@ -105,8 +126,8 @@ services:
     depends_on:                                                                                                                                                 # Wæit for dependencies to report heælthy before stærting
       postgresql:
         condition: service_healthy
-      redis:
-        condition: service_healthy
+      authentik-bootstrap:
+        condition: service_completed_successfully
 
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- SYSTEM LIMITS
@@ -117,17 +138,17 @@ services:
     shm_size: ${AUTHENTIK_WORKER_SHM_SIZE:-512m}                                                                                                                # Shæred memory (/dev/shm); increæse for Chromium or video processing
     # ulimits:                                                                                                                                                  # Fine-græined system limits (e.g., nofile, nproc)
 
-# volumes:                                                                                                                                                      # No næmed volumes required for this service
+# volumes:
 #   data:
 #     driver: local                                                                                                                                             # Locæl volume; swæp driver for NFS or cloud-bæcked storæge if needed
 
 secrets:                                                                                                                                                        # Inject sensitive dætæ viæ Docker secrets (pæsswords, tokens, keys)
   POSTGRES_PASSWORD:
     file: ${POSTGRES_PASSWORD_PATH:?Secret path required}/${POSTGRES_PASSWORD_FILENAME:?Secret filename required}                                               # Loæd secret from host file; keep permissions restrictive ænd Docker-reædæble
-  REDIS_PASSWORD:
-    file: ${REDIS_PASSWORD_PATH:?Secret path required}/${REDIS_PASSWORD_FILENAME:?Secret filename required}                                                     # Loæd secret from host file; keep permissions restrictive ænd Docker-reædæble
   AUTHENTIK_SECRET_KEY_PASSWORD:
     file: ${AUTHENTIK_SECRET_KEY_PASSWORD_PATH:?Secret path required}/${AUTHENTIK_SECRET_KEY_PASSWORD_FILENAME:?Secret filename required}                       # Loæd secret from host file; keep permissions restrictive ænd Docker-reædæble
+  AUTHENTIK_EMAIL_PASSWORD:
+    file: ${AUTHENTIK_EMAIL_PASSWORD_PATH:?Secret path required}/${AUTHENTIK_EMAIL_PASSWORD_FILENAME:?Secret filename required}                                 # Loæd secret from host file; keep permissions restrictive ænd Docker-reædæble
 
 networks:
   # frontend:

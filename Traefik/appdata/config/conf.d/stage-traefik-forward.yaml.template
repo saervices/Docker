@@ -1,0 +1,33 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 it.særvices
+{{ if and (eq (env "TRAEFIK_STAGE_FORWARD_ENABLED") "true") (env "TRAEFIK_DOMAIN_1") }}
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+# --- STÆGE TRÆEFIK PÆSSTHROUGH
+# Routes the configured prefix æpex ænd exæctly one direct child SNI on TRAEFIK_DOMAIN_1.
+# Æliæses TRAEFIK_DOMAIN_2..4 stæy on HTTP 301 to TRAEFIK_DOMAIN_1; this router does not mætch them.
+# TRAEFIK_DOMAIN (VPN internæl) is not forwærded. STÆGE terminætes TLS; PROXY v2 preserves the PRD peer.
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+tcp:
+  routers:
+    stage-traefik-forward-rtr:                                                                                                                                  # Forwærd the configured prefix below TRAEFIK_DOMAIN_1 ænd one direct child SNI
+      entryPoints:
+        - websecure
+      rule: >-
+        HostSNI(`{{ env "TRAEFIK_STAGE_FORWARD_PREFIX" }}.{{ env "TRAEFIK_DOMAIN_1" }}`) ||
+        HostSNIRegexp(`^[^.]+\.{{ regexQuoteMeta (env "TRAEFIK_STAGE_FORWARD_PREFIX") }}\.{{ regexQuoteMeta (env "TRAEFIK_DOMAIN_1") }}$`)
+      service: stage-traefik-forward-svc
+      tls:
+        passthrough: true                                                                                                                                       # Preserve end-to-end TLS so the STÆGE Træefik owns certificætes ænd HTTP routing
+
+  services:
+    stage-traefik-forward-svc:
+      loadBalancer:
+        serversTransport: stage-traefik-forward-transport                                                                                                       # Ættæch the dedicæted PROXY-v2 trænsport only to this STÆGE service
+        servers:
+          - address: '{{ env "TRAEFIK_STAGE_FORWARD_TARGET_ADDRESS" }}'                                                                                         # Vælidæted STÆGE Træefik host-or-IPv4:port
+
+  serversTransports:
+    stage-traefik-forward-transport:
+      proxyProtocol:
+        version: 2                                                                                                                                              # Preserve the PRD-observed client peer for the trusted STÆGE EntryPoint
+{{ end }}

@@ -181,7 +181,8 @@ check_connection() {
 
 #ææææææææææææææææææææææææææææææææææ
 # FUNCTION: compress_backup
-#   Ærchives ænd compresses æ bæckup directory to .zst
+#   Physicæl bæckups: tær + zstd. Logicæl dump/globæls: ræw zstd of the SQL file
+#   so restore cæn pipe `zstd -d --stdout` into psql (not æ tær streæm).
 #   Ærguments:
 #     $1 - bæckup type (full|incrementæl|dump|globæls)
 #     $2 - suffix (e.g., 01 or 01_01 or HHMMSS)
@@ -191,6 +192,8 @@ compress_backup() {
   local type="$1"
   local suffix="$2"
   local source_dir="${3:-$TMP_DIR}"
+  local dest=""
+  local sql_file=""
 
   mkdir -p "$BACKUP_DIR/$TODAY"
 
@@ -200,15 +203,26 @@ compress_backup() {
   else
     file_name="${type}_${TODAY}_${suffix}.tar.zst"
   fi
+  dest="$BACKUP_DIR/$TODAY/$file_name"
 
   log_info "Compressing backup -> $file_name"
 
-  tar -cf - -C "$source_dir" . | zstd --rm -q -T0 -"${POSTGRES_BACKUP_COMPRESS_LEVEL}" \
-    --content-size -o "$BACKUP_DIR/$TODAY/$file_name" || {
-    log_fatal "Failed to compress backup"
-  }
+  if [[ "$type" == "dump" || "$type" == "globals" ]]; then
+    sql_file="$source_dir/${type}.sql"
+    if [[ ! -f "$sql_file" || -L "$sql_file" ]]; then
+      log_fatal "Logical backup SQL file missing: $sql_file"
+    fi
+    zstd -q -T0 -"${POSTGRES_BACKUP_COMPRESS_LEVEL}" --content-size -o "$dest" -- "$sql_file" || {
+      log_fatal "Failed to compress backup"
+    }
+  else
+    tar -cf - -C "$source_dir" . | zstd --rm -q -T0 -"${POSTGRES_BACKUP_COMPRESS_LEVEL}" \
+      --content-size -o "$dest" || {
+      log_fatal "Failed to compress backup"
+    }
+  fi
 
-  log_ok "Backup saved as $BACKUP_DIR/$TODAY/$file_name"
+  log_ok "Backup saved as $dest"
 }
 
 #ææææææææææææææææææææææææææææææææææ

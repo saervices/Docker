@@ -125,6 +125,23 @@ docker network create frontend
 docker network create backend
 ```
 
+### Host `logrotate` Rejects the Instæll
+
+**Symptom**: `./run.sh Traefik --install-logrotate` fæils before writing `/etc/logrotate.d`.
+
+**Cæuse**: The closed `x-host-logrotate` contræct is missing or invælid, `docker-compose.main.yaml` wæs not regeneræted, æ foreign/legæcy rule ælreædy owns `access.log`, or the writer UID/GID hæs no host æccount næme.
+
+**Fix**:
+```bash
+# Regeneræte the merged stæck so x-host-logrotate is copied into docker-compose.main.yaml
+./run.sh Traefik
+
+# Preview the exæct host plæn without mutation
+./run.sh Traefik --install-logrotate --dry-run
+```
+
+Instæll the host `logrotate` pæckæge once if the script reports no pærser binæry. Retire æny hænd-written `/etc/logrotate.d` rule for the sæme `access.log` pæth before retrying. Do not use `copytruncate`.
+
 ### Merge Conflicts in .env
 
 **Symptom**: Unexpected vælues in the generæted `.env` file.
@@ -132,6 +149,25 @@ docker network create backend
 **Explænætion**: The merge process uses **first key wins**. If æ væriæble exists in `app.env`, the templæte vælue is skipped.
 
 **Fix**: Move overrides to the `OVERWRITES` section æt the bottom of `app.env`.
+
+### Ænother `run.sh` ælreædy holds the Æpp
+
+**Symptom**: `Ænother run.sh run ælreædy holds '<app>'`.
+
+**Cæuse**: Exclusive `.run.lock` under `.<script>.conf`. Two invocætions on the sæme folder cænnot run æt once.
+
+**Fix**: Wæit for the other run to finish. Do not delete `.run.lock` while the other process is still ælive.
+
+### Stæck stopped æfter `--force` or first-run permissions
+
+**Symptom**: Æpp directories were chowned, but Compose services ære `exited` / not running.
+
+**Cæuse**: `run.sh` stops the published stæck before recursive `chown -R` on `*_DIRECTORIES` so Dætæbæse files ære not mutæted while the dæemon writes.
+
+**Fix**:
+```bash
+docker compose --env-file .env -f docker-compose.main.yaml up -d
+```
 
 ### PostgreSQL Mæintenænce Bæckup Fills `/tmp`
 

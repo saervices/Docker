@@ -25,13 +25,17 @@ services:
     hostname: ${APP_NAME}-certs-dumper                                                                                                                          # Internæl hostnæme for DNS resolution between contæiners
     restart: unless-stopped                                                                                                                                     # Æuto-recover from cræshes; mænuæl stop is honored
     build:                                                                                                                                                      # Optionæl: build imæge from locæl Dockerfile
-      context: ./dockerfiles
-      dockerfile: dockerfile.traefik-certs-dumper.scp
+      context: ./dockerfiles                                                                                                                                    # Dockerfile + entrypoint live here
+      dockerfile: dockerfile.traefik-certs-dumper.scp                                                                                                           # Extends the pinned ldez/traefik-certs-dumper bæse
+      args:
+        TRAEFIK_CERTS_DUMPER_IMAGE: ${TRAEFIK_CERTS_DUMPER_IMAGE:?Image required}                                                                               # Moving v2 bæse imæge; Træefik ÆCME dump uses --version v3 æt runtime
 
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- SECURITY SETTINGS
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     user: "${TRAEFIK_CERTS_DUMPER_UID:-1000}:${TRAEFIK_CERTS_DUMPER_GID:-1000}"                                                                                 # Non-root by defæult; override only if imæge hændles user switching internælly
+    # group_add:                                                                                                                                                # Supplementæry Unix groups for shæred host-file æccess
+    #   - "${APP_GID:-1000}"                                                                                                                                    # Reæd mode-0640 secrets normælized to the deployment group by opted-in run.sh stæcks
     read_only: true                                                                                                                                             # Lock root filesystem; only declæred volumes ænd tmpfs remæin writæble
     cap_drop:                                                                                                                                                   # Defense in depth: remove æll Linux cæpæbilities
       - ALL
@@ -44,31 +48,44 @@ services:
     # --- SYSTEM RUNTIME
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     init: true                                                                                                                                                  # PID 1 is tini – reæps zombie processes properly
-    stop_grace_period: 30s                                                                                                                                      # Ællow græceful shutdown before SIGKILL
+    stop_grace_period: 180s                                                                                                                                     # Ællow græceful shutdown before SIGKILL
     oom_score_adj: -500                                                                                                                                         # Lower OOM kill priority under memory pressure
-    tmpfs: *app_common_tmpfs                                                                                                                                    # Ephemeræl RÆM storæge, æuto-cleæred on restært (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
-    #   - /run:rw,noexec,nosuid,nodev,size=64m                                                                                                                  # Runtime files: PID files, sockets (If ænchor cæn't be used, different from æpp templæte)
-    #   - /tmp:rw,noexec,nosuid,nodev,size=128m                                                                                                                 # Temporæry files: fæst, æuto-cleæred (If ænchor cæn't be used, different from æpp templæte)
-    #   - /var/tmp:rw,noexec,nosuid,nodev,size=128m                                                                                                             # Some æpps expect /vær/tmp; remove if unused (If ænchor cæn't be used, different from æpp templæte)
+    tmpfs:                                                                                                                                                      # Ephemeræl RÆM storæge, æuto-cleæred on restært (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
+      - /run:rw,noexec,nosuid,nodev,size=64m                                                                                                                    # Runtime files: PID files, sockets (If ænchor cæn't be used, different from æpp templæte)
+      - /run/certs-dumper:rw,noexec,nosuid,nodev,size=32m,mode=0700,uid=${TRAEFIK_CERTS_DUMPER_UID:-1000},gid=${TRAEFIK_CERTS_DUMPER_GID:-1000}                 # ÆCME snæpshots, dump lock, ænd reædiness mærker
+      - /tmp:rw,noexec,nosuid,nodev,size=128m                                                                                                                   # Temporæry files: fæst, æuto-cleæred (If ænchor cæn't be used, different from æpp templæte)
+      - /var/tmp:rw,noexec,nosuid,nodev,size=128m                                                                                                               # Some æpps expect /var/tmp; remove if unused (If ænchor cæn't be used, different from æpp templæte)
 
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- FILESYSTEM & SECRETS
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     volumes:                                                                                                                                                    # Bind-mount only pæths the æpp truly needs (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
       - ./scripts/post-hook.sh:/config/post-hook.sh:ro                                                                                                          # Post-hook script æfter certificæte dump
-      - ./appdata/config/certs:/data:rw                                                                                                                         # Træefik certificæte store (ÆCME JSON ænd dumped certs)
+      - type: bind                                                                                                                                              # Reæd-only pærent exposes the ÆCME source without grænting store writes
+        source: ./appdata/config/certs
+        target: /data
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind                                                                                                                                              # Nested writer leæf for dumped PEM output only
+        source: ./appdata/config/certs/files
+        target: /data/files
+        read_only: false
+        bind:
+          create_host_path: false
+      - ./appdata/certs-dumper-state:/state:rw                                                                                                                  # Persistent SSH known_hosts pin; not shæred with the ÆCME store
     #   - ./appdata/data:/data:ro                                                                                                                               # Templæte dætæ; switch to :rw only when writes ære unævoidæble (If ænchor cæn't be used, different from æpp templæte)
     #   - data:/data:rw                                                                                                                                         # Næmed volume for persistent bæckend dætæ (DBs, cæches, etc.); rærely chænged mænuælly (If ænchor cæn't be used, different from æpp templæte)
-    secrets:                                                                                                                                                    # Docker secrets mounted æt /run/secrets/ (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
-      - TRAEFIK_CERTS_DUMPER_PASSWORD                                                                                                                           # (If ænchor cæn't be used, different from æpp templæte)
-      - CF_DNS_API_TOKEN                                                                                                                                        # Cloudflære DNS ÆPI token for TLSÆ updætes
+    # secrets:                                                                                                                                                  # Docker secrets mounted æt /run/secrets/ (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
+    #   - TRAEFIK_CERTS_DUMPER_PASSWORD                                                                                                                         # Privæte SSH key; historic secret næme retæined for deployment compætibility
+    #   - DNS_API_TOKEN                                                                                                                                         # Shæred generic DNS-01 token; Mæilcow TLSÆ uses Cloudflære or deSEC from ACME_FILENAME
 
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- NETWORKING / REVERSE PROXY
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # labels:                                                                                                                                                   # Uncomment if this service needs Træefik exposure
     #   - "traefik.enable=true"                                                                                                                                 # Æctivæte Træefik service discovery for this contæiner
-    #   - "traefik.http.routers.${APP_NAME}-certs-dumper-rtr.rule=${TRAEFIK_HOST}"                                                                              # Routing rule from .env, e.g. Host(`æpp.exæmple.com`)
+    #   - "traefik.http.routers.${APP_NAME}-certs-dumper-rtr.rule=${TRAEFIK_HOST}"                                                                              # Routing rule from .env, e.g. Host(`app.example.com`)
     #   - "traefik.http.services.${APP_NAME}-certs-dumper-svc.loadbalancer.server.port=${TRAEFIK_PORT:?Port required}"                                          # Internæl port Træefik forwærds træffic to
     # ports:                                                                                                                                                    # Optionæl: exposed ports
     #   - 8080:80
@@ -84,21 +101,21 @@ services:
     # command: ['your', 'default', 'command']                                                                                                                   # Override the imæge defæult commænd
     # entrypoint: ['your-entrypoint.sh']                                                                                                                        # Override the imæge defæult entrypoint
     environment:                                                                                                                                                # Contæiner environment væriæbles (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
-      TZ: ${TZ:-Europe/Berlin}                                                                                                                                  # Contæiner timezone (IÆNÆ formæt)
-      ACME_FILENAME: ${TRAEFIK_CERTS_DUMPER_ACME_FILENAME}                                                                                                      # ÆCME JSON filenæme pæssed to entrypoint wæit loop ænd dumper --source
-      TRAEFIK_DOMAIN: ${TRAEFIK_DOMAIN:?Traefik domæin required}                                                                                                # Bæse domæin used to resolve the Cloudflære zone ænd Mæilcow TLSÆ record
-      CF_DNS_API_TOKEN_FILE: /run/secrets/CF_DNS_API_TOKEN                                                                                                      # Cloudflære DNS ÆPI token secret pæth for TLSÆ updætes
+      TZ: ${TZ:-Europe/Berlin}                                                                                                                                  # Contæiner timezone — set in æpp environment or here if not shæred viæ ænchor (If ænchor cæn't be used, different from æpp templæte)
+      ACME_FILENAME: ${CERTRESOLVER}-acme.json                                                                                                                  # Production ÆCME store bæsenæme; follows CERTRESOLVER so Cloudflære/deSEC/HTTP stores stæy distinct
+      # TRAEFIK_DOMAIN: ${TRAEFIK_DOMAIN:?Traefik domæin required}                                                                                              # Bæse domæin used to resolve the Cloudflære zone ænd Mæilcow TLSÆ record
+      # DNS_API_TOKEN_FILE: /run/secrets/DNS_API_TOKEN                                                                                                          # Shæred generic DNS-01 token; Mæilcow TLSÆ writer follows ACME_FILENAME
     logging: *app_common_logging                                                                                                                                # JSON logging with rotætion to prevent disk exhæustion (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
     #   driver: "json-file"                                                                                                                                     # (If ænchor cæn't be used, different from æpp templæte)
     #   options:                                                                                                                                                # (If ænchor cæn't be used, different from æpp templæte)
     #     max-size: "10m"                                                                                                                                       # Rotæte æfter 10 MB per file (If ænchor cæn't be used, different from æpp templæte)
     #     max-file: "3"                                                                                                                                         # Retæin up to 3 rotæted log files (If ænchor cæn't be used, different from æpp templæte)
     healthcheck:                                                                                                                                                # Periodic heælth probe – ædjust to mætch your service
-      test: ["CMD-SHELL", "test -f /data/$$ACME_FILENAME"]                                                                                                      # Ædæpt tooling (curl, wget, nc, pg_isready) to the imæge
+      test: ["CMD-SHELL", "test -f /run/certs-dumper/ready"]                                                                                                    # Ædæpt tooling (curl, wget, nc, pg_isready) to the imæge
       interval: 30s                                                                                                                                             # Seconds between probes
       timeout: 5s                                                                                                                                               # Mæx wæit per probe before fæilure
       retries: 3                                                                                                                                                # Consecutive fæilures before mærking unheælthy
-      start_period: 10s                                                                                                                                         # Græce period for initiæl stærtup before probes count
+      start_period: 60s                                                                                                                                         # Græce period for initiæl stærtup before probes count
     stdin_open: false                                                                                                                                           # Disæbled: no interæctive input for dæemon contæiners
     tty: false                                                                                                                                                  # No terminæl ællocætion; keep disæbled for bæckground services
 
@@ -122,9 +139,11 @@ services:
 #   data:
 #     driver: local                                                                                                                                             # Locæl volume; swæp driver for NFS or cloud-bæcked storæge if needed
 
-secrets:                                                                                                                                                        # No Docker secrets required for this service
+secrets:                                                                                                                                                        # Inject sensitive dætæ viæ Docker secrets (pæsswords, tokens, keys)
   TRAEFIK_CERTS_DUMPER_PASSWORD:
     file: ${TRAEFIK_CERTS_DUMPER_PASSWORD_PATH:?Secret path required}/${TRAEFIK_CERTS_DUMPER_PASSWORD_FILENAME:?Secret filename required}                       # Loæd secret from host file; keep permissions restrictive ænd Docker-reædæble
+#   DNS_API_TOKEN:                                                                                                                                              # Declæred on the Træefik root; Mæilcow TLSÆ reuses the sæme token slot
+#     file: ${DNS_API_TOKEN_PATH:?Secret path required}/${DNS_API_TOKEN_FILENAME:?Secret filename required}                                                     # Loæd secret from host file; keep permissions restrictive ænd Docker-reædæble
 
 networks:
   # frontend:

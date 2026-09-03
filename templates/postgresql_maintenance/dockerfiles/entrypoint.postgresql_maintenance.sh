@@ -12,7 +12,7 @@ POSTGRES_DB="${POSTGRES_DB:-postgres}"
 POSTGRES_PORT="${POSTGRES_PORT:-5432}"
 POSTGRES_DB_HOST="${POSTGRES_DB_HOST:-${DB_HOST:-postgresql}}"
 POSTGRES_PASSWORD_FILE="${POSTGRES_PASSWORD_FILE:?POSTGRES_PASSWORD_FILE is required}"
-POSTGRES_RESTORE_STRICT="${POSTGRES_RESTORE_STRICT:-false}"
+POSTGRES_RESTORE_STRICT="${POSTGRES_RESTORE_STRICT:-true}"
 POSTGRES_RESTORE_DEBUG="${POSTGRES_RESTORE_DEBUG:-false}"
 POSTGRES_RESTORE_DRY_RUN="${POSTGRES_RESTORE_DRY_RUN:-false}"
 POSTGRES_RESTORE_PSQL_ARGS="${POSTGRES_RESTORE_PSQL_ARGS:-}"
@@ -20,8 +20,8 @@ POSTGRES_RESTORE_PGRESTORE_ARGS="${POSTGRES_RESTORE_PGRESTORE_ARGS:-}"
 POSTGRES_RESTORE_COMBINE_ARGS="${POSTGRES_RESTORE_COMBINE_ARGS:-}"
 
 RESTORE_DIR="/restore"
-PGDATA_DIR="/var/lib/postgresql/data"
-TMP_BASE="/tmp/restore_chain"
+PGDATA_DIR="/var/lib/postgresql/18/docker"
+TMP_BASE="/restore/.tmp/restore_chain"
 CRON_FILE="/usr/local/bin/backup.cron"
 LOCKFILE="/tmp/postgresql_restore.lock"
 DEBUG="${POSTGRES_RESTORE_DEBUG}"
@@ -154,6 +154,34 @@ check_connection() {
   fi
 }
 
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: require_no_other_clients
+#   Æborts logicæl restore when other TCP clients hold sessions
+#   Æpp/worker service næmes ære unknown in this shæred templæte
+#   Ærguments:
+#     $1 - dætæbæse pæssword
+#ææææææææææææææææææææææææææææææææææ
+require_no_other_clients() {
+  local password="$1"
+  local count
+  log_debug "Checking ${POSTGRES_DB} for other TCP clients before logical restore"
+  count="$(PGPASSWORD="$password" psql \
+    --host "$POSTGRES_DB_HOST" \
+    --port "$POSTGRES_PORT" \
+    --username "$POSTGRES_USER" \
+    --dbname "$POSTGRES_DB" \
+    --no-password \
+    --tuples-only \
+    --no-align \
+    --command "SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND pid <> pg_backend_pid() AND backend_type = 'client backend' AND client_addr IS NOT NULL AND client_addr IS DISTINCT FROM inet_client_addr();")" \
+    || log_fatal "Failed to query pg_stat_activity for other database clients"
+  count="${count//[[:space:]]/}"
+  if [[ "$count" != "0" ]]; then
+    log_fatal "Other TCP clients are connected to ${POSTGRES_DB} (${count}). Stop application containers that use this database before a logical restore. This template cannot stop those services by name."
+  fi
+  log_ok "No other TCP clients connected to ${POSTGRES_DB}"
+}
+
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 # --- PHYSICÆL RESTORE FUNCTIONS
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
@@ -181,7 +209,7 @@ test_pgdata_writable() {
     rm -f "$testfile"
     return 0
   else
-    log_fatal "${PGDATA_DIR} is not writable. Default maintenance mounts PGDATA read-only. For a physical restore, stop PostgreSQL and run an explicit one-shot restore override with PGDATA mounted rw, container read_only disabled, and UID/GID aligned with the PostgreSQL server image."
+    log_fatal "${PGDATA_DIR} is not writable. Default maintenance mounts the database volume :ro. For a physical restore, change that same compose line to :rw, keep read_only: true on the container, stop postgresql, then up -d --force-recreate --no-deps postgresql_maintenance."
   fi
 }
 
@@ -480,6 +508,7 @@ handle_logical_restore() {
 
   acquire_lock
   check_connection "$password"
+  require_no_other_clients "$password"
 
   log_info "Found $count restore archive(s) in $RESTORE_DIR"
   if [[ "$POSTGRES_RESTORE_STRICT" == "true" ]] && (( count > 1 )); then

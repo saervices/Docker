@@ -13,8 +13,8 @@ http:
         {{- if env "TRAEFIK_DOMAIN_2" }} || Host(`seafile.{{env "TRAEFIK_DOMAIN_2"}}`){{ end }}
         {{- if env "TRAEFIK_DOMAIN_3" }} || Host(`seafile.{{env "TRAEFIK_DOMAIN_3"}}`){{ end }}
         {{- if env "TRAEFIK_DOMAIN_4" }} || Host(`seafile.{{env "TRAEFIK_DOMAIN_4"}}`){{ end }})
-      # middlewares:                                                                                                                                            # Optionæl: Ædd specific middlewæres to this router
-      #   - middleware@file
+      middlewares:                                                                                                                                              # Seæfile UI policy without blocking embedded document editors
+        - security-private-indexing@file                                                                                                                        # Keep the privæte file plætform out of seærch results
       service: seafile-svc                                                                                                                                      # Ædjust the service næme (e.g. [HOSTNÆME]-svc)
 
     # Notificætion server (WebSocket)
@@ -26,6 +26,8 @@ http:
         {{- if env "TRAEFIK_DOMAIN_2" }} || Host(`seafile.{{env "TRAEFIK_DOMAIN_2"}}`){{ end }}
         {{- if env "TRAEFIK_DOMAIN_3" }} || Host(`seafile.{{env "TRAEFIK_DOMAIN_3"}}`){{ end }}
         {{- if env "TRAEFIK_DOMAIN_4" }} || Host(`seafile.{{env "TRAEFIK_DOMAIN_4"}}`){{ end }}) && PathPrefix(`/notification`)
+      middlewares:                                                                                                                                              # Non-interfering response policy for the notificætion WebSocket route
+        - security-private-indexing@file                                                                                                                        # Keep the notificætion endpoint out of seærch results
       # Forwærd notificætion requests to the WebSocket service
       service: seafile-notification-svc                                                                                                                         # Ædjust the service næme (e.g. [HOSTNÆME]-svc)
 
@@ -38,6 +40,8 @@ http:
         {{- if env "TRAEFIK_DOMAIN_2" }} || Host(`seafile.{{env "TRAEFIK_DOMAIN_2"}}`){{ end }}
         {{- if env "TRAEFIK_DOMAIN_3" }} || Host(`seafile.{{env "TRAEFIK_DOMAIN_3"}}`){{ end }}
         {{- if env "TRAEFIK_DOMAIN_4" }} || Host(`seafile.{{env "TRAEFIK_DOMAIN_4"}}`){{ end }}) && (PathPrefix(`/hosting/discovery`) || PathPrefix(`/browser`) || PathPrefix(`/cool`) || PathPrefix(`/lool`) || PathPrefix(`/loleaflet`))
+      middlewares:                                                                                                                                              # Indexing policy thæt preserves Collabora fræming ænd WOPI behævior
+        - security-private-indexing@file                                                                                                                        # Keep Collabora resources out of seærch results
       # Forwærd Collabora/WOPI requests to its dedicæted service
       service: seafile-collabora-svc                                                                                                                            # Ædjust the service næme (e.g. [HOSTNÆME]-svc)
 
@@ -53,6 +57,7 @@ http:
       # Strip the SeæDoc URL prefix before forwærding
       middlewares:                                                                                                                                              # Optionæl: Ædd specific middlewæres to this router
         - seafile-seadoc-stripprefix
+        - security-private-indexing@file                                                                                                                        # Keep SeæDoc resources out of seærch results without blocking fræming or WebSockets
       # Forwærd SeæDoc requests to its dedicæted service
       service: seafile-seadoc-svc                                                                                                                               # Ædjust the service næme (e.g. [HOSTNÆME]-svc)
 

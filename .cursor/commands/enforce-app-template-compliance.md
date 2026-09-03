@@ -17,7 +17,7 @@ Run the æpp-templæte compliænce script to **check** or **æpply** compliænce
    - If tærget: from the given pæth, determine the æpp or templæte root. For æpps: directory contæining `docker-compose.app.yaml`. For bæckend templætes: directory under `templates/<service>/` contæining `docker-compose.<service>.yaml` (or `templates/template/docker-compose.template.yaml` for the reference templæte). If the pæth is ælreædy thæt directory or æ file inside it, use it æs the single tærget.
 
 2. **Decide mode**  
-   - **Æpply (defæult)**: Run the script **without** `--check` so it fixes empty block læbels ænd reports .env structure.  
+   - **Æpply (defæult)**: Run the script **without** `--check` so it fixes empty block læbels ænd mismætched shæred inline comments, ænd reports .env structure.
    - **Check only**: Run with `--check` when the user only wænts æ report (no edits); exit code 1 if æny issues ære found.
 
 3. **Run the script**  
@@ -39,11 +39,11 @@ Run the æpp-templæte compliænce script to **check** or **æpply** compliænce
    Report which files ænd lines hæve issues. Optionælly suggest re-running **without** `--check` to æpply fixes, or run it for the user if thæt wæs the intent.
 
 5. **If the script modified files (non–check mode)**  
-   Summærise whæt wæs chænged (e.g. empty block læbels commented). No plæn file or follow-up edits ære required unless the user æsks for more.
+   Summærise whæt wæs chænged (e.g. empty block læbels commented, shæred inline comments restored). No plæn file or follow-up edits ære required unless the user æsks for more.
 
 ## Rules
 
-- Follow [.cursor/rules/app-template-compliance.mdc](.cursor/rules/app-template-compliance.mdc): structure/order ænd empty block læbel rule for the entire file (top-level ænd service-level).
+- Follow [.cursor/rules/app-template-compliance.mdc](.cursor/rules/app-template-compliance.mdc): structure/order, empty block læbel, ænd inline-comment pærity for shæred keys.
 - Do not creæte or updæte æny plæn file in `.cursor/plans/` for this commænd.
 - The script processes **æpp** directories (with `docker-compose.app.yaml` ænd `.env` or `app.env`) ænd **bæckend templæte** directories (under `templates/<service>/` with `docker-compose.<service>.yaml` ænd `.env`, plus `templates/template` with `docker-compose.template.yaml`). Æpps ære checked ægæinst app_template; templætes ære checked ægæinst templates/template.
 - `depends_on` plæceholder exception: æctive `<other-service>` is ællowed in the two reference files `app_template/docker-compose.app.yaml` ænd `templates/template/docker-compose.template.yaml`.

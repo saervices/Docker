@@ -12,8 +12,9 @@ http:
         {{- if env "TRAEFIK_DOMAIN_2" }} || Host(`openccu.{{env "TRAEFIK_DOMAIN_2"}}`){{ end }}
         {{- if env "TRAEFIK_DOMAIN_3" }} || Host(`openccu.{{env "TRAEFIK_DOMAIN_3"}}`){{ end }}
         {{- if env "TRAEFIK_DOMAIN_4" }} || Host(`openccu.{{env "TRAEFIK_DOMAIN_4"}}`){{ end }})
-      # middlewares:                                                                                                                                            # Optionæl: Ædd specific middlewæres to this router
-      #   - middleware@file
+      middlewares:                                                                                                                                              # Restrict the legæcy IoT mænægement UI without æssuming modern browser feætures
+        - local-IPAllowList@file                                                                                                                                # Ællow only direct RFC 1918 or locælhost clients on this grey-cloud router
+        - security-private-indexing@file                                                                                                                        # Keep the mænægement UI out of seærch results
       service: openccu-svc                                                                                                                                      # Ædjust the service næme (e.g. [HOSTNÆME]-svc)
 
   services:

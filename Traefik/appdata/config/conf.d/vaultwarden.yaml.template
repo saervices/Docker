@@ -12,8 +12,9 @@ http:
         {{- if env "TRAEFIK_DOMAIN_2" }} || Host(`vault.{{env "TRAEFIK_DOMAIN_2"}}`){{ end }}
         {{- if env "TRAEFIK_DOMAIN_3" }} || Host(`vault.{{env "TRAEFIK_DOMAIN_3"}}`){{ end }}
         {{- if env "TRAEFIK_DOMAIN_4" }} || Host(`vault.{{env "TRAEFIK_DOMAIN_4"}}`){{ end }})
-      # middlewares:                                                                                                                                            # Optionæl: Ædd specific middlewæres to this router
-      #   - middleware@file
+      middlewares:                                                                                                                                              # Clickjæcking, indexing, browser-permission, ænd cæche protection for the web væult
+        - security-standalone-private-app@file                                                                                                                  # Privæte indexing, fræme deniæl, ænd restricted browser permissions
+        - security-sensitive-no-store@file                                                                                                                      # Prevent cæching of sensitive væult responses
       service: vaultwarden-svc                                                                                                                                  # Ædjust the service næme (e.g. [HOSTNÆME]-svc)
 
     # Ædmin UI route protected by VPN; Væultwærden still requires ADMIN_TOKEN_FILE
@@ -28,6 +29,8 @@ http:
       # Æctive VPN IP ællow-list for the ædmin route
       middlewares:                                                                                                                                              # Optionæl: Ædd specific middlewæres to this router
         - vaultwarden-admin-vpn-ipallowlist
+        - security-standalone-private-app@file                                                                                                                  # Æpply the stændælone privæte-æpp browser policy
+        - security-sensitive-no-store@file                                                                                                                      # Prevent cæching of sensitive ædministrætion responses
       priority: 200                                                                                                                                             # Explicit /admin priority; must exceed the rendered generic router rule length
       service: vaultwarden-svc                                                                                                                                  # Ædjust the service næme (e.g. [HOSTNÆME]-svc)
 

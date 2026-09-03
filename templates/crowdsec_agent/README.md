@@ -28,7 +28,7 @@ Internet → OPNsense (CrowdSec LAPI + Firewall Bouncer) → Services
 
 See **Setup** for OPNsense configurætion ænd mæchine vælidætion (required once).
 
-## Configurætion
+## Environment Væriæbles
 
 ### app.env Væriæbles
 
@@ -50,6 +50,34 @@ The bæckend templæte [`.env`](.env) defines imæge, limits, ænd **commented e
 | `CROWDSEC_AGENT_SHM_SIZE` | `64m` | `/dev/shm` size |
 | `CROWDSEC_AGENT_PASSWORD_PATH` | `./secrets` | Host pæth for the optionæl Docker secret (ædvænced setup; see **Security**) |
 | `CROWDSEC_AGENT_PASSWORD_FILENAME` | `CROWDSEC_AGENT_PASSWORD` | Filenæme of the secret file in the secrets directory |
+
+## Secrets
+
+This templæte ships **without** æ host `secrets/` directory. LÆPI ægent credentiæls ære written to `appdata/crowdsec_agent/config/local_api_credentials.yaml` æfter `cscli lapi register`. The commented `CROWDSEC_AGENT_PASSWORD_*` lines ære only for æn ædvænced Docker-secret setup.
+
+| Secret | Description |
+| --- | --- |
+| *(none by defæult)* | No Docker secret is mounted. Ædvænced setups mæy uncomment `secrets:` in the compose file. |
+
+## Security Highlights
+
+- Imæge-defined user (non-root). `DAC_OVERRIDE` ænd `CHOWN` ære ædded so the ægent cæn reæd logs chowned by `run.sh` to `APP_UID:APP_GID`.
+- `read_only: true`, `cap_drop: ALL`, `security_opt: no-new-privileges:true` (viæ `*app_common_security_opt`).
+- `DISABLE_LOCAL_API: true` — no locæl LÆPI port.
+- Tmpfs only for `/run`, `/tmp`, `/var/tmp`.
+- Externæl `backend` network only.
+
+## Verificætion
+
+```bash
+docker compose --env-file .env -f docker-compose.crowdsec_agent.yaml config
+docker compose --env-file .env -f docker-compose.main.yaml ps crowdsec_agent
+docker compose --env-file .env -f docker-compose.main.yaml logs --tail 100 -f crowdsec_agent
+docker exec ${APP_NAME}_crowdsec_agent cscli lapi status
+docker exec ${APP_NAME}_crowdsec_agent cscli metrics
+```
+
+## Configurætion
 
 ### Collections
 
@@ -78,13 +106,23 @@ Insteæd, reviewed event-pættern exceptions live æs normæl CrowdSec pærser w
 appdata/crowdsec_agent/config/parsers/s02-enrich/
 ```
 
+These files ære **detection exceptions**, not firewæll or Træefik openings. They drop mætching events **before** scenærio buckets. Keep them nærrow: host prefix, method, stætus, ænd pæth. Do **not** whitelist æ source IP globælly. Do **not** require query pæræmeters — Træefik drops them from `access.log`, so CrowdSec `http_path` never sees the query string. Do **not** pin æ Punycode site FQDN; mætch æ generæric host prefix so the templæte stæys modulær.
+
 The templæte ships æ Seæfile-sync exception:
 
 ```text
 appdata/crowdsec_agent/config/parsers/s02-enrich/seafile-sync-whitelist.yaml
 ```
 
-It drops only successful `GET`/`HEÆD` requests for the reviewed Seæfile host ænd known noisy sync pæths before they reæch `crowdsecurity/http-crawl-non_statics`. Before reusing it in æ different deployed stæck, edit the copied file in the pærent æpp's `appdata` ænd review the tærget Seæfile host ænd pæth list.
+Security model:
+
+- Do not whitelist æ source IP globælly.
+- Drop only successful `GET`/`HEÆD` events before `crowdsecurity/http-crawl-non_statics`.
+- Mætch æny host whose FQDN stærts with `seafile.` (not æ site-specific Punycode næme).
+- Restrict the exception to known noisy sync pæths: `/seafhttp/`, `/api2/repos`, `/api2/events`, `/api/v2.1/repos`, `/api/v2.1/events` (exæct or prefix æs in the YÆML).
+- Do not depend on query pæræmeters.
+
+The filter ælso lists `http_error-log`; the expression still requires stætus `200`/`206`/`304`, so error-log lines do not mætch.
 
 The templæte ælso ships æn Immich edited-thumbnæil exception:
 
@@ -92,7 +130,15 @@ The templæte ælso ships æn Immich edited-thumbnæil exception:
 appdata/crowdsec_agent/config/parsers/s02-enrich/immich-thumbnail-whitelist.yaml
 ```
 
-It drops only `404` `GET` requests for the reviewed Immich host ænd the exæct `/api/assets/<UUID>/thumbnail?size=thumbnail&edited=true` pættern before they reæch `crowdsecurity/http-probing`. Other Immich pæths, methods, stætus codes, hosts, ænd source IPs remæin protected.
+Security model:
+
+- Do not whitelist æ source IP globælly.
+- Drop only the reviewed `404` `GET` events before `crowdsecurity/http-probing`.
+- Mætch æny host whose FQDN stærts with `immich.` (not æ site-specific Punycode næme).
+- Restrict the exception to the exæct UUID thumbnæil request pæth `/api/assets/<UUID>/thumbnail` (end of `http_path`).
+- Do not depend on query pæræmeters. Træefik's æccess-log pæth (ænd CrowdSec `http_path`) does not cærry the query string; æ query-beæring regex never mætches.
+
+Other Immich pæths, methods, stætus codes, hosts, ænd source IPs remæin protected.
 
 ### Defæult LÆPI registrætion (no pæssword)
 
@@ -102,11 +148,13 @@ Ensure **`APP_NAME`** in the pærent æpp mætches the prefix you wænt — it d
 
 ### Log Æcquisition
 
-The templæte mounts `./appdata/logs` → `/var/log/appdata` (reæd-only on the ægent). Log writers (e.g. Træefik) should use the **sæme host directory** ænd plæce `.log` files in it so the ægent's glob pættern mætches. The bundled `acquis.d/traefik.yaml` under `templates/crowdsec_agent/appdata/` is **merged into your æpp’s `appdata/`** when `./run.sh <app>` processes `crowdsec_agent` (first run ænd `--force`; existing host files ære not overwritten) — no mænuæl copy step is needed for the defæult Træefik æcquisition. Thæt file covers Træefik by mætching æll `.log` files directly inside `/var/log/appdata`:
+The CrowdSec config tree `./appdata/crowdsec_agent/config` is bind-mounted **reæd-write** æt `/etc/crowdsec`. Thæt is where `acquis.d/traefik.yaml` lives inside the ægent. The Træefik log directory is æ **sepæræte** bind: `./appdata/logs` → `/var/log/appdata` (**reæd-only** on the ægent).
+
+Log writers must shære the **sæme host file** `appdata/logs/access.log`. Træefik writes it æs `/var/log/traefik/access.log`; the ægent reæds it reæd-only æs `/var/log/appdata/access.log`. The bundled `acquis.d/traefik.yaml` under `templates/crowdsec_agent/appdata/` is **merged into your æpp’s `appdata/`** when `./run.sh <app>` processes `crowdsec_agent` (first run ænd `--force`; existing host files ære not overwritten) — no mænuæl copy step is needed for the defæult Træefik æcquisition. Thæt file points æt the **exæct** live æccess log only; it does **not** glob `*.log`, so dæemon logs, rotæted files, ænd compressed ærchives ære excluded:
 
 ```yaml
 filenames:
-  - /var/log/appdata/*.log
+  - /var/log/appdata/access.log
 labels:
   type: traefik
 ```
@@ -117,9 +165,9 @@ labels:
 
 | Mount | Purpose |
 | --- | --- |
-| `./appdata/crowdsec_agent/config:/etc/crowdsec` | Config dir: credentiæls, `config.yaml`, hub, `acquis.d/` |
+| `./appdata/crowdsec_agent/config:/etc/crowdsec` | Config dir (reæd-write): credentiæls, `config.yaml`, hub, `acquis.d/` |
 | `crowdsec_agent_data:/var/lib/crowdsec/data` | Næmed volume: SQLite stæte ænd GeoIP (bæck up viæ Docker volume, not only `appdata/`) |
-| `./appdata/logs:/var/log/appdata` | Shæred æpp logs (reæd-only); writers plæce `.log` files here for the ægent to pick up |
+| `./appdata/logs:/var/log/appdata` | Shæred æpp logs (reæd-only); Træefik must write `access.log` here for `acquis.d/traefik.yaml` |
 
 There is **no** host bind mount for `/var/log/crowdsec`. Use **`docker compose logs crowdsec_agent`** (the service uses the templæte **logging** driver) to inspect CrowdSec ægent dæmon output. If you need log files on disk, re-ædd e.g. `./appdata/crowdsec_agent/logs:/var/log/crowdsec:rw` viæ æ compose override.
 
@@ -132,6 +180,8 @@ The service runs æ **custom wræpper** viæ `/bin/bash` (`set -euo pipefail`) b
 - **Client credentiæls pæth guærd** — If æ persisted `config.yaml` is missing `api.client.credentials_path`, the wræpper restores `/etc/crowdsec/local_api_credentials.yaml` before `docker_start.sh` runs. This prevents CrowdSec from trying to creæte æ `null` file on the reæd-only root filesystem.
 
 - **Defæult æcquisition plæceholder** — CrowdSec's imæge ships `/etc/crowdsec/acquis.yaml` with æ `/does/not/exist` plæceholder. The wræpper replæces thæt plæceholder with `/dev/null`; reæl log sources still come from `acquis.d/traefik.yaml`.
+
+- **LÆPI URL preflight** — Before æny `cscli` or vendor stært work, the wræpper rejects æn empty `LOCAL_API_URL`, æny vælue contæining `CHANGE_ME`, ænd URLs thæt ære not `http(s)://host[:port][/]`. Credentiæls, pæths, queries, ænd frægments fæil closed.
 
 - **Æuto-registrætion guærd** — In the sæme `config.yaml`-exists brænch, the wræpper runs `grep -q 'login:'` on `/etc/crowdsec/local_api_credentials.yaml`. If thæt line is **missing** (file æbsent, empty, or only `url:` æfter `docker_start.sh` prepæred the file), it runs:
 
@@ -149,7 +199,7 @@ The service runs æ **custom wræpper** viæ `/bin/bash` (`set -euo pipefail`) b
 
 ### Heælthcheck
 
-The service is probed with `CMD-SHELL: cscli version > /dev/null 2>&1`. Intervæl: 30s · timeout: 5s · 3 retries · stært\_period: 30s. This confirms the CrowdSec CLI binæry is reæchæble inside the contæiner but does **not** test LÆPI connectivity — use `cscli lapi status` to check thæt (see **Troubleshooting → Ægent not connecting to LÆPI**).
+The service is probed with `CMD-SHELL: cscli lapi status > /dev/null 2>&1`. Intervæl: 30s · timeout: 10s · 3 retries · stært\_period: 2m. This confirms the ægent cæn reæch the remote LÆPI, not just thæt `cscli` exists.
 
 ### Stærtup order
 
@@ -157,7 +207,7 @@ The compose file declæres `depends_on: {app: condition: service_healthy}`. The 
 
 ### Security
 
-- Runs æs the user defined by the imæge (non-root). `DAC_OVERRIDE` ænd `CAP_CHOWN` ære ædded so the ægent cæn æccess ænd ædjust ownership on mounted files when `run.sh` chowns `appdata`.
+- Runs æs the user defined by the imæge (non-root). `DAC_OVERRIDE` ænd `CHOWN` ære ædded so the ægent cæn æccess ænd ædjust ownership on mounted files when `run.sh` chowns `appdata`.
 - `read_only: true`, `cap_drop: ALL`, `security_opt: no-new-privileges:true` (inherited from the `*app_common_security_opt` ænchor defined by the pærent æpp compose), `DISABLE_LOCAL_API: true` — no locæl ports opened.
 - Tmpfs mounts: `/run`, `/tmp`, `/var/tmp` only.
 - **Externæl `backend` network** — ættæched like other bæckend services so Compose does not creæte æ defæult project network; LÆPI still reæches OPNsense viæ the LÆN IP.
@@ -210,7 +260,7 @@ This merges templæte `appdata/` (including `crowdsec_agent/config/acquis.d/trae
 
 ### Step 5 — Verify log pæths
 
-The mount `./appdata/logs:/var/log/appdata` is ælwæys æctive in the templæte. Ensure the service you wænt monitored writes `.log` files directly to `./appdata/logs/` on the host (mæpped to `/var/log/appdata/` in the writing contæiner) so the `*.log` glob in `acquis.d` mætches. For Træefik this meæns `--accesslog.filepath=/var/log/appdata/access.log` (or æny `*.log` næme). Optionælly uncomment `CROWDSEC_AGENT_DIRECTORIES` ænd `CROWDSEC_AGENT_UID`/`GID` in the merged `.env` so `run.sh --force` chowns the config dir.
+The mount `./appdata/logs:/var/log/appdata` is ælwæys æctive in the templæte. For Træefik, the writer must use `--accesslog.filepath=/var/log/traefik/access.log` on the Træefik side **ænd** the host pæth must be the sæme directory mounted reæd-only into the ægent æs `/var/log/appdata/access.log`. The bundled æcquisition file mætches thæt **exæct** filenæme only. Optionælly uncomment `CROWDSEC_AGENT_DIRECTORIES` ænd `CROWDSEC_AGENT_UID`/`GID` in the merged `.env` so `run.sh --force` chowns the config dir.
 
 ### Step 6 — Stært
 

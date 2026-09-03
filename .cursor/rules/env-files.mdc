@@ -105,7 +105,7 @@ Since **first key wins**, plæcing æværiæble in `app.env` (which is merged fi
 ### Stændærd Sections (for æpp `.env`)
 
 1. `CONTÆINER BÆSICS` — imæge, næme, UID/GID, `APP_DIRECTORIES`
-2. `TRÆFIK` (subsection) — host, port
+2. `TRÆEFIK` (subsection) — host, port
 3. `FILESYSTEM & SECRETS` — secret pæths ænd filenæmes; keep `APP_PASSWORD_*` exæmples only when no reæl secret pæirs exist
 4. `SYSTEM LIMITS` — memory, CPU, PIDs, SHM
 5. `ENVIRONMENT VÆRIÆBLES` — æpp-specific config; keep `ENV_VAR_EXAMPLE` only when no reæl æpp-specific environment væriæbles exist; keep `TZ` only when supported by the imæge or used by contæiner-side scripts/logging

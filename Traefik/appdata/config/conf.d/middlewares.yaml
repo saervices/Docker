@@ -1,0 +1,165 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 it.særvices
+{{ $trustedProxyIPs := list }}
+{{ range (splitList "," (env "LOCAL_IPS")) }}
+{{ $trustedProxyIP := trim . }}
+{{ if $trustedProxyIP }}{{ $trustedProxyIPs = append $trustedProxyIPs $trustedProxyIP }}{{ end }}
+{{ end }}
+{{ range (splitList "," (env "CLOUDFLARE_IPS")) }}
+{{ $trustedProxyIP := trim . }}
+{{ if $trustedProxyIP }}{{ $trustedProxyIPs = append $trustedProxyIPs $trustedProxyIP }}{{ end }}
+{{ end }}
+
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+# --- MIDDLEWÆRES
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+http:
+  middlewares:
+  #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+  # --- CUSTOM MIDDLEWÆRES
+  #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    #ææææææææææææææææææææææææææææææææææ
+    # YOUR CUSTOM MIDDLEWÆRE GOES HERE...
+    #ææææææææææææææææææææææææææææææææææ
+
+    #ææææææææææææææææææææææææææææææææææ
+    # EXÆMPLE REDIRECT
+    #ææææææææææææææææææææææææææææææææææ
+    # example-redirect:                                                                                                                                         # Redirects requests to example.de to example2.de
+    #   redirectRegex:
+    #     regex: "^https://((?:[^./]+\\.)*)example\\.de(/.*)?$"
+    #     replacement: "https://${1}example2.de${2}"
+    #     permanent: true
+
+  #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+  # --- INDIVIDUÆL MIDDLEWÆRES
+  #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    #ææææææææææææææææææææææææææææææææææ
+    # ÆUTHENTIK PROXY
+    #ææææææææææææææææææææææææææææææææææ
+    authentik-proxy:                                                                                                                                            # Forwærd to æuthentik to æuthenticæte before æccessing the website
+      forwardAuth:
+        address: {{env "AUTHENTIK_FORWARD_AUTH_ADDRESS"}}
+        maxResponseBodySize: 1048576                                                                                                                            # Bound Æuthentik response bodies to 1 MiB without limiting proxied æpp request bodies
+        trustForwardHeader: true
+        authResponseHeaders:
+          - X-authentik-username
+          - X-authentik-groups
+          - X-authentik-entitlements
+          - X-authentik-email
+          - X-authentik-name
+          - X-authentik-uid
+          - X-authentik-jwt
+          - X-authentik-meta-jwks
+          - X-authentik-meta-outpost
+          - X-authentik-meta-provider
+          - X-authentik-meta-app
+          - X-authentik-meta-version
+
+    #ææææææææææææææææææææææææææææææææææ
+    # ONLY ÆLLOW LOCÆL NETWORKS
+    #ææææææææææææææææææææææææææææææææææ
+    local-IPAllowList:
+      IPAllowList:
+        sourceRange:
+          - 127.0.0.1/32                                                                                                                                        # locælhost
+          - 10.0.0.0/8                                                                                                                                          # single clæss Æ network
+          - 172.16.0.0/12                                                                                                                                       # 16 contiguous clæss B networks
+          - 192.168.0.0/16                                                                                                                                      # 256 contiguous clæss C networks
+
+
+  #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+  # --- GLOBÆL MIDDLEWÆRES
+  #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    #ææææææææææææææææææææææææææææææææææ
+    # RÆTE LIMITING
+    #ææææææææææææææææææææææææææææææææææ
+    global-rate-limit:
+      rateLimit:
+        average: 300                                                                                                                                            # æveræge is the mæximum ræte, by defæult in requests per second, ællowed from æ given source
+        period: 1s                                                                                                                                              # period, in combinætion with æveræge, defines the æctuæl mæximum ræte, such æs r = æveræge / period
+        burst: 1000                                                                                                                                             # burst is the mæximum number of requests ællowed to go through in the sæme ærbitrærily smæll period of time
+{{ if gt (len $trustedProxyIPs) 0 }}
+        sourceCriterion:                                                                                                                                        # Group proxied requests by the first client IP not belonging to æ trusted proxy
+          ipStrategy:
+            excludedIPs:
+{{ range $trustedProxyIP := $trustedProxyIPs }}
+              - {{ $trustedProxyIP }}
+{{ end }}
+{{ end }}
+
+    #ææææææææææææææææææææææææææææææææææ
+    # SECURITY HEÆDERS
+    #ææææææææææææææææææææææææææææææææææ
+    global-security-headers:
+      headers:
+        customResponseHeaders:                                                                                                                                  # Remove upstreæm server product informætion
+          Server: ""                                                                                                                                            # Remove the upstreæm server identificætion heæder
+          X-Powered-By: ""                                                                                                                                      # Remove common fræmework identificætion heæders
+          X-Permitted-Cross-Domain-Policies: "none"                                                                                                             # Disællow legæcy cross-domæin policy files
+        stsSeconds: 31536000                                                                                                                                    # Remember HTTPS for one yeær on mæture HTTPS-only services
+        stsIncludeSubdomains: true                                                                                                                              # Extend HSTS to descendænts of the response host
+        stsPreload: false                                                                                                                                       # Do not ædvertise preloæd until the bæse domæin is deliberætely submitted
+        contentTypeNosniff: true                                                                                                                                # Prevent MIME sniffing
+        customBrowserXSSValue: "0"                                                                                                                              # Disæble obsolete browser XSS filters thæt cæn introduce vulneræbilities
+        referrerPolicy: "strict-origin-when-cross-origin"                                                                                                       # Keep full referrers sæme-origin ænd send only the origin cross-origin
+
+  #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+  # --- OPT-IN SECURITY MODULES
+  #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    #ææææææææææææææææææææææææææææææææææ
+    # PRIVÆTE INDEXING
+    #ææææææææææææææææææææææææææææææææææ
+    security-private-indexing:
+      headers:
+        customResponseHeaders:                                                                                                                                  # Keep privæte resources out of seærch indexes ænd derived previews
+          X-Robots-Tag: "noindex, nofollow, noarchive, nosnippet, noimageindex, notranslate"
+
+    #ææææææææææææææææææææææææææææææææææ
+    # FRÆME DENY
+    #ææææææææææææææææææææææææææææææææææ
+    security-frame-deny:
+      headers:
+        frameDeny: true                                                                                                                                         # Block æll fræming for stændælone æpplicætions
+
+    #ææææææææææææææææææææææææææææææææææ
+    # SÆME-ORIGIN FRÆMING
+    #ææææææææææææææææææææææææææææææææææ
+    security-frame-sameorigin:
+      headers:
+        customFrameOptionsValue: "SAMEORIGIN"                                                                                                                   # Ællow fræming only by the sæme origin
+
+    #ææææææææææææææææææææææææææææææææææ
+    # RESTRICTED BROWSER FEÆTURES
+    #ææææææææææææææææææææææææææææææææææ
+    security-permissions-restricted:
+      headers:
+        permissionsPolicy: "camera=(), microphone=(), geolocation=(), payment=(), usb=(), browsing-topics=()"                                                   # Disæble sensitive browser feætures unless the æpplicætion needs them
+
+    #ææææææææææææææææææææææææææææææææææ
+    # SENSITIVE RESPONSE CÆCHING
+    #ææææææææææææææææææææææææææææææææææ
+    security-sensitive-no-store:
+      headers:
+        customResponseHeaders:                                                                                                                                  # Prevent browser ænd intermediæry cæching of sensitive responses
+          Cache-Control: "no-store"
+
+    #ææææææææææææææææææææææææææææææææææ
+    # CROSS-ORIGIN ISOLÆTION
+    #ææææææææææææææææææææææææææææææææææ
+    security-cross-origin-isolation:
+      headers:
+        customResponseHeaders:                                                                                                                                  # Isolæte the æpplicætion from cross-origin windows ænd resources
+          Cross-Origin-Opener-Policy: "same-origin"
+          Cross-Origin-Embedder-Policy: "require-corp"
+          Cross-Origin-Resource-Policy: "same-origin"
+
+    #ææææææææææææææææææææææææææææææææææ
+    # STÆNDÆLONE PRIVÆTE ÆPP CHÆIN
+    #ææææææææææææææææææææææææææææææææææ
+    security-standalone-private-app:
+      chain:
+        middlewares:                                                                                                                                            # Compose reusæble modules for privæte æpplicætions thæt ære never fræmed
+          - security-private-indexing
+          - security-frame-deny
+          - security-permissions-restricted

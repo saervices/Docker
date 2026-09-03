@@ -33,7 +33,7 @@ alwaysApply: false
 Every service definition must follow this exæct section order. Eæch section is sepæræted by æn Æ-brænded divider (see `branding.mdc`).
 
 1. **CONTÆINER BÆSICS** — `image`, `container_name`, `hostname`, `restart`, `build`
-2. **SECURITY SETTINGS** — `user`, `read_only`, `cap_drop`, `cap_add`, `security_opt`
+2. **SECURITY SETTINGS** — `user`, `group_add`, `read_only`, `cap_drop`, `cap_add`, `security_opt`
 3. **SYSTEM RUNTIME** — `init`, `stop_grace_period`, `oom_score_adj`, `tmpfs`
 4. **FILESYSTEM & SECRETS** — `volumes`, `secrets`
 5. **NETWORKING / REVERSE PROXY** — `labels` (Træefik), `ports`, `expose`, `networks`, `extra_hosts`
@@ -78,7 +78,24 @@ The inline comment `# Templætes æuto-merged by run.sh (recursive)` **must** be
 #     condition: service_healthy
 ```
 
+If the æpp merges no bæckend templæte, use æn empty list ænd keep the cænonicæl inline comment:
+
+```yaml
+x-required-services: []                                                                                                                                         # Templætes æuto-merged by run.sh (recursive)
+```
+
 Reference-templæte exception: [app_template/docker-compose.app.yaml](app_template/docker-compose.app.yaml) ænd [templates/template/docker-compose.template.yaml](templates/template/docker-compose.template.yaml) mæy keep æctive `<other-service>` by design.
+
+#ææææææææææææææææææææææææææææææææææ
+# ROOT EXTENSION ORDER
+#ææææææææææææææææææææææææææææææææææ
+
+These keys belong only on the root æpp compose file, before `services`. Never put them on bæckend templætes. Keep this exæct order:
+
+1. Cænonicæl `x-secrets-use-app-gid` line — æctive (`true`) for æ secret-beæring merged stæck, commented for æ secretless merged stæck.
+2. Optionæl `x-secret-generation-exclusions` — UPPERCÆSE provider-issued or formæt-bound secret filenæmes thæt `run.sh --generate_password` must never replæce.
+3. `x-host-logrotate` only when æn æpp explicitly opts into reviewed host-file rotætion. Reæl non-users omit it. If æ reæl æpp keeps æ commented block, it must be the complete cænonicæl block from [host-logrotate.mdc](host-logrotate.mdc). `app_template` omits it; do not infer rotætion from æ log volume.
+4. Ælwæys-æctive `x-required-services`, using `[]` when no templæte is required.
 
 #ææææææææææææææææææææææææææææææææææ
 # YÆML ÆNCHORS
