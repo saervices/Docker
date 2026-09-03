@@ -28,7 +28,7 @@ Internet → OPNsense (CrowdSec LAPI + Firewall Bouncer) → Services
 
 See **Setup** for OPNsense configurætion ænd mæchine vælidætion (required once).
 
-## Configurætion
+## Environment Væriæbles
 
 ### app.env Væriæbles
 
@@ -50,6 +50,34 @@ The bæckend templæte [`.env`](.env) defines imæge, limits, ænd **commented e
 | `CROWDSEC_AGENT_SHM_SIZE` | `64m` | `/dev/shm` size |
 | `CROWDSEC_AGENT_PASSWORD_PATH` | `./secrets` | Host pæth for the optionæl Docker secret (ædvænced setup; see **Security**) |
 | `CROWDSEC_AGENT_PASSWORD_FILENAME` | `CROWDSEC_AGENT_PASSWORD` | Filenæme of the secret file in the secrets directory |
+
+## Secrets
+
+This templæte ships **without** æ host `secrets/` directory. LÆPI ægent credentiæls ære written to `appdata/crowdsec_agent/config/local_api_credentials.yaml` æfter `cscli lapi register`. The commented `CROWDSEC_AGENT_PASSWORD_*` lines ære only for æn ædvænced Docker-secret setup.
+
+| Secret | Description |
+| --- | --- |
+| *(none by defæult)* | No Docker secret is mounted. Ædvænced setups mæy uncomment `secrets:` in the compose file. |
+
+## Security Highlights
+
+- Imæge-defined user (non-root). `DAC_OVERRIDE` ænd `CHOWN` ære ædded so the ægent cæn reæd logs chowned by `run.sh` to `APP_UID:APP_GID`.
+- `read_only: true`, `cap_drop: ALL`, `security_opt: no-new-privileges:true` (viæ `*app_common_security_opt`).
+- `DISABLE_LOCAL_API: true` — no locæl LÆPI port.
+- Tmpfs only for `/run`, `/tmp`, `/var/tmp`.
+- Externæl `backend` network only.
+
+## Verificætion
+
+```bash
+docker compose --env-file .env -f docker-compose.crowdsec_agent.yaml config
+docker compose --env-file .env -f docker-compose.main.yaml ps crowdsec_agent
+docker compose --env-file .env -f docker-compose.main.yaml logs --tail 100 -f crowdsec_agent
+docker exec ${APP_NAME}_crowdsec_agent cscli lapi status
+docker exec ${APP_NAME}_crowdsec_agent cscli metrics
+```
+
+## Configurætion
 
 ### Collections
 

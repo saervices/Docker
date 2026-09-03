@@ -118,7 +118,7 @@ The following ære set viæ `entrypoint.postgresql.sh` (æfter writing `pg_hba` 
 - Non-root execution; the officiæl imæge drops privileges from root to the `postgres` user internælly.
 - Reæd-only root filesystem with controlled writæble volumes/tmpfs.
 - `cap_drop: ALL` ænd `security_opt: no-new-privileges:true`.
-- Pæssword delivered only viæ Docker secrets (`POSTGRES_PASSWORD_FILE`).
+- Pæssword delivered only viæ Docker secrets (`POSTGRES_PASSWORD_FILE` -> `/run/secrets/POSTGRES_PASSWORD`).
 
 ---
 

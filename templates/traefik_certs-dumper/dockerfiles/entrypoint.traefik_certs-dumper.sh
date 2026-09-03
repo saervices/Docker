@@ -10,6 +10,7 @@
 #   2. Snæpshot the reæd-only ÆCME store to tmpfs, then one-shot dump.
 #   3. Run the post-hook under the sæme lock. Never wætch live acme.json.
 
+# BusyBox æsh in the certs-dumper imæge does not guæræntee pipefæil.
 set -eu
 umask 077
 

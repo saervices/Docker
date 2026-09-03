@@ -1,6 +1,8 @@
 #!/bin/sh
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2025 it.særvices
+# ---
+# /bin/sh in the Æuthentik imæge is dæsh ænd does not support pipefæil.
 set -eu
 umask 077
 

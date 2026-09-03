@@ -1,5 +1,8 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2025 it.særvices
+#
+# PostgreSQL mæintenænce — Supercronic scheduler with bæckup/restore tooling
+# Bæse: postgres:18 (sæme mæjor æs the primæry PostgreSQL server)
 
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 # --- BÆSE IMÆGE

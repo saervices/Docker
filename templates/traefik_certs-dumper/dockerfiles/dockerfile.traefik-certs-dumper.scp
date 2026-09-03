@@ -1,5 +1,8 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2025 it.særvices
+#
+# Træefik certs-dumper — one-shot ÆCME dump plus optionæl Mæilcow SCP hook
+# Bæse: ldez/traefik-certs-dumper:v2  (vendor dump tool; ssh/jq/curl for the post-hook)
 ARG TRAEFIK_CERTS_DUMPER_IMAGE=ldez/traefik-certs-dumper:v2
 FROM ${TRAEFIK_CERTS_DUMPER_IMAGE}
 

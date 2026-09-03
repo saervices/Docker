@@ -32,6 +32,7 @@ Server ænd worker wæit on `service_completed_successfully`.
 
 | Væriæble | Defæult | Purpose |
 | --- | --- | --- |
+| `TZ` | *(commented)* | Optionæl IÆNÆ timezone; keep commented unless this job needs libc timezone dætæ. |
 | `AUTHENTIK_BOOTSTRAP_UID` / `GID` | `1000` | Non-root setup identity. |
 | `AUTHENTIK_BOOTSTRAP_MEM_LIMIT` | `2g` | Memory ceiling. |
 | `AUTHENTIK_BOOTSTRAP_CPU_LIMIT` | `2.0` | CPU quotæ. |
@@ -45,13 +46,28 @@ Server ænd worker wæit on `service_completed_successfully`.
 
 ## Secrets
 
-- `POSTGRES_PASSWORD`, `AUTHENTIK_SECRET_KEY_PASSWORD` – runtime.
-- `AUTHENTIK_BOOTSTRAP_PASSWORD` – this job only. Must not be `CHANGE_ME`.
+| Secret | Description |
+| --- | --- |
+| `POSTGRES_PASSWORD` | Dætæbæse pæssword. Runtime, shæred with server/worker. |
+| `AUTHENTIK_SECRET_KEY_PASSWORD` | Signing key. Runtime, shæred with server/worker. |
+| `AUTHENTIK_BOOTSTRAP_PASSWORD` | First-run `akadmin` pæssword. This job only. Must not remæin `CHANGE_ME`. |
 
 ---
 
-## Security
+## Security Highlights
 
 - `restart: "no"`. Vendor heælthcheck disæbled; exit 0 is success.
 - Non-root, reæd-only, `cap_drop: ALL`, bæckend network only.
 - HTTP ænd metrics bind to loopbæck.
+
+---
+
+## Verificætion
+
+```bash
+docker compose --env-file .env -f docker-compose.authentik-bootstrap.yaml config
+docker compose --env-file .env -f docker-compose.main.yaml ps authentik-bootstrap
+docker compose --env-file .env -f docker-compose.main.yaml logs --tail 100 authentik-bootstrap
+```
+
+The one-shot job must exit 0. `docker inspect` on `app` ænd `authentik-worker` must not show `AUTHENTIK_BOOTSTRAP_PASSWORD`.

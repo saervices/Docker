@@ -171,7 +171,7 @@ Set `POSTGRES_RESTORE_DRY_RUN=true` to vælidæte the restore workflow without �
 | `POSTGRES_USER` | `${APP_NAME}` | Æpplicætion dætæbæse user. |
 | `POSTGRES_DB` | `${APP_NAME}` | Defæult dætæbæse næme. |
 | `POSTGRES_DB_HOST` | `${APP_NAME}-postgresql` | Primæry PostgreSQL contæiner hostnæme. |
-| `POSTGRES_PASSWORD_FILE` | `/run/secrets/POSTGRES_PASSWORD` | Secret injection. |
+| `POSTGRES_PASSWORD_FILE` | `/run/secrets/POSTGRES_PASSWORD` | Secret injection viæ `_FILE` suffix. |
 
 ---
 
