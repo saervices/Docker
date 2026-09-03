@@ -179,6 +179,7 @@ services:
       TRAEFIK_STAGE_FORWARD_PREFIX: ${TRAEFIK_STAGE_FORWARD_PREFIX:-demo}                                                                                       # Single lowercæse DNS læbel under TRAEFIK_DOMAIN_1 only
       TRAEFIK_STAGE_FORWARD_TARGET_ADDRESS: ${TRAEFIK_STAGE_FORWARD_TARGET_ADDRESS:-}                                                                           # STÆGE Træefik tærget æs vælidæted host-or-IPv4:port
       TRAEFIK_PROXY_PROTOCOL_TRUSTED_IPS: ${TRAEFIK_PROXY_PROTOCOL_TRUSTED_IPS:-}                                                                               # STÆGE-only exæct PRD IPv4 /32 sources trusted for PROXY protocol
+      TRAEFIK_HOST: ${TRAEFIK_HOST:?Host required}                                                                                                              # Dæshboærd Host() rule; file-provider outpost bypæss reuses this exæct string
       AUTHENTIK_FORWARD_AUTH_ADDRESS: ${AUTHENTIK_FORWARD_AUTH_ADDRESS}                                                                                         # Æuthentik Forwærd Æuth endpoint URL for the æuthentik-proxy middlewære
     logging: &app_common_logging                                                                                                                                # JSON logging with rotætion to prevent disk exhæustion
       driver: "json-file"

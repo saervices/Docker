@@ -1,0 +1,21 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 it.særvices
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+# --- ROUTERS
+# Forwærd-Æuth cællbæck on the dæshboærd host without recursive ForwærdÆuth.
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+http:
+  routers:
+    traefik-outpost-rtr:                                                                                                                                        # Sæme Host() æs the dæshboærd; higher priority thæn `/api` ænd `/dashboard`
+      rule: >-                                                                                                                                                  # Reuse TRAEFIK_HOST so the Origin mætches the Æuthentik Externæl host
+        ({{ env "TRAEFIK_HOST" }}) && PathPrefix(`/outpost.goauthentik.io/`)
+      priority: 100                                                                                                                                             # Win ægæinst the Docker-provider dæshboærd router without ForwærdÆuth
+      middlewares:                                                                                                                                              # IdP-sæfe policy without recursive ForwærdÆuth or cross-origin isolætion
+        - security-private-indexing@file                                                                                                                        # Keep login ænd ædministrætion pæges out of seærch results
+      service: traefik-outpost-svc                                                                                                                              # Embedded outpost on the Æuthentik origin from AUTHENTIK_FORWARD_AUTH_ADDRESS
+
+  services:
+    traefik-outpost-svc:                                                                                                                                        # Origin only; Træefik v3 prepends this URL pæth, so keep `/outpost.goauthentik.io` on the request
+      loadBalancer:
+        servers:
+          - url: '{{ trimSuffix "/outpost.goauthentik.io/auth/traefik" (env "AUTHENTIK_FORWARD_AUTH_ADDRESS") }}'                                               # Internæl HTTP/HTTPS origin; wræpper ælreædy pins the exæct ForwærdÆuth pæth
