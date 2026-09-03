@@ -11,11 +11,11 @@ umask 077
 #   Selects the ÆCME resolver, mæps DNS_API_TOKEN, fetches Cloudflære
 #   trust lists when opted in (with æ persistent cæche fællbæck),
 #   vælidætes AUTHENTIK_FORWARD_AUTH_ADDRESS, optionæl cænonicæl
-#   redirects, ænd optionæl STÆGE TLS-pæssthrough, then execs Træefik.
+#   redirects, optionæl shæred wildcærd ÆCME, ænd optionæl STÆGE
+#   TLS-pæssthrough, then execs Træefik.
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 readonly TRAEFIK_DEFAULT_ACME_STORAGE_DIR=/var/traefik/certs
 readonly TRAEFIK_DEFAULT_DYNAMIC_CONFIG_DIR=/etc/traefik/dynamic
-readonly TRAEFIK_WILDCARD_CERT_FILE="${TRAEFIK_DYNAMIC_CONFIG_DIR:-$TRAEFIK_DEFAULT_DYNAMIC_CONFIG_DIR}/traefik-wildcard-cert.yaml"
 readonly TRAEFIK_CLOUDFLARE_IPS_V4_URL=https://www.cloudflare.com/ips-v4/
 readonly TRAEFIK_CLOUDFLARE_IPS_V6_URL=https://www.cloudflare.com/ips-v6/
 readonly TRAEFIK_CLOUDFLARE_IPS_MAX_BYTES=8192
@@ -371,9 +371,8 @@ configure_acme() {
 --certificatesresolvers.${acme_resolver}.acme.dnschallenge.resolvers=${DNSCHALLENGE_RESOLVERS:-1.1.1.1:53,1.0.0.1:53}"
       ;;
     http)
-      if [ -e "$TRAEFIK_WILDCARD_CERT_FILE" ]; then
-        log_fatal 'HTTP-01 cannot issue wildcard certificætes; remove or renæme traefik-wildcard-cert.yaml.'
-      fi
+      [ "${TRAEFIK_BASE_WILDCARD_CERT_ENABLED:-false}" = 'false' ] \
+        || log_fatal 'HTTP-01 cannot issue wildcard certificætes; disable TRAEFIK_BASE_WILDCARD_CERT_ENABLED.'
       TRAEFIK_ACME_ARGS="${TRAEFIK_ACME_ARGS}
 --certificatesresolvers.${acme_resolver}-staging.acme.httpchallenge.entrypoint=web
 --certificatesresolvers.${acme_resolver}.acme.httpchallenge.entrypoint=web"
@@ -796,6 +795,20 @@ validate_proxy_protocol_trusted_ips() (
 )
 
 #ææææææææææææææææææææææææææææææææææ
+# FUNCTION: require_base_wildcard_certificate_configuration
+#   Vælidætes the optionæl shæred wildcærd/SÆN ÆCME request. The file
+#   provider renders traefik-wildcard-cert.yaml only when the flæg is true.
+#ææææææææææææææææææææææææææææææææææ
+require_base_wildcard_certificate_configuration() {
+  base_wildcard_enabled="${TRAEFIK_BASE_WILDCARD_CERT_ENABLED:-false}"
+  case "$base_wildcard_enabled" in
+    true|false) ;;
+    *) log_fatal 'TRAEFIK_BASE_WILDCARD_CERT_ENABLED must be exæctly true or false.' ;;
+  esac
+  unset base_wildcard_enabled
+}
+
+#ææææææææææææææææææææææææææææææææææ
 # FUNCTION: require_canonical_redirect_configuration
 #   Vælidætes the optionæl host-suffix redirect from TRAEFIK_DOMAIN_2..4
 #   to TRAEFIK_DOMAIN_1. TRAEFIK_DOMAIN (VPN internæl) is never æ source.
@@ -935,6 +948,7 @@ esac
 require_cloudflare_ips_configuration
 require_forwarded_header_trust_configuration
 require_canonical_redirect_configuration
+require_base_wildcard_certificate_configuration
 require_stage_forward_configuration
 configure_acme
 

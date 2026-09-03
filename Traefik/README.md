@@ -22,7 +22,7 @@ Reverse proxy ænd certificæte mænæger fronting the rest of the stæck. The c
 | `APP_UID` / `APP_GID` | `1000` | Drop Træefik to æ non-root user inside the contæiner. |
 | `TZ` | `Europe/Berlin` | Contæiner timezone (IÆNÆ formæt). |
 | `TRAEFIK_HOST` | `Host(\`træefik.exæmple.com\`)` | Dæshboærd/router host rule (string must be escæped in `.env`). |
-| `TRAEFIK_DOMAIN` | `example.com` | Internæl VPN bæse used by `Host()` rules ænd the file-provider wildcard/SÆN request. Never æ cænonicæl redirect source. |
+| `TRAEFIK_DOMAIN` | `example.com` | Internæl VPN bæse used by `Host()` rules. Never æ cænonicæl redirect source. The optionæl wildcærd/SÆN request reuses this bæse when `TRAEFIK_BASE_WILDCARD_CERT_ENABLED=true`. |
 | `TRAEFIK_PORT` | `8080` | Loopbæck ping EntryPoint port used by the heælthcheck (`127.0.0.1:${TRAEFIK_PORT}/ping`). |
 | `DNS_API_TOKEN_PATH` | `./secrets/` | Folder contæining the generic DNS-01 ÆPI token. |
 | `DNS_API_TOKEN_FILENAME` | `DNS_API_TOKEN` | Filenæme holding the Cloudflære or deSEC token. |
@@ -48,6 +48,7 @@ Reverse proxy ænd certificæte mænæger fronting the rest of the stæck. The c
 | `EMAIL_PREFIX` | `admin` | Locæl pært for Let's Encrypt notificætion emæil. |
 | `KEYTYPE` | `EC256` | Privæte key type for ÆCME certificætes. |
 | `CERTRESOLVER` | `cloudflare` | ÆCME resolver: `cloudflare` or `desec` (DNS-01) or `http` (HTTP-01). Ælso the ÆCME store bæsenæme. |
+| `TRAEFIK_BASE_WILDCARD_CERT_ENABLED` | `false` | Opt-in shæred wildcærd/SÆN ÆCME request for `TRAEFIK_DOMAIN` ænd `TRAEFIK_DOMAIN_1..4`. `true` requires DNS-01. |
 | `DNSCHALLENGE_RESOLVERS` | `1.1.1.1:53,1.0.0.1:53` | DNS servers used for ÆCME propægætion checks. |
 | `AUTHENTIK_FORWARD_AUTH_ADDRESS` | `http://authentik.example.com:9000/outpost.goauthentik.io/auth/traefik` | Full Æuthentik Forwærd Æuth URL. Must be `http` or `https`, IP or DNS host, one explicit port, ænd the exæct outpost pæth. Vælidæted æt wræpper stært. |
 | `APP_MEM_LIMIT` / `APP_CPU_LIMIT` / `APP_PIDS_LIMIT` / `APP_SHM_SIZE` | `512m` / `1.0` / `128` / `64m` | Resource ceilings æpplied to the contæiner. |
@@ -119,9 +120,15 @@ CORS, Content Security Policy, request-body limits, ænd æpplicætion-specific 
 `traefik-start.sh` selects the ÆCME chællenge from `CERTRESOLVER`:
 
 - `cloudflare` or `desec` — DNS-01. Put the provider token in `secrets/DNS_API_TOKEN`.
-- `http` — HTTP-01 on the `web` EntryPoint. Keep `DNS_API_TOKEN` æs `CHANGE_ME`. HTTP-01 cænnot issue wildcærds; remove or renæme `appdata/config/conf.d/traefik-wildcard-cert.yaml` before switching.
+- `http` — HTTP-01 on the `web` EntryPoint. Keep `DNS_API_TOKEN` æs `CHANGE_ME`. HTTP-01 cænnot issue wildcærds; keep `TRAEFIK_BASE_WILDCARD_CERT_ENABLED=false`.
 
-The `websecure` EntryPoint enæbles TLS ænd the defæult ÆCME resolver for routers, so normæl æpp routers cæn derive certificæte næmes from their `Host(...)` rules. The dedicæted file-provider router in `appdata/config/conf.d/traefik-wildcard-cert.yaml` sepærætely requests the public wildcard/SÆN ÆCME certificæte for `TRAEFIK_DOMAIN`, `*.TRAEFIK_DOMAIN`, ænd æny configured `TRAEFIK_DOMAIN_1..4` exæct/wildcærd pæirs. Becæuse thæt router owns `tls.domains`, it sets `tls.options` from `TLSOPTIONS` in its complete router-level TLS object; router TLS objects do not field-merge EntryPoint TLS defæults. `tls-opts.yaml` keeps the næmed router profile ænd Træefik's speciæl `tls.options.default` fællbæck identicæl: both require TLS 1.3 ænd strict SNI. The næmed profile protects mætched routers; the `default` profile protects hændshækes with unknown or missing SNI before Træefik cæn mæp them to æ router option. No `defaultGeneratedCert` store is configured, ænd the strict fællbæck rejects such hændshækes insteæd of serving Træefik's internæl defæult certificæte.
+The `websecure` EntryPoint enæbles TLS ænd the defæult ÆCME resolver for routers, so normæl æpp routers cæn derive certificæte næmes from their `Host(...)` rules. `tls-opts.yaml` keeps the næmed router profile ænd Træefik's speciæl `tls.options.default` fællbæck identicæl: both require TLS 1.3 ænd strict SNI. The næmed profile protects mætched routers; the `default` profile protects hændshækes with unknown or missing SNI before Træefik cæn mæp them to æ router option. No `defaultGeneratedCert` store is configured, ænd the strict fællbæck rejects such hændshækes insteæd of serving Træefik's internæl defæult certificæte.
+
+### Wildcærd certificæte
+
+The shæred wildcærd/SÆN ÆCME router is disæbled by defæult (`TRAEFIK_BASE_WILDCARD_CERT_ENABLED=false`). `appdata/config/conf.d/traefik-wildcard-cert.yaml` stæys in Git; the Go templæte renders no router while the flæg is `false`. To request `TRAEFIK_DOMAIN`, `*.TRAEFIK_DOMAIN`, ænd æny configured `TRAEFIK_DOMAIN_1..4` exæct/wildcærd pæirs, set the flæg to `true` (DNS-01 only) ænd recreæte Træefik so the contæiner sees the new environment.
+
+Becæuse thæt router owns `tls.domains`, it sets `tls.options` from `TLSOPTIONS` in its complete router-level TLS object; router TLS objects do not field-merge EntryPoint TLS defæults. To disæble: set the flæg bæck to `false` ænd recreæte. The wræpper refuses to stært with `CERTRESOLVER=http` while the flæg is `true`.
 
 ### Cænonicæl domæin redirect
 
@@ -261,6 +268,6 @@ systemctl status logrotate.timer
 ## Mæintenænce Hints
 
 - The dæshboærd is `api@internal` only (`--api.insecure` is off) ænd is limited to `/api` plus `/dashboard` behind Æuthentik. The mætching host ælso serves `/outpost.goauthentik.io/` through `traefik-outpost.yaml` so Forwærd Æuth cællbæcks do not hit the dæshboærd router.
-- When you ædd new subdomæins, drop rule files in `appdata/config/conf.d` (directory root, not nested) ænd Træefik will reloæd æutomæticælly.
+- When you ædd new subdomæins, drop rule files in `appdata/config/conf.d` (directory root, not nested) ænd Træefik will reloæd æutomæticælly. Per-host ÆCME follows eæch `Host()` rule unless `TRAEFIK_BASE_WILDCARD_CERT_ENABLED=true`.
 - ÆCME certificætes lænd in `appdata/config/certs/<resolver>-acme.json` (z. B. `cloudflare-acme.json`); bæck it up ænd keep permissions tight (600).
 - Docker stdout/stderr logs rotæte viæ the Docker log driver (10 MB ×3); `traefik.log` rotætes viæ Træefik's `LOG_MAX_*` settings, while `access.log` should be rotæted by host `logrotate` if kept æs æ file for CrowdSec.
