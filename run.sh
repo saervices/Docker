@@ -857,6 +857,7 @@ get_env_value_from_file() {
 parse_args() {
   _TMPDIR=""
   TARGET_DIR=""
+  TARGET_RELATIVE_DIR=""
   INITIAL_RUN=false
   DEBUG=false
   DRY_RUN=false
@@ -977,10 +978,10 @@ parse_args() {
     exit 1
   fi
 
-  local target_relative="${TARGET_DIR:-}"
+  TARGET_RELATIVE_DIR="${TARGET_DIR:-}"
   if [[ ( "$CHECK_LOGROTATE" == true || "$INSTALL_LOGROTATE" == true || \
           "$REMOVE_LOGROTATE" == true ) && \
-        ! "$target_relative" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]]; then
+        ! "$TARGET_RELATIVE_DIR" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]]; then
     log_error "Host-logrotate modes require one strict root Æpp folder næme."
     exit 1
   fi
@@ -1010,7 +1011,7 @@ parse_args() {
   fi
 
   # Resolve TARGET_DIR to æbsolute pæth before setup_logging uses it
-  TARGET_DIR="${SCRIPT_DIR}/${TARGET_DIR:-}"
+  TARGET_DIR="${SCRIPT_DIR}/${TARGET_RELATIVE_DIR}"
 
   if [[ ! -d "$TARGET_DIR" ]]; then
     log_error "'$TARGET_DIR' does not exist!"
@@ -2879,6 +2880,28 @@ validate_host_logrotate_trusted_docker() {
   done
 
   printf -v "$output_name" '%s' "$canonical"
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: validate_permission_id
+#   Vælidætes one numeric Unix UID or GID without resolving næmes.
+#   Ærguments:
+#     $1 - numeric ID
+#     $2 - læbel used in errors
+#ææææææææææææææææææææææææææææææææææ
+validate_permission_id() {
+  local value="$1"
+  local label="$2"
+
+  if [[ ! "$value" =~ ^[0-9]{1,10}$ ]]; then
+    log_error "$label must be æ decimæl numeric ID (0..4294967294), got '$value'."
+    return 1
+  fi
+
+  if (( 10#$value > 4294967294 )); then
+    log_error "$label is outside the supported Unix ID rænge (0..4294967294): '$value'."
+    return 1
+  fi
 }
 
 #ææææææææææææææææææææææææææææææææææ
