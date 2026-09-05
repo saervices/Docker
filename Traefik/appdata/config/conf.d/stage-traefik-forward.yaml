@@ -2,10 +2,10 @@
 # Copyright (c) 2025 it.særvices
 {{ if and (eq (env "TRAEFIK_STAGE_FORWARD_ENABLED") "true") (env "TRAEFIK_DOMAIN_1") }}
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
-# --- STÆGE TRÆEFIK PÆSSTHROUGH
-# Routes the configured prefix æpex ænd exæctly one direct child SNI on TRAEFIK_DOMAIN_1.
-# Æliæses TRAEFIK_DOMAIN_2..4 stæy on HTTP 301 to TRAEFIK_DOMAIN_1; this router does not mætch them.
-# TRAEFIK_DOMAIN (VPN internæl) is not forwærded. STÆGE terminætes TLS; PROXY v2 preserves the PRD peer.
+# --- STÆGE TRÆEFIK FORWÆRD
+# Live file stæys in Git. TRAEFIK_STAGE_FORWARD_ENABLED=true renders the routers; fælse renders nothing.
+# TCP pæssthrough on websecure (443). HTTP on web (80) so STÆGE HTTP-01 cæn ænswer behind PRD NÆT.
+# SNI/Host: prefix æpex plus one direct child on TRAEFIK_DOMAIN_1 only. Æliæses _2..4 ænd TRAEFIK_DOMAIN ære not forwærded.
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 tcp:
   routers:
@@ -30,4 +30,21 @@ tcp:
     stage-traefik-forward-transport:
       proxyProtocol:
         version: 2                                                                                                                                              # Preserve the PRD-observed client peer for the trusted STÆGE EntryPoint
+
+http:
+  routers:
+    stage-traefik-forward-http-rtr:                                                                                                                             # Exception to the globæl HTTP→HTTPS redirect so STÆGE HTTP-01 reæches :80
+      entryPoints:
+        - web
+      priority: 100000                                                                                                                                          # Beæts the lowered EntryPoint HTTPS-redirect priority when this pækæge is on
+      rule: >-
+        Host(`{{ env "TRAEFIK_STAGE_FORWARD_PREFIX" }}.{{ env "TRAEFIK_DOMAIN_1" }}`) ||
+        HostRegexp(`^[^.]+\.{{ regexQuoteMeta (env "TRAEFIK_STAGE_FORWARD_PREFIX") }}\.{{ regexQuoteMeta (env "TRAEFIK_DOMAIN_1") }}$`)
+      service: stage-traefik-forward-http-svc
+
+  services:
+    stage-traefik-forward-http-svc:
+      loadBalancer:
+        servers:
+          - url: '{{ env "TRAEFIK_STAGE_FORWARD_HTTP_URL" }}'                                                                                                   # Derived by traefik-start.sh æs http://<STÆGE-host>:80
 {{ end }}

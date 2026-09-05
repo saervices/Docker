@@ -81,6 +81,8 @@ run_wrapper() {
 }
 
 mkdir -p "${TEST_ROOT}/bin" "${TEST_ROOT}/secrets" "${TEST_ROOT}/dynamic" "${TEST_ROOT}/acme"
+cp -- "${TEST_REPO_ROOT}/Traefik/appdata/config/conf.d/stage-traefik-forward.yaml" \
+  "${TEST_ROOT}/dynamic/stage-traefik-forward.yaml"
 
 cat >"${TEST_ROOT}/bin/traefik" <<'EOF'
 #!/bin/sh
@@ -88,6 +90,7 @@ printf 'TRAFFIK_ARGV\n'
 printf '%s\n' "$@"
 printf 'CF_DNS_API_TOKEN_FILE=%s\n' "${CF_DNS_API_TOKEN_FILE:-}"
 printf 'DESEC_TOKEN_FILE=%s\n' "${DESEC_TOKEN_FILE:-}"
+printf 'TRAEFIK_STAGE_FORWARD_HTTP_URL=%s\n' "${TRAEFIK_STAGE_FORWARD_HTTP_URL:-}"
 exit 0
 EOF
 chmod +x "${TEST_ROOT}/bin/traefik"
@@ -153,6 +156,7 @@ CERTRESOLVER=http CLOUDFLARE_IPS=false LOCAL_IPS='' \
   run_wrapper http-ok && \
   grep -q -- '--certificatesresolvers.http.acme.httpchallenge.entrypoint=web' "${TEST_ROOT}/http-ok.out" && \
   ! grep -q -- 'dnschallenge.provider' "${TEST_ROOT}/http-ok.out" && \
+  ! grep -q -- 'allowacmebypass' "${TEST_ROOT}/http-ok.out" && \
   pass http-ok || fail http-ok
 
 write_token 'live-token-should-fail'
@@ -289,30 +293,27 @@ TRAEFIK_CANONICAL_REDIRECT_CATCH_ALL=true \
   run_wrapper canonical-ok && pass canonical-ok || fail canonical-ok
 
 #ææææææææææææææææææææææææææææææææææ
-# STÆGE TLS PÆSSTHROUGH
+# STÆGE TCP/HTTP FORWÆRD
 #ææææææææææææææææææææææææææææææææææ
-cp -- "${TEST_REPO_ROOT}/Traefik/appdata/config/conf.d/stage-traefik-forward.yaml.template" \
-  "${TEST_ROOT}/dynamic/stage-traefik-forward.yaml.template"
-
-if TRAEFIK_STAGE_FORWARD_ENABLED=true \
-  TRAEFIK_DOMAIN_1='public.test' \
-  TRAEFIK_STAGE_FORWARD_TARGET_ADDRESS='192.168.10.50:443' \
-  CERTRESOLVER=cloudflare CLOUDFLARE_IPS=false LOCAL_IPS='' run_wrapper stage-missing-live; then
-  fail stage-missing-live
-else
-  grep -q 'stage-traefik-forward.yaml' "${TEST_ROOT}/stage-missing-live.out" \
-    && pass stage-missing-live || fail stage-missing-live
-fi
-
-cp -- "${TEST_ROOT}/dynamic/stage-traefik-forward.yaml.template" \
-  "${TEST_ROOT}/dynamic/stage-traefik-forward.yaml"
 if TRAEFIK_STAGE_FORWARD_ENABLED=false \
-  CERTRESOLVER=cloudflare CLOUDFLARE_IPS=false LOCAL_IPS='' run_wrapper stage-live-while-off; then
-  fail stage-live-while-off
+  CERTRESOLVER=cloudflare CLOUDFLARE_IPS=false LOCAL_IPS='' run_wrapper stage-off-with-file; then
+  ! grep -q -- 'redirections.entrypoint.priority' "${TEST_ROOT}/stage-off-with-file.out" \
+    && grep -qx -- 'TRAEFIK_STAGE_FORWARD_HTTP_URL=' "${TEST_ROOT}/stage-off-with-file.out" \
+    && pass stage-off-with-file || fail stage-off-with-file
 else
-  grep -q 'Remove stage-traefik-forward.yaml' "${TEST_ROOT}/stage-live-while-off.out" \
-    && pass stage-live-while-off || fail stage-live-while-off
+  fail stage-off-with-file
 fi
+
+rm -f -- "${TEST_ROOT}/dynamic/stage-traefik-forward.yaml"
+if TRAEFIK_STAGE_FORWARD_ENABLED=false \
+  CERTRESOLVER=cloudflare CLOUDFLARE_IPS=false LOCAL_IPS='' run_wrapper stage-missing-file; then
+  fail stage-missing-file
+else
+  grep -q 'stage-traefik-forward.yaml' "${TEST_ROOT}/stage-missing-file.out" \
+    && pass stage-missing-file || fail stage-missing-file
+fi
+cp -- "${TEST_REPO_ROOT}/Traefik/appdata/config/conf.d/stage-traefik-forward.yaml" \
+  "${TEST_ROOT}/dynamic/stage-traefik-forward.yaml"
 
 TRAEFIK_STAGE_FORWARD_ENABLED=true \
   TRAEFIK_DOMAIN_1='public.test' \
@@ -320,8 +321,27 @@ TRAEFIK_STAGE_FORWARD_ENABLED=true \
   TRAEFIK_STAGE_FORWARD_PREFIX=demo \
   TRAEFIK_STAGE_FORWARD_TARGET_ADDRESS='192.168.10.50:443' \
   CERTRESOLVER=cloudflare CLOUDFLARE_IPS=false LOCAL_IPS='' \
-  run_wrapper stage-ok && pass stage-ok || fail stage-ok
-rm -f -- "${TEST_ROOT}/dynamic/stage-traefik-forward.yaml"
+  run_wrapper stage-ok && \
+  grep -q -- '--entrypoints.web.http.redirections.entrypoint.priority=10' \
+    "${TEST_ROOT}/stage-ok.out" && \
+  grep -qx -- 'TRAEFIK_STAGE_FORWARD_HTTP_URL=http://192.168.10.50:80' \
+    "${TEST_ROOT}/stage-ok.out" && \
+  ! grep -q -- 'allowacmebypass' "${TEST_ROOT}/stage-ok.out" \
+  && pass stage-ok || fail stage-ok
+
+write_token 'CHANGE_ME'
+TRAEFIK_STAGE_FORWARD_ENABLED=true \
+  TRAEFIK_DOMAIN_1='public.test' \
+  TRAEFIK_STAGE_FORWARD_PREFIX=demo \
+  TRAEFIK_STAGE_FORWARD_TARGET_ADDRESS='192.168.10.50:443' \
+  CERTRESOLVER=http CLOUDFLARE_IPS=false LOCAL_IPS='' \
+  run_wrapper stage-http-acme && \
+  grep -q -- '--entrypoints.web.http.redirections.entrypoint.priority=10' \
+    "${TEST_ROOT}/stage-http-acme.out" && \
+  grep -q -- '--entrypoints.web.allowacmebypass=true' \
+    "${TEST_ROOT}/stage-http-acme.out" \
+  && pass stage-http-acme || fail stage-http-acme
+write_token 'cf-dns-token-value-1'
 
 TRAEFIK_PROXY_PROTOCOL_TRUSTED_IPS='192.168.20.100/32' \
   CERTRESOLVER=cloudflare CLOUDFLARE_IPS=false LOCAL_IPS='' \
@@ -333,7 +353,7 @@ TRAEFIK_PROXY_PROTOCOL_TRUSTED_IPS='192.168.20.100/32' \
 # FILE-PROVIDER CONTRÆCTS
 #ææææææææææææææææææææææææææææææææææ
 CANONICAL_YAML="${TEST_REPO_ROOT}/Traefik/appdata/config/conf.d/canonical-domain-redirect.yaml"
-STAGE_TEMPLATE="${TEST_REPO_ROOT}/Traefik/appdata/config/conf.d/stage-traefik-forward.yaml.template"
+STAGE_YAML="${TEST_REPO_ROOT}/Traefik/appdata/config/conf.d/stage-traefik-forward.yaml"
 MIDDLEWARES_YAML="${TEST_REPO_ROOT}/Traefik/appdata/config/conf.d/middlewares.yaml"
 
 if grep -q 'redirect TRAEFIK_DOMAIN_2, TRAEFIK_DOMAIN_3 ænd TRAEFIK_DOMAIN_4 to TRAEFIK_DOMAIN_1' "$CANONICAL_YAML" \
@@ -352,15 +372,16 @@ else
   fail canonical-middleware-colocated
 fi
 
-if grep -q 'TRAEFIK_STAGE_FORWARD_PREFIX' "$STAGE_TEMPLATE" \
-  && grep -q 'TRAEFIK_DOMAIN_1' "$STAGE_TEMPLATE" \
-  && grep -q 'passthrough: true' "$STAGE_TEMPLATE" \
-  && ! grep -q 'env "TRAEFIK_DOMAIN_2"' "$STAGE_TEMPLATE" \
-  && ! grep -q 'env "TRAEFIK_DOMAIN_4"' "$STAGE_TEMPLATE" \
-  && ! grep -q 'env "TRAEFIK_DOMAIN"' "$STAGE_TEMPLATE"; then
-  pass stage-template-canonical-only
+if grep -q 'TRAEFIK_STAGE_FORWARD_PREFIX' "$STAGE_YAML" \
+  && grep -q 'TRAEFIK_DOMAIN_1' "$STAGE_YAML" \
+  && grep -q 'passthrough: true' "$STAGE_YAML" \
+  && grep -q 'stage-traefik-forward-http-rtr' "$STAGE_YAML" \
+  && grep -q 'TRAEFIK_STAGE_FORWARD_HTTP_URL' "$STAGE_YAML" \
+  && ! grep -q 'env "TRAEFIK_DOMAIN_2"' "$STAGE_YAML" \
+  && ! grep -q 'env "TRAEFIK_DOMAIN_4"' "$STAGE_YAML"; then
+  pass stage-yaml-canonical-only
 else
-  fail stage-template-canonical-only
+  fail stage-yaml-canonical-only
 fi
 
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"

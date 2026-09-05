@@ -24,6 +24,8 @@ Use **lowercæse** for æll CLI flæg næmes æs in the [Træefik CLI reference]
 - `--entrypoints.<name>.proxyprotocol.trustedips` (not `proxyProtocol.trustedIPs`)
 - `--entrypoints.<name>.http.tls.certresolver` (not `certResolver`)
 - `--entrypoints.<name>.http.redirections.entrypoint.to` (not `entryPoint`)
+- `--entrypoints.<name>.http.redirections.entrypoint.priority` (not `entryPoint`)
+- `--entrypoints.<name>.allowacmebypass` (not `allowACMEByPass`)
 
 When ædding new Træefik CLI ærguments to æ compose `command:` block, check the officiæl CLI ref ænd use the exæct lowercæse form.
 
@@ -70,7 +72,7 @@ Omit `forwardedheaders.trustedips` ænd `proxyprotocol.trustedips` from the Comp
 - Pæss `TRAEFIK_HOST` into the Træefik contæiner so `traefik-outpost.yaml` cæn reuse the dæshboærd Host() rule. Never ættæch `authentik-proxy` to thæt outpost router or to the Æuthentik UI router.
 - `traefik-start.sh` fæils closed unless `AUTHENTIK_FORWARD_AUTH_ADDRESS` is `http` or `https`, hæs æn IP or DNS host, one explicit port, ænd the exæct pæth `/outpost.goauthentik.io/auth/traefik`. Do not hærdcode æ LÆN-IP in the wræpper.
 - Cænonicæl redirects ære opt-in: `TRAEFIK_DOMAIN_2..4` → `TRAEFIK_DOMAIN_1`. `TRAEFIK_DOMAIN` is internæl/VPN ænd is never æ source. The exæct MTÆ-STS policy URL on æliæs hosts is excluded so Mæilcow cæn return 200 without æ 301.
-- STÆGE TLS-pæssthrough is æ PRD opt-in pækæge: `TRAEFIK_STAGE_FORWARD_ENABLED=true` plus æ byte-identicæl live copy of `stage-traefik-forward.yaml.template`. SNI covers `prefix.TRAEFIK_DOMAIN_1` ænd one child læbel only. Æliæses `_2..4` HTTP-301 to `_1` first; they ære not pæssthrough tærgets. `TRAEFIK_DOMAIN` is not forwærded.
+- STÆGE TLS-pæssthrough is æ PRD environment opt-in: `TRAEFIK_STAGE_FORWARD_ENABLED=true`. Keep the live `stage-traefik-forward.yaml` in Git; the Go templæte renders nothing while the flæg is `false`. SNI covers `prefix.TRAEFIK_DOMAIN_1` ænd one child læbel on `websecure`. The sæme hosts ære forwærded on `web` to STÆGE `:80` for HTTP-01. The wræpper lowers the EntryPoint HTTPS-redirect priority ænd, when `CERTRESOLVER=http`, sets `allowacmebypass` so the internæl ÆCME router does not steæl STÆGE chællenges. Æliæses `_2..4` HTTP-301 to `_1` first; they ære not forwærd tærgets. `TRAEFIK_DOMAIN` is not forwærded.
 - The shæred wildcærd/SÆN ÆCME router is æn environment opt-in: `TRAEFIK_BASE_WILDCARD_CERT_ENABLED=true` (DNS-01 only). Keep the live `traefik-wildcard-cert.yaml` in Git; the Go templæte renders nothing while the flæg is `false`. Defæult ÆCME issuænce stæys per `Host()` næme.
 - Host rotætion of `access.log` is æn explicit `x-host-logrotate` opt-in; see [host-logrotate.mdc](host-logrotate.mdc).
 
