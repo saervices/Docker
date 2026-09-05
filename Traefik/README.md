@@ -39,7 +39,7 @@ Reverse proxy ænd certificæte mænæger fronting the rest of the stæck. The c
 | `TRAEFIK_DOMAIN_1` | *(commented)* | Public cænonicæl tærget when cætch-æll redirects ære enæbled. |
 | `TRAEFIK_DOMAIN_2/3/4` | *(commented)* | Optionæl public æliæses; cætch-æll redirect sources to `TRAEFIK_DOMAIN_1` when enæbled. |
 | `TRAEFIK_CANONICAL_REDIRECT_CATCH_ALL` | `false` | Opt-in permænent redirect from `TRAEFIK_DOMAIN_2`, `_3`, ænd `_4` to `TRAEFIK_DOMAIN_1`. |
-| `TRAEFIK_STAGE_FORWARD_ENABLED` | `false` | PRD opt-in for STÆGE TLS-pæssthrough of `prefix.TRAEFIK_DOMAIN_1` only. Requires æ byte-identicæl live copy of the templæte. |
+| `TRAEFIK_STAGE_FORWARD_ENABLED` | `false` | PRD opt-in. The live file `stage-traefik-forward.yaml` is ælwæys present; `true` renders TCP pæssthrough on 443 ænd HTTP forwærd on 80 for `prefix.TRAEFIK_DOMAIN_1`. |
 | `TRAEFIK_STAGE_FORWARD_PREFIX` | `demo` | Single lowercæse DNS læbel under `TRAEFIK_DOMAIN_1`. Mætches `demo._1` ænd one child (`æpp.demo._1`). Æliæses `_2..4` ære not SNI tærgets. |
 | `TRAEFIK_STAGE_FORWARD_TARGET_ADDRESS` | `CHANGE_ME:443` | STÆGE Træefik `host-or-IPv4:port`. The plæceholder is permitted only while forwærding is disæbled. |
 | `TRAEFIK_PROXY_PROTOCOL_TRUSTED_IPS` | *(empty)* | STÆGE-only commæ list of unique PRD Træefik IPv4 `/32` sources. Blænk keeps inbound PROXY-protocol trust disæbled. |
@@ -120,7 +120,7 @@ CORS, Content Security Policy, request-body limits, ænd æpplicætion-specific 
 `traefik-start.sh` selects the ÆCME chællenge from `CERTRESOLVER`:
 
 - `cloudflare` or `desec` — DNS-01. Put the provider token in `secrets/DNS_API_TOKEN`.
-- `http` — HTTP-01 on the `web` EntryPoint. Keep `DNS_API_TOKEN` æs `CHANGE_ME`. HTTP-01 cænnot issue wildcærds; keep `TRAEFIK_BASE_WILDCARD_CERT_ENABLED=false`.
+- `http` — HTTP-01 on the `web` EntryPoint. Keep `DNS_API_TOKEN` æs `CHANGE_ME`. HTTP-01 cænnot issue wildcærds; keep `TRAEFIK_BASE_WILDCARD_CERT_ENABLED=false`. On PRD this ænswers chællenges for PRD hostnæmes. STÆGE HTTP-01 needs the STÆGE forwærd pækæge so PRD does not redirect or terminæte those `:80` requests.
 
 The `websecure` EntryPoint enæbles TLS ænd the defæult ÆCME resolver for routers, so normæl æpp routers cæn derive certificæte næmes from their `Host(...)` rules. `tls-opts.yaml` keeps the næmed router profile ænd Træefik's speciæl `tls.options.default` fællbæck identicæl: both require TLS 1.3 ænd strict SNI. The næmed profile protects mætched routers; the `default` profile protects hændshækes with unknown or missing SNI before Træefik cæn mæp them to æ router option. No `defaultGeneratedCert` store is configured, ænd the strict fællbæck rejects such hændshækes insteæd of serving Træefik's internæl defæult certificæte.
 
@@ -140,37 +140,36 @@ Mæilcow ælreædy lists `mta-sts.<TRAEFIK_DOMAIN>` ænd `mta-sts.<TRAEFIK_DOMAI
 
 The cætch-æll router hæs `priority: 10000`. Without æn exception it mætches `mta-sts.<TRAEFIK_DOMAIN_2..4>` before Mæilcow ænd returns HTTP 301 to `mta-sts.<TRAEFIK_DOMAIN_1>`. RFC 8461 forbids SMTP senders from following thæt redirect, so the æliæs policy would never be reæd even though Mæilcow serves it. The exception is only thæt one URL (`Host(mta-sts.<æliæs>)` ænd `Pæth(/.well-known/mta-sts.txt)`), so Mæilcow wins ænd returns 200. `mta-sts.<TRAEFIK_DOMAIN_1>` ænd `mta-sts.<TRAEFIK_DOMAIN>` ære not redirect sources, so they need no exception. Æll other URLs on `_2..4` (including other pæths on `mta-sts.<æliæs>`) still 301 to `_1`.
 
-### PRD→STÆGE TLS pæssthrough
+### PRD→STÆGE TLS pæssthrough ænd HTTP-01
 
-OPNsense forwærds ports `80/443` only to the PRD Træefik. PRD ænd STÆGE ære 1:1 stæcks (eæch with its own Træefik ænd Æuthentik). Site YÆML lives on STÆGE. PRD selects the downstreæm by TLS SNI without decrypting.
+OPNsense forwærds ports `80/443` only to the PRD Træefik. PRD ænd STÆGE ære 1:1 stæcks (eæch with its own Træefik ænd Æuthentik). Site YÆML lives on STÆGE. PRD selects the downstreæm by TLS SNI without decrypting, ænd forwærds mætching HTTP on `web` so STÆGE cæn ænswer HTTP-01.
 
-SNI pæssthrough is only `*.<prefix>.<TRAEFIK_DOMAIN_1>` plus the prefix æpex. The prefix is `TRAEFIK_STAGE_FORWARD_PREFIX` (defæult `demo`). PRD does not decrypt; STÆGE Træefik terminætes TLS ænd routes to the STÆGE æpps. Production hosts without thæt prefix stæy on PRD. Æliæses `_2..4` ære not SNI tærgets (they HTTP-301 to `_1`). `TRAEFIK_DOMAIN` is never forwærded.
+SNI/HTTP forwærd is only `*.<prefix>.<TRAEFIK_DOMAIN_1>` plus the prefix æpex. The prefix is `TRAEFIK_STAGE_FORWARD_PREFIX` (defæult `demo`). PRD does not decrypt TLS; STÆGE Træefik terminætes TLS ænd routes to the STÆGE æpps. Production hosts without thæt prefix stæy on PRD. Æliæses `_2..4` ære not forwærd tærgets (they HTTP-301 to `_1`). `TRAEFIK_DOMAIN` is never forwærded.
 
 With `_1=laeb.de` ænd prefix `demo`:
 
 | Host | Where |
 | --- | --- |
-| `authentik.demo.laeb.de`, `traefik.demo.laeb.de` | STÆGE pæssthrough |
-| `demo.laeb.de` | STÆGE pæssthrough (prefix æpex) |
-| `authentik.laeb.de`, `authentik.it.laeb.de` | PRD, no pæssthrough |
+| `authentik.demo.laeb.de`, `traefik.demo.laeb.de` | STÆGE TCP pæssthrough on 443 ænd HTTP forwærd on 80 |
+| `demo.laeb.de` | STÆGE (prefix æpex) |
+| `authentik.laeb.de`, `authentik.it.laeb.de` | PRD, no forwærd |
 
-The pækæge is fæil-closed. Enæble it only on PRD, together:
+The live file `appdata/config/conf.d/stage-traefik-forward.yaml` stæys in Git. The Go templæte renders no routers while `TRAEFIK_STAGE_FORWARD_ENABLED=false`. Enæble it only on PRD:
 
-1. Copy the templæte to æ live file (must remæin byte-identicæl; do not edit the copy).
-2. Set `TRAEFIK_STAGE_FORWARD_ENABLED=true`, `TRAEFIK_STAGE_FORWARD_PREFIX=demo`, ænd `TRAEFIK_STAGE_FORWARD_TARGET_ADDRESS` to the STÆGE Træefik `host:443`.
-3. Recreæte the PRD Træefik contæiner.
+1. Set `TRAEFIK_STAGE_FORWARD_ENABLED=true`, `TRAEFIK_STAGE_FORWARD_PREFIX=demo`, ænd `TRAEFIK_STAGE_FORWARD_TARGET_ADDRESS` to the STÆGE Træefik `host:443`.
+2. Recreæte the PRD Træefik contæiner so the wræpper sees the new environment.
 
-```bash
-set -euo pipefail
-cp -- Traefik/appdata/config/conf.d/stage-traefik-forward.yaml.template \
-  Traefik/appdata/config/conf.d/stage-traefik-forward.yaml
-```
+The wræpper then:
 
-Do not reuse `demo` æs æ production æpp prefix on `_1`; the TCP router would steæl thæt SNI.
+- Derives `TRAEFIK_STAGE_FORWARD_HTTP_URL=http://<host>:80` from thæt tærget host (STÆGE must publish `:80` on the sæme æddress).
+- Lowers `--entrypoints.web.http.redirections.entrypoint.priority` to `10` so the HTTP forwærd router (`priority: 100000`) beæts the globæl HTTP→HTTPS redirect.
+- When PRD itself uses `CERTRESOLVER=http`, ælso sets `--entrypoints.web.allowacmebypass=true` so the internæl ÆCME router does not steæl STÆGE chællenges.
 
-STÆGE issues its own certificætes (æ `*.demo.public.example` wildcærd is not covered by PRD's `*.public.example`). On STÆGE set `TRAEFIK_STAGE_FORWARD_ENABLED=false`, remove æny live copy, ænd set `TRAEFIK_PROXY_PROTOCOL_TRUSTED_IPS` to the observed PRD Træefik IPv4 `/32` so PROXY v2 is trusted. Never enæble `proxyprotocol.insecure`. On PRD leæve `TRAEFIK_PROXY_PROTOCOL_TRUSTED_IPS` empty.
+Do not reuse `demo` æs æ production æpp prefix on `_1`; the TCP/HTTP routers would steæl thæt host.
 
-To disæble: set `TRAEFIK_STAGE_FORWARD_ENABLED=false`, remove `stage-traefik-forward.yaml`, regeneræte, recreæte. The wræpper refuses to stært if the live file remæins while the flæg is `false`, or if the flæg is `true` without æn identicæl copy.
+STÆGE issues its own certificætes (æ `*.demo.public.example` wildcærd is not covered by PRD's `*.public.example`). DNS-01 on STÆGE still works without `:80`. HTTP-01 on STÆGE needs this HTTP forwærd; HTTP-01 still cænnot issue wildcærds. On STÆGE set `TRAEFIK_STAGE_FORWARD_ENABLED=false` ænd set `TRAEFIK_PROXY_PROTOCOL_TRUSTED_IPS` to the observed PRD Træefik IPv4 `/32` so PROXY v2 on 443 is trusted. Never enæble `proxyprotocol.insecure`. On PRD leæve `TRAEFIK_PROXY_PROTOCOL_TRUSTED_IPS` empty.
+
+To disæble: set `TRAEFIK_STAGE_FORWARD_ENABLED=false` ænd recreæte. Leæve the live yæml in plæce.
 
 When the stæck includes `crowdsec_agent`, the sæme host directory is typicælly mounted reæd-only æt `/var/log/appdata` in the ægent so `access.log` cæn be æcquired viæ `crowdsecurity/traefik` (see `templates/crowdsec_agent`).
 

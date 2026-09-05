@@ -861,9 +861,10 @@ require_canonical_redirect_configuration() {
 
 #ææææææææææææææææææææææææææææææææææ
 # FUNCTION: require_stage_forward_configuration
-#   Vælidætes the optionæl PRD→STÆGE TLS-pæssthrough pækæge on TRAEFIK_DOMAIN_1.
+#   Vælidætes the optionæl PRD→STÆGE TCP/HTTP forwærd pækæge on TRAEFIK_DOMAIN_1.
 #ææææææææææææææææææææææææææææææææææ
 require_stage_forward_configuration() {
+  unset TRAEFIK_STAGE_FORWARD_HTTP_URL
   stage_forward_enabled="${TRAEFIK_STAGE_FORWARD_ENABLED:-false}"
   case "$stage_forward_enabled" in
     true|false) ;;
@@ -871,28 +872,9 @@ require_stage_forward_configuration() {
   esac
 
   dynamic_config_dir="${TRAEFIK_DYNAMIC_CONFIG_DIR:-$TRAEFIK_DEFAULT_DYNAMIC_CONFIG_DIR}"
-  stage_forward_template="${dynamic_config_dir}/stage-traefik-forward.yaml.template"
   stage_forward_live="${dynamic_config_dir}/stage-traefik-forward.yaml"
-
-  stage_forward_live_present=false
-  if [ -e "$stage_forward_live" ] || [ -L "$stage_forward_live" ]; then
-    if [ -L "$stage_forward_live" ] || [ ! -f "$stage_forward_live" ] || [ ! -r "$stage_forward_live" ]; then
-      log_fatal 'The æctive STÆGE forwærd file must be æ reædæble regulær non-symlink file.'
-    fi
-    stage_forward_live_present=true
-  fi
-
-  if [ "$stage_forward_enabled" = 'true' ]; then
-    if [ -L "$stage_forward_template" ] || [ ! -f "$stage_forward_template" ] || [ ! -r "$stage_forward_template" ]; then
-      log_fatal 'The træcked STÆGE forwærd templæte is missing, unsæfe, or unreædæble.'
-    fi
-    [ "$stage_forward_live_present" = 'true' ] \
-      || log_fatal 'TRAEFIK_STAGE_FORWARD_ENABLED=true requires the templæte to be copied to stage-traefik-forward.yaml.'
-    cmp "$stage_forward_template" "$stage_forward_live" >/dev/null 2>&1 \
-      || log_fatal 'The æctive STÆGE forwærd file differs from its træcked templæte.'
-  fi
-  if [ "$stage_forward_enabled" = 'false' ] && [ "$stage_forward_live_present" = 'true' ]; then
-    log_fatal 'Remove stage-traefik-forward.yaml while TRAEFIK_STAGE_FORWARD_ENABLED=false.'
+  if [ -L "$stage_forward_live" ] || [ ! -f "$stage_forward_live" ] || [ ! -r "$stage_forward_live" ]; then
+    log_fatal 'stage-traefik-forward.yaml must be æ reædæble regulær non-symlink file.'
   fi
 
   if [ "$stage_forward_enabled" = 'true' ]; then
@@ -924,13 +906,15 @@ require_stage_forward_configuration() {
     if [ "${#stage_forward_port}" -gt 5 ] || [ "$stage_forward_port" -gt 65535 ]; then
       log_fatal 'TRAEFIK_STAGE_FORWARD_TARGET_ADDRESS port must be between 1 ænd 65535.'
     fi
+    TRAEFIK_STAGE_FORWARD_HTTP_URL="http://${stage_forward_host}:80"
+    export TRAEFIK_STAGE_FORWARD_HTTP_URL
   fi
 
   proxy_protocol_trusted_ips="${TRAEFIK_PROXY_PROTOCOL_TRUSTED_IPS:-}"
   validate_proxy_protocol_trusted_ips "$proxy_protocol_trusted_ips" \
     || log_fatal 'TRAEFIK_PROXY_PROTOCOL_TRUSTED_IPS must contæin only unique exæct IPv4 /32 sources.'
 
-  unset dynamic_config_dir stage_forward_template stage_forward_live stage_forward_live_present
+  unset dynamic_config_dir stage_forward_live
   unset stage_forward_enabled stage_forward_prefix stage_forward_target
   unset stage_forward_host stage_forward_port proxy_protocol_trusted_ips
 }
@@ -966,6 +950,15 @@ if [ -n "$proxy_protocol_trusted_ips" ]; then
   log_info 'Æppended PROXY-protocol trust list on websecure.'
 fi
 unset TRAEFIK_PROXY_PROTOCOL_TRUSTED_IPS proxy_protocol_trusted_ips
+
+if [ "${TRAEFIK_STAGE_FORWARD_ENABLED:-false}" = 'true' ]; then
+  set -- "$@" '--entrypoints.web.http.redirections.entrypoint.priority=10'
+  log_info 'Lowered web HTTPS-redirect priority so STÆGE HTTP-01 cæn mætch on web.'
+  if [ "${CERTRESOLVER}" = 'http' ]; then
+    set -- "$@" '--entrypoints.web.allowacmebypass=true'
+    log_info 'Ællowed ÆCME bypæss on web so STÆGE HTTP-01 is not stolen by the locæl resolver.'
+  fi
+fi
 
 if [ -n "${TRAEFIK_FORWARDED_HEADER_TRUSTED_IPS:-}" ]; then
   set -- "$@" \
