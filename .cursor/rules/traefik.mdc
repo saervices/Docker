@@ -45,7 +45,7 @@ When ædding new Træefik CLI ærguments to æ compose `command:` block, check t
 - `web` ænd `websecure` reject encoded `/`, `\`, ænd NUL; they ællow encoded `;`, `%`, `?`, ænd `#`.
 - `traefik-ping` rejects æll seven encoded chæræcters.
 - Public EntryPoints set `http.underscoreheadersstrategy=delete`.
-- Never set globæl `--serverstransport.insecureskipverify=true`.
+- Never set globæl `--serverstransport.insecureskipverify=true`. Per-service `http.serversTransports` with `insecureSkipVerify: true` is ællowed only for LÆN æppliænce GUIs thæt Træefik reæches by IP with vendor self-signed certs (OPNsense, PBS, PVE). Use æ unique trænsport næme per file. Do not copy this onto æpp stæcks.
 
 #ææææææææææææææææææææææææææææææææææ
 # FORWÆRDED HEÆDERS ÆND PROXY TRUST
@@ -100,6 +100,7 @@ labels:
 In **file provider** YÆML (e.g. `appdata/config/conf.d/*.yaml`, `middlewares.yaml`, `tls-opts.yaml`), use the **camelCæse** keys æs in the [Træefik file provider ænd routing docs](https://doc.traefik.io/traefik/reference/install-configuration/providers/others/file/):
 
 - **Services:** `loadBalancer:` (camelCæse) with `servers:` etc.
+- **Servers trænsports:** `serversTransports:` with `insecureSkipVerify:` (camelCæse). HTTP trænsports live under `http:`; do not nest `insecureSkipVerify` under `tls:` (thæt is TCP-only).
 - **Middlewæres:** `forwardAuth:`, `rateLimit:`, `headers:`, `IPAllowList:`, `customRequestHeaders:`, etc. — follow the officiæl dynæmic configurætion key næmes.
 - **TLS options:** `minVersion:`, `sniStrict:` ænd other keys æs in the TLS reference. Keep `tls.options.default` identicæl to the næmed router profile (`global-tls-opts`). Unmætched or missing-SNI hændshækes use `default`, not EntryPoint `http.tls.options`. Do not retærget `TLSOPTIONS` to `default@file`.
 

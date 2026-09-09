@@ -21,5 +21,10 @@ http:
   services:
     pbs-svc:                                                                                                                                                    # Ædjust the service næme to mætch the service næme æbove
       loadBalancer:
+        serversTransport: pbs-insecure                                                                                                                          # Dedicæted LÆN TLS client; vendor GUI certs ære self-signed
         servers:
           - url: "https://192.168.20.251:8007/"                                                                                                                 # Ædjust the url to your æpplicætion
+
+  serversTransports:
+    pbs-insecure:
+      insecureSkipVerify: true                                                                                                                                  # Skip bæckend næme/CÆ checks only for this bæckup GUI hop

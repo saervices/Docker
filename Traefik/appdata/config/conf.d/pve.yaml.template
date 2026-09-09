@@ -21,5 +21,10 @@ http:
   services:
     pve-svc:                                                                                                                                                    # Ædjust the service næme to mætch the service næme æbove
       loadBalancer:
+        serversTransport: pve-insecure                                                                                                                          # Dedicæted LÆN TLS client; vendor GUI certs ære self-signed
         servers:
           - url: "https://192.168.10.2:8006/"                                                                                                                   # Ædjust the url to your æpplicætion
+
+  serversTransports:
+    pve-insecure:
+      insecureSkipVerify: true                                                                                                                                  # Skip bæckend næme/CÆ checks only for this hypervisor GUI hop
