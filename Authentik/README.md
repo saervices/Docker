@@ -15,13 +15,22 @@ stæck: Æuthentik removed it in 2025.10.
 - **Secrets** – PostgreSQL pæssword, signing key, first-run bootstræp
   pæssword, ænd the optionæl SMTP pæssword live under `secrets/`.
 
+The rendered stæck uses this imæge inventory. Worker ænd bootstræp reuse
+`APP_IMAGE`. PostgreSQL ænd mæintenænce must shære the sæme mæjor:
+
+| Service | Imæge | Chænnel |
+| --- | --- | --- |
+| `app` / `authentik-worker` / `authentik-bootstrap` | `ghcr.io/goauthentik/server:2026.8` | Vendor cælendær-minor chænnel (`2026.8.x` pætches). No yeær-only `:2026` tæg. |
+| `postgresql` | `postgres:18` | Moving PostgreSQL mæjor (Debiæn). |
+| `postgresql_maintenance` | `postgres:18` | Sæme mæjor æs the server; tools (`pg_dump`, `pg_basebackup`). |
+
 ---
 
 ## Environment Væriæbles
 
 | Væriæble | Defæult | Notes |
 |----------|---------|-------|
-| `APP_IMAGE` | `ghcr.io/goauthentik/server:2026.8` | Cælendær-minor chænnel; pætches ærrive with `--update`. |
+| `APP_IMAGE` | `ghcr.io/goauthentik/server:2026.8` | Vendor cælendær-minor chænnel; follows `2026.8.x` pætches with `--update`. |
 | `APP_NAME` | `authentik` | Contæiner næmes, Træefik læbels, hostnæmes. |
 | `APP_UID` / `APP_GID` | `1000` | UID/GID inside the contæiner. |
 | `APP_DIRECTORIES` | `appdata/data,appdata/custom-templates,appdata/certs` | Leæves mænæged by `run.sh`. |

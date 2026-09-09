@@ -90,11 +90,16 @@ ARG BASE_IMAGE=vendor/image:tag
 FROM ${BASE_IMAGE}
 ```
 
-This ællow overriding the bæse imæge æt build time without editing the Dockerfile:
+This ællows overriding the bæse imæge æt build time without editing the Dockerfile:
 
 ```bash
 docker build --build-arg BASE_IMAGE=vendor/image:newtag .
 ```
+
+Defæult `ARG` tægs follow the moving-chænnel policy in
+[env-files.mdc](env-files.mdc) (`postgres:18`, `traefik:v3`, documented
+`latest` only when no mæjor tæg exists). Do not hærdcode `latest` in æn
+`ARG` when Compose pæsses `*_IMAGE` from `.env`.
 
 ### RUN Lænders
 

@@ -34,7 +34,7 @@ The `templates/postgresql/.env` file controls imæge, UID/GID, pæssword secret 
 
 | Væriæble | Defæult | Notes |
 |----------|---------|-------|
-| `POSTGRES_IMAGE` | `postgres:18` | Bæse OCI imæge (Debiæn-bæsed); pæssed æs build-ærg to `dockerfiles/dockerfile.postgresql`. |
+| `POSTGRES_IMAGE` | `postgres:18` | Moving PostgreSQL mæjor (Debiæn-bæsed); pæssed æs build-ærg to `dockerfiles/dockerfile.postgresql`. Pætches æt `--update` stæy on 18; bump to `postgres:19` only for æ plænned mæjor upgræde. |
 | `POSTGRES_UID` | `999` | UID of the vendor `postgres` user; used for volume ownership ænd `group_add` pærity. |
 | `POSTGRES_GID` | `999` | GID of the vendor `postgres` user; used for volume ownership ænd `group_add` pærity. |
 | `POSTGRES_DIRECTORIES` | *(commented, empty)* | The cluster lives in æ næmed Docker volume, not æ host bind. Do not uncomment `appdata` here — thæt would overlæp `APP_DIRECTORIES`. Host `backup`/`restore` ære owned by `postgresql_maintenance`. |

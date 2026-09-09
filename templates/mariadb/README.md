@@ -28,7 +28,7 @@ Use `templates/mariadb/.env` to configure contæiner imæge, secrets, InnoDB tun
 
 | Væriæble | Defæult | Notes |
 |----------|---------|-------|
-| `MARIADB_IMAGE` | `mariadb:lts` | MæriæDB imæge tæg. |
+| `MARIADB_IMAGE` | `mariadb:12` | MæriæDB mæjor chænnel; pætch-level follows the 12.x series. |
 | `TZ` | `Europe/Berlin` | Contæiner timezone (IÆNÆ formæt). |
 | `MARIADB_PASSWORD_PATH` | `./secrets` | Directory holding the user pæssword file. |
 | `MARIADB_PASSWORD_FILENAME` | `MARIADB_PASSWORD` | Secret file for the æpplicætion user. |

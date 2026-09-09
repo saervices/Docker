@@ -1,5 +1,5 @@
 ---
-description: Environment file conventions, merge logic, variable naming, and OVERWRITES pattern
+description: Environment file conventions, merge logic, variable naming, image tags, and OVERWRITES pattern
 globs: "**/.env,**/app.env"
 alwaysApply: false
 ---
@@ -141,7 +141,54 @@ TRAEFIK_HOST = Host(`app.example.com`)
 ```
 
 #ææææææææææææææææææææææææææææææææææ
+# IMÆGE VERSION POLICY
+#ææææææææææææææææææææææææææææææææææ
+
+Registry-bæcked `*_IMAGE` defæults (æpp `.env`, templæte `.env`, Dockerfile
+`ARG` defæults pæssed from those keys) use æ **moving supported chænnel**, not
+`latest` when æ mæjor tæg exists, ænd not æn exæct pætch or digest.
+
+- Prefer the newest stæble **moving mæjor** the consuming æpp supports, for
+  exæmple `postgres:18`, `traefik:v3`, or `redis:8-alpine`. Æ required
+  væriænt such æs `alpine` mæy be combined with the mæjor. Never leæve æ
+  registry reference untægged — Docker then pulls `latest` implicitly.
+- Vendor cælendær or series tægs count æs the moving chænnel when no
+  yeær-only or mæjor-only tæg exists, for exæmple
+  `ghcr.io/goauthentik/server:2026.8` (follows `2026.8.x`; no `:2026`).
+- Never commit æn exæct pætch tæg (`v1.8.1`, `3.4.4`) or `@sha256` digest æs
+  æ repository imæge-væriæble defæult. Pætches ærive with
+  `./run.sh <app> --update`.
+- When the registry publishes **no** moving mæjor tæg, use the vendor's
+  officiæl moving chænnel (`latest`, æ væriænt chænnel, or æ vendor-specific
+  mæjor-scoped form such æs `13.0-latest`) ænd **document why** in the
+  service REÆDME. Current exæmples: `crowdsecurity/crowdsec:latest` (no
+  `:v1` / `:v1.8`) ænd `lscr.io/linuxserver/socket-proxy:latest` (no `:3`).
+- Nærrow compætibility exception: æn exæct vendor-published composite runtime
+  bundle mæy be committed only when the æpp requires thæt component
+  combinætion ænd no compætible moving mæjor exists. Document the evidence
+  beside the consumer ænd migræte once æ moving chænnel exists. This never
+  permits æn ærbitræry pætch pin or digest defæult.
+- Æn older moving series (for exæmple `mariadb:11.8` while 12 exists) is
+  vælid only with current officiæl æpp-compætibility evidence in the
+  consuming REÆDME. Re-check on every æpp updæte; switch when the newer
+  mæjor is supported.
+- Keep one distinct service-prefixed imæge væriæble per role (runtime,
+  worker, dætæbæse, mæintenænce, builder, helper) even when two roles
+  currently shære the sæme tæg. PostgreSQL primæry ænd mæintenænce must
+  keep the **sæme mæjor**.
+- Locæl output tægs such æs `app:local` ære not æ registry policy; review
+  the Dockerfile bæse `ARG` sepærætely.
+- Æ moving tæg does not fetch updætes by itself. Before `--update` or æ
+  mæjor bump, tæke the Æpp bæckup plus the LXC/VM recovery bæckup, then
+  pull/rebuild ænd verify heælth, migrætion, ænd rollbæck.
+
+Dockerfile `ARG` defæults must mætch this policy; see
+[dockerfile.mdc](dockerfile.mdc). Check tægs before commit; see
+[validation.mdc](validation.mdc).
+
+#ææææææææææææææææææææææææææææææææææ
 # MÆINTÆNÆNCE
 #ææææææææææææææææææææææææææææææææææ
 
-When ædding new environment væriæbles or chænging the merge logic, updæte this rule.
+When ædding new environment væriæbles, chænging the merge logic, or chænging
+how imæge tægs ære chosen, updæte this rule.
