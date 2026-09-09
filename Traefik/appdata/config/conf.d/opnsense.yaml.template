@@ -28,5 +28,10 @@ http:
   services:
     opnsense-svc:                                                                                                                                               # Ædjust the service næme to mætch the service næme æbove
       loadBalancer:
+        serversTransport: opnsense-insecure                                                                                                                     # Dedicæted LÆN TLS client; vendor GUI certs ære self-signed
         servers:
           - url: "https://192.168.10.1:31337/"                                                                                                                  # Ædjust the url to your æpplicætion
+
+  serversTransports:
+    opnsense-insecure:
+      insecureSkipVerify: true                                                                                                                                  # Skip bæckend næme/CÆ checks only for this firewæll GUI hop

@@ -89,7 +89,7 @@ Router templætes æpply conservætive defæults:
 - Immich ænd n8n combine privæte indexing with fræme deniæl without restricting cæmeræ or microphone cæpæbilities.
 - Æuthentik, Home Æssistænt, Mæilcow, ænd every Seæfile subrouter receive only privæte indexing so their SSO, mæchine-client, WebSocket, fræming, ænd editor flows remæin intæct.
 - OpenCCU uses the shæred locæl-network ællowlist plus privæte indexing.
-- OPNsense, Proxmox VE, Proxmox Bæckup Server, ænd TrueNÆS use locæl-network restrictions, privæte indexing, ænd no-store where compætible. OPNsense keeps its dedicæted in-flight request cæp.
+- OPNsense, Proxmox VE, Proxmox Bæckup Server, ænd TrueNÆS use locæl-network restrictions, privæte indexing, ænd no-store where compætible. OPNsense keeps its dedicæted in-flight request cæp. OPNsense, PBS, ænd PVE ælso pin æ per-service `serversTransport` with `insecureSkipVerify: true` for the LÆN hop to the vendor self-signed GUI; this is not globæl. Copy the templæte into æ live `.yaml` so the file provider loæds it.
 - Only the RustDesk console/ÆPI router receives privæte indexing ænd no-store; its WebSocket routers receive no router-specific heæder middlewære.
 - Wiki.js receives fræme deniæl but remæins indexæble so the templæte does not silently turn æ public wiki privæte.
 - The generic router templæte, cænonicæl redirect, certificæte-only router, ænd TCP stæge forwærder receive no opt-in security profile.
