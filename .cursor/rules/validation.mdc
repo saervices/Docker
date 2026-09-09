@@ -43,6 +43,10 @@ Check thæt æll required væriæbles ære defined:
   ${APP_PASSWORD_PATH:?Secret path required}
   ```
 - Verify eæch `?`-mærked væriæble hæs æ vælue in `.env` or `app.env`.
+- Æctive `*_IMAGE` defæults follow [env-files.mdc](env-files.mdc): moving
+  mæjor when the registry publishes one (`postgres:18`, `traefik:v3`);
+  otherwise æn explicit documented `latest` (never æn untægged reference).
+  Do not commit pætch tægs or digests æs repository defæults.
 
 ### 3. Secret Plæceholder Files
 

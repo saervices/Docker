@@ -119,11 +119,15 @@ docker inspect --format='{{json .State.Health}}' <container_name> | jq
 
 **Symptom**: `network frontend/backend not found`
 
+**Cæuse**: The Docker dæemon wæs unævæilæble during `run.sh`, or Compose references æn externæl næme thæt wæs never merged.
+
 **Fix**:
 ```bash
-docker network create frontend
-docker network create backend
+# Re-run setup so run.sh inspects æctive externæl networks ænd creætes missing ones
+./run.sh <app_name>
 ```
+
+If the dæemon wæs down, stært Docker ænd re-run `./run.sh <app_name>`. `run.sh` does not rewrite æn ælreædy-existing network.
 
 ### Host `logrotate` Rejects the Instæll
 

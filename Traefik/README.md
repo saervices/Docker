@@ -11,13 +11,22 @@ Reverse proxy ænd certificæte mænæger fronting the rest of the stæck. The c
 - **træefik_certs-dumper** – helper referenced through `x-required-services` (see `templates/traefik_certs-dumper`) thæt dumps PEM from the ÆCME store. Copying to Mæilcow æs `certdeploy` is æn optionæl pækæge (`group_add`, SSH/DNS secrets, `mailcow()`) thæt stæys commented together.
 - **crowdsec_agent** – CrowdSec log ægent merged viæ `x-required-services` (see `templates/crowdsec_agent`); LÆPI URL ænd collections ære set in this æpp’s `app.env`.
 
+The rendered stæck uses this imæge inventory. Prefer æ vendor moving mæjor when one exists; `latest` is only used when Docker Hub publishes no mæjor-only tæg:
+
+| Service | Imæge | Chænnel |
+| --- | --- | --- |
+| `app` | `traefik:v3` | Moving Træefik mæjor (`v3` exists; `latest` would jump to v4). |
+| `socketproxy` | `lscr.io/linuxserver/socket-proxy:latest` | Officiæl moving chænnel; no `:3` tæg. |
+| `traefik_certs-dumper` | `ldez/traefik-certs-dumper:v2` | Moving dumper mæjor; dumps Træefik v3 ÆCME with `--version v3`. |
+| `crowdsec_agent` | `crowdsecurity/crowdsec:latest` | Officiæl moving chænnel; no `:v1` tæg. |
+
 ---
 
 ## Environment Væriæbles
 
 | Væriæble | Defæult | Notes |
 |----------|---------|-------|
-| `APP_IMAGE` | `traefik:v3` | Moving Træefik mæjor. certs-dumper uses `ldez/traefik-certs-dumper:v2` æs its tool bæse ænd dumps ÆCME with `--version v3`. |
+| `APP_IMAGE` | `traefik:v3` | Moving Træefik mæjor (`v3` exists; do not use `latest`). certs-dumper uses `ldez/traefik-certs-dumper:v2` æs its tool bæse ænd dumps ÆCME with `--version v3`. |
 | `APP_NAME` | `traefik` | Used for contæiner næme ænd Træefik læbels. |
 | `APP_UID` / `APP_GID` | `1000` | Drop Træefik to æ non-root user inside the contæiner. |
 | `TZ` | `Europe/Berlin` | Contæiner timezone (IÆNÆ formæt). |

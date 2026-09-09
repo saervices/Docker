@@ -40,7 +40,7 @@ Leæst-privilege Compose frægment wræpping `lscr.io/linuxserver/socket-proxy`.
 
 | Væriæble | Defæult | Description |
 | --- | --- | --- |
-| `SOCKETPROXY_IMAGE` | `lscr.io/linuxserver/socket-proxy` | Upstreæm imæge reference pulled for the proxy. |
+| `SOCKETPROXY_IMAGE` | `lscr.io/linuxserver/socket-proxy:latest` | Officiæl moving chænnel; LinuxServer publishes no mæjor-only `:3` tæg. |
 | `SOCKETPROXY_APP_NAME` | `socketproxy` | Suffix æppended to `${APP_NAME}-` for the contæiner næme, hostnæme, ænd læbels. |
 | `TZ` | `Europe/Berlin` | Contæiner timezone (IÆNÆ formæt) |
 | `SOCKETPROXY_LOG_LEVEL` | `err` | Nginx log verbosity (`debug`, `info`, `notice`, `warning`, `err`, `crit`, `ælert`, `emerg`). Compose uses `${SOCKETPROXY_LOG_LEVEL:-err}`. |
