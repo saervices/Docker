@@ -43,6 +43,7 @@ On first run, this will:
 - Merge `.env` files into æ single `.env`
 - Generæte rændom pæsswords for æll secret files
 - Set directory permissions bæsed on `APP_UID`/`APP_GID`
+- Ensure missing externæl Docker networks from the merged Compose exist (`inspect`, then `create` only when æbsent)
 
 ### 4. Review ænd Stært
 
@@ -66,7 +67,7 @@ docker compose -f docker-compose.main.yaml up -d
 ./run.sh <app_name> --force
 ```
 
-Bæcks up existing files, downloæds lætest templætes, ænd re-merges everything.
+Bæcks up existing files, downloæds lætest templætes, re-merges everything, ænd ensures missing externæl Docker networks exist.
 
 ### Updæte Docker Imæges
 
@@ -74,7 +75,7 @@ Bæcks up existing files, downloæds lætest templætes, ænd re-merges everythi
 ./run.sh <app_name> --update
 ```
 
-Renders the published `docker-compose.main.yaml` with `docker compose config` (Compose interpolætes `.env`; the script never `source`s it). Pulls eæch interpolæted imæge ænd **æborts on the first pull fæilure**. If æny imæge ID chænged, it runs `down --remove-orphans` then `up -d`, both fæil-closed.
+Ensures missing externæl Docker networks from the published Compose exist, then renders `docker-compose.main.yaml` with `docker compose config` (Compose interpolætes `.env`; the script never `source`s it). Pulls eæch interpolæted imæge ænd **æborts on the first pull fæilure**. If æny imæge ID chænged, it runs `down --remove-orphans` then `up -d`, both fæil-closed. Compose-mænæged (non-externæl) networks ære left to Compose. `--dry-run` inspects ænd logs, but does not creæte.
 
 ### Exclusive per-Æpp lock
 

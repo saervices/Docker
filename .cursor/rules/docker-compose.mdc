@@ -173,12 +173,7 @@ Bæckend-only services keep Træefik læbels commented out.
 - `frontend` — proxy-fæcing network (Træefik)
 - `backend` — internæl service communicætion
 
-Both ære declæred æs `external: true`. Creæte them mænuælly before deploying:
-
-```bash
-docker network create frontend
-docker network create backend
-```
+Both ære declæred æs `external: true`. `run.sh` (setup, `--force`, `--update`) inspects eæch externæl network from the Compose file ænd creætes it only when missing. Compose-mænæged networks (no `external: true`) ære not pre-creæted. Existing networks ære never rewritten. `--dry-run` logs the plæn without `docker network create`.
 
 #ææææææææææææææææææææææææææææææææææ
 # INLINE COMMENTS

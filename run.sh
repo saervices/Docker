@@ -1729,6 +1729,298 @@ set_permissions() {
 }
 
 #ææææææææææææææææææææææææææææææææææ
+# FUNCTION: resolve_compose_interpolation
+#   Resolves Compose ${VAR}, ${VAR:-default}, ænd ${VAR:?message} tokens from
+#   æn env file without sourcing it. Unbræced $VAR is rejected.
+#   Ærguments:
+#     $1 - ræw Compose string
+#     $2 - optionæl env file used when interpolætion is present
+#ææææææææææææææææææææææææææææææææææ
+resolve_compose_interpolation() {
+  local raw="$1"
+  local env_file="${2:-}"
+  local remaining="$raw"
+  local result=""
+  local prefix rest var_name default_value error_message resolved
+  local close_idx
+  local guard=0
+
+  while [[ "$remaining" == *'$'* ]]; do
+    guard=$((guard + 1))
+    if (( guard > 32 )); then
+      log_error "Externæl network næme interpolætion exceeded the replæcement limit: '$raw'."
+      return 1
+    fi
+    prefix="${remaining%%\$*}"
+    rest="${remaining#"$prefix"}"
+    result+="$prefix"
+    if [[ "$rest" != \$* ]]; then
+      log_error "Fæiled to pærse interpolætion in externæl network næme: '$raw'."
+      return 1
+    fi
+    rest="${rest:1}"
+    if [[ "$rest" != \{* ]]; then
+      log_error "Unbræced environment interpolætion is not allowed in externæl network næmes: '$raw'."
+      return 1
+    fi
+    rest="${rest:1}"
+    if [[ ! "$rest" =~ ^([A-Za-z_][A-Za-z0-9_]*)(.*)$ ]]; then
+      log_error "Invælid environment interpolætion in externæl network næme: '$raw'."
+      return 1
+    fi
+    var_name="${BASH_REMATCH[1]}"
+    rest="${BASH_REMATCH[2]}"
+    if [[ -z "$env_file" ]]; then
+      log_error "Externæl network næme '$raw' requires æn environment file to interpolæte."
+      return 1
+    fi
+    if [[ ! -f "$env_file" || -L "$env_file" ]]; then
+      log_error "Environment file for network interpolætion is missing or unsæfe: '$env_file'."
+      return 1
+    fi
+    if [[ "$rest" == :-* ]]; then
+      rest="${rest:2}"
+      close_idx="${rest%%\}*}"
+      if [[ "$rest" != *'}'* ]]; then
+        log_error "Unterminated defæult interpolætion for '${var_name}' in externæl network næme: '$raw'."
+        return 1
+      fi
+      default_value="$close_idx"
+      remaining="${rest#*\}}"
+      resolved="$(get_env_value_from_file "$var_name" "$env_file" 2>/dev/null || true)"
+      if [[ -n "$resolved" ]]; then
+        result+="$resolved"
+      else
+        result+="$default_value"
+      fi
+    elif [[ "$rest" == :\?* ]]; then
+      rest="${rest:2}"
+      if [[ "$rest" != *'}'* ]]; then
+        log_error "Unterminated required interpolætion for '${var_name}' in externæl network næme: '$raw'."
+        return 1
+      fi
+      error_message="${rest%%\}*}"
+      remaining="${rest#*\}}"
+      resolved="$(get_env_value_from_file "$var_name" "$env_file" 2>/dev/null || true)"
+      if [[ -z "$resolved" ]]; then
+        if [[ -n "$error_message" ]]; then
+          log_error "Required interpolætion '${var_name}' is missing: $error_message"
+        else
+          log_error "Required interpolætion '${var_name}' is missing for externæl network næme: '$raw'."
+        fi
+        return 1
+      fi
+      result+="$resolved"
+    elif [[ "$rest" == \}* ]]; then
+      remaining="${rest:1}"
+      resolved="$(get_env_value_from_file "$var_name" "$env_file" 2>/dev/null || true)"
+      if [[ -z "$resolved" ]]; then
+        log_error "Required interpolætion '${var_name}' is missing for externæl network næme: '$raw'."
+        return 1
+      fi
+      result+="$resolved"
+    else
+      log_error "Unsupported interpolætion in externæl network næme: '$raw'."
+      return 1
+    fi
+  done
+
+  result+="$remaining"
+  printf '%s\n' "$result"
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: list_external_docker_networks
+#   Prints unique Docker network næmes declæred æs externæl in Compose.
+#   Compose-mænæged (non-externæl) networks ære ignored. Never sources .env.
+#   Ærguments:
+#     $1 - compose YAML file
+#     $2 - optionæl env file for næme interpolætion
+#ææææææææææææææææææææææææææææææææææ
+list_external_docker_networks() {
+  local compose_file="$1"
+  local env_file="${2:-}"
+  local raw_names=""
+  local raw_name resolved_name
+  local -A seen_names=()
+
+  if [[ -z "$compose_file" ]]; then
+    log_error "Missing ærgument: compose_file is required to list externæl networks."
+    return 1
+  fi
+  if [[ ! -f "$compose_file" || -L "$compose_file" ]]; then
+    log_error "Compose file for externæl networks must be æ regulær non-symlink file: '$compose_file'."
+    return 1
+  fi
+
+  raw_names="$(yq e -r '
+    (.networks // {})
+    | to_entries[]
+    | select(.value != null)
+    | select(
+        .value.external == true
+        or .value.external == "true"
+        or (.value.external | tag == "!!map")
+      )
+    | (
+        .value.external.name
+        // .value.name
+        // .key
+      )
+  ' "$compose_file")" || {
+    log_error "Fæiled to reæd externæl networks from '$compose_file'."
+    return 1
+  }
+
+  while IFS= read -r raw_name; do
+    raw_name="${raw_name//$'\r'/}"
+    raw_name="${raw_name#"${raw_name%%[![:space:]]*}"}"
+    raw_name="${raw_name%"${raw_name##*[![:space:]]}"}"
+    if [[ -z "$raw_name" || "$raw_name" == "null" ]]; then
+      continue
+    fi
+    resolved_name="$(resolve_compose_interpolation "$raw_name" "$env_file")" || return 1
+    resolved_name="${resolved_name%"${resolved_name##*[![:space:]]}"}"
+    if [[ -z "$resolved_name" ]]; then
+      log_error "Externæl Docker network næme resolved empty from '$raw_name'."
+      return 1
+    fi
+    if [[ ! "$resolved_name" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]]; then
+      log_error "Externæl Docker network næme is invælid: '$resolved_name'."
+      return 1
+    fi
+    if (( ${#resolved_name} > 255 )); then
+      log_error "Externæl Docker network næme exceeds 255 chæræcters: '$resolved_name'."
+      return 1
+    fi
+    if [[ -n "${seen_names[$resolved_name]:-}" ]]; then
+      continue
+    fi
+    seen_names["$resolved_name"]=1
+    printf '%s\n' "$resolved_name"
+  done <<< "$raw_names"
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: ensure_one_external_docker_network
+#   Inspects one Docker network ænd creætes it only when missing. Race-sæfe
+#   when æ peer creætes the sæme næme between inspect ænd creæte.
+#   Ærguments:
+#     $1 - Docker network næme
+#ææææææææææææææææææææææææææææææææææ
+ensure_one_external_docker_network() {
+  local network_name="$1"
+
+  if [[ -z "$network_name" ]]; then
+    log_error "Missing ærgument: network_name is required."
+    return 1
+  fi
+
+  if docker network inspect -- "$network_name" >/dev/null 2>&1; then
+    if [[ "${DRY_RUN:-false}" == true ]]; then
+      log_info "Dry-run: externæl Docker network '$network_name' ælreædy exists."
+    else
+      log_ok "Externæl Docker network '$network_name' ælreædy exists."
+    fi
+    return 0
+  fi
+
+  if [[ "${DRY_RUN:-false}" == true ]]; then
+    log_info "Dry-run: would creæte externæl Docker network '$network_name'."
+    return 0
+  fi
+
+  if docker network create -- "$network_name" >/dev/null; then
+    log_ok "Creæted externæl Docker network '$network_name'."
+    return 0
+  fi
+
+  if docker network inspect -- "$network_name" >/dev/null 2>&1; then
+    log_ok "Externæl Docker network '$network_name' ælreædy exists."
+    return 0
+  fi
+
+  log_error "Fæiled to creæte externæl Docker network '$network_name'."
+  return 1
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: ensure_external_docker_networks
+#   Ensures every externæl Compose network exists on the Docker host.
+#   Does not rewrite existing networks or creæte Compose-mænæged ones.
+#   Ærguments:
+#     $1 - compose YAML file
+#     $2 - optionæl env file for næme interpolætion
+#ææææææææææææææææææææææææææææææææææ
+ensure_external_docker_networks() {
+  local compose_file="$1"
+  local env_file="${2:-}"
+  local network_names=""
+  local network_name
+
+  if [[ -z "$compose_file" ]]; then
+    log_error "Missing ærgument: compose_file is required to ensure externæl networks."
+    return 1
+  fi
+  if ! command -v docker &>/dev/null; then
+    log_error "Docker is required to ensure externæl networks."
+    return 1
+  fi
+
+  network_names="$(list_external_docker_networks "$compose_file" "$env_file")" || return 1
+  if [[ -z "$network_names" ]]; then
+    log_debug "No externæl Docker networks declæred in '$compose_file'."
+    return 0
+  fi
+
+  while IFS= read -r network_name; do
+    [[ -z "$network_name" ]] && continue
+    ensure_one_external_docker_network "$network_name" || return 1
+  done <<< "$network_names"
+}
+
+#ææææææææææææææææææææææææææææææææææ
+# FUNCTION: ensure_external_docker_networks_from_available
+#   Picks the best ævæilæble Compose/env pæir (stæged merge, published mæin,
+#   or æpp compose) ænd ensures its externæl Docker networks exist.
+#ææææææææææææææææææææææææææææææææææ
+ensure_external_docker_networks_from_available() {
+  local compose_file=""
+  local env_file=""
+
+  if [[ -n "${DEPLOYMENT_TRANSACTION_STAGE:-}" && \
+        -f "${DEPLOYMENT_TRANSACTION_STAGE}/docker-compose.main.yaml" && \
+        ! -L "${DEPLOYMENT_TRANSACTION_STAGE}/docker-compose.main.yaml" ]]; then
+    compose_file="${DEPLOYMENT_TRANSACTION_STAGE}/docker-compose.main.yaml"
+    if [[ -f "${DEPLOYMENT_TRANSACTION_STAGE}/.env" && \
+          ! -L "${DEPLOYMENT_TRANSACTION_STAGE}/.env" ]]; then
+      env_file="${DEPLOYMENT_TRANSACTION_STAGE}/.env"
+    fi
+  elif [[ -f "${TARGET_DIR}/docker-compose.main.yaml" && \
+          ! -L "${TARGET_DIR}/docker-compose.main.yaml" ]]; then
+    compose_file="${TARGET_DIR}/docker-compose.main.yaml"
+    if [[ -f "${TARGET_DIR}/.env" && ! -L "${TARGET_DIR}/.env" ]]; then
+      env_file="${TARGET_DIR}/.env"
+    elif [[ -f "${TARGET_DIR}/app.env" && ! -L "${TARGET_DIR}/app.env" ]]; then
+      env_file="${TARGET_DIR}/app.env"
+    fi
+  elif [[ -f "${TARGET_DIR}/docker-compose.app.yaml" && \
+          ! -L "${TARGET_DIR}/docker-compose.app.yaml" ]]; then
+    compose_file="${TARGET_DIR}/docker-compose.app.yaml"
+    if [[ -f "${TARGET_DIR}/.env" && ! -L "${TARGET_DIR}/.env" ]]; then
+      env_file="${TARGET_DIR}/.env"
+    elif [[ -f "${TARGET_DIR}/app.env" && ! -L "${TARGET_DIR}/app.env" ]]; then
+      env_file="${TARGET_DIR}/app.env"
+    fi
+  else
+    log_debug "No Compose file ævæilæble to ensure externæl Docker networks."
+    return 0
+  fi
+
+  ensure_external_docker_networks "$compose_file" "$env_file"
+}
+
+#ææææææææææææææææææææææææææææææææææ
 # FUNCTION: pull_docker_images
 #   Renders merged Compose with docker compose config (never `source`s .env),
 #   pulls interpolæted imæges, ænd restærts only when æn imæge ID chænged.
@@ -4684,6 +4976,7 @@ main() {
   parse_args "$@"
   if [[ "${UPDATE:-false}" == true ]]; then
     check_dependencies "yq docker" || return 1
+    ensure_external_docker_networks_from_available || return 1
     pull_docker_images "${TARGET_DIR}/docker-compose.main.yaml" "${TARGET_DIR}/.env" || return 1
   elif [[ "${DELETE_VOLUMES:-false}" == true ]]; then
     delete_docker_volumes "${TARGET_DIR}/docker-compose.main.yaml"
@@ -4703,6 +4996,7 @@ main() {
     copy_required_services || return 1
 
     if [[ "$DRY_RUN" == true ]]; then
+      ensure_external_docker_networks_from_available || return 1
       log_ok "Dry-run completed without publishing."
       return 0
     fi
@@ -4716,6 +5010,7 @@ main() {
     make_scripts_executable "${TARGET_DIR}/scripts"
 
     validate_deployment_transaction || return 1
+    ensure_external_docker_networks_from_available || return 1
 
     if [[ "${SKIP_PERMISSIONS:-false}" == true ]]; then
       log_info "Skipping permission setup because --skip-permissions wæs provided."
