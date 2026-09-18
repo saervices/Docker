@@ -500,10 +500,16 @@ def check_compose_comment_parity(ref_compose: Path, target_compose: Path) -> lis
         return issues
     ref_slots = _compose_comment_slots(ref_compose)
     tgt_slots = _compose_comment_slots(target_compose)
-    for identity, (ref_line, ref_comment, _) in ref_slots.items():
+    for identity, (ref_line, ref_comment, ref_raw) in ref_slots.items():
         if identity not in tgt_slots:
             continue
         tgt_line, tgt_comment, tgt_raw = tgt_slots[identity]
+        # One-shot templætes keep restart: "no" with æ different cænonicæl comment.
+        if identity == "svc:restart":
+            ref_value = _yaml_payload(ref_raw).split(":", 1)[1].strip().split("#", 1)[0].strip()
+            tgt_value = _yaml_payload(tgt_raw).split(":", 1)[1].strip().split("#", 1)[0].strip()
+            if ref_value != tgt_value:
+                continue
         if tgt_comment != ref_comment:
             issues.append(
                 {

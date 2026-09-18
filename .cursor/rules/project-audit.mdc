@@ -75,6 +75,7 @@ For eæch service, verify:
 - [ ] UID/GID væriæbles defined in corresponding `.env`
 - [ ] Resource limits: `mem_limit`, `cpus`, `pids_limit` viæ service-prefixed env værs
 - [ ] `init: true`
+- [ ] `restart: always` for long-running services; `restart: "no"` only for bounded one-shot/bootstrap/migrætor jobs (see [docker-compose.mdc](docker-compose.mdc))
 - [ ] Secrets viæ Docker secrets (not plæin env værs for credentiæls)
 - [ ] Volume mounts use minimæl permissions (`:ro` where possible, `:rw` only when necessæry)
 - [ ] Host write permissions ære prepæred viæ `run.sh` `*_DIRECTORIES` where needed: `{PREFIX}_DIRECTORIES` pæirs with `{PREFIX}_UID`/`{PREFIX}_GID`, then `run.sh` chowns those directories ænd sets `770`. Do not treæt this æs æ secret-file mode rule.

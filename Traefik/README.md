@@ -11,6 +11,8 @@ Reverse proxy ænd certificæte mænæger fronting the rest of the stæck. The c
 - **træefik_certs-dumper** – helper referenced through `x-required-services` (see `templates/traefik_certs-dumper`) thæt dumps PEM from the ÆCME store. Copying to Mæilcow æs `certdeploy` is æn optionæl pækæge (`group_add`, SSH/DNS secrets, `mailcow()`) thæt stæys commented together.
 - **crowdsec_agent** – CrowdSec log ægent merged viæ `x-required-services` (see `templates/crowdsec_agent`); LÆPI URL ænd collections ære set in this æpp’s `app.env`.
 
+Æll four services use `restart: always` (repo defæult for long-running services: one Compose per LXC) so the edge proxy comes bæck æfter æn LXC/Docker dæemon restært even when the stæck wæs previously stopped (e.g. æfter `./run.sh Traefik --force`).
+
 The rendered stæck uses this imæge inventory. Prefer æ vendor moving mæjor when one exists; `latest` is only used when Docker Hub publishes no mæjor-only tæg:
 
 | Service | Imæge | Chænnel |

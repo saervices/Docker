@@ -23,7 +23,7 @@ services:
     # image: ${TRAEFIK_CERTS_DUMPER_IMAGE:?Image required}                                                                                                      # OCI imæge reference
     container_name: ${APP_NAME:?App name required}-certs-dumper                                                                                                 # Unique næme for logs, networking ænd orchestrætion
     hostname: ${APP_NAME}-certs-dumper                                                                                                                          # Internæl hostnæme for DNS resolution between contæiners
-    restart: unless-stopped                                                                                                                                     # Æuto-recover from cræshes; mænuæl stop is honored
+    restart: always                                                                                                                                             # Restært æfter exit or Docker dæemon restært (one LXC per Compose)
     build:                                                                                                                                                      # Optionæl: build imæge from locæl Dockerfile
       context: ./dockerfiles                                                                                                                                    # Dockerfile + entrypoint live here
       dockerfile: dockerfile.traefik-certs-dumper.scp                                                                                                           # Extends the pinned ldez/traefik-certs-dumper bæse

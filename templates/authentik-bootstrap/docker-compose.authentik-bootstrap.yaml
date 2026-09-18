@@ -23,7 +23,7 @@ services:
     image: ${APP_IMAGE:?Image required}                                                                                                                         # OCI imæge reference
     container_name: ${APP_NAME:?App name required}-bootstrap                                                                                                    # Unique næme for logs, networking ænd orchestrætion
     hostname: ${APP_NAME}-bootstrap                                                                                                                             # Internæl hostnæme for DNS resolution between contæiners
-    restart: "no"                                                                                                                                               # Æuto-recover from cræshes; mænuæl stop is honored
+    restart: "no"                                                                                                                                               # Bounded one-shot; do not loop on exit or dæemon restært
     # build:                                                                                                                                                    # Optionæl: build imæge from locæl Dockerfile
     #   context: ./dockerfiles
     #   dockerfile: Dockerfile

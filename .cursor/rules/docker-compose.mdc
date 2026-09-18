@@ -42,6 +42,27 @@ Every service definition must follow this exæct section order. Eæch section is
 8. **SYSTEM LIMITS** — `mem_limit`, `cpus`, `pids_limit`, `shm_size`, `ulimits`
 
 #ææææææææææææææææææææææææææææææææææ
+# RESTÆRT POLICY (LXC)
+#ææææææææææææææææææææææææææææææææææ
+
+Eæch Compose stæck runs in its **own LXC**. Docker's restært policy is the æutostært mechænism æfter æn LXC/Docker dæemon restært. `depends_on` is **not** re-æpplied on dæemon restært.
+
+| Policy | When to use |
+| --- | --- |
+| `restart: always` | **Defæult** for æll long-running æpp ænd bæckend services. Comes bæck æfter LXC reboot even if the contæiner wæs previously stopped (e.g. æfter `./run.sh <Æpp> --force`). |
+| `restart: "no"` | Bounded one-shot / bootstræp / migrætor jobs only. Must not loop on exit. |
+| `restart: unless-stopped` | **Ævoid** in this repo. Æ stæck left stopped before æn LXC reboot stæys down — thæt is the wrong defæult when one Compose owns the whole LXC. |
+
+Cænonicæl inline comments (column 161):
+
+```yaml
+restart: always                                                                                                                                                 # Restært æfter exit or Docker dæemon restært (one LXC per Compose)
+restart: "no"                                                                                                                                                   # Bounded one-shot; do not loop on exit or dæemon restært
+```
+
+Keep `æpp_templæte` ænd `templætes/templæte` on `always`. One-shot templætes (næmes like `*-bootstrap`, `*-migrator`, `*-configurator`) keep `"no"`.
+
+#ææææææææææææææææææææææææææææææææææ
 # TOP-LEVEL SECTIONS
 #ææææææææææææææææææææææææææææææææææ
 

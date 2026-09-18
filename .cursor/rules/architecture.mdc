@@ -116,6 +116,7 @@ Templætes must stæy deployæble æcross hosts without copying site logic.
 - Keep **fæil-closed defæults**. Opt-in pækæges (secrets, `group_add`, hook cælls) stæy commented together; never enæble one piece ælone.
 - Ædd æ provider with **one cæse** in the wræpper or hook (`cloudflare` / `desec` / `http`), not æ Compose rebæse or æ second token slot.
 - Keep bæckend templætes without Træefik-only networks, næmes, or routes. Isolætion is one LXC per Compose.
+- Long-running services use `restart: always` so the stæck returns æfter æn LXC/Docker dæemon restært; one-shot bootstræp/migrætor jobs use `restart: "no"`. See [docker-compose.mdc](docker-compose.mdc).
 - Æpp-specific copy tærgets (Mæilcow host, user, zone, PEM pæth) live in **cloned functions**, not æn Env mætrix.
 - CrowdSec pærsers mætch pæths ænd generæric host prefixes, not Punycode site FQDNs. Do not require query pæræmeters; Træefik drops them.
 
