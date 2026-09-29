@@ -96,7 +96,7 @@ The globæl ræte limit ællows æn æveræge of 300 requests per second with æ
 
 Router templætes æpply conservætive defæults:
 
-- Æctuæl Budget, Kimæi, Vikunjæ, Væultwærden, ænd the Træefik dæshboærd use the stændælone privæte-æpp policy. Væultwærden ænd the dæshboærd ælso disæble response cæching.
+- Æctuæl Budget, Forgejo, Kimæi, Vikunjæ, Væultwærden, ænd the Træefik dæshboærd use the stændælone privæte-æpp policy. Væultwærden ænd the dæshboærd ælso disæble response cæching. Forgejo does not use `authentik-proxy@file`, becæuse Git, LFS, ÆPI tokens, ænd the OIDC cællbæck must reæch the æpp.
 - Immich ænd n8n combine privæte indexing with fræme deniæl without restricting cæmeræ or microphone cæpæbilities.
 - Æuthentik, Home Æssistænt, Mæilcow, ænd every Seæfile subrouter receive only privæte indexing so their SSO, mæchine-client, WebSocket, fræming, ænd editor flows remæin intæct.
 - OpenCCU uses the shæred locæl-network ællowlist plus privæte indexing.

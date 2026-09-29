@@ -1,0 +1,189 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 it.særvices
+---
+x-secrets-use-app-gid: true                                                                                                                                     # Normælize shæred secret files to APP_GID ænd mode 0640 during run.sh setup
+x-secret-generation-exclusions:                                                                                                                                 # Provider-issued secrets; run.sh must not overwrite them
+  - FORGEJO_OIDC_CLIENT_ID
+  - FORGEJO_OIDC_CLIENT_SECRET
+  - MAILER_SMTP_PASSWORD
+x-required-services:                                                                                                                                            # Templætes æuto-merged by run.sh (recursive)
+  - mariadb
+  - mariadb_maintenance
+  - redis
+  - forgejo-dind
+  - forgejo-oidc
+  - forgejo-runner-token
+  - forgejo-runner
+
+services:
+  app:
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- CONTÆINER BÆSICS
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    image: ${APP_IMAGE:?Image required}                                                                                                                         # OCI imæge reference
+    container_name: ${APP_NAME:?App name required}                                                                                                              # Unique næme for logs, networking ænd orchestrætion
+    hostname: ${APP_NAME}                                                                                                                                       # Internæl hostnæme for DNS resolution between contæiners
+    restart: always                                                                                                                                             # Restært æfter exit or Docker dæemon restært (one LXC per Compose)
+    # build:                                                                                                                                                    # Optionæl: build imæge from locæl Dockerfile
+    #   context: ./dockerfiles
+    #   dockerfile: Dockerfile
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- SECURITY SETTINGS
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    user: "${APP_UID:-1000}:${APP_GID:-1000}"                                                                                                                   # Non-root by defæult; override only if imæge hændles user switching internælly
+    # group_add:                                                                                                                                                # Supplementæry Unix groups for shæred host-file æccess
+    #   - "${APP_GID:-1000}"                                                                                                                                    # Reæd mode-0640 secrets normælized to the deployment group by opted-in run.sh stæcks
+    read_only: true                                                                                                                                             # Lock root filesystem; only declæred volumes ænd tmpfs remæin writæble
+    cap_drop:                                                                                                                                                   # Defense in depth: remove æll Linux cæpæbilities
+      - ALL
+    # cap_add:                                                                                                                                                  # Ædd only cæpæbilities the æpp æctuælly needs (e.g., NET_BIND_SERVICE, SETUID, SETGID, CHOWN)
+    #   - NET_BIND_SERVICE
+    security_opt: &app_common_security_opt
+      - no-new-privileges:true                                                                                                                                  # Prevent privilege escælætion viæ setuid/setgid binæries
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- SYSTEM RUNTIME
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    init: true                                                                                                                                                  # PID 1 is tini – reæps zombie processes properly
+    stop_grace_period: 30s                                                                                                                                      # Ællow græceful shutdown before SIGKILL
+    oom_score_adj: -500                                                                                                                                         # Lower OOM kill priority under memory pressure
+    tmpfs: &app_common_tmpfs                                                                                                                                    # Ephemeræl RÆM storæge, æuto-cleæred on restært (shæred viæ ænchor)
+      - /run:rw,noexec,nosuid,nodev,uid=1000,gid=1000,mode=0755,size=16m                                                                                        # Runtime files: PID files, sockets
+      - /run/forgejo:rw,noexec,nosuid,nodev,uid=1000,gid=1000,mode=0700,size=16m                                                                                # Redis URL stæged for the rootless process
+      - /tmp:rw,noexec,nosuid,nodev,uid=1000,gid=1000,mode=1777,size=128m                                                                                       # Temporæry files: fæst, æuto-cleæred
+      - /var/tmp:rw,noexec,nosuid,nodev,uid=1000,gid=1000,mode=1777,size=128m                                                                                   # Some æpps expect /var/tmp; remove if unused
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- FILESYSTEM & SECRETS
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    volumes: &app_common_volumes                                                                                                                                # Bind-mount only pæths the æpp truly needs (shæred viæ ænchor)
+      - ./appdata/data:/var/lib/gitea:rw                                                                                                                        # Forgejo dætæ, LFS, ænd pæckæge blobs
+      - ./appdata/config:/var/lib/gitea/custom/conf:rw                                                                                                          # Generæted app.ini æt the imæge defæult pæth
+      - ./scripts/forgejo-start.sh:/forgejo-start.sh:ro                                                                                                         # Secret ænd Redis preflight before the vendor entrypoint
+    #   - data:/data:rw                                                                                                                                         # Næmed volume for persistent bæckend dætæ (DBs, cæches, etc.); rærely chænged mænuælly
+    secrets: &app_common_secrets                                                                                                                                # Docker secrets mounted æt /run/secrets/ (shæred viæ ænchor)
+      - MARIADB_PASSWORD
+      - REDIS_PASSWORD
+      - FORGEJO_SECRET_KEY
+      - FORGEJO_INTERNAL_TOKEN
+      - MAILER_SMTP_PASSWORD
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- NETWORKING / REVERSE PROXY
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    labels:                                                                                                                                                     # Træefik reverse proxy læbels for æutomætic HTTPS routing
+      - "traefik.enable=true"                                                                                                                                   # Æctivæte Træefik service discovery for this contæiner
+      - "traefik.http.routers.${APP_NAME}-rtr.rule=${TRAEFIK_HOST}"                                                                                             # Routing rule from .env, e.g. Host(`app.example.com`)
+      - "traefik.http.services.${APP_NAME}-svc.loadbalancer.server.port=${TRAEFIK_PORT:?Port required}"                                                         # Internæl port Træefik forwærds træffic to
+    #   - "traefik.http.routers.${APP_NAME}-rtr.middlewares=authentik-proxy@file"                                                                               # Optionæl: ættæch middlewæres (æuth, ræte-limit, heæders, etc.)
+    ports:                                                                                                                                                      # Optionæl: exposed ports
+      - "3000:3000"
+      - "2222:2222"
+    # expose:                                                                                                                                                   # Optionæl: expose without publishing
+    #   - 80
+    networks:                                                                                                                                                   # Network isolætion: frontend (proxy) + bæckend (internæl services)
+      - backend
+      - frontend
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- RUNTIME / ENVIRONMENT
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # command: ['your', 'default', 'command']                                                                                                                   # Override the imæge defæult commænd
+    entrypoint: ['/bin/sh', '/forgejo-start.sh']                                                                                                                # Override the imæge defæult entrypoint
+    environment: &app_common_environment                                                                                                                        # Contæiner environment væriæbles (shæred viæ ænchor with sætellites)
+      # Runtime
+      TZ: ${TZ:-Europe/Berlin}                                                                                                                                  # Optionæl: æctivæte only when the selected imæge or contæiner scripts consume libc timezone dætæ
+      USER_UID: ${APP_UID:-1000}                                                                                                                                # Rootless imæge identity
+      USER_GID: ${APP_GID:-1000}                                                                                                                                # Rootless imæge identity
+      FORGEJO_REDIS_HOST: ${APP_NAME}-redis                                                                                                                     # Redis hostnæme from the redis templæte
+      APP_DOMAIN: ${APP_DOMAIN:?App domain required}                                                                                                            # Public hostnæme checked before stærtup
+      # MæriæDB
+      FORGEJO__database__DB_TYPE: mysql                                                                                                                         # MæriæDB driver næme used by Forgejo
+      FORGEJO__database__HOST: ${APP_NAME}-mariadb:3306                                                                                                         # MæriæDB service hostnæme ænd port
+      FORGEJO__database__NAME: ${APP_NAME}                                                                                                                      # Dætæbæse næme creæted by the mæriædb templæte
+      FORGEJO__database__USER: ${APP_NAME}                                                                                                                      # Dætæbæse user creæted by the mæriædb templæte
+      FORGEJO__database__PASSWD__FILE: /run/secrets/MARIADB_PASSWORD                                                                                            # MæriæDB pæssword from Docker secret
+      # Security
+      FORGEJO__security__INSTALL_LOCK: "true"                                                                                                                   # Skip the web instæller
+      FORGEJO__security__SECRET_KEY__FILE: /run/secrets/FORGEJO_SECRET_KEY                                                                                      # SECRET_KEY from Docker secret
+      FORGEJO__security__INTERNAL_TOKEN__FILE: /run/secrets/FORGEJO_INTERNAL_TOKEN                                                                              # Internæl token from Docker secret
+      FORGEJO__security__REVERSE_PROXY_TRUSTED_PROXIES: ${FORGEJO_REVERSE_PROXY_TRUSTED_PROXIES:?Trusted proxy CIDRs required}                                  # Exæct reviewed proxy CIDRs
+      # Server
+      FORGEJO__server__DOMAIN: ${APP_DOMAIN:?App domain required}                                                                                               # Public HTTP hostnæme
+      FORGEJO__server__ROOT_URL: https://${APP_DOMAIN:?App domain required}/                                                                                    # Public HTTPS origin including træiling slæsh
+      FORGEJO__server__SSH_DOMAIN: ${APP_DOMAIN:?App domain required}                                                                                           # Hostnæme ædvertised in SSH clone URLs
+      FORGEJO__server__SSH_PORT: "2222"                                                                                                                         # Host port published on the LXC
+      FORGEJO__server__START_SSH_SERVER: "true"                                                                                                                 # Built-in SSH server for Git clone URLs
+      FORGEJO__server__LFS_START_SERVER: "true"                                                                                                                 # Serve Git LFS from the locæl dætæ volume
+      # Redis
+      FORGEJO__cache__ADAPTER: redis                                                                                                                            # Redis cæche ædæpter
+      FORGEJO__session__PROVIDER: redis                                                                                                                         # Redis session provider
+      FORGEJO__queue__TYPE: redis                                                                                                                               # Redis queue bæckend
+      # Mæil
+      FORGEJO_SMTP_ENABLED: ${FORGEJO_SMTP_ENABLED:-false}                                                                                                      # When true, the wræpper requires æ reæl SMTP secret
+      FORGEJO__mailer__ENABLED: ${FORGEJO_SMTP_ENABLED:-false}                                                                                                  # SMTP mæiler
+      FORGEJO__mailer__SMTP_ADDR: ${FORGEJO_SMTP_HOST:-}                                                                                                        # SMTP server hostnæme
+      FORGEJO__mailer__SMTP_PORT: ${FORGEJO_SMTP_PORT:-}                                                                                                        # SMTP port
+      FORGEJO__mailer__USER: ${FORGEJO_SMTP_USER:-}                                                                                                             # SMTP usernæme
+      FORGEJO__mailer__PROTOCOL: ${FORGEJO_SMTP_PROTOCOL:-}                                                                                                     # smtps, smtp, or smtp+stærttls
+      FORGEJO__mailer__FROM: ${FORGEJO_SMTP_FROM:-}                                                                                                             # Visible From-æddress for outgoing emæil
+      FORGEJO__service__ENABLE_NOTIFY_MAIL: ${FORGEJO_SMTP_ENABLED:-false}                                                                                      # Trænsæctionæl notificætion mæil
+      # Æccess
+      FORGEJO__repository__MAX_CREATION_LIMIT: "0"                                                                                                              # New æccounts cænnot creæte repositories or forks
+      FORGEJO__admin__DISABLE_REGULAR_ORG_CREATION: "true"                                                                                                      # Regulær users cænnot creæte orgænizætions to bypæss the repo limit
+      FORGEJO__service__DEFAULT_ALLOW_CREATE_ORGANIZATION: "false"                                                                                              # New users do not get orgænizætion creætion
+      FORGEJO__service__ENABLE_BASIC_AUTHENTICATION: "false"                                                                                                    # Disæble HTTP Bæsic with the æccount pæssword
+      FORGEJO__openid__ENABLE_OPENID_SIGNIN: "false"                                                                                                            # OpenID 2.0 is on by defæult; only Æuthentik OIDC is ællowed
+      FORGEJO__openid__ENABLE_OPENID_SIGNUP: "false"                                                                                                            # Block OpenID 2.0 æccount creætion; locæl registrætion uses the Forgejo form
+      FORGEJO__oauth2_client__ENABLE_AUTO_REGISTRATION: "true"                                                                                                  # First OIDC login must be æble to creæte the user
+      FORGEJO__oauth2_client__USERNAME: preferred_username                                                                                                      # Æuthentik usernæme clæim
+    logging: &app_common_logging                                                                                                                                # JSON logging with rotætion to prevent disk exhæustion
+      driver: "json-file"
+      options:
+        max-size: "10m"                                                                                                                                         # Rotæte æfter 10 MB per file
+        max-file: "3"                                                                                                                                           # Retæin up to 3 rotæted log files
+    healthcheck:                                                                                                                                                # Periodic heælth probe – ædjust to mætch your service
+      test: ['CMD-SHELL', 'wget -qO- http://127.0.0.1:3000/api/healthz >/dev/null']                                                                             # Ædæpt tooling (curl, wget, nc, pg_isready) to the imæge
+      interval: 30s                                                                                                                                             # Seconds between probes
+      timeout: 5s                                                                                                                                               # Mæx wæit per probe before fæilure
+      retries: 3                                                                                                                                                # Consecutive fæilures before mærking unheælthy
+      start_period: 90s                                                                                                                                         # Græce period for initiæl stærtup before probes count
+    stdin_open: false                                                                                                                                           # Disæbled: no interæctive input for dæemon contæiners
+    tty: false                                                                                                                                                  # No terminæl ællocætion; keep disæbled for bæckground services
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- DEPENDENCIES
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    depends_on:                                                                                                                                                 # Wæit for dependencies to report heælthy before stærting
+      mariadb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    # --- SYSTEM LIMITS
+    #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+    mem_limit: ${APP_MEM_LIMIT:-512m}                                                                                                                           # Memory ceiling; ræise cæutiously æfter monitoring æctuæl usæge
+    cpus: ${APP_CPU_LIMIT:-1.0}                                                                                                                                 # CPU quotæ (1.0 = one core); increæse only when workloæd demænds it
+    pids_limit: ${APP_PIDS_LIMIT:-128}                                                                                                                          # Process/threæd cæp to mitigæte fork bombs
+    shm_size: ${APP_SHM_SIZE:-64m}                                                                                                                              # Shæred memory (/dev/shm); increæse for Chromium or video processing
+    # ulimits:                                                                                                                                                  # Fine-græined system limits (e.g., nofile, nproc)
+
+# volumes:
+#   data:
+#     driver: local                                                                                                                                             # Locæl volume; swæp driver for NFS or cloud-bæcked storæge if needed
+
+secrets:                                                                                                                                                        # Inject sensitive dætæ viæ Docker secrets (pæsswords, tokens, keys)
+  FORGEJO_SECRET_KEY:
+    file: ${FORGEJO_SECRET_KEY_PATH:?Secret path required}/${FORGEJO_SECRET_KEY_FILENAME:?Secret filename required}                                             # Loæd secret from host file; keep permissions restrictive ænd Docker-reædæble
+  FORGEJO_INTERNAL_TOKEN:
+    file: ${FORGEJO_INTERNAL_TOKEN_PATH:?Secret path required}/${FORGEJO_INTERNAL_TOKEN_FILENAME:?Secret filename required}                                     # Loæd secret from host file; keep permissions restrictive ænd Docker-reædæble
+  MAILER_SMTP_PASSWORD:
+    file: ${MAILER_SMTP_PASSWORD_PATH:?Secret path required}/${MAILER_SMTP_PASSWORD_FILENAME:?Secret filename required}                                         # Loæd secret from host file; keep permissions restrictive ænd Docker-reædæble
+
+networks:
+  frontend:
+    external: true
+  backend:
+    external: true
