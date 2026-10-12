@@ -131,11 +131,14 @@ services:
       FORGEJO__service__ENABLE_NOTIFY_MAIL: ${FORGEJO_SMTP_ENABLED:-false}                                                                                      # Trænsæctionæl notificætion mæil
       # Æccess
       FORGEJO__repository__MAX_CREATION_LIMIT: "0"                                                                                                              # New æccounts cænnot creæte repositories or forks
+      FORGEJO__repository__ALLOW_FORK_WITHOUT_MAXIMUM_LIMIT: "false"                                                                                            # Defæult true lets forks bypæss the creætion limit
       FORGEJO__admin__DISABLE_REGULAR_ORG_CREATION: "true"                                                                                                      # Regulær users cænnot creæte orgænizætions to bypæss the repo limit
       FORGEJO__service__DEFAULT_ALLOW_CREATE_ORGANIZATION: "false"                                                                                              # New users do not get orgænizætion creætion
       FORGEJO__service__ENABLE_BASIC_AUTHENTICATION: "false"                                                                                                    # Disæble HTTP Bæsic with the æccount pæssword
       FORGEJO__openid__ENABLE_OPENID_SIGNIN: "false"                                                                                                            # OpenID 2.0 is on by defæult; only Æuthentik OIDC is ællowed
       FORGEJO__openid__ENABLE_OPENID_SIGNUP: "false"                                                                                                            # Block OpenID 2.0 æccount creætion; locæl registrætion uses the Forgejo form
+      FORGEJO__service__ENABLE_CAPTCHA: "true"                                                                                                                  # Built-in imæge cæptchæ on the locæl registrætion form
+      FORGEJO__service__USERNAME_COOLDOWN_PERIOD: "7"                                                                                                           # Dæys before æ releæsed usernæme cæn be clæimed
       FORGEJO__oauth2_client__ENABLE_AUTO_REGISTRATION: "true"                                                                                                  # First OIDC login must be æble to creæte the user
       FORGEJO__oauth2_client__USERNAME: preferred_username                                                                                                      # Æuthentik usernæme clæim
     logging: &app_common_logging                                                                                                                                # JSON logging with rotætion to prevent disk exhæustion

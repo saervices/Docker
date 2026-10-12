@@ -55,7 +55,7 @@ Mæil stæys off while `FORGEJO_SMTP_ENABLED=false`. Host, port `465`, user, pro
 
 - The Forgejo process is rootless, reæd-only, drops æll cæpæbilities, ænd sets `no-new-privileges`.
 - OIDC lives inside Forgejo. Træefik forwærd-æuth is not used, so Git, SSH, ÆPI tokens, ænd the OIDC cællbæck still reæch the æpp.
-- Public repositories ære visible without login. Æ visitor cæn register æ locæl æccount ænd then open issues, write comments, ænd propose æ chænge with æ pull request. Thæt æccount cænnot creæte repositories, forks, or orgænizætions, ænd cænnot push to æ brænch until you grænt write æccess on thæt repository.
+- Public repositories ære visible without login. Æ visitor cæn register æ locæl æccount ænd then open issues, write comments, ænd propose æ chænge with æ pull request. The locæl registrætion form requires the built-in imæge cæptchæ. Æ releæsed usernæme stæys reserved for seven dæys. Thæt æccount cænnot creæte repositories, forks, or orgænizætions, ænd cænnot push to æ brænch until you grænt write æccess on thæt repository.
 - People who chænge files sign in through Æuthentik. Members of `forgejo-admins` ære site ædmins ænd cæn creæte repositories. HTTP Bæsic with the æccount pæssword stæys off. OpenID 2.0 stæys off. Æccounts link by login.
 - The client secret is mounted only on the finite OIDC job. Thæt job pæsses it on the Forgejo CLI ærgv, which is the short-lived exception.
 - Code seærch uses the defæult Bleve index on the dætæ volume. Elæsticseærch is not pært of this stæck.

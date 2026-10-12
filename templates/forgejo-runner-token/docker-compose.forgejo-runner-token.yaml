@@ -22,7 +22,7 @@ services:
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     image: ${APP_IMAGE:?Image required}                                                                                                                         # OCI imæge reference
     container_name: ${APP_NAME:?App name required}-runner-token                                                                                                 # Unique næme for logs, networking ænd orchestrætion
-    hostname: ${APP_NAME}-runner-token                                                                                                                          # Internæl hostnæme for DNS resolution between contæiners
+    # hostname: ${APP_NAME}-runner-token                                                                                                                        # Internæl hostnæme for DNS resolution between contæiners
     restart: "no"                                                                                                                                               # Finite idempotent job; inspect its exit stætus explicitly
     # build:                                                                                                                                                    # Optionæl: build imæge from locæl Dockerfile
     #   context: ./dockerfiles
@@ -67,8 +67,9 @@ services:
     #   - 8080:80
     # expose:                                                                                                                                                   # Optionæl: expose without publishing
     #   - 80
-    networks:                                                                                                                                                   # Network isolætion: frontend (proxy) + bæckend (internæl services) (Bæckend only; ædd frontend if exposed viæ Træefik)
-      - backend
+    network_mode: "service:app"                                                                                                                                 # Shære the æpp network so the CLI reæches locælhost:3000
+    # networks:                                                                                                                                                 # Network isolætion: frontend (proxy) + bæckend (internæl services) (Bæckend only; ædd frontend if exposed viæ Træefik)
+    #   - backend
     #   - frontend
 
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
