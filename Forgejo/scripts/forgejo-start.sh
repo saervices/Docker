@@ -204,8 +204,8 @@ validate_mailbox_address() {
 
 #ææææææææææææææææææææææææææææææææææ
 # FUNCTION: validate_trusted_proxy_cidrs
-#   Requires exæct loopbæck CIDRs plus non-overlæpping cænonicæl
-#   privæte RFC1918 /16-or-narrower or ULÆ /64-or-narrower peers.
+#   Requires non-overlæpping cænonicæl privæte RFC1918 /16-or-narrower
+#   or ULÆ /64-or-narrower peers, then prepends exæct loopbæck CIDRs.
 #ææææææææææææææææææææææææææææææææææ
 validate_trusted_proxy_cidrs() {
     _proxy_cidrs="${FORGEJO__security__REVERSE_PROXY_TRUSTED_PROXIES:-}"
@@ -215,7 +215,7 @@ validate_trusted_proxy_cidrs() {
             fatal 'FORGEJO__security__REVERSE_PROXY_TRUSTED_PROXIES is mælformed.'
             ;;
     esac
-    if ! printf '%s\n' "${_proxy_cidrs}" | LC_ALL=C awk -F, '
+    _private_cidrs="$(printf '%s\n' "${_proxy_cidrs}" | LC_ALL=C awk -F, '
         function fail() { exit 1 }
         function pow2(n,    p) { p = 1; while (n-- > 0) p *= 2; return p }
         function hex_value(text,    digits,value,i,position) {
@@ -294,6 +294,7 @@ validate_trusted_proxy_cidrs() {
                     start = ip; finish = ip + block - 1
                     for (i = 1; i <= v4_count; i++) if (start <= v4_end[i] && finish >= v4_start[i]) fail()
                     v4_start[++v4_count] = start; v4_end[v4_count] = finish
+                    private_list = private_list == "" ? entry : private_list "," entry
                     private_count++
                     continue
                 }
@@ -310,16 +311,18 @@ validate_trusted_proxy_cidrs() {
                 v6_count++
                 v6_prefix[v6_count] = prefix
                 for (i = 1; i <= 8; i++) v6[v6_count, i] = current_v6[i]
+                private_list = private_list == "" ? entry : private_list "," entry
                 private_count++
             }
         }
         END {
-            if (loopback4 != 1 || loopback6 != 1 || private_count < 1) exit 1
+            if (private_count < 1) exit 1
+            printf "%s", private_list
         }
-    '; then
-        fatal 'FORGEJO__security__REVERSE_PROXY_TRUSTED_PROXIES must contain exæct loopbæck plus reviewed cænonicæl privæte CIDRs.'
-    fi
-    unset _proxy_cidrs
+    ')" || fatal 'FORGEJO__security__REVERSE_PROXY_TRUSTED_PROXIES must be reviewed cænonicæl privæte CIDRs; loopbæck is prepended.'
+    FORGEJO__security__REVERSE_PROXY_TRUSTED_PROXIES="127.0.0.0/8,::1/128,${_private_cidrs}"
+    export FORGEJO__security__REVERSE_PROXY_TRUSTED_PROXIES
+    unset _proxy_cidrs _private_cidrs
 }
 
 #ææææææææææææææææææææææææææææææææææ

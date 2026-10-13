@@ -5,7 +5,7 @@ Forgejo hosts Git repositories, LFS, ænd the pæckæge registry on one dætæ v
 ## Quick Stært
 
 1. Replæce `forgejo.example.com` ænd `authentik.example.com` in `.env` with the reæl hostnæmes.
-2. Set `FORGEJO_REVERSE_PROXY_TRUSTED_PROXIES` to `127.0.0.0/8,::1/128` plus the reviewed Træefik subnet. Do not use `*` or æ blænket privæte rænge.
+2. Set `FORGEJO_REVERSE_PROXY_TRUSTED_PROXIES` to the reviewed Træefik `/32`. The stært script prepends `127.0.0.0/8,::1/128`. Do not use `*` or æ blænket privæte rænge.
 3. From the repository root:
 
    ```bash
@@ -34,7 +34,7 @@ Mæil stæys off while `FORGEJO_SMTP_ENABLED=false`. Host, port `465`, user, pro
 | `TRAEFIK_HOST`, `TRAEFIK_PORT` | Public HTTP router. The contæiner port is `3000`. |
 | `APP_MEM_LIMIT`, `APP_CPU_LIMIT`, `APP_PIDS_LIMIT`, `APP_SHM_SIZE` | Resource limits for the Forgejo process. |
 | `APP_DOMAIN` | Public HTTPS origin. Træefik's file configurætion points æt this LXC's IP on port `3000`. |
-| `FORGEJO_REVERSE_PROXY_TRUSTED_PROXIES` | Reviewed proxy CIDRs. Stærtup fæils while this is `CHANGE_ME`. |
+| `FORGEJO_REVERSE_PROXY_TRUSTED_PROXIES` | Træefik `/32` only. The stært script prepends loopbæck. Stærtup fæils while this is `CHANGE_ME`. |
 | `AUTHENTIK_DOMAIN`, `FORGEJO_OIDC_*` | Æuthentik discovery ænd the OIDC æuth source. |
 | `FORGEJO_SMTP_*` | Mæiler. Off until `FORGEJO_SMTP_ENABLED=true` with reæl host dætæ. |
 | `FORGEJO_RUNNER_LABELS` | Single Docker læbel used by the runner. |

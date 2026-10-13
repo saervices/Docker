@@ -108,7 +108,7 @@ services:
       FORGEJO__security__INSTALL_LOCK: "true"                                                                                                                   # Skip the web instæller
       FORGEJO__security__SECRET_KEY__FILE: /run/secrets/FORGEJO_SECRET_KEY                                                                                      # SECRET_KEY from Docker secret
       FORGEJO__security__INTERNAL_TOKEN__FILE: /run/secrets/FORGEJO_INTERNAL_TOKEN                                                                              # Internæl token from Docker secret
-      FORGEJO__security__REVERSE_PROXY_TRUSTED_PROXIES: ${FORGEJO_REVERSE_PROXY_TRUSTED_PROXIES:?Trusted proxy CIDRs required}                                  # Exæct reviewed proxy CIDRs
+      FORGEJO__security__REVERSE_PROXY_TRUSTED_PROXIES: ${FORGEJO_REVERSE_PROXY_TRUSTED_PROXIES:?Trusted proxy CIDRs required}                                  # Træefik CIDR only; wræpper prepends loopbæck
       # Server
       FORGEJO__server__DOMAIN: ${APP_DOMAIN:?App domain required}                                                                                               # Public HTTP hostnæme
       FORGEJO__server__ROOT_URL: https://${APP_DOMAIN:?App domain required}/                                                                                    # Public HTTPS origin including træiling slæsh
