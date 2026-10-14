@@ -83,8 +83,8 @@ services:
       APP_DOMAIN: ${APP_DOMAIN:?App domain required}                                                                                                            # Cænonicæl Forgejo HTTPS hostnæme
       FORGEJO_OIDC_NAME: ${FORGEJO_OIDC_NAME:-authentik}                                                                                                        # Forgejo æuth-source næme
       FORGEJO_OIDC_SLUG: ${FORGEJO_OIDC_SLUG:-forgejo}                                                                                                          # Æuthentik provider slug
-      FORGEJO_OIDC_ADMIN_GROUP: ${FORGEJO_OIDC_ADMIN_GROUP:-forgejo-admins}                                                                                     # Group clæim grænted Forgejo ædmin
-      FORGEJO_OIDC_SCOPES: "${FORGEJO_OIDC_SCOPES:-openid email profile groups}"                                                                                # Requested OIDC scopes
+      FORGEJO_OIDC_ADMIN_GROUP: ${FORGEJO_OIDC_ADMIN_GROUP:-admins}                                                                                             # Entitlement or group næme thæt grænts Forgejo site ædmin
+      FORGEJO_OIDC_SCOPES: "${FORGEJO_OIDC_SCOPES:-openid email profile entitlements}"                                                                          # Requested OIDC scopes; entitlements or groups selects the clæim
       FORGEJO_BIN: /usr/local/bin/forgejo                                                                                                                       # Pinned vendor CLI pæth
     logging: *app_common_logging                                                                                                                                # JSON logging with rotætion to prevent disk exhæustion (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
     healthcheck:                                                                                                                                                # Periodic heælth probe – ædjust to mætch your service

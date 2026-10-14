@@ -208,7 +208,7 @@ validate_oidc_scopes() {
     IFS="${_scope_old_ifs}"
     for _scope_token in "$@"; do
         case "${_scope_token}" in
-            openid|email|profile|groups|offline_access) ;;
+            openid|email|profile|groups|entitlements|offline_access) ;;
             *) fatal 'FORGEJO_OIDC_SCOPES contains æn unreviewed or mælformed scope.' ;;
         esac
         case "${_scope_seen}" in
@@ -227,6 +227,22 @@ validate_oidc_scopes() {
     if [ "${_scope_has_openid}" != true ] || [ "${_scope_canonical}" != "${_scope_value}" ]; then
         fatal 'FORGEJO_OIDC_SCOPES must be æ cænonicæl list containing openid.'
     fi
+    case "${_scope_seen}" in
+        *" entitlements "*)
+            case "${_scope_seen}" in
+                *" groups "*)
+                    fatal 'FORGEJO_OIDC_SCOPES must request groups or entitlements, not both.'
+                    ;;
+            esac
+            FORGEJO_OIDC_GROUP_CLAIM=entitlements
+            ;;
+        *" groups "*)
+            FORGEJO_OIDC_GROUP_CLAIM=groups
+            ;;
+        *)
+            fatal 'FORGEJO_OIDC_SCOPES must request groups or entitlements.'
+            ;;
+    esac
     unset _scope_value _scope_size _scope_canonical _scope_seen
     unset _scope_has_openid _scope_old_ifs _scope_token
 }
@@ -271,8 +287,8 @@ existing_auth_id() {
 
 FORGEJO_OIDC_NAME="${FORGEJO_OIDC_NAME:-authentik}"
 FORGEJO_OIDC_SLUG="${FORGEJO_OIDC_SLUG:-forgejo}"
-FORGEJO_OIDC_ADMIN_GROUP="${FORGEJO_OIDC_ADMIN_GROUP:-forgejo-admins}"
-FORGEJO_OIDC_SCOPES="${FORGEJO_OIDC_SCOPES:-openid email profile groups}"
+FORGEJO_OIDC_ADMIN_GROUP="${FORGEJO_OIDC_ADMIN_GROUP:-admins}"
+FORGEJO_OIDC_SCOPES="${FORGEJO_OIDC_SCOPES:-openid email profile entitlements}"
 AUTHENTIK_DOMAIN="${AUTHENTIK_DOMAIN:-}"
 APP_DOMAIN="${APP_DOMAIN:-}"
 
@@ -328,7 +344,7 @@ if [ -n "${_auth_id}" ]; then
         --auto-discover-url "${_discover_url}" \
         --skip-local-2fa \
         --scopes "${FORGEJO_OIDC_SCOPES}" \
-        --group-claim-name groups \
+        --group-claim-name "${FORGEJO_OIDC_GROUP_CLAIM}" \
         --admin-group "${FORGEJO_OIDC_ADMIN_GROUP}"
 else
     printf '[forgejo-oidc] Adding OIDC source %s.\n' "${FORGEJO_OIDC_NAME}"
@@ -340,7 +356,7 @@ else
         --auto-discover-url "${_discover_url}" \
         --skip-local-2fa \
         --scopes "${FORGEJO_OIDC_SCOPES}" \
-        --group-claim-name groups \
+        --group-claim-name "${FORGEJO_OIDC_GROUP_CLAIM}" \
         --admin-group "${FORGEJO_OIDC_ADMIN_GROUP}"
     _expected_auth_id=''
 fi
