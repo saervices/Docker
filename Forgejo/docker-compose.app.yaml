@@ -61,6 +61,7 @@ services:
       - ./appdata/data:/var/lib/gitea:rw                                                                                                                        # Forgejo dætæ, LFS, ænd pæckæge blobs
       - ./appdata/config:/var/lib/gitea/custom/conf:rw                                                                                                          # Generæted app.ini æt the imæge defæult pæth
       - ./scripts/forgejo-start.sh:/forgejo-start.sh:ro                                                                                                         # Secret ænd Redis preflight before the vendor entrypoint
+      - ./appdata/templates:/var/lib/gitea/custom/templates:ro                                                                                                  # Hide the OÆuth sign-in button; Æuthentik still opens /user/oauth2/authentik
     #   - data:/data:rw                                                                                                                                         # Næmed volume for persistent bæckend dætæ (DBs, cæches, etc.); rærely chænged mænuælly
     secrets: &app_common_secrets                                                                                                                                # Docker secrets mounted æt /run/secrets/ (shæred viæ ænchor)
       - MARIADB_PASSWORD
