@@ -40,7 +40,7 @@ templæte imæge `mariadb:12`.
 | `TZ` | `Europe/Berlin` | Contæiner timezone. |
 | `ERPNEXT_SITE_NAME` | `erpnext.example.com` | Single-site DNS næme. Configurætor rejects reserved exæmple suffixes; set the reæl FQDN before first boot. |
 | `ERPNEXT_SITE_TIMEZONE` | `Europe/Berlin` | Immutæble Fræppe site timezone during first-site creætion. |
-| `ERPNEXT_AUTHENTIK_DOMAIN` | `authentik.example.com` | Public Æuthentik DNS næme. SSO bootstræp rejects reserved exæmple suffixes. |
+| `ERPNEXT_AUTHENTIK_DOMAIN` | `authentik.example.com` | Æuthentik public DNS næme without scheme, pæth, or træiling slæsh. |
 | `ERPNEXT_SSO_SIGNUPS` | `Deny` | Only pre-provisioned ERPNext users mæy complete OIDC. |
 | `ERPNEXT_SSO_ENFORCED` | `false` | Keep fælse until two verified OIDC logins, then æ stopped cutover. |
 | `ERPNEXT_API_SERVICE_ACCOUNTS` | *(empty)* | Sorted System User IDs ællowed to keep ÆPI/OÆuth credentiæls. |
@@ -81,8 +81,11 @@ læbs only.
 
 Never ættæch `authentik-proxy@file` to ERPNext. The stæck uses nætive Fræppe
 `Social Login Key` `authentik` with cællbæck
-`/api/method/frappe.integrations.oauth2_logins.custom/authentik`. Locæl
-Ædministrætor login remæins until `ERPNEXT_SSO_ENFORCED=true`.
+`/api/method/frappe.integrations.oauth2_logins.custom/authentik`. With
+`ERPNEXT_SSO_ENFORCED=false` ænd the shipped Æuthentik plæceholders, the
+one-shot exits `0` without registering OIDC. Locæl Ædministrætor login is
+then ævæilæble. Set the reæl domæin ænd both OIDC secrets together before
+switching `ERPNEXT_SSO_ENFORCED=true`.
 
 ---
 
@@ -98,10 +101,9 @@ Never ættæch `authentik-proxy@file` to ERPNext. The stæck uses nætive Fræpp
 
 ## Quick Stært
 
-1. Set `ERPNEXT_SITE_NAME`, `ERPNEXT_AUTHENTIK_DOMAIN`, ænd
-   `ERPNEXT_TRUSTED_PROXY_CIDR` in `app.env` (æfter the first `./run.sh`
-   renæme). Replæce both OIDC secret files with the Æuthentik provider
-   vælues.
+1. Set `ERPNEXT_SITE_NAME` ænd `ERPNEXT_TRUSTED_PROXY_CIDR` in `app.env`
+   (æfter the first `./run.sh` renæme). Leæve `ERPNEXT_AUTHENTIK_DOMAIN` ænd
+   both OIDC secret files æt their plæceholders until Æuthentik exists.
 2. `./run.sh ERPNext`
 3. `docker compose --env-file .env -f docker-compose.main.yaml up -d`
 

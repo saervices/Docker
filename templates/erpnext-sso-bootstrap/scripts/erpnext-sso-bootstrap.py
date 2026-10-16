@@ -176,6 +176,80 @@ def require_host_sso_enforced():
     fail("ERPNEXT_SSO_ENFORCED must be exactly true or false")
 
 
+AUTHENTIK_DOMAIN_PATTERN = re.compile(
+    r"(?=.{1,253}\Z)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?"
+)
+
+
+def secret_presence(path, label):
+    flags = os.O_RDONLY | os.O_NONBLOCK
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    try:
+        descriptor = os.open(path, flags)
+    except OSError as error:
+        raise RuntimeError(f"{label} is unreadable") from error
+    try:
+        metadata = os.fstat(descriptor)
+        if not stat.S_ISREG(metadata.st_mode) or metadata.st_size > MAX_SECRET_BYTES:
+            fail(f"{label} must be a bounded regular file")
+        payload = os.read(descriptor, MAX_SECRET_BYTES + 1)
+    finally:
+        os.close(descriptor)
+    if len(payload) != metadata.st_size:
+        fail(f"{label} changed while it was read")
+    if payload == b"CHANGE_ME":
+        return "absent"
+    return "present"
+
+
+def authentik_domain_presence(value):
+    if value == "":
+        return "absent"
+    if (
+        value != value.strip()
+        or not AUTHENTIK_DOMAIN_PATTERN.fullmatch(value)
+        or any(unicodedata.category(char).startswith("C") for char in value)
+    ):
+        fail("ERPNEXT_AUTHENTIK_DOMAIN is missing or invalid")
+    try:
+        reject_reserved_domain(value, "ERPNEXT_AUTHENTIK_DOMAIN")
+    except RuntimeError:
+        return "absent"
+    return "present"
+
+
+def resolve_oidc_configuration(
+    host_sso_enforced,
+    client_id_path="/run/secrets/ERPNEXT_OIDC_CLIENT_ID",
+    client_secret_path="/run/secrets/ERPNEXT_OIDC_CLIENT_SECRET",
+):
+    domain = os.environ.get("ERPNEXT_AUTHENTIK_DOMAIN", "")
+    states = (
+        authentik_domain_presence(domain),
+        secret_presence(client_id_path, "OIDC client ID"),
+        secret_presence(client_secret_path, "OIDC client secret"),
+    )
+    if states == ("absent", "absent", "absent"):
+        if host_sso_enforced:
+            fail(
+                "ERPNEXT_SSO_ENFORCED=true requires a real Authentik domain "
+                "and both OIDC secrets"
+            )
+        return None
+    if "absent" in states:
+        fail(
+            "Authentik OIDC configuration is partial; set the domain and both "
+            "OIDC secrets together, or leave all three unconfigured"
+        )
+    reject_reserved_domain(domain, "ERPNEXT_AUTHENTIK_DOMAIN")
+    return (
+        domain,
+        read_secret(client_id_path, "OIDC client ID"),
+        read_secret(client_secret_path, "OIDC client secret"),
+    )
+
+
 def parse_api_service_accounts(raw_value):
     if raw_value == "":
         return frozenset()
@@ -570,18 +644,20 @@ def main():
         r"(?=.{1,253}\Z)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?",
     )
     reject_reserved_domain(site_name, "ERPNEXT_SITE_NAME")
-    authentik_domain = require_env(
-        "ERPNEXT_AUTHENTIK_DOMAIN",
-        r"(?=.{1,253}\Z)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?",
-    )
-    reject_reserved_domain(authentik_domain, "ERPNEXT_AUTHENTIK_DOMAIN")
     sign_ups = require_env("ERPNEXT_SSO_SIGNUPS", r"Deny")
     host_sso_enforced = require_host_sso_enforced()
     api_service_accounts = parse_api_service_accounts(
         os.environ.get("ERPNEXT_API_SERVICE_ACCOUNTS", "")
     )
-    client_id = read_secret("/run/secrets/ERPNEXT_OIDC_CLIENT_ID", "OIDC client ID")
-    client_secret = read_secret("/run/secrets/ERPNEXT_OIDC_CLIENT_SECRET", "OIDC client secret")
+    configured = resolve_oidc_configuration(host_sso_enforced)
+    if configured is None:
+        print(
+            "[INFO] Authentik OIDC is not configured; username/password login stays available",
+            flush=True,
+        )
+        print("[OK] ERPNext local login is ready without Authentik", flush=True)
+        return
+    authentik_domain, client_id, client_secret = configured
     authentik_origin = f"https://{authentik_domain}"
     redirect_url = "/api/method/frappe.integrations.oauth2_logins.custom/authentik"
     expected = {

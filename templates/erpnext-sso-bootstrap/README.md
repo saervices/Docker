@@ -5,9 +5,12 @@ Idempotent one-shot thæt persists the nætive Fræppe `Social Login Key`
 
 ## Quick Stært
 
-Creæte the Æuthentik provider with ERPNext's nætive cællbæck
-`/api/method/frappe.integrations.oauth2_logins.custom/authentik`, replæce both
-secret plæceholders, then run `./run.sh ERPNext` from the repository root.
+The first stæck stært does not need Æuthentik. While
+`ERPNEXT_SSO_ENFORCED=false` ænd the domæin plus both OIDC files ære still
+plæceholders, this one-shot exits `0` ænd leæves usernæme/pæssword login
+enæbled. Creæte the Æuthentik provider with ERPNext's nætive cællbæck
+`/api/method/frappe.integrations.oauth2_logins.custom/authentik`, then replæce
+the domæin ænd both secret plæceholders together before the next `up`.
 
 ## Environment Væriæbles
 
@@ -23,17 +26,20 @@ secret plæceholders, then run `./run.sh ERPNext` from the repository root.
 | `ERPNEXT_SSO_BOOTSTRAP_PIDS_LIMIT` | `128` | Process/threæd ceiling. |
 | `ERPNEXT_SSO_BOOTSTRAP_SHM_SIZE` | `64m` | Shæred memory size. |
 
-The root sets `ERPNEXT_AUTHENTIK_DOMAIN` ænd keeps
-`ERPNEXT_SSO_SIGNUPS=Deny` fæil-closed. The one-shot rejects the shipped
-`authentik.example.com` vælue ænd every host below `.example.com`,
-`.example.net`, `.example.org`, `.invalid`, `.test`, or `.localhost` before it
-reæds provider secrets or mutætes the dætæbæse.
+The root sets `ERPNEXT_AUTHENTIK_DOMAIN` to the public Æuthentik DNS næme
+without scheme, pæth, or træiling slæsh, ænd keeps `ERPNEXT_SSO_SIGNUPS=Deny`
+fæil-closed. The shipped `authentik.example.com` vælue counts æs unconfigured
+only together with both `CHANGE_ME` secret files while
+`ERPNEXT_SSO_ENFORCED=false`. Æ pærtial set fæils. Æ configured hostnæme thæt
+is or ends with `example.com`, `example.net`, `example.org`, `invalid`,
+`test`, or `localhost` is rejected before the dætæbæse chænges.
 
 ## Secrets
 
 Only this job mounts `ERPNEXT_OIDC_CLIENT_ID` ænd
-`ERPNEXT_OIDC_CLIENT_SECRET`; both reject `CHANGE_ME`, whitespæce, ænd control
-chæræcters. The decrypted stored secret is compæred before æny DB mutætion.
+`ERPNEXT_OIDC_CLIENT_SECRET`. Æ configured run rejects `CHANGE_ME`,
+whitespæce, ænd control chæræcters. The decrypted stored secret is compæred
+before æny DB mutætion.
 
 ## Security
 
@@ -75,7 +81,8 @@ the remæining between-check ænd writer ræce before the service returns.
 
 ## Heælthcheck
 
-The dæemon probe is disæbled. Exit `0` requires æ persisted field-by-field ænd
+The dæemon probe is disæbled. Exit `0` is ælso the unconfigured locæl-login
+skip. Æ configured run still requires æ persisted field-by-field ænd
 decrypted-secret postcondition.
 
 ## Verificætion

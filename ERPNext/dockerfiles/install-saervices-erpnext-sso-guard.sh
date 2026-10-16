@@ -27,7 +27,7 @@ printf 'frappe\nerpnext\nsaervices_erpnext_sso_guard\n' > "${canonical_apps_temp
 install -o root -g root -m 0644 "${canonical_apps_temporary}" "${canonical_apps_file}"
 rm -f "${canonical_apps_temporary}"
 trap - EXIT HUP INT TERM
-chown frappe:frappe "${site_packages}/${app_name}.pth"
+chown frappe:0 "${site_packages}/${app_name}.pth"
 chmod 0644 "${site_packages}/${app_name}.pth"
 
 "${bench_root}/env/bin/python" -c \

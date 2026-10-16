@@ -297,6 +297,53 @@ class FailClosedFixtureTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "unset or non-canonical"):
                 self.sso.read_secret(str(secret), "OIDC client ID")
 
+    def test_unconfigured_oidc_stays_optional(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="erpnext-oidc.", dir="/tmp") as raw:
+            client_id = Path(raw) / "ERPNEXT_OIDC_CLIENT_ID"
+            client_secret = Path(raw) / "ERPNEXT_OIDC_CLIENT_SECRET"
+            client_id.write_text("CHANGE_ME", encoding="utf-8")
+            client_secret.write_text("CHANGE_ME", encoding="utf-8")
+            os.chmod(client_id, 0o600)
+            os.chmod(client_secret, 0o600)
+            previous = os.environ.get("ERPNEXT_AUTHENTIK_DOMAIN")
+            os.environ["ERPNEXT_AUTHENTIK_DOMAIN"] = "authentik.example.com"
+            try:
+                self.assertIsNone(
+                    self.sso.resolve_oidc_configuration(
+                        False, str(client_id), str(client_secret)
+                    )
+                )
+                with self.assertRaisesRegex(RuntimeError, "SSO_ENFORCED=true"):
+                    self.sso.resolve_oidc_configuration(
+                        True, str(client_id), str(client_secret)
+                    )
+            finally:
+                if previous is None:
+                    os.environ.pop("ERPNEXT_AUTHENTIK_DOMAIN", None)
+                else:
+                    os.environ["ERPNEXT_AUTHENTIK_DOMAIN"] = previous
+
+    def test_partial_oidc_stays_closed(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="erpnext-oidc.", dir="/tmp") as raw:
+            client_id = Path(raw) / "ERPNEXT_OIDC_CLIENT_ID"
+            client_secret = Path(raw) / "ERPNEXT_OIDC_CLIENT_SECRET"
+            client_id.write_text("erpnext-client", encoding="utf-8")
+            client_secret.write_text("CHANGE_ME", encoding="utf-8")
+            os.chmod(client_id, 0o600)
+            os.chmod(client_secret, 0o600)
+            previous = os.environ.get("ERPNEXT_AUTHENTIK_DOMAIN")
+            os.environ["ERPNEXT_AUTHENTIK_DOMAIN"] = "authentik.example.com"
+            try:
+                with self.assertRaisesRegex(RuntimeError, "partial"):
+                    self.sso.resolve_oidc_configuration(
+                        False, str(client_id), str(client_secret)
+                    )
+            finally:
+                if previous is None:
+                    os.environ.pop("ERPNEXT_AUTHENTIK_DOMAIN", None)
+                else:
+                    os.environ["ERPNEXT_AUTHENTIK_DOMAIN"] = previous
+
     def test_site_bootstrap_rejects_change_me_admin_password(self) -> None:
         with tempfile.TemporaryDirectory(prefix="erpnext-admin.", dir="/tmp") as raw:
             secret = Path(raw) / "ERPNEXT_ADMIN_PASSWORD"
