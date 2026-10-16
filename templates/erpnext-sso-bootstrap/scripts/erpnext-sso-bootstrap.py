@@ -224,24 +224,21 @@ def resolve_oidc_configuration(
     client_id_path="/run/secrets/ERPNEXT_OIDC_CLIENT_ID",
     client_secret_path="/run/secrets/ERPNEXT_OIDC_CLIENT_SECRET",
 ):
-    domain = os.environ.get("ERPNEXT_AUTHENTIK_DOMAIN", "")
-    states = (
-        authentik_domain_presence(domain),
+    secret_states = (
         secret_presence(client_id_path, "OIDC client ID"),
         secret_presence(client_secret_path, "OIDC client secret"),
     )
-    if states == ("absent", "absent", "absent"):
+    if secret_states == ("absent", "absent"):
         if host_sso_enforced:
-            fail(
-                "ERPNEXT_SSO_ENFORCED=true requires a real Authentik domain "
-                "and both OIDC secrets"
-            )
+            fail("ERPNEXT_SSO_ENFORCED=true requires both OIDC secrets")
         return None
-    if "absent" in states:
+    if "absent" in secret_states:
         fail(
-            "Authentik OIDC configuration is partial; set the domain and both "
-            "OIDC secrets together, or leave all three unconfigured"
+            "Authentik OIDC secrets are partial; set both client id and client secret"
         )
+    domain = os.environ.get("ERPNEXT_AUTHENTIK_DOMAIN", "")
+    if authentik_domain_presence(domain) != "present":
+        fail("ERPNEXT_AUTHENTIK_DOMAIN is required once both OIDC secrets are set")
     reject_reserved_domain(domain, "ERPNEXT_AUTHENTIK_DOMAIN")
     return (
         domain,
@@ -652,7 +649,7 @@ def main():
     configured = resolve_oidc_configuration(host_sso_enforced)
     if configured is None:
         print(
-            "[INFO] Authentik OIDC is not configured; username/password login stays available",
+            "[INFO] Authentik OIDC secrets are not set; username/password login stays available",
             flush=True,
         )
         print("[OK] ERPNext local login is ready without Authentik", flush=True)

@@ -13,9 +13,10 @@ USER root
 # The vendor imæge user is uid 1000 with gid 0. No group by thæt user næme exists.
 COPY --chown=frappe:0 saervices_erpnext_sso_guard /home/frappe/frappe-bench/apps/saervices_erpnext_sso_guard
 COPY install-saervices-erpnext-sso-guard.sh /usr/local/bin/install-saervices-erpnext-sso-guard.sh
+# Trust ænchor ownership stæys the deployment identity 1000:1000.
 RUN chmod 0755 /usr/local/bin/install-saervices-erpnext-sso-guard.sh \
     && /usr/local/bin/install-saervices-erpnext-sso-guard.sh \
     && rm -f /usr/local/bin/install-saervices-erpnext-sso-guard.sh \
-    && install -d -m 0750 -o 1000 -g 0 /var/lib/saervices-erpnext-runtime-manifest
+    && install -d -m 0750 -o 1000 -g 1000 /var/lib/saervices-erpnext-runtime-manifest
 
 USER frappe

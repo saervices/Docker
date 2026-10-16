@@ -306,13 +306,14 @@ class FailClosedFixtureTests(unittest.TestCase):
             os.chmod(client_id, 0o600)
             os.chmod(client_secret, 0o600)
             previous = os.environ.get("ERPNEXT_AUTHENTIK_DOMAIN")
-            os.environ["ERPNEXT_AUTHENTIK_DOMAIN"] = "authentik.example.com"
             try:
-                self.assertIsNone(
-                    self.sso.resolve_oidc_configuration(
-                        False, str(client_id), str(client_secret)
+                for domain in ("authentik.example.com", "auth.openso.de", ""):
+                    os.environ["ERPNEXT_AUTHENTIK_DOMAIN"] = domain
+                    self.assertIsNone(
+                        self.sso.resolve_oidc_configuration(
+                            False, str(client_id), str(client_secret)
+                        )
                     )
-                )
                 with self.assertRaisesRegex(RuntimeError, "SSO_ENFORCED=true"):
                     self.sso.resolve_oidc_configuration(
                         True, str(client_id), str(client_secret)
@@ -332,7 +333,7 @@ class FailClosedFixtureTests(unittest.TestCase):
             os.chmod(client_id, 0o600)
             os.chmod(client_secret, 0o600)
             previous = os.environ.get("ERPNEXT_AUTHENTIK_DOMAIN")
-            os.environ["ERPNEXT_AUTHENTIK_DOMAIN"] = "authentik.example.com"
+            os.environ["ERPNEXT_AUTHENTIK_DOMAIN"] = "auth.openso.de"
             try:
                 with self.assertRaisesRegex(RuntimeError, "partial"):
                     self.sso.resolve_oidc_configuration(

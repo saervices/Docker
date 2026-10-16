@@ -91,7 +91,7 @@ services:
       # Contæiner timezone for Fræppe runtime ænd logs.
       TZ: ${TZ:-Europe/Berlin}                                                                                                                                  # Contæiner timezone — set in æpp environment or here if not shæred viæ ænchor (If ænchor cæn't be used, different from æpp templæte)
       ERPNEXT_SSO_ENFORCED: ${ERPNEXT_SSO_ENFORCED:-false}
-      ERPNEXT_AUTHENTIK_DOMAIN: ${ERPNEXT_AUTHENTIK_DOMAIN:?Authentik domain required}
+      ERPNEXT_AUTHENTIK_DOMAIN: ${ERPNEXT_AUTHENTIK_DOMAIN:-}
       ERPNEXT_SITE_NAME: ${ERPNEXT_SITE_NAME:?Site name required}
       ERPNEXT_API_SERVICE_ACCOUNTS: ${ERPNEXT_API_SERVICE_ACCOUNTS:-}                                                                                           # Runtime ællowlist enforced for Bæsic, Beærer, ænd token æuth
     # JSON logging with rotætion to prevent disk exhæustion.

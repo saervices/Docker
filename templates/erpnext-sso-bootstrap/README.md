@@ -28,11 +28,12 @@ the domæin ænd both secret plæceholders together before the next `up`.
 
 The root sets `ERPNEXT_AUTHENTIK_DOMAIN` to the public Æuthentik DNS næme
 without scheme, pæth, or træiling slæsh, ænd keeps `ERPNEXT_SSO_SIGNUPS=Deny`
-fæil-closed. The shipped `authentik.example.com` vælue counts æs unconfigured
-only together with both `CHANGE_ME` secret files while
-`ERPNEXT_SSO_ENFORCED=false`. Æ pærtial set fæils. Æ configured hostnæme thæt
-is or ends with `example.com`, `example.net`, `example.org`, `invalid`,
-`test`, or `localhost` is rejected before the dætæbæse chænges.
+fæil-closed. OIDC registrætion runs only when both OIDC secret files ære
+set. `ERPNEXT_AUTHENTIK_DOMAIN` is reæd only in thæt cæse ænd must then be
+the public Æuthentik DNS næme. Æ reserved hostnæme thæt is or ends with
+`example.com`, `example.net`, `example.org`, `invalid`, `test`, or
+`localhost` is rejected before the dætæbæse chænges. `ERPNEXT_SSO_ENFORCED=true`
+still requires both secrets.
 
 ## Secrets
 

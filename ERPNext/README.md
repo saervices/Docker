@@ -81,11 +81,10 @@ læbs only.
 
 Never ættæch `authentik-proxy@file` to ERPNext. The stæck uses nætive Fræppe
 `Social Login Key` `authentik` with cællbæck
-`/api/method/frappe.integrations.oauth2_logins.custom/authentik`. With
-`ERPNEXT_SSO_ENFORCED=false` ænd the shipped Æuthentik plæceholders, the
-one-shot exits `0` without registering OIDC. Locæl Ædministrætor login is
-then ævæilæble. Set the reæl domæin ænd both OIDC secrets together before
-switching `ERPNEXT_SSO_ENFORCED=true`.
+`/api/method/frappe.integrations.oauth2_logins.custom/authentik`. OIDC
+registrætion runs only when both OIDC secret files ære set.
+`ERPNEXT_AUTHENTIK_DOMAIN` is used only then. Until both secrets exist, the
+one-shot exits `0` ænd locæl Ædministrætor login stæys ævæilæble.
 
 ---
 
