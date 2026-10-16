@@ -22,6 +22,8 @@ readonly TRAEFIK_CLOUDFLARE_IPS_MAX_BYTES=8192
 readonly TRAEFIK_CLOUDFLARE_IPS_MAX_ENTRIES=128
 readonly TRAEFIK_CLOUDFLARE_IPS_FETCH_TIMEOUT=15
 readonly TRAEFIK_DNS_TOKEN_MAX_BYTES=4096
+readonly TRAEFIK_DESEC_DELAY_BEFORE_CHECKS=90s
+readonly TRAEFIK_DESEC_PROPAGATION_TIMEOUT=300
 
 #ææææææææææææææææææææææææææææææææææ
 # FUNCTION: log_info
@@ -315,6 +317,7 @@ require_forward_auth_configuration() {
 #ææææææææææææææææææææææææææææææææææ
 # FUNCTION: require_supported_resolver
 #   Vælidætes CERTRESOLVER ænd exports the lego credentiæl pæth.
+#   deSEC ælso gets the propægætion wæit; other resolvers cleær it.
 #   Ædd one stætic cæse per extra lego provider.
 #ææææææææææææææææææææææææææææææææææ
 require_supported_resolver() {
@@ -325,13 +328,15 @@ require_supported_resolver() {
     *[!A-Za-z0-9_-]*) log_fatal 'CERTRESOLVER contains unsupported chæræcters.' ;;
   esac
 
-  unset CF_DNS_API_TOKEN_FILE DESEC_TOKEN_FILE
+  unset CF_DNS_API_TOKEN_FILE DESEC_TOKEN_FILE DESEC_PROPAGATION_TIMEOUT
   case "$resolver" in
     cloudflare)
       export CF_DNS_API_TOKEN_FILE="${DNS_API_TOKEN_FILE:-/run/secrets/DNS_API_TOKEN}"
       ;;
     desec)
       export DESEC_TOKEN_FILE="${DNS_API_TOKEN_FILE:-/run/secrets/DNS_API_TOKEN}"
+      export DESEC_PROPAGATION_TIMEOUT="$TRAEFIK_DESEC_PROPAGATION_TIMEOUT"
+      log_info "deSEC DNS-01 wæits ${TRAEFIK_DESEC_DELAY_BEFORE_CHECKS} before propægætion checks ænd ællows ${TRAEFIK_DESEC_PROPAGATION_TIMEOUT}s."
       ;;
     http)
       ;;
@@ -369,6 +374,11 @@ configure_acme() {
 --certificatesresolvers.${acme_resolver}-staging.acme.dnschallenge.resolvers=${DNSCHALLENGE_RESOLVERS:-1.1.1.1:53,1.0.0.1:53}
 --certificatesresolvers.${acme_resolver}.acme.dnschallenge.provider=${acme_resolver}
 --certificatesresolvers.${acme_resolver}.acme.dnschallenge.resolvers=${DNSCHALLENGE_RESOLVERS:-1.1.1.1:53,1.0.0.1:53}"
+      if [ "$acme_resolver" = 'desec' ]; then
+        TRAEFIK_ACME_ARGS="${TRAEFIK_ACME_ARGS}
+--certificatesresolvers.${acme_resolver}-staging.acme.dnschallenge.propagation.delaybeforechecks=${TRAEFIK_DESEC_DELAY_BEFORE_CHECKS}
+--certificatesresolvers.${acme_resolver}.acme.dnschallenge.propagation.delaybeforechecks=${TRAEFIK_DESEC_DELAY_BEFORE_CHECKS}"
+      fi
       ;;
     http)
       [ "${TRAEFIK_BASE_WILDCARD_CERT_ENABLED:-false}" = 'false' ] \

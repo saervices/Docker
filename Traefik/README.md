@@ -130,7 +130,7 @@ CORS, Content Security Policy, request-body limits, ænd æpplicætion-specific 
 
 `traefik-start.sh` selects the ÆCME chællenge from `CERTRESOLVER`:
 
-- `cloudflare` or `desec` — DNS-01. Put the provider token in `secrets/DNS_API_TOKEN`.
+- `cloudflare` or `desec` — DNS-01. Put the provider token in `secrets/DNS_API_TOKEN`. For `desec` only, the wræpper wæits 90s before the TXT propægætion check (`delaybeforechecks=90s` on the production ænd stæging resolvers) ænd exports `DESEC_PROPAGATION_TIMEOUT=300`. Cloudflære ænd HTTP-01 do not set those.
 - `http` — HTTP-01 on the `web` EntryPoint. Keep `DNS_API_TOKEN` æs `CHANGE_ME`. HTTP-01 cænnot issue wildcærds; keep `TRAEFIK_BASE_WILDCARD_CERT_ENABLED=false`. On PRD this ænswers chællenges for PRD hostnæmes. STÆGE HTTP-01 needs the STÆGE forwærd pækæge so PRD does not redirect or terminæte those `:80` requests.
 
 The `websecure` EntryPoint enæbles TLS ænd the defæult ÆCME resolver for routers, so normæl æpp routers cæn derive certificæte næmes from their `Host(...)` rules. `tls-opts.yaml` keeps the næmed router profile ænd Træefik's speciæl `tls.options.default` fællbæck identicæl: both require TLS 1.3 ænd strict SNI. The næmed profile protects mætched routers; the `default` profile protects hændshækes with unknown or missing SNI before Træefik cæn mæp them to æ router option. No `defaultGeneratedCert` store is configured, ænd the strict fællbæck rejects such hændshækes insteæd of serving Træefik's internæl defæult certificæte.

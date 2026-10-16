@@ -90,6 +90,7 @@ printf 'TRAFFIK_ARGV\n'
 printf '%s\n' "$@"
 printf 'CF_DNS_API_TOKEN_FILE=%s\n' "${CF_DNS_API_TOKEN_FILE:-}"
 printf 'DESEC_TOKEN_FILE=%s\n' "${DESEC_TOKEN_FILE:-}"
+printf 'DESEC_PROPAGATION_TIMEOUT=%s\n' "${DESEC_PROPAGATION_TIMEOUT:-}"
 printf 'TRAEFIK_STAGE_FORWARD_HTTP_URL=%s\n' "${TRAEFIK_STAGE_FORWARD_HTTP_URL:-}"
 exit 0
 EOF
@@ -129,11 +130,13 @@ fi
 # CLOUDFLÆRE DNS-01
 #ææææææææææææææææææææææææææææææææææ
 write_token 'cf-dns-token-value-1'
-CERTRESOLVER=cloudflare CLOUDFLARE_IPS=false LOCAL_IPS='' \
+CERTRESOLVER=cloudflare CLOUDFLARE_IPS=false LOCAL_IPS='' DESEC_PROPAGATION_TIMEOUT=999 \
   run_wrapper cloudflare-dns && \
   grep -q -- '--certificatesresolvers.cloudflare.acme.dnschallenge.provider=cloudflare' "${TEST_ROOT}/cloudflare-dns.out" && \
   grep -q -- "CF_DNS_API_TOKEN_FILE=${TEST_ROOT}/secrets/DNS_API_TOKEN" "${TEST_ROOT}/cloudflare-dns.out" && \
   grep -qx -- 'DESEC_TOKEN_FILE=' "${TEST_ROOT}/cloudflare-dns.out" && \
+  grep -qx -- 'DESEC_PROPAGATION_TIMEOUT=' "${TEST_ROOT}/cloudflare-dns.out" && \
+  ! grep -q -- 'delaybeforechecks' "${TEST_ROOT}/cloudflare-dns.out" && \
   ! grep -q -- 'forwardedheaders.trustedips' "${TEST_ROOT}/cloudflare-dns.out" && \
   pass cloudflare-dns || fail cloudflare-dns
 
@@ -144,7 +147,10 @@ write_token 'desec-token-value-1'
 CERTRESOLVER=desec CLOUDFLARE_IPS=false LOCAL_IPS='' \
   run_wrapper desec-dns && \
   grep -q -- '--certificatesresolvers.desec.acme.dnschallenge.provider=desec' "${TEST_ROOT}/desec-dns.out" && \
+  grep -q -- '--certificatesresolvers.desec.acme.dnschallenge.propagation.delaybeforechecks=90s' "${TEST_ROOT}/desec-dns.out" && \
+  grep -q -- '--certificatesresolvers.desec-staging.acme.dnschallenge.propagation.delaybeforechecks=90s' "${TEST_ROOT}/desec-dns.out" && \
   grep -q -- "DESEC_TOKEN_FILE=${TEST_ROOT}/secrets/DNS_API_TOKEN" "${TEST_ROOT}/desec-dns.out" && \
+  grep -qx -- 'DESEC_PROPAGATION_TIMEOUT=300' "${TEST_ROOT}/desec-dns.out" && \
   grep -qx -- 'CF_DNS_API_TOKEN_FILE=' "${TEST_ROOT}/desec-dns.out" && \
   pass desec-dns || fail desec-dns
 
@@ -156,6 +162,8 @@ CERTRESOLVER=http CLOUDFLARE_IPS=false LOCAL_IPS='' \
   run_wrapper http-ok && \
   grep -q -- '--certificatesresolvers.http.acme.httpchallenge.entrypoint=web' "${TEST_ROOT}/http-ok.out" && \
   ! grep -q -- 'dnschallenge.provider' "${TEST_ROOT}/http-ok.out" && \
+  ! grep -q -- 'delaybeforechecks' "${TEST_ROOT}/http-ok.out" && \
+  grep -qx -- 'DESEC_PROPAGATION_TIMEOUT=' "${TEST_ROOT}/http-ok.out" && \
   ! grep -q -- 'allowacmebypass' "${TEST_ROOT}/http-ok.out" && \
   pass http-ok || fail http-ok
 

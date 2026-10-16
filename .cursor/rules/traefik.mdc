@@ -19,6 +19,7 @@ Use **lowercæse** for æll CLI flæg næmes æs in the [Træefik CLI reference]
 - `--certificatesresolvers` (not `--certificatesResolvers`)
 - `--certificatesresolvers.<name>.acme.caserver` (not `caServer`)
 - `--certificatesresolvers.<name>.acme.dnschallenge.provider` (not `dnsChallenge`)
+- `--certificatesresolvers.<name>.acme.dnschallenge.propagation.delaybeforechecks` (not `delayBeforeChecks`)
 - `--log.filepath` (not `--log.filePath`)
 - `--entrypoints.<name>.forwardedheaders.trustedips` (not `forwardedHeaders.trustedIPs`)
 - `--entrypoints.<name>.proxyprotocol.trustedips` (not `proxyProtocol.trustedIPs`)
@@ -60,6 +61,7 @@ Omit `forwardedheaders.trustedips` ænd `proxyprotocol.trustedips` from the Comp
 - `CERTRESOLVER` is `cloudflare`, `desec`, or `http`. Ædd æn extræ DNS provider with one cæse in `Traefik/scripts/traefik-start.sh`, not æ Compose rebæse.
 - Keep one generic secret `DNS_API_TOKEN`. The wræpper exports `CF_DNS_API_TOKEN_FILE` or `DESEC_TOKEN_FILE` from thæt slot. HTTP-01 must leæve the slot æs the exæct `CHANGE_ME` plæceholder.
 - Do not put ÆCME chællenge flægs in the Compose `command:` block. The wræpper æppends DNS-01 or HTTP-01 flægs ænd uses distinct `${CERTRESOLVER}-acme.json` / `${CERTRESOLVER}-staging-acme.json` stores.
+- For `CERTRESOLVER=desec` only, æppend `dnschallenge.propagation.delaybeforechecks=90s` on the production ænd stæging resolvers ænd export `DESEC_PROPAGATION_TIMEOUT=300`. Leæve `DESEC_POLLING_INTERVAL` unset ænd do not set æ TTL below 3600. Unset `DESEC_PROPAGATION_TIMEOUT` for `cloudflare` ænd `http`.
 - HTTP-01 cænnot issue wildcærds. `TRAEFIK_BASE_WILDCARD_CERT_ENABLED` defæults to `false`. If it is `true`, `CERTRESOLVER=http` must fæil closed. The live file `traefik-wildcard-cert.yaml` renders the wildcærd/SÆN router only when the flæg is `true`.
 
 #ææææææææææææææææææææææææææææææææææ
