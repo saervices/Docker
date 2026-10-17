@@ -16,7 +16,6 @@ REDIS_SCAN_BATCH_SIZE = 256
 REDIS_DELETE_MAX_PASSES = 32
 PROVIDER_NAME = "Authentik"
 PROVIDER_KEY = "authentik"
-EXPECTED_APPS = frozenset({"frappe", "erpnext", "saervices_erpnext_sso_guard"})
 EXPECTED_AUTH_HOOK = (
     "saervices_erpnext_sso_guard.api_auth.enforce_api_service_account_allowlist"
 )
@@ -265,14 +264,20 @@ def parse_api_service_accounts(raw_value):
 
 def verify_exact_app_boundary(frappe):
     from saervices_erpnext_sso_guard.runtime_manifest import (
-        EXPECTED_APPS as MANIFEST_EXPECTED_APPS,
+        CANONICAL_APPS,
+        EXPECTED_APPS,
+        assert_installed_selection,
+        canonical_apps_payload,
+        require_enabled_dependencies,
+        resolve_enabled_apps,
     )
 
-    if MANIFEST_EXPECTED_APPS != EXPECTED_APPS:
+    if frozenset(CANONICAL_APPS) != EXPECTED_APPS:
         fail("ERPNext runtime-manifest application boundary drifted")
+    enabled = resolve_enabled_apps(os.environ)
     installed = list(frappe.get_installed_apps())
-    if len(installed) != len(EXPECTED_APPS) or set(installed) != EXPECTED_APPS:
-        fail("installed Frappe applications differ from the exact runtime set")
+    require_enabled_dependencies(enabled, installed)
+    assert_installed_selection(installed, enabled, installed)
     flags = os.O_RDONLY | os.O_NONBLOCK
     if hasattr(os, "O_NOFOLLOW"):
         flags |= os.O_NOFOLLOW
@@ -284,7 +289,7 @@ def verify_exact_app_boundary(frappe):
         payload = os.read(descriptor, 4097)
     finally:
         os.close(descriptor)
-    if payload != b"frappe\nerpnext\nsaervices_erpnext_sso_guard\n":
+    if payload != canonical_apps_payload():
         fail("Frappe apps.txt differs from the exact runtime application set")
 
 

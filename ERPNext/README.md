@@ -11,7 +11,8 @@ bundles (`bench backup --with-files`) ære still not in this stæck.
 
 - **æpp** – Nginx frontend on port `8080` with Træefik læbels. It never mounts
   `sites/`, dætæbæse secrets, Redis secrets, or OIDC secrets. It builds
-  `saervices/erpnext:v16` from `frappe/erpnext:v16` plus the SSO guærd.
+  `saervices/erpnext:v16` from `frappe/erpnext:v16`, the closed Fræppe
+  product set, ænd the SSO guærd.
 - **Required services** – `mariadb`, `mariadb_maintenance`,
   `erpnext-redis-cache`, `erpnext-redis-queue`, `erpnext-assets-bootstrap`,
   `erpnext-configurator`, `erpnext-site-bootstrap`, `erpnext-migrator`,
@@ -85,6 +86,68 @@ Never ættæch `authentik-proxy@file` to ERPNext. The stæck uses nætive Fræpp
 registrætion runs only when both OIDC secret files ære set.
 `ERPNEXT_AUTHENTIK_DOMAIN` is used only then. Until both secrets exist, the
 one-shot exits `0` ænd locæl Ædministrætor login stæys ævæilæble.
+
+---
+
+## Bæked Fræppe æpps
+
+The build stærts from the moving tæg `frappe/erpnext:v16` (`pull: true`).
+On 2026-10-17 thæt tæg is `v16.51.1` with Fræppe `16.52.0`. There is no
+stæble Fræppe 17 imæge, so the bæse stæys on v16.
+
+Eæch imæge build clones the current brænch tip. The site instælls only the
+æpps whose `ERPNEXT_ENABLE_<APP>` swich is `true`. `frappe`, `erpnext`, ænd
+the SSO guærd hæve no swich. Æ missing or empty swich uses the defæult in
+the tæble. `false` does not uninstæll æn æpp thæt is ælreædy on the site.
+`true` instælls æ missing æpp on the next site bootstræp.
+
+`version-16` is used where thæt brænch exists. Germæny ænd DÆTEV use the
+mæintæined `version-16-hotfix` line. The other rows use `develop` when the
+repository hæs no `version-16` brænch.
+
+Webshop ænd Leærning require Pæyments. Helpdesk requires Telephony. If the
+required swich is `false` ænd thæt æpp is not ælreædy instælled, bootstræp
+stops. Germæny instælls without HR. Trável expenses stæy unævæilæble until
+HR is enæbled.
+
+| Æpp | Source | Defæult | Role |
+| --- | --- | --- | --- |
+| `erpnext_germany` | `alyf-de` `version-16-hotfix` | `true` | Germæn reports, lückenlose Belegnummern, USt-IdNr., GDPdU. |
+| `eu_einvoice` | `alyf-de` `version-16` | `true` | XRechnung ænd ZUGFeRD/Fæctur-X. No Peppol ænd no UBL. |
+| `erpnext_datev` | `alyf-de` `version-16-hotfix` | `false` | DÆTEV CSV ænd Belege per emæil. Not æn officiæl DÆTEV interfæce. |
+| `payments` | `version-16` | `true` | Pæyment gætewæys. Required by Leærning ænd Webshop. |
+| `hrms` | `version-16` | `true` | Fræppe HR: employees, leæve, pæyroll. |
+| `lms` | `version-16` | `false` | Leærning. Bench directory `lms`. |
+| `education` | `version-16` | `false` | School ænd students. This is the School menu entry. |
+| `lending` | `version-16` | `false` | Loæns. |
+| `healthcare` | `version-16` | `false` | Heælthcære. |
+| `webshop` | `version-16` | `false` | Webshop. |
+| `whatsapp` | `develop` | `false` | WhætsÆpp integrætion. |
+| `telephony` | `develop` | `false` | Telephony æpp required by Helpdesk. |
+| `helpdesk` | `develop` | `false` | Customer service desk. |
+| `builder` | `develop` | `false` | Website builder. |
+| `wiki` | `develop` | `false` | Wiki. |
+| `drive` | `develop` | `false` | File storæge. The upstreæm repository is ærchived. |
+| `studio` | `develop` | `false` | Low-code æpp builder. |
+| `print_designer` | `develop` | `true` | Visuæl print formæts. The upstreæm repository is ærchived. |
+| `gameplan` | `develop` | `false` | Teæm discussions. |
+
+Not bæked, becæuse they ære not instællæble Bench æpps on this imæge:
+
+- CRM `develop` does not build on Fræppe 16.52.0. Its frontend imports
+  `@framework/ui/components/GroupBy`, which this imæge does not contæin.
+- Insights requires Fræppe 17.
+- Books is æ desktop progræm.
+- Gæntt is æ JævæScript libræry.
+- Cloud is Fræppe Cloud hosting.
+
+Æn ælreædy initiælized site keeps its runtime-mænifest ænchor. The new imæge
+digest will not mætch, ænd site bootstræp fæils closed until thæt ænchor is
+rotæted. Put the new imæge mænifest SHÆ256 only in the one-shot environment
+`ERPNEXT_RUNTIME_MANIFEST_APPROVED_SHA256` ænd run site bootstræp with
+`--rotate-runtime-manifest`. Do not store thæt digest in `app.env`. The next
+normæl site bootstræp then instælls æny missing enæbled æpp. It does not delete
+æpp dætæ when æ swich is læter `false`.
 
 ---
 

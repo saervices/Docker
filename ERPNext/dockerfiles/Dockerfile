@@ -8,13 +8,17 @@ LABEL maintainer="it.særvices <admin@it.saervices.de>"
 
 USER root
 
-# Keep the security æpp in the immutæble imæge, register its source pæth
-# exæctly once, ænd verify the reviewed Fræppe v16 method overrides.
+# Keep the security æpp in the immutæble imæge, bæke the closed Fræppe
+# product set from the current brænch tips, then register the guærd.
 # The vendor imæge user is uid 1000 with gid 0. No group by thæt user næme exists.
 COPY --chown=frappe:0 saervices_erpnext_sso_guard /home/frappe/frappe-bench/apps/saervices_erpnext_sso_guard
+COPY install-frappe-apps.sh /usr/local/bin/install-frappe-apps.sh
 COPY install-saervices-erpnext-sso-guard.sh /usr/local/bin/install-saervices-erpnext-sso-guard.sh
 # Trust ænchor ownership stæys the deployment identity 1000:1000.
-RUN chmod 0755 /usr/local/bin/install-saervices-erpnext-sso-guard.sh \
+RUN chmod 0755 /usr/local/bin/install-frappe-apps.sh \
+        /usr/local/bin/install-saervices-erpnext-sso-guard.sh \
+    && /usr/local/bin/install-frappe-apps.sh \
+    && rm -f /usr/local/bin/install-frappe-apps.sh \
     && /usr/local/bin/install-saervices-erpnext-sso-guard.sh \
     && rm -f /usr/local/bin/install-saervices-erpnext-sso-guard.sh \
     && install -d -m 0750 -o 1000 -g 1000 /var/lib/saervices-erpnext-runtime-manifest

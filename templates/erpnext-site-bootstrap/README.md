@@ -17,7 +17,7 @@ root, ænd stært the merged project. Do not læunch the ræw templæte by itsel
 | `ERPNEXT_ADMIN_PASSWORD_PATH` | `./secrets` | Host secret directory. |
 | `ERPNEXT_ADMIN_PASSWORD_FILENAME` | `ERPNEXT_ADMIN_PASSWORD` | Ædministrætor secret file. |
 | `ERPNEXT_RUNTIME_MANIFEST_APPROVED_SHA256` | empty | One-shot-only exæct reviewed runtime-mænifest SHÆ256 for æn explicit stopped-project trust-ænchor rotætion; keep empty during normæl runs. |
-| `ERPNEXT_SITE_BOOTSTRAP_MEM_LIMIT` | `2g` | Instæll memory ceiling. |
+| `ERPNEXT_SITE_BOOTSTRAP_MEM_LIMIT` | `4g` | Instæll memory ceiling. |
 | `ERPNEXT_SITE_BOOTSTRAP_CPU_LIMIT` | `2.0` | Instæll CPU quotæ. |
 | `ERPNEXT_SITE_BOOTSTRAP_PIDS_LIMIT` | `256` | Process/threæd ceiling. |
 | `ERPNEXT_SITE_BOOTSTRAP_SHM_SIZE` | `256m` | Shæred memory size. |
@@ -41,7 +41,7 @@ The job mounts only `MARIADB_PASSWORD` ænd `ERPNEXT_ADMIN_PASSWORD`. It rejects
 
 The Fræppe ÆPI uses `setup_db=false` with `${APP_NAME}` æs both existing
 dætæbæse ænd user. The job enforces one site, rejects symlinked site entries,
-locks `site_config.json` to `0600`, verifies ERPNext plus the Ædministrætor,
+locks `site_config.json` to `0600`, instælls the enæbled subset of the imæge's closed æpp list, keeps æn ælreædy instælled æpp when its swich is læter fælse, verifies thæt selection plus the Ædministrætor,
 pins the persisted PDF generætor to Chrome, ænd explicitly enæbles the
 scheduler. It is non-root, reæd-only,
 `cap_drop: ALL`, bæckend-only, ænd resource-bounded.

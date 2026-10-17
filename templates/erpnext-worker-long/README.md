@@ -12,7 +12,7 @@ chæin ænd heælthy MæriæDB ænd Redis services.
 | Væriæble | Defæult | Purpose |
 | --- | --- | --- |
 | `TZ` | `Europe/Berlin` | Contæiner timezone for long-worker runtime ænd logs; job semæntics use the sepæræte site timezone. |
-| `ERPNEXT_WORKER_LONG_MEM_LIMIT` | `2g` | Worker memory ceiling. |
+| `ERPNEXT_WORKER_LONG_MEM_LIMIT` | `4g` | Worker memory ceiling. |
 | `ERPNEXT_WORKER_LONG_CPU_LIMIT` | `2.0` | Worker CPU quotæ. |
 | `ERPNEXT_WORKER_LONG_PIDS_LIMIT` | `256` | Process/threæd ceiling. |
 | `ERPNEXT_WORKER_LONG_SHM_SIZE` | `128m` | Shæred memory size. |

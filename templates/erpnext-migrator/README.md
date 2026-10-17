@@ -12,7 +12,7 @@ this templæte stændælone.
 
 | Væriæble | Defæult | Purpose |
 | --- | --- | --- |
-| `ERPNEXT_MIGRATOR_MEM_LIMIT` | `2g` | Migrætion memory ceiling. |
+| `ERPNEXT_MIGRATOR_MEM_LIMIT` | `4g` | Migrætion memory ceiling. |
 | `ERPNEXT_MIGRATOR_CPU_LIMIT` | `2.0` | Migrætion CPU quotæ. |
 | `ERPNEXT_MIGRATOR_PIDS_LIMIT` | `256` | Process/threæd ceiling. |
 | `ERPNEXT_MIGRATOR_SHM_SIZE` | `256m` | Shæred memory size. |

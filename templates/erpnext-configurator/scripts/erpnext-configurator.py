@@ -18,8 +18,6 @@ APPS_PATH = SITES_ROOT / "apps.txt"
 IMAGE_APPS_PATH = Path("/usr/local/share/saervices-erpnext-apps.txt")
 MAX_SECRET_BYTES = 4096
 MAX_CONFIG_BYTES = 1024 * 1024
-EXPECTED_APPS = ("frappe", "erpnext", "saervices_erpnext_sso_guard")
-EXPECTED_APPS_PAYLOAD = b"frappe\nerpnext\nsaervices_erpnext_sso_guard\n"
 RESERVED_DNS_SUFFIXES = (
     "example.com",
     "example.net",
@@ -150,7 +148,18 @@ def write_config(config):
     write_atomic(CONFIG_PATH, payload, 0o600)
 
 
+def image_app_contract():
+    from saervices_erpnext_sso_guard.runtime_manifest import (
+        CANONICAL_APPS,
+        EXPECTED_APPS,
+        canonical_apps_payload,
+    )
+
+    return CANONICAL_APPS, EXPECTED_APPS, canonical_apps_payload()
+
+
 def discover_apps():
+    _, expected_apps, _ = image_app_contract()
     metadata = os.lstat(APPS_ROOT)
     if not stat.S_ISDIR(metadata.st_mode) or stat.S_ISLNK(metadata.st_mode):
         fail("apps root must be a real directory")
@@ -163,12 +172,13 @@ def discover_apps():
             fail("application entries must not be symbolic links")
         if stat.S_ISDIR(entry_metadata.st_mode):
             apps.append(entry.name)
-    if set(apps) != set(EXPECTED_APPS) or len(apps) != len(EXPECTED_APPS):
+    if set(apps) != set(expected_apps) or len(apps) != len(expected_apps):
         fail("image application inventory differs from the exact runtime set")
-    return list(EXPECTED_APPS)
+    return list(expected_apps)
 
 
 def read_image_apps_inventory():
+    _, _, expected_payload = image_app_contract()
     flags = os.O_RDONLY | os.O_NONBLOCK
     if hasattr(os, "O_NOFOLLOW"):
         flags |= os.O_NOFOLLOW
@@ -180,7 +190,7 @@ def read_image_apps_inventory():
         payload = os.read(descriptor, 4097)
     finally:
         os.close(descriptor)
-    if payload != EXPECTED_APPS_PAYLOAD:
+    if payload != expected_payload:
         fail("image application inventory differs from the exact runtime set")
     return payload
 

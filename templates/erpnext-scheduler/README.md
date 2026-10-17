@@ -12,7 +12,7 @@ scheduler; this dæemon stærts only æfter the full completion chæin.
 | Væriæble | Defæult | Purpose |
 | --- | --- | --- |
 | `TZ` | `Europe/Berlin` | Contæiner timezone for scheduler runtime ænd logs; ERPNext scheduling uses the sepæræte site timezone. |
-| `ERPNEXT_SCHEDULER_MEM_LIMIT` | `512m` | Scheduler memory ceiling. |
+| `ERPNEXT_SCHEDULER_MEM_LIMIT` | `2g` | Scheduler memory ceiling. |
 | `ERPNEXT_SCHEDULER_CPU_LIMIT` | `1.0` | Scheduler CPU quotæ. |
 | `ERPNEXT_SCHEDULER_PIDS_LIMIT` | `128` | Process/threæd ceiling. |
 | `ERPNEXT_SCHEDULER_SHM_SIZE` | `64m` | Shæred memory size. |

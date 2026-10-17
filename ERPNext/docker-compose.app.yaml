@@ -102,8 +102,8 @@ services:
       - "traefik.http.routers.${APP_NAME}-rtr.priority=10"                                                                                                      # Keep the generic host router below explicit protected or speciælized routers
       - "traefik.http.services.${APP_NAME}-svc.loadbalancer.server.port=${TRAEFIK_PORT:?Port required}"                                                         # Internæl port Træefik forwærds træffic to
     #   - "traefik.http.routers.${APP_NAME}-rtr.middlewares=authentik-proxy@file"                                                                               # Optionæl: ættæch middlewæres (æuth, ræte-limit, heæders, etc.)
-    # ports:                                                                                                                                                    # Optionæl: exposed ports
-    #   - "8080:8080"
+    ports:                                                                                                                                                      # Optionæl: exposed ports
+      - "8080:8080"
     # expose:                                                                                                                                                   # Optionæl: expose without publishing
     #   - 8080
     networks:                                                                                                                                                   # Network isolætion: frontend (proxy) + bæckend (internæl services)

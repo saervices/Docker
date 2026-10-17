@@ -15,7 +15,61 @@ from pathlib import Path
 
 
 MANIFEST_SCHEMA = 1
-EXPECTED_APPS = frozenset({"frappe", "erpnext", "saervices_erpnext_sso_guard"})
+# Instæll order. Læter æpps declære the eærlier ones æs required_æpps.
+# The tuple is the bæked code list. Site instællætion follows the swiches.
+CANONICAL_APPS = (
+    "frappe",
+    "erpnext",
+    "erpnext_germany",
+    "eu_einvoice",
+    "erpnext_datev",
+    "payments",
+    "hrms",
+    "lms",
+    "education",
+    "lending",
+    "healthcare",
+    "webshop",
+    "whatsapp",
+    "telephony",
+    "helpdesk",
+    "builder",
+    "wiki",
+    "drive",
+    "studio",
+    "print_designer",
+    "gameplan",
+    "saervices_erpnext_sso_guard",
+)
+EXPECTED_APPS = frozenset(CANONICAL_APPS)
+FIXED_APPS = ("frappe", "erpnext", "saervices_erpnext_sso_guard")
+# Optionæl æpps in the sæme order æs CANONICAL_APPS. True is the fresh-site defæult.
+OPTIONAL_APP_DEFAULTS = (
+    ("erpnext_germany", True),
+    ("eu_einvoice", True),
+    ("erpnext_datev", False),
+    ("payments", True),
+    ("hrms", True),
+    ("lms", False),
+    ("education", False),
+    ("lending", False),
+    ("healthcare", False),
+    ("webshop", False),
+    ("whatsapp", False),
+    ("telephony", False),
+    ("helpdesk", False),
+    ("builder", False),
+    ("wiki", False),
+    ("drive", False),
+    ("studio", False),
+    ("print_designer", True),
+    ("gameplan", False),
+)
+APP_REQUIREMENTS = {
+    "webshop": ("payments",),
+    "lms": ("payments",),
+    "helpdesk": ("telephony",),
+}
 MAX_MANIFEST_BYTES = 1024 * 1024
 MAX_INVENTORY_FILE_BYTES = 1024 * 1024 * 1024
 BENCH_ROOT = Path("/home/frappe/frappe-bench")
@@ -23,8 +77,94 @@ DPKG_STATUS_PATH = Path("/var/lib/dpkg/status")
 VERSION_PATTERN = re.compile(r"[0-9]+(?:\.[0-9]+)+(?:[a-z0-9.+-]*)?")
 
 
+def canonical_apps_payload():
+    return ("\n".join(CANONICAL_APPS) + "\n").encode("ascii")
+
+
 def _fail(message):
     raise RuntimeError(message)
+
+
+def app_switch_name(app_name):
+    return "ERPNEXT_ENABLE_" + app_name.upper()
+
+
+def assert_app_contract():
+    optional_names = tuple(name for name, _default in OPTIONAL_APP_DEFAULTS)
+    if CANONICAL_APPS[:2] != ("frappe", "erpnext"):
+        _fail("baked application order must start with frappe and erpnext")
+    if CANONICAL_APPS[-1] != "saervices_erpnext_sso_guard":
+        _fail("baked application order must end with the SSO guard")
+    if CANONICAL_APPS[2:-1] != optional_names:
+        _fail("optional application order drifted")
+    if set(APP_REQUIREMENTS) - set(optional_names):
+        _fail("application requirement names an unknown optional application")
+    for app_name, requirements in APP_REQUIREMENTS.items():
+        for requirement in requirements:
+            if requirement not in CANONICAL_APPS:
+                _fail("application requirement is not baked")
+            if CANONICAL_APPS.index(requirement) > CANONICAL_APPS.index(app_name):
+                _fail("application requirement is ordered after its dependent application")
+
+
+def resolve_enabled_apps(environ):
+    assert_app_contract()
+    enabled = []
+    for app_name, default in OPTIONAL_APP_DEFAULTS:
+        raw = environ.get(app_switch_name(app_name))
+        if raw is None or raw == "":
+            enabled_now = default
+        elif raw == "true":
+            enabled_now = True
+        elif raw == "false":
+            enabled_now = False
+        else:
+            _fail(f"{app_switch_name(app_name)} must be true or false")
+        if enabled_now:
+            enabled.append(app_name)
+    return tuple(enabled)
+
+
+def selected_apps(enabled):
+    chosen = set(FIXED_APPS) | set(enabled)
+    return tuple(app_name for app_name in CANONICAL_APPS if app_name in chosen)
+
+
+def require_enabled_dependencies(enabled, already_installed):
+    available = set(selected_apps(enabled)) | set(already_installed)
+    for app_name in enabled:
+        for requirement in APP_REQUIREMENTS.get(app_name, ()):
+            if requirement not in available:
+                _fail(
+                    f"{app_switch_name(app_name)} requires "
+                    f"{app_switch_name(requirement)} or an already installed dependency"
+                )
+
+
+def missing_selected_apps(enabled, installed):
+    present = set(installed)
+    return tuple(
+        app_name for app_name in selected_apps(enabled) if app_name not in present
+    )
+
+
+def fresh_site_install_apps(enabled):
+    return tuple(
+        app_name for app_name in selected_apps(enabled) if app_name != "frappe"
+    )
+
+
+def assert_installed_selection(installed, enabled, previously_installed):
+    if len(installed) != len(set(installed)):
+        _fail("installed Frappe applications are not unique")
+    installed_set = set(installed)
+    if installed_set - set(CANONICAL_APPS):
+        _fail("installed Frappe applications differ from the baked runtime set")
+    if set(selected_apps(enabled)) - installed_set:
+        _fail("enabled Frappe applications are not installed")
+    disabled_new = (installed_set - set(previously_installed)) - set(selected_apps(enabled))
+    if disabled_new:
+        _fail("a disabled Frappe application was installed")
 
 
 def _read_regular_bytes(path, label, maximum):
@@ -195,7 +335,6 @@ def build_manifest_bytes(bench_root=None):
     if bench_root is None:
         bench_root = BENCH_ROOT
     apps_root = Path(bench_root) / "apps"
-    guard_root = apps_root / "saervices_erpnext_sso_guard"
     dpkg_status = _read_regular_bytes(
         DPKG_STATUS_PATH,
         "dpkg status",
@@ -207,12 +346,8 @@ def build_manifest_bytes(bench_root=None):
         "pip_freeze_all": _pip_freeze_all(),
         "schema": MANIFEST_SCHEMA,
         "trees": {
-            "erpnext": _inventory_tree(apps_root / "erpnext", "ERPNext"),
-            "frappe": _inventory_tree(apps_root / "frappe", "Frappe"),
-            "saervices_erpnext_sso_guard": _inventory_tree(
-                guard_root,
-                "ERPNext SSO guard",
-            ),
+            app_name: _inventory_tree(apps_root / app_name, app_name)
+            for app_name in CANONICAL_APPS
         },
         "versions": {
             "erpnext": _canonical_version(erpnext.__version__, "ERPNext"),
@@ -242,8 +377,7 @@ def validate_manifest_bytes(payload):
         or set(document)
         != {"apps", "dpkg_status_sha256", "pip_freeze_all", "schema", "trees", "versions"}
         or document.get("apps") != sorted(EXPECTED_APPS)
-        or set(document.get("trees", {}))
-        != {"erpnext", "frappe", "saervices_erpnext_sso_guard"}
+        or set(document.get("trees", {})) != set(CANONICAL_APPS)
         or set(document.get("versions", {})) != {"erpnext", "frappe"}
     ):
         _fail("runtime manifest schema is invalid")
@@ -338,6 +472,9 @@ def compare_runtime_manifests(expected_path, actual_path):
     validate_manifest_bytes(actual)
     if not hmac.compare_digest(expected, actual):
         _fail("ERPNext runtime manifest mismatch")
+
+
+assert_app_contract()
 
 
 def main():

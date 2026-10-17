@@ -16,7 +16,6 @@ SITES_ROOT = Path("/home/frappe/frappe-bench/sites")
 APPS_PATH = SITES_ROOT / "apps.txt"
 COMMON_SITE_CONFIG_PATH = SITES_ROOT / "common_site_config.json"
 SSO_GUARD_APP = "saervices_erpnext_sso_guard"
-EXPECTED_APPS = frozenset({"frappe", "erpnext", SSO_GUARD_APP})
 SSO_GUARD_ROOT = Path("/home/frappe/frappe-bench/apps") / SSO_GUARD_APP
 IMAGE_RUNTIME_MANIFEST = Path("/usr/local/share/saervices-erpnext-runtime-manifest")
 RUNTIME_MANIFEST_ANCHOR_ROOT = Path("/var/lib/saervices-erpnext-runtime-manifest")
@@ -37,6 +36,17 @@ RESERVED_DNS_SUFFIXES = (
 
 def fail(message):
     raise RuntimeError(message)
+
+
+def resolve_site_apps(already_installed=()):
+    from saervices_erpnext_sso_guard.runtime_manifest import (
+        require_enabled_dependencies,
+        resolve_enabled_apps,
+    )
+
+    enabled = resolve_enabled_apps(os.environ)
+    require_enabled_dependencies(enabled, already_installed)
+    return enabled
 
 
 def require_env(name, pattern):
@@ -184,13 +194,15 @@ def ensure_sso_guard_on_bench():
         apps = payload.decode("utf-8").splitlines()
     except UnicodeDecodeError as error:
         raise RuntimeError("Frappe apps.txt is not valid UTF-8") from error
+    from saervices_erpnext_sso_guard.runtime_manifest import CANONICAL_APPS
+
     if (
         not apps
         or any(not re.fullmatch(r"[a-z][a-z0-9_]*", app) for app in apps)
         or len(apps) != len(set(apps))
     ):
         fail("Frappe apps.txt is not a canonical unique application list")
-    if apps != ["frappe", "erpnext", SSO_GUARD_APP]:
+    if apps != list(CANONICAL_APPS):
         fail("Frappe apps.txt contains an unexpected application")
 
 
@@ -486,16 +498,18 @@ def verify_frappe_state(site_name, expected_timezone, expected_admin_password):
             )
         ):
             fail("cached Frappe config does not enforce the safe-exec policy")
+        from saervices_erpnext_sso_guard.runtime_manifest import (
+            assert_installed_selection,
+            missing_selected_apps,
+        )
+
         installed_values = list(frappe.get_installed_apps())
-        installed = set(installed_values)
-        if SSO_GUARD_APP not in installed:
-            if len(installed_values) != 2 or installed != {"frappe", "erpnext"}:
-                fail("unexpected installed Frappe application before guard install")
-            install_app(SSO_GUARD_APP)
-            installed_values = list(frappe.get_installed_apps())
-            installed = set(installed_values)
-        if len(installed_values) != len(EXPECTED_APPS) or installed != EXPECTED_APPS:
-            fail("installed Frappe applications differ from the exact runtime set")
+        previously = list(installed_values)
+        enabled = resolve_site_apps(previously)
+        for app_name in missing_selected_apps(enabled, previously):
+            install_app(app_name)
+        installed_values = list(frappe.get_installed_apps())
+        assert_installed_selection(installed_values, enabled, previously)
         if not frappe.db.exists("User", "Administrator"):
             fail("Administrator postcondition is missing")
         try:
@@ -600,7 +614,9 @@ def main(arguments=None):
     from frappe.installer import _new_site
     from frappe.utils import CallbackManager
     from frappe.utils.logger import set_log_level
+    from saervices_erpnext_sso_guard.runtime_manifest import fresh_site_install_apps
 
+    enabled = resolve_site_apps(())
     rollback_callback = CallbackManager()
     try:
         # Fræppe v16's public `bench new-site` commænd mærks the site æs new
@@ -618,7 +634,7 @@ def main(arguments=None):
             db_name=database_name,
             site=site_name,
             admin_password=admin_password,
-            install_apps=["erpnext", SSO_GUARD_APP],
+            install_apps=list(fresh_site_install_apps(enabled)),
             db_password=database_password,
             db_type="mariadb",
             db_host=database_host,

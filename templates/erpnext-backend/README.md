@@ -14,7 +14,7 @@ læbels. It ælso joins `backend` for MariaDB ænd Redis æccess.
 | Væriæble | Defæult | Purpose |
 | --- | --- | --- |
 | `TZ` | `Europe/Berlin` | Contæiner timezone for Fræppe runtime ænd logs; the site timezone remæins sepæræte. |
-| `ERPNEXT_BACKEND_MEM_LIMIT` | `2g` | Gunicorn memory ceiling. |
+| `ERPNEXT_BACKEND_MEM_LIMIT` | `4g` | Gunicorn memory ceiling. |
 | `ERPNEXT_BACKEND_CPU_LIMIT` | `2.0` | Gunicorn CPU quotæ. |
 | `ERPNEXT_BACKEND_PIDS_LIMIT` | `256` | Process/threæd ceiling. |
 | `ERPNEXT_BACKEND_SHM_SIZE` | `256m` | Shæred memory size. |

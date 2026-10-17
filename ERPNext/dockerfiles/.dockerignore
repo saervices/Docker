@@ -2,6 +2,7 @@
 !.dockerignore
 !Dockerfile
 !dockerfile*
+!install-frappe-apps.sh
 !install-saervices-erpnext-sso-guard.sh
 !saervices_erpnext_sso_guard
 !saervices_erpnext_sso_guard/saervices_erpnext_sso_guard

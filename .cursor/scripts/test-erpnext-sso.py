@@ -227,9 +227,148 @@ class GuardSourceTests(unittest.TestCase):
             / "scripts"
             / "erpnext-site-bootstrap.py"
         ).read_text(encoding="utf-8")
-        self.assertIn("saervices_erpnext_sso_guard", configurator)
-        self.assertIn("saervices_erpnext_sso_guard", site)
-        self.assertIn('install_apps=["erpnext", SSO_GUARD_APP]', site)
+        manifest = load_module(
+            "saervices_runtime_manifest",
+            ERPNext
+            / "dockerfiles"
+            / "saervices_erpnext_sso_guard"
+            / "saervices_erpnext_sso_guard"
+            / "runtime_manifest.py",
+        )
+        self.assertEqual(manifest.CANONICAL_APPS[0], "frappe")
+        self.assertEqual(manifest.CANONICAL_APPS[1], "erpnext")
+        self.assertEqual(manifest.CANONICAL_APPS[-1], "saervices_erpnext_sso_guard")
+        self.assertEqual(
+            manifest.EXPECTED_APPS,
+            frozenset(manifest.CANONICAL_APPS),
+        )
+        self.assertIn("hrms", manifest.CANONICAL_APPS)
+        self.assertIn("payments", manifest.CANONICAL_APPS)
+        self.assertIn("erpnext_germany", manifest.CANONICAL_APPS)
+        self.assertIn("eu_einvoice", manifest.CANONICAL_APPS)
+        self.assertIn("erpnext_datev", manifest.CANONICAL_APPS)
+        self.assertNotIn("insights", manifest.CANONICAL_APPS)
+        self.assertNotIn("crm", manifest.CANONICAL_APPS)
+        self.assertIn("CANONICAL_APPS", configurator)
+        self.assertIn("CANONICAL_APPS", site)
+        self.assertIn("fresh_site_install_apps(enabled)", site)
+        self.assertNotIn(
+            'app_name for app_name in CANONICAL_APPS if app_name != "frappe"',
+            site,
+        )
+        installer = (
+            ERPNext / "dockerfiles" / "install-frappe-apps.sh"
+        ).read_text(encoding="utf-8")
+        for app_name in manifest.CANONICAL_APPS:
+            if app_name in {"frappe", "erpnext", "saervices_erpnext_sso_guard"}:
+                continue
+            self.assertIn(app_name, installer)
+        self.assertIn("https://github.com/alyf-de/erpnext_germany", installer)
+        self.assertIn("https://github.com/alyf-de/eu_einvoice", installer)
+        self.assertIn("https://github.com/alyf-de/erpnext_datev", installer)
+
+    def test_app_switches_follow_the_defaults(self) -> None:
+        manifest = load_module(
+            "saervices_runtime_manifest_switches",
+            ERPNext
+            / "dockerfiles"
+            / "saervices_erpnext_sso_guard"
+            / "saervices_erpnext_sso_guard"
+            / "runtime_manifest.py",
+        )
+        enabled = manifest.resolve_enabled_apps({})
+        self.assertEqual(
+            enabled,
+            (
+                "erpnext_germany",
+                "eu_einvoice",
+                "payments",
+                "hrms",
+                "print_designer",
+            ),
+        )
+        self.assertEqual(
+            manifest.fresh_site_install_apps(enabled),
+            (
+                "erpnext",
+                "erpnext_germany",
+                "eu_einvoice",
+                "payments",
+                "hrms",
+                "print_designer",
+                "saervices_erpnext_sso_guard",
+            ),
+        )
+        self.assertEqual(
+            manifest.resolve_enabled_apps({"ERPNEXT_ENABLE_HRMS": ""}),
+            enabled,
+        )
+
+    def test_app_switch_rejects_non_boolean(self) -> None:
+        manifest = load_module(
+            "saervices_runtime_manifest_invalid_switch",
+            ERPNext
+            / "dockerfiles"
+            / "saervices_erpnext_sso_guard"
+            / "saervices_erpnext_sso_guard"
+            / "runtime_manifest.py",
+        )
+        with self.assertRaisesRegex(RuntimeError, "ERPNEXT_ENABLE_LMS must be true or false"):
+            manifest.resolve_enabled_apps({"ERPNEXT_ENABLE_LMS": "yes"})
+
+    def test_app_switch_requires_payments_and_telephony(self) -> None:
+        manifest = load_module(
+            "saervices_runtime_manifest_dependencies",
+            ERPNext
+            / "dockerfiles"
+            / "saervices_erpnext_sso_guard"
+            / "saervices_erpnext_sso_guard"
+            / "runtime_manifest.py",
+        )
+        enabled = manifest.resolve_enabled_apps(
+            {
+                "ERPNEXT_ENABLE_WEBSHOP": "true",
+                "ERPNEXT_ENABLE_PAYMENTS": "false",
+                "ERPNEXT_ENABLE_HELPDESK": "true",
+                "ERPNEXT_ENABLE_TELEPHONY": "false",
+            }
+        )
+        with self.assertRaisesRegex(RuntimeError, "ERPNEXT_ENABLE_WEBSHOP requires"):
+            manifest.require_enabled_dependencies(enabled, ())
+        manifest.require_enabled_dependencies(enabled, ("payments", "telephony"))
+
+    def test_disabled_app_stays_installed_and_is_not_added(self) -> None:
+        manifest = load_module(
+            "saervices_runtime_manifest_selection",
+            ERPNext
+            / "dockerfiles"
+            / "saervices_erpnext_sso_guard"
+            / "saervices_erpnext_sso_guard"
+            / "runtime_manifest.py",
+        )
+        enabled = manifest.resolve_enabled_apps({})
+        previously = (
+            "frappe",
+            "erpnext",
+            "lms",
+            "saervices_erpnext_sso_guard",
+        )
+        installed = previously + enabled
+        manifest.assert_installed_selection(installed, enabled, previously)
+        with self.assertRaisesRegex(RuntimeError, "disabled Frappe application"):
+            manifest.assert_installed_selection(
+                installed + ("education",),
+                enabled,
+                previously,
+            )
+        with self.assertRaisesRegex(RuntimeError, "baked runtime set"):
+            manifest.assert_installed_selection(
+                installed + ("crm",),
+                enabled,
+                previously + ("crm",),
+            )
+        with self.assertRaisesRegex(RuntimeError, "enabled Frappe applications"):
+            manifest.assert_installed_selection(previously, enabled, previously)
 
     def test_guard_sql_stays_ascii(self) -> None:
         password_login = (
