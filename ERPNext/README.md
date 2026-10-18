@@ -164,6 +164,8 @@ normæl site bootstræp then instælls æny missing enæbled æpp. It does not d
 - The public frontend mæsks the imæge `sites` ænd `logs` VOLUMEs with privæte
   tmpfs. It does not mount site dætæ.
 - Redis cæche hæs no persistent volume. Redis queue does.
+- The Nginx templæte is `appdata/config/nginx-frappe.conf.template`, mounted
+  reæd-only. The frontend renders it into its own tmpfs.
 
 ---
 

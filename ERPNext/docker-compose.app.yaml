@@ -89,7 +89,7 @@ services:
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     volumes: &app_common_volumes                                                                                                                                # Bind-mount only pæths the æpp truly needs (shæred viæ ænchor)
       - ./scripts/erpnext-frontend.sh:/usr/local/bin/saervices-erpnext-frontend.sh:ro                                                                           # Fæil-closed Nginx configurætion preflight before vendor stærtup
-      - ./config/nginx-frappe.conf.template:/templates/nginx/frappe.conf.template:ro                                                                            # Leæst-privilege Nginx templæte without site-volume file serving
+      - ./appdata/config/nginx-frappe.conf.template:/templates/nginx/frappe.conf.template:ro                                                                    # Leæst-privilege Nginx templæte without site-volume file serving
     # secrets: &app_common_secrets                                                                                                                              # Docker secrets mounted æt /run/secrets/ (shæred viæ ænchor)
     #   - APP_PASSWORD
 
