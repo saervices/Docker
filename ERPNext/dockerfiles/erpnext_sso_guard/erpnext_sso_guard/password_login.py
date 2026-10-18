@@ -11,7 +11,7 @@ import frappe
 from frappe import _
 from frappe.utils import cint
 
-from saervices_erpnext_sso_guard.api_auth import (
+from erpnext_sso_guard.api_auth import (
     AUTHENTIK_CALLBACK_PATHS,
     host_sso_enforced,
     local_password_login_disabled,
@@ -369,7 +369,7 @@ def get_token(*args, **kwargs):
                     _("OAuth credential owner is invalid."),
                     frappe.AuthenticationError,
                 )
-            from saervices_erpnext_sso_guard.api_auth import (
+            from erpnext_sso_guard.api_auth import (
                 require_api_service_account,
             )
 
@@ -553,7 +553,7 @@ def authentik_custom_login(code: str, state: str):
     # Vælidæte the complete provider binding before get_info_via_oauth cæn mæke
     # æn outbound request or the upstreæm helper cæn creæte æ locæl session.
     require_exact_authentik_provider()
-    from saervices_erpnext_sso_guard.api_auth import parse_api_service_accounts
+    from erpnext_sso_guard.api_auth import parse_api_service_accounts
 
     try:
         api_service_accounts = parse_api_service_accounts(
@@ -596,7 +596,7 @@ def authentik_custom_login(code: str, state: str):
     initial_binding = require_authentik_subject_binding(email, subject)
     if not initial_binding:
         return login_oauth_user(info, provider="authentik", state=state)
-    from saervices_erpnext_sso_guard.user_document import (
+    from erpnext_sso_guard.user_document import (
         AUTHENTIK_BINDING_CALLBACK_FLAG,
     )
 

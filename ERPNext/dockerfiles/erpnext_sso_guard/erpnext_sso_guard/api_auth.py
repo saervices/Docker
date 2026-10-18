@@ -9,13 +9,13 @@ from frappe import _
 from frappe.utils import cint
 
 
-AUTH_HOOK = "saervices_erpnext_sso_guard.api_auth.enforce_api_service_account_allowlist"
-BEFORE_LOGIN_HOOK = "saervices_erpnext_sso_guard.api_auth.enforce_host_sso_before_login"
+AUTH_HOOK = "erpnext_sso_guard.api_auth.enforce_api_service_account_allowlist"
+BEFORE_LOGIN_HOOK = "erpnext_sso_guard.api_auth.enforce_host_sso_before_login"
 OAUTH_CREDENTIAL_HAS_PERMISSION_HOOK = (
-    "saervices_erpnext_sso_guard.api_auth.enforce_oauth_credential_permission"
+    "erpnext_sso_guard.api_auth.enforce_oauth_credential_permission"
 )
 OAUTH_CREDENTIAL_QUERY_CONDITION_HOOK = (
-    "saervices_erpnext_sso_guard.api_auth.oauth_credential_query_condition"
+    "erpnext_sso_guard.api_auth.oauth_credential_query_condition"
 )
 OAUTH_CREDENTIAL_DOCTYPES = frozenset(
     {
@@ -25,7 +25,7 @@ OAUTH_CREDENTIAL_DOCTYPES = frozenset(
     }
 )
 REPORT_MUTATION_HOOK = (
-    "saervices_erpnext_sso_guard.api_auth.guard_nonstandard_script_report_mutation"
+    "erpnext_sso_guard.api_auth.guard_nonstandard_script_report_mutation"
 )
 EXECUTABLE_REPORT_TYPES = frozenset({"Query Report", "Script Report"})
 SERVICE_ACCOUNT_PATTERN = re.compile(

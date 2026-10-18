@@ -132,7 +132,7 @@ class ImagePolicyTests(unittest.TestCase):
         payload = (ERPNext / "dockerfiles" / ".dockerignore").read_text(
             encoding="utf-8"
         )
-        self.assertIn("!saervices_erpnext_sso_guard", payload)
+        self.assertIn("!erpnext_sso_guard", payload)
         self.assertIn("!dockerfile*", payload)
         self.assertNotIn("site-maintenance", payload)
         self.assertNotIn("dockerfile.mariadb", payload)
@@ -199,8 +199,8 @@ class GuardSourceTests(unittest.TestCase):
         package = (
             ERPNext
             / "dockerfiles"
-            / "saervices_erpnext_sso_guard"
-            / "saervices_erpnext_sso_guard"
+            / "erpnext_sso_guard"
+            / "erpnext_sso_guard"
         )
         for name in GUARD_FILES:
             self.assertTrue((package / name).is_file(), msg=name)
@@ -209,8 +209,8 @@ class GuardSourceTests(unittest.TestCase):
         package = (
             ERPNext
             / "dockerfiles"
-            / "saervices_erpnext_sso_guard"
-            / "saervices_erpnext_sso_guard"
+            / "erpnext_sso_guard"
+            / "erpnext_sso_guard"
         )
         for name in GUARD_FILES:
             if not name.endswith(".py"):
@@ -231,13 +231,13 @@ class GuardSourceTests(unittest.TestCase):
             "saervices_runtime_manifest",
             ERPNext
             / "dockerfiles"
-            / "saervices_erpnext_sso_guard"
-            / "saervices_erpnext_sso_guard"
+            / "erpnext_sso_guard"
+            / "erpnext_sso_guard"
             / "runtime_manifest.py",
         )
         self.assertEqual(manifest.CANONICAL_APPS[0], "frappe")
         self.assertEqual(manifest.CANONICAL_APPS[1], "erpnext")
-        self.assertEqual(manifest.CANONICAL_APPS[-1], "saervices_erpnext_sso_guard")
+        self.assertEqual(manifest.CANONICAL_APPS[-1], "erpnext_sso_guard")
         self.assertEqual(
             manifest.EXPECTED_APPS,
             frozenset(manifest.CANONICAL_APPS),
@@ -260,7 +260,7 @@ class GuardSourceTests(unittest.TestCase):
             ERPNext / "dockerfiles" / "install-frappe-apps.sh"
         ).read_text(encoding="utf-8")
         for app_name in manifest.CANONICAL_APPS:
-            if app_name in {"frappe", "erpnext", "saervices_erpnext_sso_guard"}:
+            if app_name in {"frappe", "erpnext", "erpnext_sso_guard"}:
                 continue
             self.assertIn(app_name, installer)
         self.assertIn("https://github.com/alyf-de/erpnext_germany", installer)
@@ -272,8 +272,8 @@ class GuardSourceTests(unittest.TestCase):
             "saervices_runtime_manifest_switches",
             ERPNext
             / "dockerfiles"
-            / "saervices_erpnext_sso_guard"
-            / "saervices_erpnext_sso_guard"
+            / "erpnext_sso_guard"
+            / "erpnext_sso_guard"
             / "runtime_manifest.py",
         )
         enabled = manifest.resolve_enabled_apps({})
@@ -284,7 +284,6 @@ class GuardSourceTests(unittest.TestCase):
                 "eu_einvoice",
                 "payments",
                 "hrms",
-                "print_designer",
             ),
         )
         self.assertEqual(
@@ -295,8 +294,7 @@ class GuardSourceTests(unittest.TestCase):
                 "eu_einvoice",
                 "payments",
                 "hrms",
-                "print_designer",
-                "saervices_erpnext_sso_guard",
+                "erpnext_sso_guard",
             ),
         )
         self.assertEqual(
@@ -309,8 +307,8 @@ class GuardSourceTests(unittest.TestCase):
             "saervices_runtime_manifest_invalid_switch",
             ERPNext
             / "dockerfiles"
-            / "saervices_erpnext_sso_guard"
-            / "saervices_erpnext_sso_guard"
+            / "erpnext_sso_guard"
+            / "erpnext_sso_guard"
             / "runtime_manifest.py",
         )
         with self.assertRaisesRegex(RuntimeError, "ERPNEXT_ENABLE_LMS must be true or false"):
@@ -321,8 +319,8 @@ class GuardSourceTests(unittest.TestCase):
             "saervices_runtime_manifest_dependencies",
             ERPNext
             / "dockerfiles"
-            / "saervices_erpnext_sso_guard"
-            / "saervices_erpnext_sso_guard"
+            / "erpnext_sso_guard"
+            / "erpnext_sso_guard"
             / "runtime_manifest.py",
         )
         enabled = manifest.resolve_enabled_apps(
@@ -342,8 +340,8 @@ class GuardSourceTests(unittest.TestCase):
             "saervices_runtime_manifest_selection",
             ERPNext
             / "dockerfiles"
-            / "saervices_erpnext_sso_guard"
-            / "saervices_erpnext_sso_guard"
+            / "erpnext_sso_guard"
+            / "erpnext_sso_guard"
             / "runtime_manifest.py",
         )
         enabled = manifest.resolve_enabled_apps({})
@@ -351,7 +349,7 @@ class GuardSourceTests(unittest.TestCase):
             "frappe",
             "erpnext",
             "lms",
-            "saervices_erpnext_sso_guard",
+            "erpnext_sso_guard",
         )
         installed = previously + enabled
         manifest.assert_installed_selection(installed, enabled, previously)
@@ -374,8 +372,8 @@ class GuardSourceTests(unittest.TestCase):
         password_login = (
             ERPNext
             / "dockerfiles"
-            / "saervices_erpnext_sso_guard"
-            / "saervices_erpnext_sso_guard"
+            / "erpnext_sso_guard"
+            / "erpnext_sso_guard"
             / "password_login.py"
         ).read_text(encoding="utf-8")
         sso = (

@@ -15,7 +15,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 SITES_ROOT = Path("/home/frappe/frappe-bench/sites")
 APPS_PATH = SITES_ROOT / "apps.txt"
 COMMON_SITE_CONFIG_PATH = SITES_ROOT / "common_site_config.json"
-SSO_GUARD_APP = "saervices_erpnext_sso_guard"
+SSO_GUARD_APP = "erpnext_sso_guard"
 SSO_GUARD_ROOT = Path("/home/frappe/frappe-bench/apps") / SSO_GUARD_APP
 IMAGE_RUNTIME_MANIFEST = Path("/usr/local/share/saervices-erpnext-runtime-manifest")
 RUNTIME_MANIFEST_ANCHOR_ROOT = Path("/var/lib/saervices-erpnext-runtime-manifest")
@@ -39,7 +39,7 @@ def fail(message):
 
 
 def resolve_site_apps(already_installed=()):
-    from saervices_erpnext_sso_guard.runtime_manifest import (
+    from erpnext_sso_guard.runtime_manifest import (
         require_enabled_dependencies,
         resolve_enabled_apps,
     )
@@ -194,7 +194,7 @@ def ensure_sso_guard_on_bench():
         apps = payload.decode("utf-8").splitlines()
     except UnicodeDecodeError as error:
         raise RuntimeError("Frappe apps.txt is not valid UTF-8") from error
-    from saervices_erpnext_sso_guard.runtime_manifest import CANONICAL_APPS
+    from erpnext_sso_guard.runtime_manifest import CANONICAL_APPS
 
     if (
         not apps
@@ -379,7 +379,7 @@ def validate_manifest_anchor_root():
 
 
 def publish_runtime_manifest(*, mode):
-    from saervices_erpnext_sso_guard.runtime_manifest import validate_manifest_bytes
+    from erpnext_sso_guard.runtime_manifest import validate_manifest_bytes
 
     if mode not in {"existing", "fresh", "rotate"}:
         fail("unknown runtime-manifest reconciliation mode")
@@ -479,6 +479,34 @@ def validate_site_config(site_name, database_name, database_host, database_passw
     os.chmod(config_path, 0o600, follow_symlinks=False)
 
 
+def adopt_legacy_sso_guard(installed):
+    # Older imæges registered this guærd under the previous æpplicætion næme.
+    legacy = "saervices_erpnext_sso_guard"
+    if legacy not in installed:
+        return list(installed)
+    if SSO_GUARD_APP in installed:
+        fail("legacy and current SSO guard are both installed")
+    updated = [SSO_GUARD_APP if name == legacy else name for name in installed]
+    import frappe
+
+    frappe.db.set_global("installed_apps", json.dumps(updated))
+    if frappe.db.table_exists("Installed Application"):
+        frappe.db.sql(
+            "update `tabInstalled Application` set app_name=%s where app_name=%s",
+            (SSO_GUARD_APP, legacy),
+        )
+    if frappe.db.table_exists("Module Def"):
+        frappe.db.sql(
+            "update `tabModule Def` set app_name=%s where app_name=%s",
+            (SSO_GUARD_APP, legacy),
+        )
+    frappe.db.commit()
+    refreshed = list(frappe.get_installed_apps())
+    if refreshed != updated:
+        fail("legacy SSO guard rename did not persist")
+    return refreshed
+
+
 def verify_frappe_state(site_name, expected_timezone, expected_admin_password):
     import frappe
     from frappe.installer import install_app
@@ -498,12 +526,12 @@ def verify_frappe_state(site_name, expected_timezone, expected_admin_password):
             )
         ):
             fail("cached Frappe config does not enforce the safe-exec policy")
-        from saervices_erpnext_sso_guard.runtime_manifest import (
+        from erpnext_sso_guard.runtime_manifest import (
             assert_installed_selection,
             missing_selected_apps,
         )
 
-        installed_values = list(frappe.get_installed_apps())
+        installed_values = adopt_legacy_sso_guard(list(frappe.get_installed_apps()))
         previously = list(installed_values)
         enabled = resolve_site_apps(previously)
         for app_name in missing_selected_apps(enabled, previously):
@@ -614,7 +642,7 @@ def main(arguments=None):
     from frappe.installer import _new_site
     from frappe.utils import CallbackManager
     from frappe.utils.logger import set_log_level
-    from saervices_erpnext_sso_guard.runtime_manifest import fresh_site_install_apps
+    from erpnext_sso_guard.runtime_manifest import fresh_site_install_apps
 
     enabled = resolve_site_apps(())
     rollback_callback = CallbackManager()

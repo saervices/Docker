@@ -17,22 +17,22 @@ REDIS_DELETE_MAX_PASSES = 32
 PROVIDER_NAME = "Authentik"
 PROVIDER_KEY = "authentik"
 EXPECTED_AUTH_HOOK = (
-    "saervices_erpnext_sso_guard.api_auth.enforce_api_service_account_allowlist"
+    "erpnext_sso_guard.api_auth.enforce_api_service_account_allowlist"
 )
 EXPECTED_BEFORE_LOGIN_HOOK = (
-    "saervices_erpnext_sso_guard.api_auth.enforce_host_sso_before_login"
+    "erpnext_sso_guard.api_auth.enforce_host_sso_before_login"
 )
 EXPECTED_USER_BEFORE_VALIDATE_HOOK = (
-    "saervices_erpnext_sso_guard.user_document.guard_user_password_fields"
+    "erpnext_sso_guard.user_document.guard_user_password_fields"
 )
 EXPECTED_SOCIAL_LOGIN_KEY_MUTATION_HOOK = (
-    "saervices_erpnext_sso_guard.user_document.guard_social_login_key_mutation"
+    "erpnext_sso_guard.user_document.guard_social_login_key_mutation"
 )
 EXPECTED_SOCIAL_LOGIN_KEY_BOOTSTRAP_FLAG = (
-    "saervices_erpnext_sso_guard_social_login_key_bootstrap"
+    "erpnext_sso_guard_social_login_key_bootstrap"
 )
 EXPECTED_USER_CONTROLLER_EXTENSION = (
-    "saervices_erpnext_sso_guard.user_document.UserSSOGuardMixin"
+    "erpnext_sso_guard.user_document.UserSSOGuardMixin"
 )
 EXPECTED_OAUTH_CREDENTIAL_DOCTYPES = frozenset(
     {
@@ -42,59 +42,59 @@ EXPECTED_OAUTH_CREDENTIAL_DOCTYPES = frozenset(
     }
 )
 EXPECTED_OAUTH_CREDENTIAL_HAS_PERMISSION_HOOK = (
-    "saervices_erpnext_sso_guard.api_auth.enforce_oauth_credential_permission"
+    "erpnext_sso_guard.api_auth.enforce_oauth_credential_permission"
 )
 EXPECTED_OAUTH_CREDENTIAL_QUERY_CONDITION_HOOK = (
-    "saervices_erpnext_sso_guard.api_auth.oauth_credential_query_condition"
+    "erpnext_sso_guard.api_auth.oauth_credential_query_condition"
 )
 EXPECTED_REPORT_MUTATION_HOOK = (
-    "saervices_erpnext_sso_guard.api_auth.guard_nonstandard_script_report_mutation"
+    "erpnext_sso_guard.api_auth.guard_nonstandard_script_report_mutation"
 )
 EXPECTED_AUTH_OVERRIDES = {
     "frappe.core.doctype.user.user.reset_password": (
-        "saervices_erpnext_sso_guard.password_login.reset_password"
+        "erpnext_sso_guard.password_login.reset_password"
     ),
     "frappe.core.doctype.user.user.update_password": (
-        "saervices_erpnext_sso_guard.password_login.update_password"
+        "erpnext_sso_guard.password_login.update_password"
     ),
     "frappe.integrations.oauth2.get_token": (
-        "saervices_erpnext_sso_guard.password_login.get_token"
+        "erpnext_sso_guard.password_login.get_token"
     ),
     "frappe.core.api.user_invitation.accept_invitation": (
-        "saervices_erpnext_sso_guard.password_login.accept_invitation"
+        "erpnext_sso_guard.password_login.accept_invitation"
     ),
     "frappe.integrations.doctype.ldap_settings.ldap_settings.login": (
-        "saervices_erpnext_sso_guard.password_login.ldap_login"
+        "erpnext_sso_guard.password_login.ldap_login"
     ),
     "frappe.www.login.login_via_key": (
-        "saervices_erpnext_sso_guard.password_login.login_via_key"
+        "erpnext_sso_guard.password_login.login_via_key"
     ),
     "frappe.core.doctype.user.user.impersonate": (
-        "saervices_erpnext_sso_guard.password_login.impersonate"
+        "erpnext_sso_guard.password_login.impersonate"
     ),
     "frappe.core.doctype.user.user.generate_keys": (
-        "saervices_erpnext_sso_guard.password_login.generate_keys"
+        "erpnext_sso_guard.password_login.generate_keys"
     ),
     "frappe.client.get_password": (
-        "saervices_erpnext_sso_guard.password_login.get_password"
+        "erpnext_sso_guard.password_login.get_password"
     ),
     "frappe.desk.doctype.system_console.system_console.execute_code": (
-        "saervices_erpnext_sso_guard.password_login.execute_system_console_code"
+        "erpnext_sso_guard.password_login.execute_system_console_code"
     ),
     "frappe.desk.doctype.system_console.system_console.show_processlist": (
-        "saervices_erpnext_sso_guard.password_login.show_processlist"
+        "erpnext_sso_guard.password_login.show_processlist"
     ),
     "frappe.desk.query_report.run": (
-        "saervices_erpnext_sso_guard.password_login.run_query_report"
+        "erpnext_sso_guard.password_login.run_query_report"
     ),
     "frappe.desk.page.setup_wizard.setup_wizard.setup_complete": (
-        "saervices_erpnext_sso_guard.password_login.setup_complete"
+        "erpnext_sso_guard.password_login.setup_complete"
     ),
     "frappe.desk.page.setup_wizard.setup_wizard.initialize_system_settings_and_user": (
-        "saervices_erpnext_sso_guard.password_login.initialize_system_settings_and_user"
+        "erpnext_sso_guard.password_login.initialize_system_settings_and_user"
     ),
     "frappe.integrations.oauth2_logins.custom": (
-        "saervices_erpnext_sso_guard.password_login.authentik_custom_login"
+        "erpnext_sso_guard.password_login.authentik_custom_login"
     ),
 }
 SERVICE_ACCOUNT_PATTERN = re.compile(
@@ -263,7 +263,7 @@ def parse_api_service_accounts(raw_value):
 
 
 def verify_exact_app_boundary(frappe):
-    from saervices_erpnext_sso_guard.runtime_manifest import (
+    from erpnext_sso_guard.runtime_manifest import (
         CANONICAL_APPS,
         EXPECTED_APPS,
         assert_installed_selection,
@@ -294,7 +294,7 @@ def verify_exact_app_boundary(frappe):
 
 
 def verify_api_auth_boundary(frappe, allowed_users, get_decrypted_password):
-    from saervices_erpnext_sso_guard.api_auth import (
+    from erpnext_sso_guard.api_auth import (
         AUTH_HOOK,
         BEFORE_LOGIN_HOOK,
         OAUTH_CREDENTIAL_DOCTYPES,
@@ -356,7 +356,7 @@ def verify_api_auth_boundary(frappe, allowed_users, get_decrypted_password):
         ):
             fail("unexpected OAuth credential permission hooks are installed")
     from frappe.model.base_document import get_controller
-    from saervices_erpnext_sso_guard.user_document import (
+    from erpnext_sso_guard.user_document import (
         SOCIAL_LOGIN_KEY_BOOTSTRAP_FLAG,
         SOCIAL_LOGIN_KEY_MUTATION_HOOK,
         UserSSOGuardMixin,
@@ -744,7 +744,7 @@ def main():
         if changed:
             document.update(expected)
             document.client_secret = client_secret
-            from saervices_erpnext_sso_guard.user_document import (
+            from erpnext_sso_guard.user_document import (
                 SOCIAL_LOGIN_KEY_BOOTSTRAP_FLAG,
             )
 

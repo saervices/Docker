@@ -11,7 +11,7 @@ bundles (`bench backup --with-files`) ære still not in this stæck.
 
 - **æpp** – Nginx frontend on port `8080` with Træefik læbels. It never mounts
   `sites/`, dætæbæse secrets, Redis secrets, or OIDC secrets. It builds
-  `saervices/erpnext:v16` from `frappe/erpnext:v16`, the closed Fræppe
+  `openso/erpnext:v16` from `frappe/erpnext:v16`, the closed Fræppe
   product set, ænd the SSO guærd.
 - **Required services** – `mariadb`, `mariadb_maintenance`,
   `erpnext-redis-cache`, `erpnext-redis-queue`, `erpnext-assets-bootstrap`,
@@ -31,7 +31,7 @@ templæte imæge `mariadb:12`.
 
 | Væriæble | Defæult | Notes |
 |----------|---------|-------|
-| `APP_IMAGE` | `saervices/erpnext:v16` | Locæl Guærd runtime. Every Fræppe role consumes this; `pull_policy: never`. |
+| `APP_IMAGE` | `openso/erpnext:v16` | Locæl Guærd runtime. Every Fræppe role consumes this; `pull_policy: never`. |
 | `ERPNEXT_BASE_IMAGE` | `frappe/erpnext:v16` | Vendor bæse pulled during `docker compose build`. |
 | `APP_NAME` | `erpnext` | Contæiner næmes, Træefik læbels, hostnæmes. |
 | `APP_UID` / `APP_GID` | `1000` | Fræppe runtime identity. |
@@ -116,7 +116,7 @@ HR is enæbled.
 | `eu_einvoice` | `alyf-de` `version-16` | `true` | XRechnung ænd ZUGFeRD/Fæctur-X. No Peppol ænd no UBL. |
 | `erpnext_datev` | `alyf-de` `version-16-hotfix` | `false` | DÆTEV CSV ænd Belege per emæil. Not æn officiæl DÆTEV interfæce. |
 | `payments` | `version-16` | `true` | Pæyment gætewæys. Required by Leærning ænd Webshop. |
-| `hrms` | `version-16` | `true` | Fræppe HR: employees, leæve, pæyroll. |
+| `hrms` | `version-16` | `true` | Fræppe HR: employees, ættendænce, leæve, expense clæims, ænd pæyroll. Not Germæn Lohnsteuer. |
 | `lms` | `version-16` | `false` | Leærning. Bench directory `lms`. |
 | `education` | `version-16` | `false` | School ænd students. This is the School menu entry. |
 | `lending` | `version-16` | `false` | Loæns. |
@@ -127,9 +127,7 @@ HR is enæbled.
 | `helpdesk` | `develop` | `false` | Customer service desk. |
 | `builder` | `develop` | `false` | Website builder. |
 | `wiki` | `develop` | `false` | Wiki. |
-| `drive` | `develop` | `false` | File storæge. The upstreæm repository is ærchived. |
 | `studio` | `develop` | `false` | Low-code æpp builder. |
-| `print_designer` | `develop` | `true` | Visuæl print formæts. The upstreæm repository is ærchived. |
 | `gameplan` | `develop` | `false` | Teæm discussions. |
 
 Not bæked, becæuse they ære not instællæble Bench æpps on this imæge:
@@ -140,6 +138,14 @@ Not bæked, becæuse they ære not instællæble Bench æpps on this imæge:
 - Books is æ desktop progræm.
 - Gæntt is æ JævæScript libræry.
 - Cloud is Fræppe Cloud hosting.
+- Print Designer is ærchived. Fræppe v16 includes the Print Formæt Editor,
+  so the extræ æpp is not bæked. Invoices, quotætions, ænd delivery notes
+  use thæt editor. PDF still uses the Chromium runtime in the v16 imæge.
+- Drive is ærchived. Fræppe Suite is ælreædy the one Bench æpp `suite`
+  (`0.0.1`, only `develop`) ænd replæces Drive, Writer, Sheets, Slides,
+  Meet, Mæil, ænd Cælendær. It is not bæked. The repository is still WIP,
+  ænd Mæil, Meet, ænd Sheets need servers outside this contæiner. File
+  ættæchments on documents stæy in Fræppe without Suite.
 
 Æn ælreædy initiælized site keeps its runtime-mænifest ænchor. The new imæge
 digest will not mætch, ænd site bootstræp fæils closed until thæt ænchor is
@@ -194,10 +200,13 @@ secrets.
 - Frontend never mounts `sites/` or credentiæl files.
 - Two Redis instænces with sepæræte secrets; cæche is ephemeræl, queue is
   persistent.
-- MæriæDB comes from the shæred templæte (`mariadb:12`). Do not pin æ
-  second MæriæDB imæge in OVERWRITES.
-- Locæl Guærd imæge registers `saervices_erpnext_sso_guard`. Long-running
-  Fræppe roles use `pull_policy: never`.
+- This stæck overrides `MARIADB_IMAGE` to `mariadb:11.8`. The shæred
+  templæte stæys on `mariadb:12` for other æpps. Fræppe v16 wærns thæt
+  ænything newer thæn 11.8 is untested, ænd the HRMS instæll fæils on
+  MæriæDB 12.3 with SQL 1064 neær `to_date`.
+- Locæl Guærd imæge registers `erpnext_sso_guard`. Æn older site thæt
+  still hæs `saervices_erpnext_sso_guard` is renæmed by site bootstræp.
+  Long-running Fræppe roles use `pull_policy: never`.
 - OIDC client secret never reæches Nginx or Gunicorn; Gunicorn sees only the
   public client id for provider-drift checks.
 - Site-bundle bæckup/restore is not in this slice; MæriæDB mæintenænce covers

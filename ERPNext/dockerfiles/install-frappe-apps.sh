@@ -90,9 +90,7 @@ telephony develop https://github.com/frappe/telephony
 helpdesk develop https://github.com/frappe/helpdesk
 builder develop https://github.com/frappe/builder
 wiki develop https://github.com/frappe/wiki
-drive develop https://github.com/frappe/drive
 studio develop https://github.com/frappe/studio
-print_designer develop https://github.com/frappe/print_designer
 gameplan develop https://github.com/frappe/gameplan
 EOF
   chmod 0644 "${revision_file}"
@@ -102,10 +100,10 @@ EOF
   printf '%s\n' '{"socketio_port": 9000}' > sites/common_site_config.json
   chown frappe:0 sites/common_site_config.json
   ln -s /home/frappe/frappe-bench/assets sites/assets
-  PYTHONPATH="${bench_root}/apps/saervices_erpnext_sso_guard" \
+  PYTHONPATH="${bench_root}/apps/erpnext_sso_guard" \
     "${bench_root}/env/bin/python" -c '
 from pathlib import Path
-from saervices_erpnext_sso_guard.runtime_manifest import CANONICAL_APPS, canonical_apps_payload
+from erpnext_sso_guard.runtime_manifest import CANONICAL_APPS, canonical_apps_payload
 root = Path("/home/frappe/frappe-bench/apps")
 present = {
     path.name
@@ -116,7 +114,7 @@ if present != set(CANONICAL_APPS):
     missing = sorted(set(CANONICAL_APPS) - present)
     extra = sorted(present - set(CANONICAL_APPS))
     raise SystemExit(f"app directory mismatch missing={missing} extra={extra}")
-build_apps = [name for name in CANONICAL_APPS if name != "saervices_erpnext_sso_guard"]
+build_apps = [name for name in CANONICAL_APPS if name != "erpnext_sso_guard"]
 Path("/home/frappe/frappe-bench/sites/apps.txt").write_bytes(
     ("\n".join(build_apps) + "\n").encode("ascii")
 )

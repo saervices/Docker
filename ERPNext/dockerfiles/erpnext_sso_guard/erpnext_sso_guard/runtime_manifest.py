@@ -35,14 +35,12 @@ CANONICAL_APPS = (
     "helpdesk",
     "builder",
     "wiki",
-    "drive",
     "studio",
-    "print_designer",
     "gameplan",
-    "saervices_erpnext_sso_guard",
+    "erpnext_sso_guard",
 )
 EXPECTED_APPS = frozenset(CANONICAL_APPS)
-FIXED_APPS = ("frappe", "erpnext", "saervices_erpnext_sso_guard")
+FIXED_APPS = ("frappe", "erpnext", "erpnext_sso_guard")
 # Optionæl æpps in the sæme order æs CANONICAL_APPS. True is the fresh-site defæult.
 OPTIONAL_APP_DEFAULTS = (
     ("erpnext_germany", True),
@@ -60,9 +58,7 @@ OPTIONAL_APP_DEFAULTS = (
     ("helpdesk", False),
     ("builder", False),
     ("wiki", False),
-    ("drive", False),
     ("studio", False),
-    ("print_designer", True),
     ("gameplan", False),
 )
 APP_REQUIREMENTS = {
@@ -93,7 +89,7 @@ def assert_app_contract():
     optional_names = tuple(name for name, _default in OPTIONAL_APP_DEFAULTS)
     if CANONICAL_APPS[:2] != ("frappe", "erpnext"):
         _fail("baked application order must start with frappe and erpnext")
-    if CANONICAL_APPS[-1] != "saervices_erpnext_sso_guard":
+    if CANONICAL_APPS[-1] != "erpnext_sso_guard":
         _fail("baked application order must end with the SSO guard")
     if CANONICAL_APPS[2:-1] != optional_names:
         _fail("optional application order drifted")

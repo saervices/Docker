@@ -149,7 +149,7 @@ def write_config(config):
 
 
 def image_app_contract():
-    from saervices_erpnext_sso_guard.runtime_manifest import (
+    from erpnext_sso_guard.runtime_manifest import (
         CANONICAL_APPS,
         EXPECTED_APPS,
         canonical_apps_payload,

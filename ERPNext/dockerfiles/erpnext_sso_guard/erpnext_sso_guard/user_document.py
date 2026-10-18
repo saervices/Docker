@@ -5,27 +5,27 @@ import frappe
 from frappe import _
 from frappe.utils import cint
 
-from saervices_erpnext_sso_guard.api_auth import (
+from erpnext_sso_guard.api_auth import (
     host_sso_enforced,
     local_password_login_disabled,
 )
-from saervices_erpnext_sso_guard.password_login import _require_local_password_login
+from erpnext_sso_guard.password_login import _require_local_password_login
 
 
 USER_BEFORE_VALIDATE_HOOK = (
-    "saervices_erpnext_sso_guard.user_document.guard_user_password_fields"
+    "erpnext_sso_guard.user_document.guard_user_password_fields"
 )
 USER_CONTROLLER_EXTENSION = (
-    "saervices_erpnext_sso_guard.user_document.UserSSOGuardMixin"
+    "erpnext_sso_guard.user_document.UserSSOGuardMixin"
 )
 SOCIAL_LOGIN_KEY_MUTATION_HOOK = (
-    "saervices_erpnext_sso_guard.user_document.guard_social_login_key_mutation"
+    "erpnext_sso_guard.user_document.guard_social_login_key_mutation"
 )
 SOCIAL_LOGIN_KEY_BOOTSTRAP_FLAG = (
-    "saervices_erpnext_sso_guard_social_login_key_bootstrap"
+    "erpnext_sso_guard_social_login_key_bootstrap"
 )
 AUTHENTIK_BINDING_CALLBACK_FLAG = (
-    "saervices_erpnext_sso_guard_authentik_binding_callback"
+    "erpnext_sso_guard_authentik_binding_callback"
 )
 
 
