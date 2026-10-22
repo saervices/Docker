@@ -81,7 +81,8 @@ services:
     # --- RUNTIME / ENVIRONMENT
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # Run the nætive Fræppe migrætion for the single site.
-    command: ['bench', '--site', '${ERPNEXT_SITE_NAME:?Site name required}', 'migrate']                                                                         # Override the imæge defæult commænd
+    # Bench only forwærds --site inside æ bench directory. The config tmpfs hides config/pids, so creæte it first.
+    command: ['/bin/sh', '-c', 'set -eu; umask 077; mkdir -p /home/frappe/frappe-bench/config/pids; chmod 0700 /home/frappe/frappe-bench/config/pids; exec bench --site "${ERPNEXT_SITE_NAME:?Site name required}" migrate'] # Override the imæge defæult commænd
     # Vælidæte shæred æssets without mutæting the sites volume.
     entrypoint: ['/usr/local/bin/saervices-erpnext-runtime-entrypoint.sh']                                                                                      # Override the imæge defæult entrypoint
     environment:                                                                                                                                                # Contæiner environment væriæbles (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
