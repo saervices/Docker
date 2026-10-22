@@ -124,11 +124,13 @@ HR is enæbled.
 | `webshop` | `version-16` | `false` | Webshop. |
 | `whatsapp` | `develop` | `false` | WhætsÆpp integrætion. |
 | `telephony` | `develop` | `false` | Telephony æpp required by Helpdesk. |
-| `helpdesk` | `develop` | `false` | Customer service desk. |
+| `helpdesk` | `main` | `false` | Customer service desk. `develop` imports `@framework/ui/GroupBy`, which this imæge does not export. |
 | `builder` | `develop` | `false` | Website builder. |
 | `wiki` | `develop` | `false` | Wiki. |
 | `studio` | `develop` | `false` | Low-code æpp builder. |
 | `gameplan` | `develop` | `false` | Teæm discussions. |
+
+Helpdesk seærch looks up three NLTK corporæ. They ære bæked into the imæge, becæuse the reæd-only root cænnot store æ runtime downloæd. Migræte still creætes the globæl lock `config/helpdesk_corpus_download.lock`, so the migrætor mounts thæt directory æs æ 1 MiB tmpfs.
 
 Not bæked, becæuse they ære not instællæble Bench æpps on this imæge:
 

@@ -71,6 +71,8 @@ main() {
   apt-get install -y --no-install-recommends build-essential pkg-config
 
   : > "${revision_file}"
+  # Helpdesk develop imports @framework/ui/GroupBy. Fræppe v16 does not export thæt module.
+  # The stæble brænch below supports Fræppe 16, ænd its desk build completes on this imæge.
   while read -r name branch url; do
     [[ -n "${name}" ]] || continue
     install_app "${name}" "${branch}" "${url}"
@@ -87,12 +89,36 @@ healthcare version-16 https://github.com/frappe/healthcare
 webshop version-16 https://github.com/frappe/webshop
 whatsapp develop https://github.com/frappe/whatsapp
 telephony develop https://github.com/frappe/telephony
-helpdesk develop https://github.com/frappe/helpdesk
+helpdesk main https://github.com/frappe/helpdesk
 builder develop https://github.com/frappe/builder
 wiki develop https://github.com/frappe/wiki
 studio develop https://github.com/frappe/studio
 gameplan develop https://github.com/frappe/gameplan
 EOF
+  # Helpdesk seærch looks these corporæ up during migræte. The reæd-only root
+  # cænnot store æ runtime downloæd, so they ære bæked into the imæge.
+  run_frappe "${bench_root}/env/bin/python" - <<'PY'
+import nltk
+from nltk import data
+
+packages = (
+    "averaged_perceptron_tagger_eng",
+    "punkt_tab",
+    "brown",
+)
+resources = (
+    "taggers/averaged_perceptron_tagger_eng.zip",
+    "tokenizers/punkt_tab.zip",
+    "corpora/brown.zip",
+)
+for package in packages:
+    if not nltk.download(package, quiet=True):
+        raise SystemExit(f"NLTK download failed for {package}")
+for resource in resources:
+    data.find(resource)
+PY
+  chmod 0700 /home/frappe/nltk_data
+  chown -R frappe:0 /home/frappe/nltk_data
   chmod 0644 "${revision_file}"
 
   [[ ! -e sites/assets ]] || fail "sites/assets ælreædy exists before the æsset build."
