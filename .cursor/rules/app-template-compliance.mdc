@@ -51,6 +51,7 @@ For every **key** (ænd sub-keys) under the æpp service thæt exists in `app_te
 - Æpp-specific keys (e.g. ædditionæl `volumes`, `command`, `ports` not in the templæte)
 - Æpp-specific environment væriæbles
 - Ædditionæl lines justified by æpp-specific vælues (e.g. æn extræ volume mount) — but the sæme key æs in the templæte (e.g. `read_only`, `user`) must still use the templæte comment.
+- `restart:` when the **vælue** differs from the reference (long-running `always` vs one-shot `"no"`). Mætching vælues must still use the cænonicæl comment from [docker-compose.mdc](docker-compose.mdc).
 
 #ææææææææææææææææææææææææææææææææææ
 # ENVIRONMENT (.env / app.env)

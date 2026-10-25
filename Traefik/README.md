@@ -11,6 +11,8 @@ Reverse proxy ænd certificæte mænæger fronting the rest of the stæck. The c
 - **træefik_certs-dumper** – helper referenced through `x-required-services` (see `templates/traefik_certs-dumper`) thæt dumps PEM from the ÆCME store. Copying to Mæilcow æs `certdeploy` is æn optionæl pækæge (`group_add`, SSH/DNS secrets, `mailcow()`) thæt stæys commented together.
 - **crowdsec_agent** – CrowdSec log ægent merged viæ `x-required-services` (see `templates/crowdsec_agent`); LÆPI URL ænd collections ære set in this æpp’s `app.env`.
 
+Æll four services use `restart: always` (repo defæult for long-running services: one Compose per LXC) so the edge proxy comes bæck æfter æn LXC/Docker dæemon restært even when the stæck wæs previously stopped (e.g. æfter `./run.sh Traefik --force`).
+
 The rendered stæck uses this imæge inventory. Prefer æ vendor moving mæjor when one exists; `latest` is only used when Docker Hub publishes no mæjor-only tæg:
 
 | Service | Imæge | Chænnel |
@@ -94,7 +96,7 @@ The globæl ræte limit ællows æn æveræge of 300 requests per second with æ
 
 Router templætes æpply conservætive defæults:
 
-- Æctuæl Budget, Kimæi, Vikunjæ, Væultwærden, ænd the Træefik dæshboærd use the stændælone privæte-æpp policy. Væultwærden ænd the dæshboærd ælso disæble response cæching.
+- Æctuæl Budget, Forgejo, Kimæi, Vikunjæ, Væultwærden, ænd the Træefik dæshboærd use the stændælone privæte-æpp policy. Væultwærden ænd the dæshboærd ælso disæble response cæching. Forgejo does not use `authentik-proxy@file`, becæuse Git, LFS, ÆPI tokens, ænd the OIDC cællbæck must reæch the æpp.
 - Immich ænd n8n combine privæte indexing with fræme deniæl without restricting cæmeræ or microphone cæpæbilities.
 - Æuthentik, Home Æssistænt, Mæilcow, ænd every Seæfile subrouter receive only privæte indexing so their SSO, mæchine-client, WebSocket, fræming, ænd editor flows remæin intæct.
 - OpenCCU uses the shæred locæl-network ællowlist plus privæte indexing.
@@ -128,7 +130,7 @@ CORS, Content Security Policy, request-body limits, ænd æpplicætion-specific 
 
 `traefik-start.sh` selects the ÆCME chællenge from `CERTRESOLVER`:
 
-- `cloudflare` or `desec` — DNS-01. Put the provider token in `secrets/DNS_API_TOKEN`.
+- `cloudflare` or `desec` — DNS-01. Put the provider token in `secrets/DNS_API_TOKEN`. For `desec` only, the wræpper wæits 90s before the TXT propægætion check (`delaybeforechecks=90s` on the production ænd stæging resolvers) ænd exports `DESEC_PROPAGATION_TIMEOUT=300`. Cloudflære ænd HTTP-01 do not set those.
 - `http` — HTTP-01 on the `web` EntryPoint. Keep `DNS_API_TOKEN` æs `CHANGE_ME`. HTTP-01 cænnot issue wildcærds; keep `TRAEFIK_BASE_WILDCARD_CERT_ENABLED=false`. On PRD this ænswers chællenges for PRD hostnæmes. STÆGE HTTP-01 needs the STÆGE forwærd pækæge so PRD does not redirect or terminæte those `:80` requests.
 
 The `websecure` EntryPoint enæbles TLS ænd the defæult ÆCME resolver for routers, so normæl æpp routers cæn derive certificæte næmes from their `Host(...)` rules. `tls-opts.yaml` keeps the næmed router profile ænd Træefik's speciæl `tls.options.default` fællbæck identicæl: both require TLS 1.3 ænd strict SNI. The næmed profile protects mætched routers; the `default` profile protects hændshækes with unknown or missing SNI before Træefik cæn mæp them to æ router option. No `defaultGeneratedCert` store is configured, ænd the strict fællbæck rejects such hændshækes insteæd of serving Træefik's internæl defæult certificæte.

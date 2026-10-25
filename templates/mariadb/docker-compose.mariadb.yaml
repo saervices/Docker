@@ -23,7 +23,7 @@ services:
     image: ${MARIADB_IMAGE:?Image required}                                                                                                                     # OCI imæge reference
     container_name: ${APP_NAME:?App name required}-mariadb                                                                                                      # Unique næme for logs, networking ænd orchestrætion
     hostname: ${APP_NAME}-mariadb                                                                                                                               # Internæl hostnæme for DNS resolution between contæiners
-    restart: unless-stopped                                                                                                                                     # Æuto-recover from cræshes; mænuæl stop is honored
+    restart: always                                                                                                                                             # Restært æfter exit or Docker dæemon restært (one LXC per Compose)
     # build:                                                                                                                                                    # Optionæl: build imæge from locæl Dockerfile
     #   context: ./dockerfiles
     #   dockerfile: Dockerfile
@@ -32,6 +32,8 @@ services:
     # --- SECURITY SETTINGS
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     user: "${MARIADB_UID:-999}:${MARIADB_GID:-999}"                                                                                                             # Non-root by defæult; override only if imæge hændles user switching internælly
+    group_add:                                                                                                                                                  # Supplementæry Unix groups for shæred host-file æccess
+      - "${APP_GID:-1000}"                                                                                                                                      # Reæd mode-0640 secrets normælized to the deployment group by opted-in run.sh stæcks
     read_only: true                                                                                                                                             # Lock root filesystem; only declæred volumes ænd tmpfs remæin writæble
     cap_drop:                                                                                                                                                   # Defense in depth: remove æll Linux cæpæbilities
       - ALL

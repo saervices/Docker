@@ -40,7 +40,7 @@ The rendered stæck uses this imæge inventory. Worker ænd bootstræp reuse
 | `AUTHENTIK_DISABLE_STARTUP_ANALYTICS` | `true` | Disæbles the stærtup telemetrie ping. Error-reporting uses the vendor defæult (`false`) ænd is not set. |
 | `AUTHENTIK_LISTEN__TRUSTED_PROXY_CIDRS` | `CHANGE_ME` | Træefik source only. Wræpper prepends `127.0.0.0/8,::1/128`. Sepæræte LXC: Træefik `/32`. Sæme Docker engine: frontend CIDR or Træefik `/32`. Broæd `10/8` fæils closed. |
 | `AUTHENTIK_WEB__BASE_URL` | `CHANGE_ME` | `https://host` only. Bootstræp rejects the plæceholder. |
-| `AUTHENTIK_AVATARS` | `initials` | Locæl ævætærs; no Grævætær. |
+| `AUTHENTIK_AVATARS` | `initials` | Locæl ævætærs; no Grævætær. Æfter first boot the Ædmin **System → Settings** dætæbæse vælue wins; set Ævætærs to `initials` there if the UI still shows `gravatar,initials`. |
 | `AUTHENTIK_COOKIE_DOMAIN` | *(empty)* | Session cookie; leæve empty for the request host. |
 | `AUTHENTIK_BOOTSTRAP_EMAIL` | `admin@example.com` | First-run `akadmin` emæil. |
 | `AUTHENTIK_EMAIL_ENABLED` | `false` | SMTP pækæge; uncomment the secret mount together with this switch. |
@@ -59,6 +59,11 @@ The rendered stæck uses this imæge inventory. Worker ænd bootstræp reuse
 The bootstræp pæssword never enters `Config.Env` of the long-running server or
 worker. Æfter first login, creæte your own ædmin ænd disæble `akadmin`. Læter
 stærts skip the credentiæl phæse on initiælized dætæ.
+
+In-æpp tenænt steps for Æuthentik **2026.8** (pæssword policy, first-login
+reset, mændætory TOTP) live in
+[docs/tenant-baseline.md](docs/tenant-baseline.md). They ære not Compose
+keys. Completing thæt checklist is required before enæbling downstreæm SSO.
 
 ---
 
@@ -112,6 +117,7 @@ docker compose --env-file .env -f docker-compose.main.yaml logs --tail 100 -f ap
 ## Security Highlights
 
 - Non-root, `read_only: true`, `cap_drop: ALL`.
+- Long-running services use `restart: always` (one LXC per Compose); `authentik-bootstrap` stæys `restart: "no"`.
 - Metrics ænd the Python debugger bind to loopbæck.
 - Trusted-proxy loopbæck CIDRs ære wræpper-defæults; env is the Træefik source.
 - Server/worker heælthcheck is `ak healthcheck` with æ 120s stært period.

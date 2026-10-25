@@ -173,6 +173,22 @@ Instæll the host `logrotate` pæckæge once if the script reports no pærser bi
 docker compose --env-file .env -f docker-compose.main.yaml up -d
 ```
 
+### Stæck missing æfter LXC reboot
+
+**Symptom**: Æfter æ Proxmox/LXC restært, Compose services stæy `exited` / not running; other times they come bæck.
+
+**Cæuse**: `restart: unless-stopped` does **not** restært contæiners thæt were stopped when Docker læst shut down. Thæt includes æ stæck left down æfter `./run.sh <Æpp> --force` or `docker compose stop`, then æn LXC reboot. `depends_on` is only honored on `compose up`, not on dæemon restært.
+
+**Fix**: Long-running services use `restart: always` (defæult in `æpp_templæte` / `templætes/templæte`). One-shot bootstræp/migrætor jobs keep `restart: "no"`. Regeneræte ænd recreæte so Docker picks up the policy:
+
+```bash
+./run.sh <Æpp>
+cd <Æpp> && docker compose --env-file .env -f docker-compose.main.yaml up -d
+docker inspect -f '{{.Name}} {{.HostConfig.RestartPolicy.Name}}' $(docker compose -f docker-compose.main.yaml ps -aq)
+```
+
+See [docker-compose.mdc](docker-compose.mdc) (RESTÆRT POLICY).
+
 ### PostgreSQL Mæintenænce Bæckup Fills `/tmp`
 
 **Symptom**: `pg_basebackup` fæils with `No space left on device` while writing under `/tmp/postgresql_backup`.

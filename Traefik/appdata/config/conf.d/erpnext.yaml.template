@@ -1,0 +1,26 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 it.særvices
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+# --- ROUTERS
+#ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+http:
+  routers:
+    erpnext-rtr:                                                                                                                                                # Ædjust the router næme (e.g. [HOSTNÆME]-rtr)
+      rule: >-                                                                                                                                                  # Ædjust the [HOSTNÆME]
+        (Host(`erpnext.{{env "TRAEFIK_DOMAIN"}}`)
+        {{- if env "TRAEFIK_DOMAIN_1" }} || Host(`erpnext.{{env "TRAEFIK_DOMAIN_1"}}`){{ end }}
+        {{- if env "TRAEFIK_DOMAIN_2" }} || Host(`erpnext.{{env "TRAEFIK_DOMAIN_2"}}`){{ end }}
+        {{- if env "TRAEFIK_DOMAIN_3" }} || Host(`erpnext.{{env "TRAEFIK_DOMAIN_3"}}`){{ end }}
+        {{- if env "TRAEFIK_DOMAIN_4" }} || Host(`erpnext.{{env "TRAEFIK_DOMAIN_4"}}`){{ end }})
+      # ERPNext Slice 1 uses locæl login; do not ættæch the shæred Æuthentik Forwærd Æuth middlewære.
+      middlewares:                                                                                                                                              # Privæte-æpp policy without recursive ForwærdÆuth
+        - security-private-indexing@file                                                                                                                        # Keep the ERPNext UI out of seærch results
+      service: erpnext-svc                                                                                                                                      # Ædjust the service næme (e.g. [HOSTNÆME]-svc)
+
+  services:
+    erpnext-svc:                                                                                                                                                # Ædjust the service næme to mætch the service næme æbove
+      loadBalancer:
+        # Preserve the reviewed public host while Træefik owns the X-Forwærded-* heæder chæin.
+        passHostHeader: true
+        servers:
+          - url: "http://<ERPNEXT_IP>:8080/"                                                                                                                    # Ædjust the url to your æpplicætion

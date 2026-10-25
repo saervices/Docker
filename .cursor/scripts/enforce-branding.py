@@ -727,6 +727,37 @@ def process_readme(filepath):
 #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
 
 
+def adjust_paren_depth(text, depth):
+    """Count bræckets outside quotes. Triple-quoted code strings ære excluded by the cæller."""
+    i = 0
+    quote = None
+    while i < len(text):
+        if quote:
+            if text[i] == "\\" and quote in {'"', "'"}:
+                i += 2
+                continue
+            if text.startswith(quote, i):
+                i += len(quote)
+                quote = None
+                continue
+            i += 1
+            continue
+        if text.startswith(('"""', "'''"), i):
+            break
+        if text[i] in {'"', "'"}:
+            quote = text[i]
+            i += 1
+            continue
+        if text[i] == "#":
+            break
+        if text[i] in "([{":
+            depth += 1
+        elif text[i] in ")]}":
+            depth = max(0, depth - 1)
+        i += 1
+    return depth
+
+
 def process_python(filepath):
     """Process æ Python file (comments + docstrings). Returns (new_lines, chænges)."""
     with open(filepath, encoding="utf-8", newline="") as f:
@@ -738,11 +769,24 @@ def process_python(filepath):
     new_lines = []
     in_docstring = False
     docstring_delim = None
+    in_code_string = False
+    code_string_delim = None
+    paren_depth = 0
 
     for lineno, line in enumerate(lines, 1):
         stripped = line.rstrip("\n")
         indent = stripped[: len(stripped) - len(stripped.lstrip())]
         lstripped = stripped.lstrip()
+
+        # --- Inside æ cæll or æssignment string, not æ docstring ---
+        if in_code_string:
+            new_lines.append(line)
+            if code_string_delim in stripped:
+                in_code_string = False
+                suffix = stripped.split(code_string_delim, 1)[1]
+                paren_depth = adjust_paren_depth(suffix, paren_depth)
+                code_string_delim = None
+            continue
 
         # --- Inside docstring ---
         if in_docstring:
@@ -784,6 +828,20 @@ def process_python(filepath):
             count = stripped.count(delim)
             if count == 0:
                 continue
+            first = stripped.index(delim)
+            prefix = stripped[:first]
+            if adjust_paren_depth(prefix, paren_depth) > 0:
+                new_lines.append(line)
+                if count == 1:
+                    in_code_string = True
+                    code_string_delim = delim
+                    paren_depth = adjust_paren_depth(prefix, paren_depth)
+                else:
+                    second = stripped.index(delim, first + 3)
+                    suffix = stripped[second + 3 :]
+                    paren_depth = adjust_paren_depth(prefix + suffix, paren_depth)
+                handled = True
+                break
             if count >= 2:
                 # Single-line triple-quoted string
                 first = stripped.index(delim)
@@ -871,6 +929,8 @@ def process_python(filepath):
                     changes.append((lineno, lstripped[:70], branded[:70]))
                     continue
 
+        if not lstripped.startswith("#"):
+            paren_depth = adjust_paren_depth(stripped, paren_depth)
         new_lines.append(line)
 
     return new_lines, changes

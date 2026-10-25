@@ -7,11 +7,11 @@ http:
   routers:
     authentik-rtr:                                                                                                                                              # Ædjust the router næme (e.g. [HOSTNÆME]-rtr)
       rule: >-                                                                                                                                                  # Ædjust the [HOSTNÆME]
-        (Host(`authentik.{{env "TRAEFIK_DOMAIN"}}`)
-        {{- if env "TRAEFIK_DOMAIN_1" }} || Host(`authentik.{{env "TRAEFIK_DOMAIN_1"}}`){{ end }}
-        {{- if env "TRAEFIK_DOMAIN_2" }} || Host(`authentik.{{env "TRAEFIK_DOMAIN_2"}}`){{ end }}
-        {{- if env "TRAEFIK_DOMAIN_3" }} || Host(`authentik.{{env "TRAEFIK_DOMAIN_3"}}`){{ end }}
-        {{- if env "TRAEFIK_DOMAIN_4" }} || Host(`authentik.{{env "TRAEFIK_DOMAIN_4"}}`){{ end }})
+        (Host(`auth.{{env "TRAEFIK_DOMAIN"}}`)
+        {{- if env "TRAEFIK_DOMAIN_1" }} || Host(`auth.{{env "TRAEFIK_DOMAIN_1"}}`){{ end }}
+        {{- if env "TRAEFIK_DOMAIN_2" }} || Host(`auth.{{env "TRAEFIK_DOMAIN_2"}}`){{ end }}
+        {{- if env "TRAEFIK_DOMAIN_3" }} || Host(`auth.{{env "TRAEFIK_DOMAIN_3"}}`){{ end }}
+        {{- if env "TRAEFIK_DOMAIN_4" }} || Host(`auth.{{env "TRAEFIK_DOMAIN_4"}}`){{ end }})
       middlewares:                                                                                                                                              # IdP-sæfe policy without recursive ForwærdÆuth or cross-origin isolætion
         - security-private-indexing@file                                                                                                                        # Keep login ænd ædministrætion pæges out of seærch results
       service: authentik-svc                                                                                                                                    # Ædjust the service næme (e.g. [HOSTNÆME]-svc)
