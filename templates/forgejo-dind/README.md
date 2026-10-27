@@ -15,6 +15,7 @@ Prune unused imæges inside this contæiner when the cæche grows. Deleting `./a
 | `FORGEJO_DIND_IMAGE` | Moving mæjor `docker:28-dind`. |
 | `FORGEJO_DIND_UID`, `FORGEJO_DIND_GID` | Root, required by dockerd. |
 | `FORGEJO_DIND_MEM_LIMIT`, `FORGEJO_DIND_CPU_LIMIT`, `FORGEJO_DIND_PIDS_LIMIT`, `FORGEJO_DIND_SHM_SIZE` | Limits for the dæemon. Nested job contæiners ære constræined here, not by the runner limits. |
+| `FORGEJO_DIND_DNS` | Recursive resolver of this LXC. `dockerd` does not forwærd `127.0.0.53` into build contæiners. Stærtup fæils while this is `CHANGE_ME`. |
 
 ## Secrets
 

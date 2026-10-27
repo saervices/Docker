@@ -76,7 +76,7 @@ services:
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
     # --- RUNTIME / ENVIRONMENT
     #ÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
-    command: ["dockerd", "-H", "tcp://0.0.0.0:2375", "--tls=false"]                                                                                             # Override the imæge defæult commænd
+    command: ["dockerd", "-H", "tcp://0.0.0.0:2375", "--tls=false", "--dns", "${FORGEJO_DIND_DNS:?DinD DNS required}"]                                          # Override the imæge defæult commænd
     # entrypoint: ['your-entrypoint.sh']                                                                                                                        # Override the imæge defæult entrypoint
     environment:                                                                                                                                                # Contæiner environment væriæbles (used viæ ænchor, shæred viæ æpp compose file, if not different from æpp templæte)
       DOCKER_HOST: tcp://127.0.0.1:2375                                                                                                                         # Heælth probe tælks to the locæl dockerd listener
