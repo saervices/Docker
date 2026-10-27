@@ -1,7 +1,6 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2025 it.særvices
 
-import json
 import os
 import re
 import stat
@@ -15,6 +14,14 @@ from erpnext_sso_guard.api_auth import (
     AUTHENTIK_CALLBACK_PATHS,
     host_sso_enforced,
     local_password_login_disabled,
+)
+from erpnext_sso_guard.entitlements import (
+    FORBIDDEN_USER_NAMES,
+    auth_url_data,
+    login_name,
+    parse_entitlements_claim,
+    parse_entitlements_switch,
+    person_name,
 )
 
 
@@ -154,11 +161,7 @@ def expected_authentik_provider_fields(domain: str, client_id: str) -> dict:
         ),
         "api_endpoint": "/application/o/userinfo/",
         "api_endpoint_args": None,
-        "auth_url_data": json.dumps(
-            {"response_type": "code", "scope": "openid email profile"},
-            separators=(",", ":"),
-            sort_keys=True,
-        ),
+        "auth_url_data": auth_url_data(os.environ.get("ERPNEXT_SSO_ENTITLEMENTS", "")),
         "user_id_property": "sub",
         "sign_ups": "Deny",
         "show_in_resource_metadata": 0,
@@ -200,6 +203,154 @@ def require_exact_authentik_provider() -> None:
             _("The effective Authentik redirect URI is invalid."),
             frappe.AuthenticationError,
         )
+
+
+def _save_directory_user(user):
+    user.flags.ignore_permissions = True
+    user.flags.no_welcome_mail = True
+    user.send_welcome_email = 0
+    user.save(ignore_permissions=True)
+
+
+def _add_user_group_member(email, group_name):
+    if frappe.db.exists("User Group", group_name):
+        group = frappe.get_doc("User Group", group_name)
+        if any(row.user == email for row in (group.get("user_group_members") or ())):
+            return
+        group.append("user_group_members", {"user": email})
+        group.flags.ignore_permissions = True
+        group.save(ignore_permissions=True)
+        return
+    group = frappe.get_doc(
+        {
+            "doctype": "User Group",
+            "name": group_name,
+            "__newname": group_name,
+            "user_group_members": [{"user": email}],
+        }
+    )
+    group.flags.ignore_permissions = True
+    group.insert(ignore_permissions=True)
+
+
+def _remove_user_group_member(email, group_name):
+    group = frappe.get_doc("User Group", group_name)
+    kept = [
+        row.user
+        for row in (group.get("user_group_members") or ())
+        if row.user != email
+    ]
+    if len(kept) == len(group.get("user_group_members") or ()):
+        return
+    group.flags.ignore_permissions = True
+    if not kept:
+        group.delete(ignore_permissions=True)
+        return
+    group.set("user_group_members", [])
+    for member in kept:
+        group.append("user_group_members", {"user": member})
+    group.save(ignore_permissions=True)
+
+
+def _sync_user_groups(email, group_names):
+    # Membership follows the current entitlement list. Æ group thæt no longer
+    # æppeærs is left in plæce only while other users still belong to it.
+    desired = set(group_names)
+    current = {
+        row.parent
+        for row in frappe.get_all(
+            "User Group Member",
+            filters={"user": email, "parenttype": "User Group"},
+            fields=["parent"],
+        )
+    }
+    for group_name in group_names:
+        if group_name not in current:
+            _add_user_group_member(email, group_name)
+    for group_name in sorted(current - desired):
+        _remove_user_group_member(email, group_name)
+
+
+def _matching_user_name(email):
+    matches = frappe.get_all("User", filters={"email": email}, pluck="name")
+    if (
+        len(matches) > 1
+        or any(name in {"Administrator", "Guest"} for name in matches)
+        or (len(matches) == 1 and matches[0] != email)
+    ):
+        frappe.throw(
+            _("Authentik login requires one pre-provisioned enabled user."),
+            frappe.AuthenticationError,
+        )
+    return matches[0] if matches else None
+
+
+def sync_authentik_directory_user(info, email: str) -> None:
+    # Off preserves the pre-provisioned login contræct. On creætes or
+    # updætes the user ænd sets User Group membership from entitlements.
+    raw = os.environ.get("ERPNEXT_SSO_ENTITLEMENTS", "")
+    try:
+        enabled = parse_entitlements_switch(raw)
+    except ValueError as error:
+        frappe.throw(str(error), frappe.AuthenticationError)
+    if not enabled:
+        return
+    if email.lower() in FORBIDDEN_USER_NAMES:
+        frappe.throw(
+            _("Authentik cannot bind the built-in user."),
+            frappe.AuthenticationError,
+        )
+    try:
+        group_names = parse_entitlements_claim(
+            info.get("entitlements") if isinstance(info, dict) else None
+        )
+        first_name, last_name = person_name(info, email)
+    except ValueError as error:
+        frappe.throw(str(error), frappe.AuthenticationError)
+    existing_name = _matching_user_name(email)
+    if not group_names:
+        if existing_name == email:
+            user = frappe.get_doc("User", email)
+            user.enabled = 0
+            user.send_welcome_email = 0
+            _save_directory_user(user)
+            _sync_user_groups(email, ())
+            # Æ thrown login æborts the request trænsæction. The disæblement
+            # hæs to be duræble before thæt æbort.
+            frappe.db.commit()
+        frappe.throw(
+            _("Authentik login requires an application entitlement."),
+            frappe.AuthenticationError,
+        )
+    try:
+        short_name = login_name(info)
+    except ValueError as error:
+        frappe.throw(str(error), frappe.AuthenticationError)
+    if existing_name == email:
+        user = frappe.get_doc("User", email)
+    else:
+        user = frappe.new_doc("User")
+        user.email = email
+        user.user_type = "System User"
+    if user.name not in (None, "", email) or user.email != email:
+        frappe.throw(
+            _("Authentik login requires one pre-provisioned enabled user."),
+            frappe.AuthenticationError,
+        )
+    username_owner = frappe.db.get_value("User", {"username": short_name}, "name")
+    if username_owner not in (None, email):
+        frappe.throw(
+            _("The Authentik username is already assigned."),
+            frappe.AuthenticationError,
+        )
+    user.enabled = 1
+    user.user_type = "System User"
+    user.username = short_name
+    user.first_name = first_name
+    user.last_name = last_name
+    user.send_welcome_email = 0
+    _save_directory_user(user)
+    _sync_user_groups(email, group_names)
 
 
 def require_authentik_subject_binding(email: str, subject: str) -> bool:
@@ -593,6 +744,7 @@ def authentik_custom_login(code: str, state: str):
             _("API service accounts cannot sign in through Authentik."),
             frappe.AuthenticationError,
         )
+    sync_authentik_directory_user(info, email)
     initial_binding = require_authentik_subject_binding(email, subject)
     if not initial_binding:
         return login_oauth_user(info, provider="authentik", state=state)

@@ -62,6 +62,7 @@ GUARD_FILES = (
     "api_auth.py",
     "hooks.py",
     "modules.txt",
+    "entitlements.py",
     "password_login.py",
     "patches.txt",
     "runtime_manifest.py",
@@ -385,6 +386,118 @@ class GuardSourceTests(unittest.TestCase):
         self.assertIn("UPDATE `tabUser`", sso)
         self.assertIn("`tabOAuth Authorization Code`", sso)
         self.assertNotIn("UPDÆTE `tabUser`", sso)
+
+
+class EntitlementProvisioningTests(unittest.TestCase):
+    """Æuthentik entitlements provision users; the defæult stæys closed."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.entitlements = load_module(
+            "erpnext_sso_entitlements",
+            ERPNext
+            / "dockerfiles"
+            / "erpnext_sso_guard"
+            / "erpnext_sso_guard"
+            / "entitlements.py",
+        )
+
+    def test_switch_defaults_closed_and_requests_the_scope_only_when_on(self) -> None:
+        parser = self.entitlements.parse_entitlements_switch
+        self.assertFalse(parser(""))
+        self.assertFalse(parser("false"))
+        self.assertTrue(parser("true"))
+        self.assertEqual(
+            self.entitlements.auth_url_data("false"),
+            '{"response_type":"code","scope":"openid email profile"}',
+        )
+        self.assertEqual(
+            self.entitlements.auth_url_data("true"),
+            '{"response_type":"code","scope":"openid email profile entitlements"}',
+        )
+        for raw in ("yes", "TRUE", " true"):
+            with self.assertRaisesRegex(ValueError, "ERPNEXT_SSO_ENTITLEMENTS"):
+                parser(raw)
+
+    def test_entitlements_claim_is_a_unique_group_list(self) -> None:
+        self.assertEqual(
+            self.entitlements.parse_entitlements_claim(
+                ["Buchhaltung", "Buchhaltung"]
+            ),
+            ("Buchhaltung",),
+        )
+        for value in (None, "Buchhaltung", ["Administrator"], ["../private"], [""]):
+            with self.assertRaises(ValueError):
+                self.entitlements.parse_entitlements_claim(value)
+
+    def test_login_name_prefers_the_short_authentik_claim(self) -> None:
+        self.assertEqual(
+            self.entitlements.login_name(
+                {"preferred_username": "MHE", "nickname": "other"}
+            ),
+            "MHE",
+        )
+        self.assertEqual(
+            self.entitlements.login_name({"nickname": "MHE"}),
+            "MHE",
+        )
+        for info in (
+            {},
+            {"preferred_username": "marcel henneke"},
+            {"preferred_username": "admin@openso.de"},
+            {"nickname": "Administrator"},
+        ):
+            with self.assertRaises(ValueError):
+                self.entitlements.login_name(info)
+
+    def test_person_name_uses_profile_claims(self) -> None:
+        self.assertEqual(
+            self.entitlements.person_name(
+                {"given_name": "Ada", "family_name": "Lovelace"},
+                "ada@openso.de",
+            ),
+            ("Ada", "Lovelace"),
+        )
+        self.assertEqual(
+            self.entitlements.person_name({"name": "ada@openso.de"}, "ada@openso.de"),
+            ("ada", ""),
+        )
+
+    def test_login_syncs_groups_before_binding_and_keeps_signups_denied(self) -> None:
+        password_login = (
+            ERPNext
+            / "dockerfiles"
+            / "erpnext_sso_guard"
+            / "erpnext_sso_guard"
+            / "password_login.py"
+        ).read_text(encoding="utf-8")
+        bootstrap = (
+            TEMPLATES / "erpnext-sso-bootstrap" / "scripts" / "erpnext-sso-bootstrap.py"
+        ).read_text(encoding="utf-8")
+        self.assertLess(
+            password_login.index("sync_authentik_directory_user(info, email)"),
+            password_login.index("require_authentik_subject_binding(email, subject)"),
+        )
+        self.assertIn('"sign_ups": "Deny"', password_login)
+        self.assertIn('info.get("entitlements")', password_login)
+        self.assertIn("login_name(info)", password_login)
+        self.assertIn("user.username = short_name", password_login)
+        self.assertIn("allow_login_using_user_name", bootstrap)
+        self.assertIn('"doctype": "User Group"', password_login)
+        self.assertNotIn("ERPNEXT_SSO_GROUP_ROLES", password_login)
+        self.assertIn("require_entitlements_switch()", bootstrap)
+        self.assertNotIn("mapped ERPNext role does not exist", bootstrap)
+        env = (ERPNext / ".env").read_text(encoding="utf-8")
+        self.assertIn("ERPNEXT_SSO_ENTITLEMENTS=false", env)
+        self.assertNotIn("ERPNEXT_SSO_GROUP_ROLES", env)
+        for service in ("erpnext-backend", "erpnext-sso-bootstrap"):
+            document = load_yaml(compose_path(service))
+            environment = document["services"][service]["environment"]
+            self.assertEqual(
+                environment["ERPNEXT_SSO_ENTITLEMENTS"],
+                "${ERPNEXT_SSO_ENTITLEMENTS:-false}",
+                msg=service,
+            )
 
 
 class FailClosedFixtureTests(unittest.TestCase):
