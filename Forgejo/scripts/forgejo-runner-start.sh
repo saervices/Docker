@@ -49,6 +49,7 @@ runner:
 container:
   docker_host: "${DIND_HOST}"
   force_pull: false
+  options: "--add-host=host.docker.internal:host-gateway"
 EOF
     chmod 0600 "${CONFIG_FILE}" || fatal 'Could not protect the runner config.'
 fi

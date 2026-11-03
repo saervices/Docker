@@ -89,6 +89,7 @@ services:
       ERPNEXT_SITE_NAME: ${ERPNEXT_SITE_NAME:?Site name required}
       ERPNEXT_AUTHENTIK_DOMAIN: ${ERPNEXT_AUTHENTIK_DOMAIN:-}
       ERPNEXT_SSO_SIGNUPS: ${ERPNEXT_SSO_SIGNUPS:-Deny}
+      ERPNEXT_SSO_ENTITLEMENTS: ${ERPNEXT_SSO_ENTITLEMENTS:-false}                                                                                              # true creætes users ænd User Groups from Æuthentik entitlements
       ERPNEXT_API_SERVICE_ACCOUNTS: ${ERPNEXT_API_SERVICE_ACCOUNTS:-}                                                                                           # Explicit non-sensitive ÆPI/OÆuth user ællowlist
       # Optionæl æpp instæll swiches. The imæge keeps every æpp; fælse skips æ new instæll.
       ERPNEXT_ENABLE_ERPNEXT_GERMANY: ${ERPNEXT_ENABLE_ERPNEXT_GERMANY:-true}

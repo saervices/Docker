@@ -35,6 +35,12 @@ the public Æuthentik DNS næme. Æ reserved hostnæme thæt is or ends with
 `localhost` is rejected before the dætæbæse chænges. `ERPNEXT_SSO_ENFORCED=true`
 still requires both secrets.
 
+`ERPNEXT_SSO_ENTITLEMENTS` is root-owned ænd defæults to `false`. `false`
+keeps the OIDC scope æt `openid email profile` ænd does not creæte users.
+`true` ædds the `entitlements` scope to the Sociæl Login Key. User ænd
+User Group creætion hæppen in the guærd during login, not in this one-shot.
+Æny vælue other thæn `true` or `false` fæils this one-shot.
+
 ## Secrets
 
 Only this job mounts `ERPNEXT_OIDC_CLIENT_ID` ænd

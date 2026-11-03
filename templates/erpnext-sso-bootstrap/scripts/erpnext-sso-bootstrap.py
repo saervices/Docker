@@ -1,7 +1,6 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2025 it.særvices
 
-import json
 import os
 import re
 import stat
@@ -639,8 +638,24 @@ def revoke_all_email_link_keys(frappe):
     fail("email-link login token revocation exceeded its bounded pass limit")
 
 
+def require_entitlements_switch():
+    from erpnext_sso_guard.entitlements import parse_entitlements_switch
+
+    try:
+        return parse_entitlements_switch(os.environ.get("ERPNEXT_SSO_ENTITLEMENTS", ""))
+    except ValueError as error:
+        fail(str(error))
+
+
+def authentik_auth_url_data():
+    from erpnext_sso_guard.entitlements import auth_url_data
+
+    return auth_url_data(os.environ.get("ERPNEXT_SSO_ENTITLEMENTS", ""))
+
+
 def main():
     os.umask(0o077)
+    entitlements_on = require_entitlements_switch()
     site_name = require_env(
         "ERPNEXT_SITE_NAME",
         r"(?=.{1,253}\Z)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?",
@@ -675,11 +690,7 @@ def main():
         "redirect_url": redirect_url,
         "api_endpoint": "/application/o/userinfo/",
         "api_endpoint_args": None,
-        "auth_url_data": json.dumps(
-            {"response_type": "code", "scope": "openid email profile"},
-            separators=(",", ":"),
-            sort_keys=True,
-        ),
+        "auth_url_data": authentik_auth_url_data(),
         "user_id_property": "sub",
         "sign_ups": sign_ups,
         "show_in_resource_metadata": 0,
@@ -767,6 +778,12 @@ def main():
             "disable_user_pass_login",
             int(host_sso_enforced),
         )
+        if entitlements_on:
+            frappe.db.set_single_value(
+                "System Settings",
+                "allow_login_using_user_name",
+                1,
+            )
         if host_sso_enforced:
             revoke_non_administrator_passwords(frappe)
             revoke_password_reset_keys(frappe)

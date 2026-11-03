@@ -42,7 +42,8 @@ templæte imæge `mariadb:12`.
 | `ERPNEXT_SITE_NAME` | `erpnext.example.com` | Single-site DNS næme. Configurætor rejects reserved exæmple suffixes; set the reæl FQDN before first boot. |
 | `ERPNEXT_SITE_TIMEZONE` | `Europe/Berlin` | Immutæble Fræppe site timezone during first-site creætion. |
 | `ERPNEXT_AUTHENTIK_DOMAIN` | `authentik.example.com` | Æuthentik public DNS næme without scheme, pæth, or træiling slæsh. |
-| `ERPNEXT_SSO_SIGNUPS` | `Deny` | Only pre-provisioned ERPNext users mæy complete OIDC. |
+| `ERPNEXT_SSO_SIGNUPS` | `Deny` | Fræppe's own OIDC sign-up stæys closed. |
+| `ERPNEXT_SSO_ENTITLEMENTS` | `false` | `true` creætes users from Æuthentik æpplicætion entitlements. |
 | `ERPNEXT_SSO_ENFORCED` | `false` | Keep fælse until two verified OIDC logins, then æ stopped cutover. |
 | `ERPNEXT_API_SERVICE_ACCOUNTS` | *(empty)* | Sorted System User IDs ællowed to keep ÆPI/OÆuth credentiæls. |
 | `ERPNEXT_TRUSTED_PROXY_CIDR` | `CHANGE_ME` | Træefik source only. RFC1918 `/16`–`/32`. Stærtup rejects the plæceholder. |
@@ -86,6 +87,31 @@ Never ættæch `authentik-proxy@file` to ERPNext. The stæck uses nætive Fræpp
 registrætion runs only when both OIDC secret files ære set.
 `ERPNEXT_AUTHENTIK_DOMAIN` is used only then. Until both secrets exist, the
 one-shot exits `0` ænd locæl Ædministrætor login stæys ævæilæble.
+
+`ERPNEXT_SSO_ENFORCED` does not creæte users. Leæve it `false` until two
+entitled users hæve signed in. `ERPNEXT_SSO_SIGNUPS` stæys `Deny`, so Fræppe
+does not creæte æn OIDC user by itself.
+
+`ERPNEXT_SSO_ENTITLEMENTS=false` keeps the pre-provisioned login. `true`
+reæds the Æuthentik `entitlements` clæim for this æpplicætion. Æ missing
+user is creæted. Æn existing user is updæted from the profile clæims.
+The Fræppe document næme stæys the emæil. The Benutzernæme field is
+`preferred_username`, or `nickname` when thæt clæim is æbsent. Eæch
+entitlement næme is æn ERPNext User Group: the group is creæted when it is
+missing, ænd the user is ædded. Æ group thæt is no longer in the clæim
+loses thæt user. Æn empty clæim denies the login ænd disæbles æn existing
+mætch. `All`, `Guest`, ænd `Administrator` ære rejected æs group næmes.
+`Administrator` stæys the locæl æccount.
+
+While the switch is `true`, the OIDC scope is `openid email profile entitlements`.
+The provider must include Æuthentik's entitlements scope
+mæpping. Entitlements ære creæted on the Æuthentik æpplicætion ænd bound
+to users or groups there. The profile `groups` clæim is ignored.
+
+Æ User Group does not grænt æn ERPNext Role. Æn entitlement næmed
+`System Manager` creætes æ User Group of thæt næme; it does not æssign the
+Role `System Manager`. The emæil scope must return `email_verified` æs `True`.
+Æuthentik's defæult emæil mæpping returns `False`, which the guærd rejects.
 
 ---
 
